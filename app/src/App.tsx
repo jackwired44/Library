@@ -1,17 +1,59 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Scanner from "./components/Scanner";
+import LibraryView from "./components/Library";
+import type { ParsedFile, ResultRow } from "./lib/detection";
+import { scanParsedFiles } from "./lib/detection";
+import { loadLibraryFromDB, type LibraryEntry, type LibraryGroup } from "./lib/library";
 
 type View = "scanner" | "history" | "library";
 
-// Assembled incrementally as each view component lands (see PROGRESS.md).
-// Scanner is first per CLAUDE.md's suggested build order; History/Library
-// tabs render a "not built yet" placeholder until their own tasks land.
+export interface UploadedFile {
+  name: string;
+  rows: number;
+}
+
+// Scan results AND the Library (entries/groups) live here, not inside
+// their own view components — Scanner writes to the Library on an opt-in
+// save, Library pushes files back into the Scanner ("Load into Scanner"),
+// so both need to see the same in-memory copy, not two components each
+// independently reading/writing IndexedDB (which would silently drift out
+// of sync with each other). IndexedDB is the persistence layer underneath
+// this, not the source of truth for the running session — same relationship
+// legacy/unified-tool.js's single global `state` object had to its DB.
 export default function App() {
   const [view, setView] = useState<View>("scanner");
+  const [results, setResults] = useState<ResultRow[] | null>(null);
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+
+  const [libraryEntries, setLibraryEntries] = useState<LibraryEntry[]>([]);
+  const [libraryGroups, setLibraryGroups] = useState<LibraryGroup[]>([]);
+  const [libraryLoading, setLibraryLoading] = useState(true);
+  const [libraryError, setLibraryError] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadLibraryFromDB()
+      .then(({ entries, groups }) => {
+        setLibraryEntries(entries);
+        setLibraryGroups(groups);
+        setLibraryLoading(false);
+      })
+      .catch(() => {
+        setLibraryError("Couldn't load previously saved files from this browser's local storage.");
+        setLibraryLoading(false);
+      });
+  }, []);
+
+  function loadParsedFilesIntoScanner(parsedFiles: ParsedFile[]) {
+    const { results: scanned } = scanParsedFiles(parsedFiles);
+    setResults(scanned);
+    setUploadedFiles(parsedFiles.map((pf) => ({ name: pf.name, rows: pf.data.length })));
+    setView("scanner");
+    return scanned;
+  }
 
   return (
     <div style={{ maxWidth: 1240, margin: "0 auto", padding: "36px 28px 60px" }}>
-      <header style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 24 }}>
+      <header style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
         <h1 style={{ fontSize: 22, margin: 0 }}>Wired CIO Lead Scanner</h1>
         <nav style={{ display: "flex", gap: 6 }}>
           {(["scanner", "history", "library"] as View[]).map((v) => (
@@ -30,15 +72,40 @@ export default function App() {
                 color: view === v ? "#fff" : "#4c6167",
               }}
             >
-              {v}
+              {v === "library" ? `library (${libraryEntries.length})` : v}
             </button>
           ))}
         </nav>
       </header>
 
-      {view === "scanner" && <Scanner />}
+      {view === "scanner" && (
+        <Scanner
+          results={results}
+          setResults={setResults}
+          uploadedFiles={uploadedFiles}
+          setUploadedFiles={setUploadedFiles}
+          onReset={() => {
+            setResults(null);
+            setUploadedFiles([]);
+          }}
+          libraryEntries={libraryEntries}
+          setLibraryEntries={setLibraryEntries}
+          libraryGroups={libraryGroups}
+          setLibraryGroups={setLibraryGroups}
+        />
+      )}
       {view === "history" && <p style={{ color: "#9aa1ac" }}>History view — not built yet.</p>}
-      {view === "library" && <p style={{ color: "#9aa1ac" }}>Library view — not built yet.</p>}
+      {view === "library" && (
+        <LibraryView
+          entries={libraryEntries}
+          setEntries={setLibraryEntries}
+          groups={libraryGroups}
+          setGroups={setLibraryGroups}
+          loading={libraryLoading}
+          error={libraryError}
+          onLoadIntoScanner={loadParsedFilesIntoScanner}
+        />
+      )}
     </div>
   );
 }

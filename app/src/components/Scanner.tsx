@@ -12,19 +12,49 @@ import {
   type BucketKey,
 } from "../lib/detection";
 import { downloadCSV, parseCSVFile } from "../lib/csv";
+import {
+  getMonthOptionsForFiling,
+  getOrCreateGroupByName,
+  fileSignalRowsIntoGroup,
+  persistLibraryEntries,
+  persistGroup,
+  monthKeyFromDate,
+  monthLabelFromKey,
+  type LibraryEntry,
+  type LibraryGroup,
+} from "../lib/library";
+import type { UploadedFile } from "../App";
 
 const MAX_FILES = 5;
 const PAGE_SIZE = 25;
 const TIER_CYCLE: Tier[] = ["signal", "mention", "dq"];
 
-interface UploadedFile {
-  name: string;
-  rows: number;
+interface ScannerProps {
+  results: ResultRow[] | null;
+  setResults: React.Dispatch<React.SetStateAction<ResultRow[] | null>>;
+  uploadedFiles: UploadedFile[];
+  setUploadedFiles: (files: UploadedFile[]) => void;
+  onReset: () => void;
+  libraryEntries: LibraryEntry[];
+  setLibraryEntries: React.Dispatch<React.SetStateAction<LibraryEntry[]>>;
+  libraryGroups: LibraryGroup[];
+  setLibraryGroups: React.Dispatch<React.SetStateAction<LibraryGroup[]>>;
 }
 
-export default function Scanner() {
-  const [results, setResults] = useState<ResultRow[] | null>(null);
-  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+export default function Scanner({
+  results,
+  setResults,
+  uploadedFiles,
+  setUploadedFiles,
+  onReset,
+  libraryEntries,
+  setLibraryEntries,
+  libraryGroups,
+  setLibraryGroups,
+}: ScannerProps) {
+  const [saveToLibrary, setSaveToLibrary] = useState(false);
+  const [uploadMonthKey, setUploadMonthKey] = useState(() => monthKeyFromDate(new Date()));
+  const [filedNotice, setFiledNotice] = useState<string | null>(null);
   const [tierFilter, setTierFilter] = useState<Tier | "all">("signal");
   const [categoryFilter, setCategoryFilter] = useState<CategoryKey | "all">("all");
   const [duplicatesOnly, setDuplicatesOnly] = useState(false);
@@ -46,6 +76,7 @@ export default function Scanner() {
       notice = `You dropped ${all.length} files — only the first ${MAX_FILES} were scanned. Upload the rest in a second batch.`;
     }
     setError(notice);
+    setFiledNotice(null);
     try {
       const parsedFiles = await Promise.all(files.map(parseCSVFile));
       const { results: scanned } = scanParsedFiles(parsedFiles);
@@ -53,14 +84,28 @@ export default function Scanner() {
       setUploadedFiles(parsedFiles.map((pf) => ({ name: pf.name, rows: pf.data.length })));
       setPage(1);
       setSelected(new Set());
+
+      // Opt-in, off by default (see CLAUDE.md "Library architecture") — a
+      // one-off scan never touches the Library unless this box is checked.
+      if (saveToLibrary) {
+        const monthLabel = monthLabelFromKey(uploadMonthKey);
+        const { groups: groupsWithMonth, group } = getOrCreateGroupByName(libraryGroups, monthLabel);
+        const signalRows = scanned.filter((r) => r.tier === "signal");
+        const isNewGroup = groupsWithMonth !== libraryGroups;
+        const { entries: nextEntries, touchedIds } = fileSignalRowsIntoGroup(libraryEntries, groupsWithMonth, group.id, signalRows, `${Date.now()}`);
+        setLibraryGroups(groupsWithMonth);
+        setLibraryEntries(nextEntries);
+        const touchedEntries = nextEntries.filter((e) => touchedIds.includes(e.id));
+        await Promise.all([isNewGroup ? persistGroup(group) : Promise.resolve(), persistLibraryEntries(touchedEntries)]);
+        setFiledNotice(signalRows.length > 0 ? `Filed ${signalRows.length} Strong Signal lead${signalRows.length === 1 ? "" : "s"} into the ${monthLabel} folder.` : "No Strong Signal leads in this batch — nothing to file.");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not parse one or more of these files.");
     }
   }
 
   function reset() {
-    setResults(null);
-    setUploadedFiles([]);
+    onReset();
     setError(null);
     setSearch("");
     setCategoryFilter("all");
@@ -68,6 +113,11 @@ export default function Scanner() {
     setDuplicatesOnly(false);
     setPage(1);
     setSelected(new Set());
+    // Saving is an explicit, per-batch choice — never carries over to the
+    // next upload (see CLAUDE.md "Library architecture").
+    setSaveToLibrary(false);
+    setUploadMonthKey(monthKeyFromDate(new Date()));
+    setFiledNotice(null);
   }
 
   const filtered = useMemo(() => {
@@ -168,6 +218,22 @@ export default function Scanner() {
   if (!results) {
     return (
       <div>
+        <div style={{ display: "flex", justifyContent: "center", gap: 10, marginBottom: 12, alignItems: "center" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, background: "#fff", border: "1px solid #D5D9E0", borderRadius: 9, padding: "8px 13px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+            <input type="checkbox" checked={saveToLibrary} onChange={(e) => setSaveToLibrary(e.target.checked)} />
+            Save this batch's Strong Signal leads to the Library
+          </label>
+          <select
+            value={uploadMonthKey}
+            disabled={!saveToLibrary}
+            onChange={(e) => setUploadMonthKey(e.target.value)}
+            style={{ border: "1px solid #D5D9E0", borderRadius: 9, padding: "8px 12px", fontWeight: 700, background: saveToLibrary ? "#fff" : "#F4F6F7", color: saveToLibrary ? "#081E22" : "#B7BEC4" }}
+          >
+            {getMonthOptionsForFiling().map((o) => (
+              <option key={o.key} value={o.key}>{o.label}</option>
+            ))}
+          </select>
+        </div>
         <div
           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}
@@ -214,6 +280,7 @@ export default function Scanner() {
       </div>
 
       {error && <div style={{ marginBottom: 16, color: "#9A5B22" }}>{error}</div>}
+      {filedNotice && <div style={{ marginBottom: 16, color: "#2CC295", fontWeight: 600 }}>{filedNotice}</div>}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 18 }}>
         {[
