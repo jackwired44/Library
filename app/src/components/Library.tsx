@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { CATEGORY_META, type CategoryKey, type ParsedFile } from "../lib/detection";
+import { Fragment, useMemo, useState } from "react";
+import { BUCKET_META, CATEGORY_META, EXPORT_LABELS, type BucketKey, type CategoryKey, type ExportLabel, type ParsedFile } from "../lib/detection";
 import { parseCSVText, downloadBlob } from "../lib/csv";
 import {
   createGroup,
@@ -12,9 +12,19 @@ import {
   persistGroup,
   deleteGroupFromDB,
   deleteLibraryEntryFromDB,
+  updateLibraryRowField,
+  deleteLibraryRow,
+  moveLibraryRowToBucket,
   type LibraryEntry,
   type LibraryGroup,
 } from "../lib/library";
+
+// Fields editable inline per lead — Product Area is controlled via the
+// "Move to" select instead (matches legacy's editableFields split).
+const EDITABLE_FIELDS = EXPORT_LABELS.filter((f) => f !== "Product Area");
+// DOM-size safeguard for an unusually large shared file — Download still
+// exports every row regardless of this cap.
+const ROW_EDITOR_CAP = 400;
 
 interface LibraryProps {
   entries: LibraryEntry[];
@@ -33,6 +43,44 @@ export default function LibraryView({ entries, setEntries, groups, setGroups, lo
   const [showNewGroupForm, setShowNewGroupForm] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
   const [newGroupNotes, setNewGroupNotes] = useState("");
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+
+  function toggleExpanded(id: string) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function handleRowField(entryId: string, rowKey: string, field: ExportLabel, value: string) {
+    setEntries((prev) => {
+      const next = updateLibraryRowField(prev, entryId, rowKey, field, value);
+      const updated = next.find((e) => e.id === entryId);
+      if (updated) persistLibraryEntry(updated);
+      return next;
+    });
+  }
+  function handleRowDelete(entryId: string, rowKey: string) {
+    setEntries((prev) => {
+      const next = deleteLibraryRow(prev, entryId, rowKey);
+      const stillThere = next.find((e) => e.id === entryId);
+      if (stillThere) persistLibraryEntry(stillThere);
+      else deleteLibraryEntryFromDB(entryId);
+      return next;
+    });
+  }
+  function handleRowMove(entryId: string, rowKey: string, newBucket: BucketKey) {
+    setEntries((prev) => {
+      const source = prev.find((e) => e.id === entryId);
+      const next = moveLibraryRowToBucket(prev, groups, entryId, rowKey, newBucket);
+      // Only entries in the SAME month folder as the source can have
+      // changed: the source itself (shrunk or removed) and the one target
+      // category file within that folder (created or appended to).
+      next.forEach((e) => { if (e.groupId === source?.groupId && (e.id === entryId || e.bucketKey === newBucket)) persistLibraryEntry(e); });
+      if (!next.some((e) => e.id === entryId)) deleteLibraryEntryFromDB(entryId);
+      return next;
+    });
+  }
 
   const filtered = useMemo(() => getFilteredLibrary(entries, groups, groupFilter, categoryFilter, search), [entries, groups, groupFilter, categoryFilter, search]);
   const groupCounts = useMemo(() => getGroupCounts(entries, groups), [entries, groups]);
@@ -172,8 +220,10 @@ export default function LibraryView({ entries, setEntries, groups, setGroups, lo
               ) : (
                 filtered.map((e) => {
                   const counts = getLibraryEntryCategoryCounts(e);
+                  const isExpanded = expandedIds.has(e.id);
                   return (
-                    <tr key={e.id} style={{ borderBottom: "1px solid #F0F1F4" }}>
+                    <Fragment key={e.id}>
+                    <tr style={{ borderBottom: "1px solid #F0F1F4" }}>
                       <td style={{ padding: "10px 14px", minWidth: 200 }}>
                         <input defaultValue={e.fileName} onBlur={(ev) => handleRename(e.id, ev.target.value)} style={{ width: "100%", border: "none", fontWeight: 600 }} />
                         <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 2 }}>
@@ -197,12 +247,64 @@ export default function LibraryView({ entries, setEntries, groups, setGroups, lo
                       <td style={{ padding: "10px 14px", color: "#8b93a0", whiteSpace: "nowrap" }}>{new Date(e.uploadedAt).toLocaleDateString()}</td>
                       <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }}>
                         <div style={{ display: "flex", gap: 6 }}>
+                          <button onClick={() => toggleExpanded(e.id)} title={isExpanded ? "Hide leads" : "Edit leads"} style={{ border: "1px solid #D5D9E0", background: isExpanded ? "#081E22" : "#fff", color: isExpanded ? "#fff" : "#081E22", borderRadius: 7, padding: "6px 9px" }}>{isExpanded ? "▴" : "▾"}</button>
                           <button onClick={() => handleLoad(e)} title="Load into Scanner" style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 7, padding: "6px 10px" }}>Load</button>
                           <button onClick={() => handleDownload(e)} title="Download" style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 7, padding: "6px 10px" }}>⬇</button>
                           <button onClick={() => handleDeleteEntry(e.id)} title="Remove from Library" style={{ border: "1px solid #F0D6D6", background: "#fff", borderRadius: 7, padding: "6px 8px", color: "#B5443B" }}>✕</button>
                         </div>
                       </td>
                     </tr>
+                    {isExpanded && (
+                      <tr>
+                        <td colSpan={6} style={{ padding: 0, background: "#FBFBFC", borderBottom: "1px solid #F0F1F4" }}>
+                          <div style={{ padding: "14px 20px 18px", overflowX: "auto" }}>
+                            {e.rows.length === 0 ? (
+                              <div style={{ fontSize: 12, color: "#9aa1ac" }}>No individual leads left in this file.</div>
+                            ) : (
+                              <table>
+                                <thead>
+                                  <tr>
+                                    {EDITABLE_FIELDS.map((f) => (
+                                      <th key={f} style={{ textAlign: "left", padding: "6px 8px", fontSize: 10, color: "#9aa1ac", textTransform: "uppercase" }}>{f}</th>
+                                    ))}
+                                    <th style={{ textAlign: "left", padding: "6px 8px", fontSize: 10, color: "#9aa1ac", textTransform: "uppercase" }}>Category</th>
+                                    <th></th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {e.rows.slice(0, ROW_EDITOR_CAP).map((row, idx) => {
+                                    const rowKey = row.__rowKey || String(idx);
+                                    return (
+                                      <tr key={rowKey} style={{ borderTop: "1px solid #EEF0F3" }}>
+                                        {EDITABLE_FIELDS.map((f) => (
+                                          <td key={f} style={{ padding: "4px 6px" }}>
+                                            <input defaultValue={row[f] || ""} onBlur={(ev) => handleRowField(e.id, rowKey, f, ev.target.value)} style={{ width: "100%", minWidth: 90, border: "1px solid transparent", borderRadius: 5, padding: "5px 6px", fontSize: 12 }} />
+                                          </td>
+                                        ))}
+                                        <td style={{ padding: "4px 6px", whiteSpace: "nowrap" }}>
+                                          <select value={e.bucketKey} onChange={(ev) => handleRowMove(e.id, rowKey, ev.target.value as BucketKey)} style={{ border: "1px solid #D8DBE1", borderRadius: 6, padding: "4px 6px", fontSize: 11.5, fontWeight: 600 }}>
+                                            {(Object.keys(BUCKET_META) as BucketKey[]).map((bk) => (
+                                              <option key={bk} value={bk}>{BUCKET_META[bk].label}</option>
+                                            ))}
+                                          </select>
+                                        </td>
+                                        <td style={{ padding: "4px 6px" }}>
+                                          <button onClick={() => handleRowDelete(e.id, rowKey)} title="Delete this lead" style={{ border: "1px solid #F0D6D6", background: "#fff", borderRadius: 6, padding: "5px 7px", color: "#B5443B" }}>✕</button>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            )}
+                            {e.rows.length > ROW_EDITOR_CAP && (
+                              <div style={{ fontSize: 11, color: "#9aa1ac", marginTop: 8 }}>Showing the first {ROW_EDITOR_CAP} of {e.rows.length} leads — Download still gets every row.</div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   );
                 })
               )}
