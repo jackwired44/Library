@@ -1,5 +1,14 @@
+/* Light-only, deliberately: matches the legacy app and the wiredcio.com
+   brand this was designed against (see legacy/README.md "Rebrand pass") —
+   there's no dark variant of that brand to honor, so this doesn't invent one. */
 :root {
   color-scheme: light;
+  --ink: #081e22;
+  --muted: #4c6167;
+  --bg: #f6fafa;
+  --surface: #ffffff;
+  --border: #e4e7ec;
+  --accent: #2cc295;
 }
 
 * {
@@ -9,15 +18,22 @@
 body {
   margin: 0;
   font-family: "Hanken Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
-  background: #f6fafa;
-  color: #081e22;
+  background: var(--bg);
+  color: var(--ink);
   line-height: 1.45;
+}
+
+h1, h2, h3 {
+  font-family: "Fraunces", Georgia, "Times New Roman", serif;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
 }
 
 table {
   border-collapse: collapse;
   width: 100%;
   font-size: 13px;
+  font-variant-numeric: tabular-nums;
 }
 
 input,
@@ -28,4 +44,13 @@ button {
 
 button {
   cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid #7fad91;
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
 }
