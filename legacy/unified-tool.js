@@ -1299,4 +1299,770 @@ function renameLibraryEntry(id, newName) {
   });
 }
 
-/* CHUNK-END-7 */
+/* ------------------------------------------------------------------ */
+/* Library groups — purely organizational, e.g. "Fully contacted" vs     */
+/* "Not yet contacted." Never affects scanning/detection or exports;     */
+/* just how files are browsed/filtered within the Library tab.           */
+/* ------------------------------------------------------------------ */
+function createLibraryGroup(name, notes) {
+  const trimmedName = (name || "").trim();
+  if (!trimmedName) return;
+  const group = {
+    id: `grp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    name: trimmedName,
+    notes: (notes || "").trim(),
+    createdAt: new Date().toISOString(),
+  };
+  state.libraryGroups = [...state.libraryGroups, group];
+  state.showNewGroupForm = false;
+  render();
+  libraryGroupsDBPut(group).catch(() => {
+    state.libraryError = "Couldn't save that group to local storage.";
+    render();
+  });
+}
+function renameLibraryGroup(id, name, notes) {
+  const group = state.libraryGroups.find((g) => g.id === id);
+  if (!group) return;
+  const trimmedName = (name || "").trim();
+  if (trimmedName) group.name = trimmedName; // blank name edit is ignored, keeps the existing name
+  if (notes != null) group.notes = notes.trim();
+  render();
+  libraryGroupsDBPut(group).catch(() => {
+    state.libraryError = "Couldn't save that group change to local storage.";
+    render();
+  });
+}
+// Deleting a group only ungroups its files — it never deletes or touches
+// the underlying saved files themselves.
+function deleteLibraryGroup(id) {
+  state.libraryGroups = state.libraryGroups.filter((g) => g.id !== id);
+  const affected = state.library.filter((e) => e.groupId === id);
+  affected.forEach((e) => { e.groupId = null; });
+  if (state.libraryGroupFilter === id) state.libraryGroupFilter = "all";
+  render();
+  libraryGroupsDBDelete(id).catch(() => {
+    state.libraryError = "Couldn't remove that group from local storage — it may reappear after a reload.";
+    render();
+  });
+  affected.forEach((e) => {
+    libraryDBPut(e).catch(() => {
+      state.libraryError = "Couldn't save the ungrouping for one or more files to local storage.";
+      render();
+    });
+  });
+}
+function assignLibraryEntryToGroup(id, groupId) {
+  const entry = state.library.find((e) => e.id === id);
+  if (!entry) return;
+  entry.groupId = groupId || null;
+  render();
+  libraryDBPut(entry).catch(() => {
+    state.libraryError = "Couldn't save that group assignment to local storage.";
+    render();
+  });
+}
+function assignSelectedLibraryToGroup(groupId) {
+  const ids = new Set(state.librarySelected);
+  const affected = state.library.filter((e) => ids.has(e.id));
+  affected.forEach((e) => { e.groupId = groupId || null; });
+  render();
+  affected.forEach((e) => {
+    libraryDBPut(e).catch(() => {
+      state.libraryError = "Couldn't save the group assignment for one or more files to local storage.";
+      render();
+    });
+  });
+}
+function deleteLibraryEntry(id) {
+  state.library = state.library.filter((e) => e.id !== id);
+  state.librarySelected = state.librarySelected.filter((sid) => sid !== id);
+  state.libraryExpandedEntryIds = state.libraryExpandedEntryIds.filter((eid) => eid !== id);
+  libraryCategoryCountCache.delete(id);
+  render();
+  libraryDBDelete(id).catch(() => {
+    state.libraryError = "Couldn't remove that file from local storage — it may reappear after a reload.";
+    render();
+  });
+}
+function deleteSelectedLibrary() {
+  const ids = new Set(state.librarySelected);
+  state.library = state.library.filter((e) => !ids.has(e.id));
+  state.librarySelected = [];
+  state.libraryExpandedEntryIds = state.libraryExpandedEntryIds.filter((eid) => !ids.has(eid));
+  ids.forEach((id) => libraryCategoryCountCache.delete(id));
+  render();
+  ids.forEach((id) => {
+    libraryDBDelete(id).catch(() => {
+      state.libraryError = "Couldn't remove one or more files from local storage — they may reappear after a reload.";
+      render();
+    });
+  });
+}
+function downloadBlobAs(text, fileName, mime) {
+  const blob = new Blob([text], { type: mime || "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+function downloadLibraryEntry(id) {
+  const entry = state.library.find((e) => e.id === id);
+  if (!entry || entry.rawText == null) return;
+  downloadBlobAs(entry.rawText, entry.fileName);
+}
+function downloadSelectedLibrary() {
+  state.librarySelected.forEach((id) => downloadLibraryEntry(id));
+}
+// Re-parses a Library entry's saved raw text (not the File object — the
+// original File handle is long gone) through the exact same CSV parser used
+// on first upload, then feeds it through the shared applyParsedFiles so it's
+// scanned/categorized identically to a fresh upload.
+function parseLibraryEntry(entry) {
+  const parsed = Papa.parse(entry.rawText, { header: true, skipEmptyLines: true });
+  return { name: entry.fileName, fields: parsed.meta.fields || [], data: parsed.data };
+}
+// If the Library file being reloaded is already sitting in a month folder
+// (e.g. "October 2025"), keep tagging it under that same month when it's
+// re-scanned — consistent with how a fresh upload now files itself.
+function monthKeyForLibraryEntry(entry) {
+  const group = entry.groupId ? state.libraryGroups.find((g) => g.id === entry.groupId) : null;
+  return group ? monthKeyFromGroupName(group.name) : null;
+}
+// Note: reloading from the Library does NOT pass a libraryEntryIds link.
+// Under the "3 files per month" model a Library entry is a shared, ongoing
+// export for a whole month/category — not one specific batch's own file —
+// so there's nothing meaningful for this fresh re-scan to "already be
+// linked to." It still inherits the month as a tag (so it reads as
+// "October 2025 Leads" rather than unfiled), but clicking "File this
+// batch" again would re-append these same rows — a known, accepted
+// tradeoff consistent with the archive's existing no-dedup convention
+// (see "Select entire archive"), not something this reload path guards
+// against.
+function loadLibraryEntryIntoScanner(id) {
+  const entry = state.library.find((e) => e.id === id);
+  if (!entry || entry.rawText == null) return;
+  applyParsedFiles([parseLibraryEntry(entry)], [], monthKeyForLibraryEntry(entry));
+}
+function loadSelectedLibraryIntoScanner() {
+  let entries = state.library.filter((e) => state.librarySelected.includes(e.id) && e.rawText != null);
+  if (!entries.length) return;
+  let notice = null;
+  if (entries.length > MAX_FILES) {
+    // Same cap the Scanner enforces on a direct upload — kept consistent
+    // rather than letting a bulk Library load quietly bypass it.
+    notice = `You selected ${entries.length} files — only the first ${MAX_FILES} were sent to the Scanner. Load the rest in a second batch.`;
+    entries = entries.slice(0, MAX_FILES);
+  }
+  // Only auto-tag when every selected file agrees on the same month —
+  // a mixed-month bulk load is genuinely ambiguous, so it's left unfiled
+  // (same as before) rather than guessing.
+  const monthKeys = entries.map(monthKeyForLibraryEntry);
+  const sharedMonthKey = monthKeys.every((k) => k && k === monthKeys[0]) ? monthKeys[0] : undefined;
+  applyParsedFiles(entries.map(parseLibraryEntry), [], sharedMonthKey);
+  if (notice) setState({ error: notice });
+}
+// Category filtering for the Library — "filter in the library for leads in
+// each category," per Jack's ask. Library only ever stored a file's raw
+// text, never its detected categories (that's History's job, and not
+// every Library file has a matching History entry — e.g. one re-uploaded
+// after being edited elsewhere). So this runs the exact same
+// column-guessing + detection pipeline applyParsedFiles uses, just against
+// one Library entry's rawText, to get a per-category lead count. Cached by
+// entry id since re-parsing + scanning full CSV text on every render, for
+// every visible file, would get slow once the archive is at the "leads
+// Wired CIO has ever received" scale Jack's building toward. A month's
+// category file's rawText DOES change over time now (appended to as more
+// batches get filed into that month) — appendSignalRowsToMonthCategory and
+// removeBatchSignalRows both invalidate this entry's cache slot whenever
+// they touch it, so a stale count is never shown after filing.
+const libraryCategoryCountCache = new Map();
+function getLibraryEntryCategoryCounts(entry) {
+  if (entry.rawText == null) return null;
+  if (libraryCategoryCountCache.has(entry.id)) return libraryCategoryCountCache.get(entry.id);
+  const counts = { m365Tenant: 0, dynamics365: 0, dataPlatform: 0 };
+  try {
+    const pf = parseLibraryEntry(entry);
+    const fileMapping = {};
+    FIELD_DEFS.forEach((f) => { fileMapping[f.key] = guessColumn(pf.fields, f.candidates) || ""; });
+    pf.data.forEach((row) => {
+      const resolved = {};
+      FIELD_DEFS.forEach((f) => { resolved[f.key] = fileMapping[f.key] ? row[fileMapping[f.key]] ?? "" : ""; });
+      const scan = scanRowUnified(row, pf.fields, resolved);
+      if (scan && counts.hasOwnProperty(scan.category)) counts[scan.category]++;
+    });
+  } catch (e) {
+    // A malformed/unparseable file just contributes zero counts rather than
+    // breaking the whole Library view.
+  }
+  libraryCategoryCountCache.set(entry.id, counts);
+  return counts;
+}
+function getLibraryCategoryCounts(list) {
+  const counts = { all: list.length, m365Tenant: 0, dynamics365: 0, dataPlatform: 0 };
+  list.forEach((e) => {
+    const c = getLibraryEntryCategoryCounts(e);
+    if (!c) return;
+    Object.keys(counts).forEach((k) => { if (k !== "all" && c[k] > 0) counts[k]++; });
+  });
+  return counts;
+}
+function getLibraryGroupCounts() {
+  const counts = { all: state.library.length, ungrouped: 0 };
+  state.libraryGroups.forEach((g) => { counts[g.id] = 0; });
+  state.library.forEach((e) => {
+    // A groupId pointing at a group that no longer exists shouldn't happen
+    // (deleteLibraryGroup ungroups its files first) but is treated as
+    // ungrouped defensively rather than silently miscounted.
+    if (e.groupId && counts.hasOwnProperty(e.groupId)) counts[e.groupId]++;
+    else counts.ungrouped++;
+  });
+  return counts;
+}
+function getFilteredLibrary() {
+  let list = state.library;
+  if (state.libraryGroupFilter === "ungrouped") list = list.filter((e) => !e.groupId);
+  else if (state.libraryGroupFilter !== "all") list = list.filter((e) => e.groupId === state.libraryGroupFilter);
+  if (state.libraryCategoryFilter !== "all") {
+    list = list.filter((e) => {
+      const counts = getLibraryEntryCategoryCounts(e);
+      return counts && counts[state.libraryCategoryFilter] > 0;
+    });
+  }
+  if (state.librarySearch.trim()) {
+    const q = state.librarySearch.toLowerCase();
+    list = list.filter((e) => {
+      const group = e.groupId ? state.libraryGroups.find((g) => g.id === e.groupId) : null;
+      return e.fileName.toLowerCase().includes(q) || (group && group.name.toLowerCase().includes(q));
+    });
+  }
+  return list;
+}
+
+/* ------------------------------------------------------------------ */
+/* History — grouped by week, mirrors the original Licensing Scrubber.  */
+/* ------------------------------------------------------------------ */
+function startOfWeek(d) {
+  const date = new Date(d);
+  const day = date.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() + diff);
+  return date;
+}
+function weekKeyOf(d) { return startOfWeek(d).toISOString().slice(0, 10); }
+function weekLabelOf(key) {
+  const start = new Date(`${key}T00:00:00`);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 6);
+  const fmt = (d) => d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const sameYear = start.getFullYear() === end.getFullYear();
+  return `${fmt(start)} – ${fmt(end)}${sameYear ? `, ${end.getFullYear()}` : ""}`;
+}
+function getWeeks() {
+  const map = new Map();
+  state.history.forEach((h) => {
+    const k = weekKeyOf(new Date(h.importedAt));
+    if (!map.has(k)) map.set(k, []);
+    map.get(k).push(h);
+  });
+  const keys = [...map.keys()].sort((a, b) => b.localeCompare(a));
+  return keys.map((k) => ({ key: k, label: weekLabelOf(k), entries: map.get(k).sort((a, b) => new Date(b.importedAt) - new Date(a.importedAt)) }));
+}
+function loadHistoryEntry(id) {
+  const entry = state.history.find((h) => h.id === id);
+  if (!entry) return;
+  setState({ view: "scanner", viewingHistoryId: entry.id, combinedHistoryIds: [], results: entry.results, rawRows: new Array(entry.rowsScanned), categoryFilter: "all", tierFilter: "signal", duplicatesOnly: false, search: "", error: null, page: 1, selected: [] });
+}
+function deleteHistoryEntry(id) {
+  setState({
+    history: state.history.filter((h) => h.id !== id),
+    viewingHistoryId: state.viewingHistoryId === id ? null : state.viewingHistoryId,
+    historySelected: state.historySelected.filter((sid) => sid !== id),
+  });
+  historyDBDelete(id).catch(() => {
+    state.historyError = "Couldn't remove that import from local storage — it may reappear after a reload.";
+    render();
+  });
+}
+function saveHistoryFile() {
+  const payload = { exportedAt: new Date().toISOString(), history: state.history };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `unified-lead-scanner-history-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+function loadHistoryFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const payload = JSON.parse(reader.result);
+      const incoming = Array.isArray(payload) ? payload : payload.history;
+      if (!Array.isArray(incoming)) throw new Error("File doesn't contain a recognizable history list.");
+      const map = new Map(state.history.map((h) => [h.id, h]));
+      const validIncoming = incoming.filter((h) => h && h.id);
+      validIncoming.forEach((h) => { map.set(h.id, h); });
+      const merged = [...map.values()].sort((a, b) => new Date(b.importedAt) - new Date(a.importedAt));
+      setState({ history: merged, error: null });
+      // A manually-loaded history file is a backup/transfer path, not the
+      // primary save mechanism anymore — but whatever it brings in should
+      // still end up in local storage so it survives the next reload too,
+      // same as anything scanned directly.
+      validIncoming.forEach((h) => {
+        historyDBPut(h).catch(() => {
+          state.historyError = "Couldn't save the loaded history file to local storage — it'll work this session, but may not survive a reload.";
+          render();
+        });
+      });
+    } catch (err) {
+      setState({ error: `Could not load history file: ${err.message}` });
+    }
+  };
+  reader.readAsText(file);
+}
+// Import-level tag + notes — e.g. tag a batch "March cold list" or leave a
+// note on why it performed the way it did. Purely descriptive metadata on
+// the History entry itself (not on individual leads), editable inline on
+// the card and persisted the same way every other History edit is.
+function updateHistoryTag(id, value) {
+  const entry = state.history.find((h) => h.id === id);
+  if (!entry) return;
+  entry.tag = (value || "").trim();
+  render();
+  historyDBPut(entry).catch(() => {
+    state.historyError = "Couldn't save that tag to local storage.";
+    render();
+  });
+}
+function updateHistoryNotes(id, value) {
+  const entry = state.history.find((h) => h.id === id);
+  if (!entry) return;
+  entry.notes = value || "";
+  render();
+  historyDBPut(entry).catch(() => {
+    state.historyError = "Couldn't save that note to local storage.";
+    render();
+  });
+}
+// "Move to a folder titled by the month the leads came in" — a one-click
+// shortcut, right from the Final Downloads section, that tags the CURRENT
+// scan batch's History entry with a month label (e.g. "January 2026
+// Leads"), reusing the exact same tag field already on the History card
+// (updateHistoryTag) rather than a second, parallel storage system. The
+// point, per Jack: when the pipeline is light, come back to an old month,
+// see what's still sitting un-actioned (cross-out marks what's been
+// worked), and pick it back up — same download buttons, same "View / edit"
+// reload, just found by name instead of hunting through History by date.
+// Only meaningful for a single, identifiable batch — a combined view
+// spans multiple original imports, so there's no one entry to file.
+function getCurrentBatchHistoryEntry() {
+  if (state.combinedHistoryIds.length > 0) return null;
+  return state.history.find((h) => h.results === state.results) || null;
+}
+// Filing a batch does two things, not just one: it tags the History entry
+// (so it shows up by name in History/search — unchanged from before), AND
+// it merges this batch's Strong Signal leads into that month's (up to 3)
+// category files in the Library — creating them on first use, appending if
+// they already exist. If this exact batch was already filed somewhere
+// (auto-filed at upload, or filed once before), its rows are pulled back
+// out of the OLD month's files first (removeBatchSignalRows) so re-filing
+// moves them rather than duplicating them across two months. Covers both
+// a genuine correction (wrong month picked originally) and a one-off scan
+// that Jack decides, after reviewing it, he actually wants archived.
+function fileCurrentBatchToMonthFolder(monthKey) {
+  const entry = getCurrentBatchHistoryEntry();
+  if (!entry) return;
+  const label = monthKey ? monthLabelFromKey(monthKey) : getMonthLabel(entry.importedAt);
+  const groupId = getOrCreateGroupByName(label);
+  removeBatchSignalRows(entry.id, entry.libraryEntryIds);
+  const signalRows = entry.results.filter((r) => r.tier === "signal");
+  const touchedEntries = fileSignalRowsIntoGroup(groupId, signalRows, entry.id);
+  entry.libraryEntryIds = touchedEntries.map((e) => e.id);
+  updateHistoryTag(entry.id, `${label} Leads`);
+}
+
+/* ------------------------------------------------------------------ */
+/* Full backup/restore — Phase 1 of improving the data architecture.    */
+/* Everything the tool stores (Library files + raw content, Library      */
+/* groups, and History) still lives in one browser's IndexedDB — no      */
+/* backend, so it's gone if browser data is cleared, a different browser */
+/* or machine is used, or a teammate needs to see the same data. This is */
+/* a deliberately small, low-risk first step: a single portable file      */
+/* Jack controls (save it to Drive, email it, whatever), not a new         */
+/* storage layer. Restore is a MERGE (upsert by id), same pattern as       */
+/* loadHistoryFile above — restoring an old/partial backup can only add    */
+/* or update entries, never silently wipe out newer local data, and in    */
+/* the primary "browser data got cleared" case a merge into an empty       */
+/* state produces the exact same result a full replace would anyway.       */
+/* ------------------------------------------------------------------ */
+function backupEverything() {
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    version: 1,
+    library: state.library,
+    libraryGroups: state.libraryGroups,
+    history: state.history,
+  };
+  downloadBlobAs(JSON.stringify(payload, null, 2), `wired-cio-lead-scanner-full-backup-${new Date().toISOString().slice(0, 10)}.json`, "application/json;charset=utf-8;");
+  setState({ backupNotice: `Backup downloaded — ${state.library.length} Library file${state.library.length === 1 ? "" : "s"}, ${state.libraryGroups.length} group${state.libraryGroups.length === 1 ? "" : "s"}, ${state.history.length} History import${state.history.length === 1 ? "" : "s"}.` });
+}
+function restoreBackupFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const payload = JSON.parse(reader.result);
+      if (!payload || typeof payload !== "object") throw new Error("File doesn't contain a recognizable backup.");
+      const incomingLibrary = Array.isArray(payload.library) ? payload.library.filter((e) => e && e.id) : [];
+      const incomingGroups = Array.isArray(payload.libraryGroups) ? payload.libraryGroups.filter((g) => g && g.id) : [];
+      const incomingHistory = Array.isArray(payload.history) ? payload.history.filter((h) => h && h.id) : [];
+      if (!incomingLibrary.length && !incomingGroups.length && !incomingHistory.length) {
+        throw new Error("File doesn't contain any Library files, groups, or History to restore.");
+      }
+      const libraryMap = new Map(state.library.map((e) => [e.id, e]));
+      incomingLibrary.forEach((e) => { libraryMap.set(e.id, e); });
+      const mergedLibrary = [...libraryMap.values()].sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
+
+      const groupsMap = new Map(state.libraryGroups.map((g) => [g.id, g]));
+      incomingGroups.forEach((g) => { groupsMap.set(g.id, g); });
+      const mergedGroups = [...groupsMap.values()].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+      const historyMap = new Map(state.history.map((h) => [h.id, h]));
+      incomingHistory.forEach((h) => { historyMap.set(h.id, h); });
+      const mergedHistory = [...historyMap.values()].sort((a, b) => new Date(b.importedAt) - new Date(a.importedAt));
+
+      setState({
+        library: mergedLibrary,
+        libraryGroups: mergedGroups,
+        history: mergedHistory,
+        error: null,
+        backupNotice: `Restored ${incomingLibrary.length} Library file${incomingLibrary.length === 1 ? "" : "s"}, ${incomingGroups.length} group${incomingGroups.length === 1 ? "" : "s"}, ${incomingHistory.length} History import${incomingHistory.length === 1 ? "" : "s"} from the backup file.`,
+      });
+
+      // Write every restored entry through to IndexedDB too, same as a
+      // fresh scan/upload would — otherwise a restore would only "stick"
+      // until the next reload, defeating the point of restoring at all.
+      incomingLibrary.forEach((e) => {
+        libraryDBPut(e).catch(() => {
+          state.libraryError = "Couldn't save one or more restored files to local storage — they'll work this session, but may not survive a reload.";
+          render();
+        });
+      });
+      incomingGroups.forEach((g) => {
+        libraryGroupsDBPut(g).catch(() => {
+          state.libraryError = "Couldn't save one or more restored groups to local storage — they'll work this session, but may not survive a reload.";
+          render();
+        });
+      });
+      incomingHistory.forEach((h) => {
+        historyDBPut(h).catch(() => {
+          state.historyError = "Couldn't save one or more restored imports to local storage — they'll work this session, but may not survive a reload.";
+          render();
+        });
+      });
+    } catch (err) {
+      setState({ error: `Could not restore backup file: ${err.message}` });
+    }
+  };
+  reader.readAsText(file);
+}
+
+/* ------------------------------------------------------------------ */
+/* PART 6 — Filtering, counts, manual reassignment, and the exactly-3   */
+/* CSV exports.                                                         */
+/* ------------------------------------------------------------------ */
+function getFiltered() {
+  let list = state.results;
+  if (state.tierFilter !== "all") list = list.filter((r) => r.tier === state.tierFilter);
+  if (state.categoryFilter !== "all") list = list.filter((r) => r.category === state.categoryFilter);
+  if (state.duplicatesOnly) list = list.filter((r) => r.isDuplicate);
+  if (state.search.trim()) {
+    const q = state.search.toLowerCase();
+    list = list.filter((r) => {
+      const f = r.row.__f || {};
+      const company = String(f.company || "");
+      const contact = getFullName(f);
+      return company.toLowerCase().includes(q) || contact.toLowerCase().includes(q) || r.categories.join(" ").toLowerCase().includes(q) || (r.notesSummary || "").toLowerCase().includes(q);
+    });
+  }
+  return list;
+}
+// Scoped to whichever tier tab is currently active — this is what lets you
+// see Strong Signal broken down by product line, or switch to Needs Review
+// and see THAT broken down by product line, so you can work a review queue
+// one product line at a time and promote the ones that meet your bar.
+function getCategoryCounts() {
+  const base = state.tierFilter === "all" ? state.results : state.results.filter((r) => r.tier === state.tierFilter);
+  const counts = { all: base.length };
+  Object.keys(CATEGORY_META).forEach((k) => { counts[k] = 0; });
+  base.forEach((r) => { counts[r.category] = (counts[r.category] || 0) + 1; });
+  return counts;
+}
+function getTierCounts() {
+  let signal = 0, mention = 0, dq = 0;
+  state.results.forEach((r) => { if (r.tier === "signal") signal++; else if (r.tier === "dq") dq++; else mention++; });
+  return { signal, mention, dq, total: state.results.length };
+}
+// Total duplicate-flagged rows in the current batch, independent of whatever
+// tier/category tab is active — the "Duplicates" pill needs the real total
+// so it doesn't look like it's under- or over-counting depending on filters.
+function getDuplicateCount() {
+  return state.results.filter((r) => r.isDuplicate).length;
+}
+// DQ reasons breakdown for the current view, scoped to whichever rows are
+// currently in the Bad Leads tier — a row can carry more than one reason
+// (e.g. missing company name AND a rejection phrase), so counts can sum to
+// more than the number of Bad Lead rows. This is the "know the metrics" view.
+function getDQReasonCounts() {
+  const counts = {};
+  state.results.forEach((r) => {
+    if (r.tier !== "dq") return;
+    (r.dqReasons || []).forEach((reason) => { counts[reason] = (counts[reason] || 0) + 1; });
+  });
+  return counts;
+}
+// If the results currently on screen belong to a saved import (state.results
+// IS that entry's own results array/objects, by reference — see
+// loadHistoryEntry), any in-place edit below already lands inside
+// state.history automatically. This just makes sure that edit also reaches
+// IndexedDB, not only in-memory state, so it survives a reload too.
+function persistViewedHistoryEntryIfNeeded() {
+  if (!state.viewingHistoryId) return;
+  const entry = state.history.find((h) => h.id === state.viewingHistoryId);
+  if (!entry) return;
+  historyDBPut(entry).catch(() => {
+    state.historyError = "Couldn't save that edit to the saved import in local storage — it'll hold for this session, but may not survive a reload.";
+    render();
+  });
+}
+function reassignRow(id, newCategory) {
+  const row = state.results.find((r) => r.id === id);
+  if (!row) return;
+  row.category = newCategory;
+  render();
+  persistViewedHistoryEntryIfNeeded();
+  syncCombinedRowEditBack(row);
+}
+// Manual tier promotion/demotion — a "Needs review" lead only ever reaches
+// one of the three final downloads (which pull Strong Signal only) once a
+// human bumps it here. Mirrors the original Licensing Scrubber's
+// approve/unapprove flow and the Platform Lead Finder's move-to-tier action,
+// folded into one toggle since this tool only has two tiers.
+const TIER_CYCLE = ["signal", "mention", "dq"];
+function toggleTier(id) {
+  const row = state.results.find((r) => r.id === id);
+  if (!row) return;
+  const idx = TIER_CYCLE.indexOf(row.tier);
+  row.tier = TIER_CYCLE[(idx + 1) % TIER_CYCLE.length];
+  render();
+  persistViewedHistoryEntryIfNeeded();
+  syncCombinedRowEditBack(row);
+}
+function setTierForSelected(tier) {
+  if (!state.selected.length) return;
+  const idSet = new Set(state.selected);
+  state.results.forEach((r) => { if (idSet.has(r.id)) { r.tier = tier; syncCombinedRowEditBack(r); } });
+  setState({ selected: [] });
+  persistViewedHistoryEntryIfNeeded();
+}
+// "Cross out" — a purely visual, manual marker (line-through on the row's
+// name/contact cells) for "I've handled this one, but keep it right where
+// it is." Deliberately does NOT touch tier, category, filtering, counts, or
+// exports — Jack asked to keep a crossed-out lead on its list/group exactly
+// as before, just visibly struck through, not moved or hidden.
+function toggleCrossedOut(id) {
+  const row = state.results.find((r) => r.id === id);
+  if (!row) return;
+  row.crossedOut = !row.crossedOut;
+  render();
+  persistViewedHistoryEntryIfNeeded();
+  syncCombinedRowEditBack(row);
+}
+function setCrossedOutForSelected(value) {
+  if (!state.selected.length) return;
+  const idSet = new Set(state.selected);
+  state.results.forEach((r) => { if (idSet.has(r.id)) { r.crossedOut = value; syncCombinedRowEditBack(r); } });
+  setState({ selected: [] });
+  persistViewedHistoryEntryIfNeeded();
+}
+function toggleSelectRow(id) {
+  const selected = state.selected.includes(id) ? state.selected.filter((x) => x !== id) : [...state.selected, id];
+  setState({ selected });
+}
+function moveSelectedTo(newCategory) {
+  if (!state.selected.length) return;
+  const idSet = new Set(state.selected);
+  state.results.forEach((r) => { if (idSet.has(r.id)) { r.category = newCategory; syncCombinedRowEditBack(r); } });
+  setState({ selected: [] });
+  persistViewedHistoryEntryIfNeeded();
+}
+// Exactly three CSV downloads, every time — every row's CURRENT category
+// (auto-detected or manually reassigned) determines which single bucket it
+// goes out in, so the three files together never repeat a lead and always
+// add up to the full Strong Signal set.
+function bucketRowsFor(results, bucketKey) {
+  return results.filter((r) => r.tier === "signal" && CATEGORY_META[r.category].bucket === bucketKey).map(buildExportRow);
+}
+function exportBucket(bucketKey) {
+  downloadCSV(`wired-cio-${BUCKET_META[bucketKey].slug}-leads.csv`, bucketRowsFor(state.results, bucketKey), EXPORT_LABELS);
+}
+// Redownload straight from a past import — same 3 buckets, same Strong
+// Signal scope, pulled from that entry's own saved results rather than the
+// live scanner. Reflects any reassignments/promotions made while that entry
+// was open in the Scanner (same object reference), same as "View" does.
+function exportHistoryBucket(entryId, bucketKey) {
+  const entry = state.history.find((h) => h.id === entryId);
+  if (!entry) return;
+  const rows = bucketRowsFor(entry.results, bucketKey);
+  const dateSlug = entry.importedAt ? entry.importedAt.slice(0, 10) : "import";
+  downloadCSV(`wired-cio-${BUCKET_META[bucketKey].slug}-leads-${dateSlug}.csv`, rows, EXPORT_LABELS);
+}
+// `files` is the modern shape; falls back to splitting the older `fileName`
+// string for history entries saved before `files` existed.
+function entryFileList(entry) {
+  if (entry.files && entry.files.length) return entry.files;
+  if (entry.fileName) return entry.fileName.split(", ").filter(Boolean).map((name) => ({ name, rows: null }));
+  return [];
+}
+// Search across ALL of History, not just the currently-selected week — the
+// point is finding one batch out of potentially ~100, regardless of when it
+// ran. Matches file names first (cheap), then falls back to checking each
+// entry's own scanned rows for a company/contact match.
+function getFilteredHistory() {
+  let list = state.history;
+  if (state.historySearch.trim()) {
+    const q = state.historySearch.toLowerCase();
+    list = list.filter((h) => {
+      if ((h.tag || "").toLowerCase().includes(q)) return true;
+      if (entryFileList(h).some((f) => f.name.toLowerCase().includes(q))) return true;
+      return h.results.some((r) => {
+        const f = r.row.__f || {};
+        const company = String(f.company || "").toLowerCase();
+        const contact = getFullName(f).toLowerCase();
+        return company.includes(q) || contact.includes(q);
+      });
+    });
+  }
+  return [...list].sort((a, b) => new Date(b.importedAt) - new Date(a.importedAt));
+}
+function toggleHistorySelectRow(id) {
+  const historySelected = state.historySelected.includes(id) ? state.historySelected.filter((x) => x !== id) : [...state.historySelected, id];
+  setState({ historySelected });
+}
+// Whatever's actually on screen right now — the search results if a search
+// is active, otherwise the active week's entries. Shared by render() (to
+// decide what to list) and the "Select all" button (to decide what "all"
+// means), so the two can never disagree about what's currently shown.
+function getCurrentHistoryViewList() {
+  if (state.historySearch.trim()) return getFilteredHistory();
+  const weeks = getWeeks();
+  const selectedKey = state.selectedWeek && weeks.some((w) => w.key === state.selectedWeek) ? state.selectedWeek : (weeks[0] ? weeks[0].key : null);
+  const activeWeek = weeks.find((w) => w.key === selectedKey);
+  return activeWeek ? activeWeek.entries : [];
+}
+function toggleSelectAllVisibleHistory() {
+  const ids = getCurrentHistoryViewList().map((h) => h.id);
+  const allSelected = ids.length > 0 && ids.every((id) => state.historySelected.includes(id));
+  setState({ historySelected: allSelected ? [] : ids });
+}
+// "Select all" only grabs what's currently visible — the active week tab
+// (or the active search match). That's fine for tidying up one batch, but
+// Jack's ask ("download a certain product line or search a lead on demand"
+// across the WHOLE archive, not one week) needs a way to combine
+// literally everything at once, regardless of week/search filter. This is
+// step 1 toward that: combining every entry reuses the Scanner's existing
+// search bar and Final Downloads exports unchanged — no new search/export
+// system, just a way to get everything into the one that already works.
+function selectEntireHistoryArchive() {
+  setState({ historySelected: state.history.map((h) => h.id) });
+}
+// Rows scanned across every currently-checked History entry — just for the
+// bulk bar's "you're about to combine N rows from M imports" preview.
+function getHistorySelectedTotals() {
+  const idSet = new Set(state.historySelected);
+  let entryCount = 0;
+  let rowCount = 0;
+  state.history.forEach((h) => {
+    if (!idSet.has(h.id)) return;
+    entryCount++;
+    rowCount += h.results.length;
+  });
+  return { entryCount, rowCount };
+}
+// "Condense into a strong lead list, then run deep filtering to place them
+// accordingly" — the whole point of combining. Rather than a flat CSV dump,
+// this pulls every checked import's rows into the Scanner as ONE working
+// set, so the full existing toolkit (category tabs, tier cycling, search,
+// per-row and bulk reassignment, and the exactly-3-bucket export) works
+// across all of them together instead of one batch of ~5 files at a time.
+// Rows are shallow copies, not the original shared objects — each carries
+// __sourceEntryId/__sourceRowId so an edit made here can be written back to
+// the correct original import (see syncCombinedRowEditBack) without risking
+// an id collision between two different imports that happened to reuse the
+// same per-file row id (e.g. two imports both having a row "0-0").
+function combineSelectedHistoryIntoScanner() {
+  if (!state.historySelected.length) return;
+  const idSet = new Set(state.historySelected);
+  const entries = state.history.filter((h) => idSet.has(h.id));
+  if (!entries.length) return;
+  const combinedResults = [];
+  let combinedRawCount = 0;
+  entries.forEach((h) => {
+    h.results.forEach((r) => { combinedResults.push({ ...r, id: `${h.id}::${r.id}`, __sourceEntryId: h.id, __sourceRowId: r.id }); });
+    combinedRawCount += h.rowsScanned;
+  });
+  setState({
+    view: "scanner",
+    results: combinedResults,
+    rawRows: new Array(combinedRawCount),
+    categoryFilter: "all",
+    tierFilter: "all", // deep filtering across everything combined is the point — don't hide Needs review/Bad leads by default here
+    duplicatesOnly: false,
+    search: "",
+    error: null,
+    page: 1,
+    selected: [],
+    viewingHistoryId: null,
+    combinedHistoryIds: [...idSet],
+    historySelected: [],
+  });
+}
+// Writes a category/tier edit made on a combined-view row back to the row it
+// was copied from inside state.history, and persists that one entry. No-op
+// for ordinary Scanner rows (they never carry __sourceEntryId).
+function syncCombinedRowEditBack(row) {
+  if (!row || !row.__sourceEntryId) return;
+  const entry = state.history.find((h) => h.id === row.__sourceEntryId);
+  if (!entry) return;
+  const sourceRow = entry.results.find((r) => r.id === row.__sourceRowId);
+  if (!sourceRow) return;
+  sourceRow.category = row.category;
+  sourceRow.tier = row.tier;
+  sourceRow.crossedOut = row.crossedOut;
+  historyDBPut(entry).catch(() => {
+    state.historyError = "Couldn't save that edit back to the original import in local storage.";
+    render();
+  });
+}
+
+/* END-OF-LOGIC — render()/event-delegation deliberately NOT ported here.
+   Per the app/ rebuild direction (CLAUDE.md), the UI layer for this tool
+   is being rebuilt directly as React components in app/src, using this
+   file's logic + the Playwright test expectations as the spec — not by
+   porting the vanilla-JS render()/innerHTML/event-delegation pattern
+   line-by-line. If a standalone legacy HTML build is ever needed again,
+   the render()/DOMContentLoaded block from the original source will need
+   to be added back here; until then this file is a logic-only reference
+   module (licensing/platform detection, Library/History/backup CRUD,
+   filtering/export helpers), not a runnable standalone app on its own. */
+
