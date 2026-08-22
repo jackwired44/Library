@@ -1,0 +1,31 @@
+:root {
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Hanken Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: #f6fafa;
+  color: #081e22;
+  line-height: 1.45;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+}
+
+input,
+select,
+button {
+  font-family: inherit;
+}
+
+button {
+  cursor: pointer;
+}

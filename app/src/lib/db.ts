@@ -1,0 +1,57 @@
+// Shared IndexedDB plumbing for Library files, Library groups, and History
+// — one database, three object stores, same schema legacy/unified-tool.js
+// used. No server, no shared backend (see CLAUDE.md, Access & ownership).
+
+export const DB_NAME = "wiredCioUnifiedLeadScannerLibrary_v1";
+export const DB_VERSION = 3;
+export const STORE_LIBRARY = "files";
+export const STORE_GROUPS = "groups";
+export const STORE_HISTORY = "history";
+
+function openDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    if (!window.indexedDB) {
+      reject(new Error("This browser doesn't support local file storage."));
+      return;
+    }
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(STORE_LIBRARY)) db.createObjectStore(STORE_LIBRARY, { keyPath: "id" });
+      if (!db.objectStoreNames.contains(STORE_GROUPS)) db.createObjectStore(STORE_GROUPS, { keyPath: "id" });
+      if (!db.objectStoreNames.contains(STORE_HISTORY)) db.createObjectStore(STORE_HISTORY, { keyPath: "id" });
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error || new Error("Could not open local file storage."));
+  });
+}
+
+export async function dbGetAll<T>(storeName: string): Promise<T[]> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readonly");
+    const req = tx.objectStore(storeName).getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function dbPut<T>(storeName: string, entry: T): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readwrite");
+    tx.objectStore(storeName).put(entry);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function dbDelete(storeName: string, id: string): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readwrite");
+    tx.objectStore(storeName).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
