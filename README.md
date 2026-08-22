@@ -1,0 +1,28 @@
+# Wired CIO Lead Scanner
+
+**Private repo. This is Jack's personal tool — see `CLAUDE.md` for the full
+access/ownership note before deploying this anywhere reachable over a
+network.** It needs to stay behind a credential gate (the existing
+`legacy/web` password-gated build is the current mechanism) and scoped to
+Jack alone; it is not a public or multi-user product.
+
+## Repo layout
+
+- **`legacy/`** — the current, live, fully-working app (everything this
+  README originally documented — see below). Single-file vanilla JS, real
+  Playwright regression suite, three build outputs (standalone HTML, Chrome
+  extension, password-gated web version). This is not being thrown away —
+  it's the reference implementation and the behavioral spec for the rebuild.
+- **`app/`** — a fresh Vite + React + TypeScript rebuild in progress. Nothing
+  has been ported yet as of this commit; it's a working scaffold
+  (`npm install && npm run dev`) ready for Claude Code to build out against
+  the brief in `CLAUDE.md`.
+- **`CLAUDE.md`** — read this first if you're picking up development here.
+  Full architecture brief, every detection rule, every explicit product
+  decision Jack has made along the way, and the access/ownership
+  constraints.
+
+The full `legacy/` documentation — Files, the detection model, Library,
+History, Groups, backup/restore, the Chrome extension, the password-gated
+web version, and every dated build/feature-pass section from the app's
+history — lives in [`legacy/README.md`](legacy/README.md).
