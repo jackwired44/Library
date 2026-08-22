@@ -3,7 +3,7 @@ import Scanner from "./components/Scanner";
 import LibraryView from "./components/Library";
 import type { ParsedFile, ResultRow } from "./lib/detection";
 import { scanParsedFiles } from "./lib/detection";
-import { loadLibraryFromDB, type LibraryEntry, type LibraryGroup } from "./lib/library";
+import { loadLibraryFromDB, ensureMonthFoldersExist, persistGroup, type LibraryEntry, type LibraryGroup } from "./lib/library";
 
 type View = "scanner" | "history" | "library";
 
@@ -34,7 +34,12 @@ export default function App() {
     loadLibraryFromDB()
       .then(({ entries, groups }) => {
         setLibraryEntries(entries);
-        setLibraryGroups(groups);
+        // Every month folder from October 2025 through now should exist and
+        // be browsable even before anything's been filed into it — not
+        // created lazily on first upload.
+        const { groups: seededGroups, created } = ensureMonthFoldersExist(groups);
+        setLibraryGroups(seededGroups);
+        created.forEach((g) => persistGroup(g));
         setLibraryLoading(false);
       })
       .catch(() => {

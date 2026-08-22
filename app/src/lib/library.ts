@@ -73,6 +73,43 @@ export function getMonthOptionsForFiling(): { key: string; label: string }[] {
   return options;
 }
 
+// October 2025 (the earliest month Jack backfills to) through the current
+// month, inclusive — the fixed starting point every month folder should
+// exist for, regardless of whether anything's been filed into it yet.
+const EARLIEST_MONTH_FOLDER = new Date(2025, 9, 1); // month is 0-indexed: 9 = October
+export function getRequiredMonthKeys(): string[] {
+  const now = new Date();
+  const keys: string[] = [];
+  let d = new Date(EARLIEST_MONTH_FOLDER.getFullYear(), EARLIEST_MONTH_FOLDER.getMonth(), 1);
+  const end = new Date(now.getFullYear(), now.getMonth(), 1);
+  while (d.getTime() <= end.getTime()) {
+    keys.push(monthKeyFromDate(d));
+    d = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+  }
+  return keys;
+}
+
+// Creates every required month folder that doesn't already exist yet, so
+// the folder grid always shows Oct 2025 -> now ready to browse/backfill,
+// not just months something has already been filed into. Idempotent — safe
+// to call on every app load.
+export function ensureMonthFoldersExist(groups: LibraryGroup[]): { groups: LibraryGroup[]; created: LibraryGroup[] } {
+  let working = groups;
+  const created: LibraryGroup[] = [];
+  getRequiredMonthKeys().forEach((key) => {
+    const label = monthLabelFromKey(key);
+    if (working.some((g) => g.name === label)) return;
+    const { groups: next, group } = getOrCreateGroupByName(working, label);
+    working = next;
+    created.push(group);
+  });
+  return { groups: working, created };
+}
+
+export function isMonthFolder(group: LibraryGroup): boolean {
+  return monthKeyFromGroupName(group.name) !== null;
+}
+
 export async function loadLibraryFromDB(): Promise<{ entries: LibraryEntry[]; groups: LibraryGroup[] }> {
   const [entries, groups] = await Promise.all([dbGetAll<LibraryEntry>(STORE_LIBRARY), dbGetAll<LibraryGroup>(STORE_GROUPS)]);
   return {
@@ -310,4 +347,25 @@ export function getFilteredLibrary(
     });
   }
   return list;
+}
+
+// Every entry belonging to one folder, in a fixed, predictable order
+// (Dynamics -> Power BI/Azure/Fabric -> M365 Tenant, matching
+// CATEGORY_PRIORITY elsewhere) rather than whatever order they happen to
+// sit in the entries array.
+const BUCKET_ORDER: BucketKey[] = ["dynamics", "dataPlatform", "m365Tenant"];
+export function getFolderEntries(entries: LibraryEntry[], groupId: string): LibraryEntry[] {
+  return BUCKET_ORDER.map((bk) => entries.find((e) => e.groupId === groupId && e.bucketKey === bk)).filter((e): e is LibraryEntry => !!e);
+}
+
+// The 4th file inside a folder: every lead from all 3 category files in
+// one list. Deliberately NOT stored as its own persisted entry — it's
+// derived fresh from the real category files every time, so it can never
+// drift out of sync with them (the exact class of bug the "Fully editable
+// folders" pass in legacy/unified-tool.js had to fix after the fact).
+// Editing happens on the category file; this is read-only, for viewing the
+// whole month at a glance and downloading everything in one CSV.
+export function getCombinedFolderExport(entries: LibraryEntry[], groupId: string): { rows: StoredRow[]; rawText: string; rowCount: number } {
+  const rows = getFolderEntries(entries, groupId).flatMap((e) => e.rows);
+  return { rows, rawText: toCSV(rows, EXPORT_LABELS), rowCount: rows.length };
 }
