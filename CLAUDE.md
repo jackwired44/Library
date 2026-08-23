@@ -35,6 +35,16 @@ literal ask if there's a sharper way to do it.
   improve on that bar; never ship a publicly-reachable, ungated build of this
   tool. It contains real prospect/company data — treat that as sensitive by
   default even though it's not customer PII in the regulatory sense.
+- **`app/`'s gate improves on the legacy mechanism by one real notch**:
+  `app/src/lib/auth.ts` compares a salted SHA-256 hash, never the real
+  password, in the page's own source — so reading the source doesn't hand
+  someone the password outright the way legacy's plaintext `SITE_PASSWORD`
+  does. It's still not real account security (no server, no rate limiting,
+  no lockout) — same honest ceiling as before, just a higher floor. To
+  change the password: `cd app && npm run hash-password -- "new password"`,
+  paste the printed hash into `PASSWORD_HASH` in `auth.ts`, rebuild. The
+  placeholder password is `changeme` — change it before this ever runs
+  anywhere that matters.
 
 ## Repo layout
 
