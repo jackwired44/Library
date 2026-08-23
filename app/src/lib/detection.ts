@@ -38,7 +38,10 @@ const CATEGORY_PRIORITY: CategoryKey[] = ["dynamics365", "dataPlatform", "m365Te
 /* ------------------------------------------------------------------ */
 /* Licensing (Microsoft SKU / seat-count) engine                        */
 /* ------------------------------------------------------------------ */
-const SKU_CATALOGUE: { label: string; pattern: RegExp }[] = [
+// Exported (not just used internally) so the Cheat Sheet can list the exact
+// SKUs/reasons this file matches instead of a hand-copied list that could
+// drift from the real rules.
+export const SKU_CATALOGUE: { label: string; pattern: RegExp }[] = [
   { label: "Microsoft 365 Business Basic", pattern: /\b(m(?:icrosoft)?\s*365\s*business\s*basic|biz\s*basic)\b/i },
   { label: "Microsoft 365 Business Standard", pattern: /\b(m(?:icrosoft)?\s*365\s*business\s*std|m(?:icrosoft)?\s*365\s*business\s*standard|business\s*standard)\b/i },
   { label: "Microsoft 365 Business Premium", pattern: /\b(m(?:icrosoft)?\s*365\s*business\s*prem(?:ium)?|business\s*premium|biz\s*prem)\b/i },
@@ -360,7 +363,7 @@ export function scanRowPlatform(
 /* ------------------------------------------------------------------ */
 /* Auto-DQ ("Bad Leads") — cross-cutting, always wins over category/tier */
 /* ------------------------------------------------------------------ */
-const DQ_RULES: { label: string; pattern: RegExp }[] = [
+export const DQ_RULES: { label: string; pattern: RegExp }[] = [
   {
     label: "Single seat/user or freelancer",
     pattern:

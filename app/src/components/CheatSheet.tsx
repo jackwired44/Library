@@ -1,0 +1,126 @@
+// The "Detected" column reference — what each badge/chip in the Scanner and
+// Library actually means. Legacy's own version (cheatSheetHtml()) lived in
+// the render layer that was deliberately not ported into lib/detection.ts
+// (see CLAUDE.md); this is freshly written from the same rules, sourced
+// live from detection.ts where possible (QUALIFY_THRESHOLD, the SKU list,
+// the Auto-DQ reasons) so it can't quietly drift out of sync with a rule
+// change the way a hand-copied description could.
+import { CATEGORY_META, QUALIFY_THRESHOLD, SKU_CATALOGUE, DQ_RULES, type CategoryKey } from "../lib/detection";
+
+interface CheatSheetProps {
+  onClose: () => void;
+}
+
+export default function CheatSheet({ onClose }: CheatSheetProps) {
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: "fixed", inset: 0, background: "rgba(8,30,34,0.45)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 20px", zIndex: 50, overflowY: "auto" }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ background: "#fff", borderRadius: 16, maxWidth: 760, width: "100%", padding: "28px 30px", boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <h2 style={{ margin: 0, fontSize: 19 }}>Cheat Sheet — what "Detected" means</h2>
+          <button onClick={onClose} style={{ border: "none", background: "none", fontSize: 20, color: "#4c6167", cursor: "pointer" }}>✕</button>
+        </div>
+        <p style={{ color: "#4c6167", fontSize: 13, marginTop: 0, marginBottom: 20 }}>
+          Two independent engines run over every row and combine into one result. Reassign or re-tier any row manually any
+          time — this is what the auto-detection is doing before you touch it.
+        </p>
+
+        <Section title="Licensing — Microsoft SKUs">
+          <p>
+            Looks for any of {SKU_CATALOGUE.length} Microsoft SKU patterns. A <strong>Strong Signal</strong> requires a
+            confirmed seat/user/license count at or above <strong>{QUALIFY_THRESHOLD}</strong>. A confirmed count under that
+            threshold routes straight to Bad Leads — it's never silently dropped.
+          </p>
+          <ChipList items={SKU_CATALOGUE.map((s) => s.label)} />
+        </Section>
+
+        <Section title="Platform — three product-line buckets">
+          <p>Every row also gets checked against three independent product-line buckets. When a row matches more than one, the auto-default picks in this order (always manually reassignable regardless):</p>
+          <ol style={{ margin: "8px 0 14px", paddingLeft: 20 }}>
+            {(["dynamics365", "dataPlatform", "m365Tenant"] as CategoryKey[]).map((k) => (
+              <li key={k} style={{ marginBottom: 4 }}>
+                <CategoryBadge k={k} />
+              </li>
+            ))}
+          </ol>
+          <CategoryDetail k="dynamics365">
+            Dynamics 365/D365/CRM/AX/NAV/GP, Business Central, Finance and Operations, Customer Engagement, Supply Chain
+            Management, bare "ERP". Strong Signal if ERP+CRM are mentioned together, OR a specific product/module is named
+            with a real or estimated count, OR any generic trigger word is present, OR a bare number sits next to the match.
+          </CategoryDetail>
+          <CategoryDetail k="dataPlatform">
+            One shared bucket fed by three independent patterns: Power BI (broadened — also catches generic "analytics
+            dashboard," "business intelligence," etc.), Microsoft Fabric (narrow — "Microsoft Fabric" or "OneLake" only),
+            and Azure (narrow — bare word "azure"). Azure-flavored migration language ("azure" near "migrat-," lift-and-shift
+            near azure) is redirected here instead of the generic Migration path below, even though that pattern would also
+            match.
+          </CategoryDetail>
+          <CategoryDetail k="m365Tenant">
+            The combined/generic bucket: Tenant Support (Google→Microsoft migration, new tenant setup, MSP/co-managed IT
+            language, plain "IT support"/"help desk"), generic Migration/Modernization (data migration, legacy system,
+            re-platforming — minus anything the Azure override above already claimed), and Licensing hits with no specific
+            product angle.
+          </CategoryDetail>
+        </Section>
+
+        <Section title="Auto-DQ — Bad Leads">
+          <p>Cross-cutting, applies on top of whatever category/tier a row would otherwise get, always wins. Still fully visible and reversible — just excluded from the three CSV downloads.</p>
+          <ChipList items={DQ_RULES.map((r) => r.label)} tone="dq" />
+        </Section>
+
+        <Section title="Duplicates">
+          <p>Exact match on full name + company (case/whitespace-insensitive, no fuzzy matching), scoped to just the current import — not checked against the Library or History. Rows are flagged, never auto-removed.</p>
+        </Section>
+      </div>
+    </div>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div style={{ marginBottom: 22 }}>
+      <div style={{ fontSize: 11.5, color: "#8b93a0", fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>{title}</div>
+      <div style={{ fontSize: 13, color: "#1B2430", lineHeight: 1.5 }}>{children}</div>
+    </div>
+  );
+}
+
+function CategoryBadge({ k }: { k: CategoryKey }) {
+  const meta = CATEGORY_META[k];
+  return <span style={{ fontSize: 11.5, background: meta.bg, color: meta.color, padding: "2px 9px", borderRadius: 20, fontWeight: 700 }}>{meta.label}</span>;
+}
+
+function CategoryDetail({ k, children }: { k: CategoryKey; children: React.ReactNode }) {
+  return (
+    <div style={{ marginBottom: 10, paddingLeft: 2 }}>
+      <div style={{ marginBottom: 3 }}><CategoryBadge k={k} /></div>
+      <div style={{ color: "#4c6167" }}>{children}</div>
+    </div>
+  );
+}
+
+function ChipList({ items, tone }: { items: string[]; tone?: "dq" }) {
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+      {items.map((label) => (
+        <span
+          key={label}
+          style={{
+            fontSize: 11.5,
+            background: tone === "dq" ? "#FBEAE8" : "#F6FAFA",
+            color: tone === "dq" ? "#B5443B" : "#4c6167",
+            padding: "3px 9px",
+            borderRadius: 20,
+          }}
+        >
+          {label}
+        </span>
+      ))}
+    </div>
+  );
+}

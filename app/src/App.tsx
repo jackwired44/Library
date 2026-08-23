@@ -3,6 +3,8 @@ import Scanner from "./components/Scanner";
 import LibraryView from "./components/Library";
 import HistoryView from "./components/History";
 import LockScreen from "./components/LockScreen";
+import BackupRestore from "./components/BackupRestore";
+import CheatSheet from "./components/CheatSheet";
 import type { ParsedFile, ResultRow } from "./lib/detection";
 import { scanParsedFiles } from "./lib/detection";
 import { loadLibraryFromDB, ensureMonthFoldersExist, persistGroup, type LibraryEntry, type LibraryGroup } from "./lib/library";
@@ -35,6 +37,7 @@ export interface UploadedFile {
 export default function App() {
   const [unlocked, setUnlockedState] = useState(isUnlocked());
   const [view, setView] = useState<View>("scanner");
+  const [showCheatSheet, setShowCheatSheet] = useState(false);
   const [results, setResults] = useState<ResultRow[] | null>(null);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
 
@@ -175,6 +178,13 @@ export default function App() {
             </button>
           ))}
           <button
+            onClick={() => setShowCheatSheet(true)}
+            title="What each Detected badge means"
+            style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 700, color: "#4c6167" }}
+          >
+            Cheat Sheet
+          </button>
+          <button
             onClick={() => { setUnlocked(false); setUnlockedState(false); }}
             title="Lock this page again"
             style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 700, color: "#4c6167" }}
@@ -183,6 +193,19 @@ export default function App() {
           </button>
         </nav>
       </header>
+
+      <div style={{ marginBottom: 20 }}>
+        <BackupRestore
+          libraryEntries={libraryEntries}
+          libraryGroups={libraryGroups}
+          historyEntries={historyEntries}
+          setLibraryEntries={setLibraryEntries}
+          setLibraryGroups={setLibraryGroups}
+          setHistoryEntries={setHistoryEntries}
+        />
+      </div>
+
+      {showCheatSheet && <CheatSheet onClose={() => setShowCheatSheet(false)} />}
 
       {view === "scanner" && (
         <Scanner
