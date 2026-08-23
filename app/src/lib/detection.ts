@@ -649,3 +649,12 @@ export function scanParsedFiles(parsedFiles: ParsedFile[]): { results: ResultRow
 export function sortByDynamicsSeatCount<T extends { dynamicsSeatCount?: number | null }>(rows: T[]): T[] {
   return [...rows].sort((a, b) => (b.dynamicsSeatCount ?? -Infinity) - (a.dynamicsSeatCount ?? -Infinity));
 }
+
+// Shared by the Scanner's "Final downloads" buttons and History's per-entry
+// redownload buttons, so the two never diverge on what counts as a bucket's
+// export rows (Strong Signal only, Dynamics ranked by seat count).
+export function exportRowsForBucket(results: ResultRow[], bucketKey: BucketKey): ExportRow[] {
+  let rows = results.filter((r) => r.tier === "signal" && CATEGORY_META[r.category].bucket === bucketKey);
+  if (bucketKey === "dynamics") rows = sortByDynamicsSeatCount(rows);
+  return rows.map(buildExportRow);
+}

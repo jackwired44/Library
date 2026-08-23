@@ -1,0 +1,147 @@
+// History — every scan/import kept automatically (unlike the Library,
+// which only keeps what's opted in), searchable, and combinable into one
+// working Scanner view. Ported from legacy/unified-tool.js's History
+// section. See CLAUDE.md for the product rules this encodes.
+
+import { dbGetAll, dbPut, dbDelete, STORE_HISTORY } from "./db";
+import type { ResultRow, ParsedFile } from "./detection";
+
+export interface HistoryEntry {
+  id: string;
+  fileName: string;
+  files: { name: string; rows: number }[];
+  importedAt: string;
+  rowsScanned: number;
+  results: ResultRow[];
+  tag: string;
+  notes: string;
+  libraryEntryIds: string[];
+}
+
+function newId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function buildHistoryEntry(
+  parsedFiles: ParsedFile[],
+  scan: { results: ResultRow[]; rowsScanned: number },
+  opts: { tag?: string; libraryEntryIds?: string[] } = {}
+): HistoryEntry {
+  return {
+    id: newId(),
+    fileName: parsedFiles.map((pf) => pf.name).join(", "),
+    files: parsedFiles.map((pf) => ({ name: pf.name, rows: pf.data.length })),
+    importedAt: new Date().toISOString(),
+    rowsScanned: scan.rowsScanned,
+    results: scan.results,
+    tag: opts.tag || "",
+    notes: "",
+    libraryEntryIds: opts.libraryEntryIds || [],
+  };
+}
+
+export async function loadHistoryFromDB(): Promise<HistoryEntry[]> {
+  const entries = await dbGetAll<HistoryEntry>(STORE_HISTORY);
+  return entries.sort((a, b) => new Date(b.importedAt).getTime() - new Date(a.importedAt).getTime());
+}
+export async function persistHistoryEntry(entry: HistoryEntry) {
+  await dbPut(STORE_HISTORY, entry);
+}
+export async function deleteHistoryEntryFromDB(id: string) {
+  await dbDelete(STORE_HISTORY, id);
+}
+
+/* ------------------------------------------------------------------ */
+/* Week grouping                                                        */
+/* ------------------------------------------------------------------ */
+function startOfWeek(d: Date): Date {
+  const date = new Date(d);
+  const day = date.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() + diff);
+  return date;
+}
+function weekKeyOf(d: Date): string {
+  return startOfWeek(d).toISOString().slice(0, 10);
+}
+function weekLabelOf(key: string): string {
+  const start = new Date(`${key}T00:00:00`);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 6);
+  const fmt = (d: Date) => d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const sameYear = start.getFullYear() === end.getFullYear();
+  return `${fmt(start)} – ${fmt(end)}${sameYear ? `, ${end.getFullYear()}` : ""}`;
+}
+export interface Week {
+  key: string;
+  label: string;
+  entries: HistoryEntry[];
+}
+export function getWeeks(history: HistoryEntry[]): Week[] {
+  const map = new Map<string, HistoryEntry[]>();
+  history.forEach((h) => {
+    const k = weekKeyOf(new Date(h.importedAt));
+    if (!map.has(k)) map.set(k, []);
+    map.get(k)!.push(h);
+  });
+  const keys = [...map.keys()].sort((a, b) => b.localeCompare(a));
+  return keys.map((k) => ({
+    key: k,
+    label: weekLabelOf(k),
+    entries: map.get(k)!.sort((a, b) => new Date(b.importedAt).getTime() - new Date(a.importedAt).getTime()),
+  }));
+}
+
+/* ------------------------------------------------------------------ */
+/* Search — across ALL of history, not just the active week            */
+/* ------------------------------------------------------------------ */
+export function getFilteredHistory(history: HistoryEntry[], search: string): HistoryEntry[] {
+  if (!search.trim()) return history;
+  const q = search.toLowerCase();
+  return history.filter((h) => {
+    if (h.tag.toLowerCase().includes(q)) return true;
+    if (h.files.some((f) => f.name.toLowerCase().includes(q))) return true;
+    return h.results.some((r) => {
+      const f = r.row.__f;
+      return String(f.company || "").toLowerCase().includes(q) || `${f.firstName || ""} ${f.lastName || ""}`.toLowerCase().includes(q);
+    });
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Combine into Scanner                                                 */
+/* ------------------------------------------------------------------ */
+// Shallow copies with synthesized ids and __sourceEntryId/__sourceRowId —
+// NOT the original shared objects. Two different imports can easily both
+// have a row id like "0-0" (ids are only ever scoped to one import at a
+// time), so a plain merge risks one row's edit landing on a different
+// import's row that happens to share the same id.
+export function combineHistoryEntries(entries: HistoryEntry[]): { results: ResultRow[]; rowsScanned: number } {
+  const results: ResultRow[] = [];
+  let rowsScanned = 0;
+  entries.forEach((h) => {
+    h.results.forEach((r) => {
+      results.push({ ...r, id: `${h.id}::${r.id}`, __sourceEntryId: h.id, __sourceRowId: r.id });
+    });
+    rowsScanned += h.rowsScanned;
+  });
+  return { results, rowsScanned };
+}
+
+// Writes a category/tier/cross-out edit made on a row tagged with
+// __sourceEntryId back to the row it was copied from inside `history`, and
+// returns the updated history array (or the same array, unchanged, if this
+// row isn't tied to any history entry — an ordinary fresh-scan row). Doesn't
+// persist — the caller decides when/whether to write through to IndexedDB.
+export function syncRowIntoHistory(history: HistoryEntry[], row: ResultRow): HistoryEntry[] {
+  if (!row.__sourceEntryId) return history;
+  const entryIdx = history.findIndex((h) => h.id === row.__sourceEntryId);
+  if (entryIdx === -1) return history;
+  const entry = history[entryIdx];
+  const rowIdx = entry.results.findIndex((r) => r.id === row.__sourceRowId);
+  if (rowIdx === -1) return history;
+  const updatedResults = entry.results.map((r, i) => (i === rowIdx ? { ...r, category: row.category, tier: row.tier, crossedOut: row.crossedOut } : r));
+  const updatedEntry = { ...entry, results: updatedResults };
+  return history.map((h, i) => (i === entryIdx ? updatedEntry : h));
+}

@@ -3,11 +3,12 @@ import {
   CATEGORY_META,
   BUCKET_META,
   EXPORT_LABELS,
-  buildExportRow,
+  exportRowsForBucket,
   getFullName,
   scanParsedFiles,
   sortByDynamicsSeatCount,
   type CategoryKey,
+  type ParsedFile,
   type ResultRow,
   type Tier,
   type BucketKey,
@@ -40,6 +41,13 @@ interface ScannerProps {
   setLibraryEntries: React.Dispatch<React.SetStateAction<LibraryEntry[]>>;
   libraryGroups: LibraryGroup[];
   setLibraryGroups: React.Dispatch<React.SetStateAction<LibraryGroup[]>>;
+  // Every fresh scan/import is recorded to History automatically (unlike
+  // the Library, which is opt-in) — see CLAUDE.md "History".
+  onRecordHistory: (parsedFiles: ParsedFile[], scanned: ResultRow[]) => void;
+  // Edits made to a row loaded FROM History (tagged with __sourceEntryId —
+  // see lib/history.ts) get written back to the History entry it came from.
+  // A no-op for an ordinary fresh-scan row.
+  onSyncToHistory: (row: ResultRow) => void;
 }
 
 export default function Scanner({
@@ -52,6 +60,8 @@ export default function Scanner({
   setLibraryEntries,
   libraryGroups,
   setLibraryGroups,
+  onRecordHistory,
+  onSyncToHistory,
 }: ScannerProps) {
   const [saveToLibrary, setSaveToLibrary] = useState(false);
   const [uploadMonthKey, setUploadMonthKey] = useState(() => monthKeyFromDate(new Date()));
@@ -85,6 +95,7 @@ export default function Scanner({
       setUploadedFiles(parsedFiles.map((pf) => ({ name: pf.name, rows: pf.data.length })));
       setPage(1);
       setSelected(new Set());
+      onRecordHistory(parsedFiles, scanned);
 
       // Opt-in, off by default (see CLAUDE.md "Library architecture") — a
       // one-off scan never touches the Library unless this box is checked.
@@ -175,18 +186,23 @@ export default function Scanner({
       const row = list.find((r) => r.id === id);
       if (!row) return;
       row.tier = TIER_CYCLE[(TIER_CYCLE.indexOf(row.tier) + 1) % TIER_CYCLE.length];
+      onSyncToHistory(row);
     });
   }
   function reassignRow(id: string, category: CategoryKey) {
     mutateResults((list) => {
       const row = list.find((r) => r.id === id);
-      if (row) row.category = category;
+      if (!row) return;
+      row.category = category;
+      onSyncToHistory(row);
     });
   }
   function toggleCrossedOut(id: string) {
     mutateResults((list) => {
       const row = list.find((r) => r.id === id);
-      if (row) row.crossedOut = !row.crossedOut;
+      if (!row) return;
+      row.crossedOut = !row.crossedOut;
+      onSyncToHistory(row);
     });
   }
   function toggleSelectRow(id: string) {
@@ -198,24 +214,22 @@ export default function Scanner({
   }
   function moveSelectedTo(category: CategoryKey) {
     if (!selected.size) return;
-    mutateResults((list) => list.forEach((r) => { if (selected.has(r.id)) r.category = category; }));
+    mutateResults((list) => list.forEach((r) => { if (selected.has(r.id)) { r.category = category; onSyncToHistory(r); } }));
     setSelected(new Set());
   }
   function setTierForSelected(tier: Tier) {
     if (!selected.size) return;
-    mutateResults((list) => list.forEach((r) => { if (selected.has(r.id)) r.tier = tier; }));
+    mutateResults((list) => list.forEach((r) => { if (selected.has(r.id)) { r.tier = tier; onSyncToHistory(r); } }));
     setSelected(new Set());
   }
   function setCrossedOutForSelected(value: boolean) {
     if (!selected.size) return;
-    mutateResults((list) => list.forEach((r) => { if (selected.has(r.id)) r.crossedOut = value; }));
+    mutateResults((list) => list.forEach((r) => { if (selected.has(r.id)) { r.crossedOut = value; onSyncToHistory(r); } }));
     setSelected(new Set());
   }
 
   function bucketRowsFor(bucketKey: BucketKey) {
-    let rows = (results || []).filter((r) => r.tier === "signal" && CATEGORY_META[r.category].bucket === bucketKey);
-    if (bucketKey === "dynamics") rows = sortByDynamicsSeatCount(rows);
-    return rows.map(buildExportRow);
+    return exportRowsForBucket(results || [], bucketKey);
   }
   function exportBucket(bucketKey: BucketKey) {
     downloadCSV(`wired-cio-${BUCKET_META[bucketKey].slug}-leads.csv`, bucketRowsFor(bucketKey), EXPORT_LABELS);

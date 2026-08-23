@@ -13,10 +13,12 @@ Jack alone; it is not a public or multi-user product.
   Playwright regression suite, three build outputs (standalone HTML, Chrome
   extension, password-gated web version). This is not being thrown away —
   it's the reference implementation and the behavioral spec for the rebuild.
-- **`app/`** — a fresh Vite + React + TypeScript rebuild in progress. Nothing
-  has been ported yet as of this commit; it's a working scaffold
-  (`npm install && npm run dev`) ready for Claude Code to build out against
-  the brief in `CLAUDE.md`.
+- **`app/`** — a fresh Vite + React + TypeScript rebuild in progress
+  (`npm install && npm run dev`). Detection engine, Scanner, Library, History,
+  and the password gate are built and verified against `legacy/`'s behavior;
+  Groups, backup/restore, the Cheat Sheet, and the three build outputs
+  (standalone/extension/password-gated web) are still outstanding — see
+  `CLAUDE.md` for the brief and rebuild order.
 - **`CLAUDE.md`** — read this first if you're picking up development here.
   Full architecture brief, every detection rule, every explicit product
   decision Jack has made along the way, and the access/ownership
