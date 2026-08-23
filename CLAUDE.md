@@ -197,6 +197,22 @@ or a company is skipped from the check entirely. Don't widen the scope
 (cross-batch/Library-wide) or change flag-vs-remove without asking — both are
 explicitly-deferred next steps he already flagged himself, not oversights.
 
+**Dynamics 365 seat-count ranking (app/ only, added during the rebuild):**
+Dynamics 365 leads are always ranked by stated seat/user/license count,
+highest first, wherever they're shown or exported — the Scanner table when
+filtered to Dynamics 365, the Scanner's Dynamics CSV export, and the
+Library's Dynamics 365 category file (display, per-lead editor, download,
+and its slice of the combined "All Strong Signal Leads" file). The count is
+extracted from the matched text itself (`app/src/lib/detection.ts`,
+`sortByDynamicsSeatCount` / `PlatformResult.dynamicsSeatCount`) — same
+seat/user/license number-extraction the licensing engine already used,
+applied to Dynamics hits too. A lead with no stated count is never treated
+as a count of 0: it sinks below every counted lead as its own lower block,
+in whatever order it was already in — not interleaved by guesswork. Scoped
+to Dynamics 365 only for now, by explicit choice; the other two categories
+(Power BI/Azure/Fabric, M365 Tenant) keep their existing order until asked.
+This is an app/-only enhancement — legacy/unified-tool.js does not have it.
+
 ## Library architecture (the trickiest part to port correctly)
 
 - Saving to the Library is **opt-in per upload** (a checkbox, default OFF) —

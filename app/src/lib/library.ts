@@ -27,7 +27,7 @@ export interface LibraryGroup {
   createdAt: string;
 }
 
-export type StoredRow = ExportRow & { __historyEntryId: string; __rowKey: string };
+export type StoredRow = ExportRow & { __historyEntryId: string; __rowKey: string; __dynamicsSeatCount: number | null };
 
 export interface LibraryEntry {
   id: string;
@@ -180,7 +180,7 @@ export function fileSignalRowsIntoGroup(
   const touchedIds: string[] = [];
   byBucket.forEach((rows, bk) => {
     const { entries: next, entry } = getOrCreateMonthCategoryEntry(working, groups, groupId, bk);
-    const exportRows: StoredRow[] = rows.map((r) => ({ ...buildExportRow(r), __historyEntryId: historyEntryId, __rowKey: `${historyEntryId}-${r.id}` }));
+    const exportRows: StoredRow[] = rows.map((r) => ({ ...buildExportRow(r), __historyEntryId: historyEntryId, __rowKey: `${historyEntryId}-${r.id}`, __dynamicsSeatCount: r.dynamicsSeatCount }));
     const updated = serialize({ ...entry, rows: [...entry.rows, ...exportRows] });
     working = next.map((e) => (e.id === entry.id ? updated : e));
     touchedIds.push(entry.id);
@@ -358,14 +358,27 @@ export function getFolderEntries(entries: LibraryEntry[], groupId: string): Libr
   return BUCKET_ORDER.map((bk) => entries.find((e) => e.groupId === groupId && e.bucketKey === bk)).filter((e): e is LibraryEntry => !!e);
 }
 
+// Dynamics 365 leads rank by stated seat/user/license count, highest
+// first; a lead with no stated count sinks below every counted one as its
+// own group, in whatever order it was already in — never treated as a
+// count of 0. Same rule as Scanner's sortByDynamicsSeatCount, mirrored
+// here since Library rows carry the hidden __dynamicsSeatCount field
+// instead of the live ResultRow's dynamicsSeatCount. See CLAUDE.md
+// "Dynamics 365 seat-count ranking".
+export function sortDynamicsStoredRows(rows: StoredRow[]): StoredRow[] {
+  return [...rows].sort((a, b) => (b.__dynamicsSeatCount ?? -Infinity) - (a.__dynamicsSeatCount ?? -Infinity));
+}
+
 // The 4th file inside a folder: every lead from all 3 category files in
 // one list. Deliberately NOT stored as its own persisted entry — it's
 // derived fresh from the real category files every time, so it can never
 // drift out of sync with them (the exact class of bug the "Fully editable
 // folders" pass in legacy/unified-tool.js had to fix after the fact).
 // Editing happens on the category file; this is read-only, for viewing the
-// whole month at a glance and downloading everything in one CSV.
+// whole month at a glance and downloading everything in one CSV. The
+// Dynamics segment is seat-count sorted like everywhere else; the other
+// two categories keep their existing order.
 export function getCombinedFolderExport(entries: LibraryEntry[], groupId: string): { rows: StoredRow[]; rawText: string; rowCount: number } {
-  const rows = getFolderEntries(entries, groupId).flatMap((e) => e.rows);
+  const rows = getFolderEntries(entries, groupId).flatMap((e) => (e.bucketKey === "dynamics" ? sortDynamicsStoredRows(e.rows) : e.rows));
   return { rows, rawText: toCSV(rows, EXPORT_LABELS), rowCount: rows.length };
 }

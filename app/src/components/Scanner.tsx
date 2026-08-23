@@ -6,6 +6,7 @@ import {
   buildExportRow,
   getFullName,
   scanParsedFiles,
+  sortByDynamicsSeatCount,
   type CategoryKey,
   type ResultRow,
   type Tier,
@@ -138,6 +139,9 @@ export default function Scanner({
         );
       });
     }
+    // Always-on: viewing Dynamics 365 leads ranks them by stated seat/user/
+    // license count, highest first, regardless of which tier tab is active.
+    if (categoryFilter === "dynamics365") list = sortByDynamicsSeatCount(list);
     return list;
   }, [results, tierFilter, categoryFilter, duplicatesOnly, search]);
 
@@ -209,7 +213,9 @@ export default function Scanner({
   }
 
   function bucketRowsFor(bucketKey: BucketKey) {
-    return (results || []).filter((r) => r.tier === "signal" && CATEGORY_META[r.category].bucket === bucketKey).map(buildExportRow);
+    let rows = (results || []).filter((r) => r.tier === "signal" && CATEGORY_META[r.category].bucket === bucketKey);
+    if (bucketKey === "dynamics") rows = sortByDynamicsSeatCount(rows);
+    return rows.map(buildExportRow);
   }
   function exportBucket(bucketKey: BucketKey) {
     downloadCSV(`wired-cio-${BUCKET_META[bucketKey].slug}-leads.csv`, bucketRowsFor(bucketKey), EXPORT_LABELS);
@@ -430,7 +436,9 @@ export default function Scanner({
                         {r.isDuplicate && <span style={{ fontSize: 10.5, background: "#F7B955", color: "#5C3A00", padding: "2px 7px", borderRadius: 20, fontWeight: 700 }}>DUPLICATE</span>}
                         {r.licensing && <span style={{ fontSize: 10.5, background: "#FBF0DC", color: "#8A5A00", padding: "2px 7px", borderRadius: 20 }}>{r.licensing.skus[0]}{r.licensing.count ? ` · ${r.licensing.count}` : ""}</span>}
                         {r.categories.filter((ck) => !(ck === "m365Tenant" && r.licensing)).map((ck) => (
-                          <span key={ck} style={{ fontSize: 10.5, background: CATEGORY_META[ck].bg, color: CATEGORY_META[ck].color, padding: "2px 7px", borderRadius: 20 }}>{CATEGORY_META[ck].label}</span>
+                          <span key={ck} style={{ fontSize: 10.5, background: CATEGORY_META[ck].bg, color: CATEGORY_META[ck].color, padding: "2px 7px", borderRadius: 20 }}>
+                            {CATEGORY_META[ck].label}{ck === "dynamics365" && r.dynamicsSeatCount != null ? ` · ${r.dynamicsSeatCount}` : ""}
+                          </span>
                         ))}
                         {r.tier === "dq" && r.dqReasons.map((reason) => (
                           <span key={reason} style={{ fontSize: 10.5, background: "#FBEAE8", color: "#B5443B", padding: "2px 7px", borderRadius: 20 }}>{reason}</span>

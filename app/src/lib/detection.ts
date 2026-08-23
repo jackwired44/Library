@@ -285,6 +285,7 @@ interface PlatformHit {
   snippet: string;
   hasTrigger: boolean;
   fromProductArea?: boolean;
+  seatCount?: number | null;
 }
 export interface PlatformResult {
   categories: string[];
@@ -292,6 +293,11 @@ export interface PlatformResult {
   snippet: string;
   notesSummary: string;
   hits: PlatformHit[];
+  // The highest seat/user/license count found near a Dynamics 365 match, if
+  // any — used to rank Dynamics leads highest-count-first (see CLAUDE.md
+  // "Dynamics 365 seat-count ranking"). null when no number was stated;
+  // never guessed at or defaulted to 0.
+  dynamicsSeatCount: number | null;
 }
 
 export function scanRowPlatform(
@@ -327,6 +333,10 @@ export function scanRowPlatform(
               (DYNAMICS_SPECIFIC_INSTANCE_RE.test(win) && (LICENSE_COUNT_RE.test(win) || DYNAMICS_ESTIMATED_COUNT_RE.test(win))))) ||
           hasBareTrailingCount(combined.slice(m.index + m[0].length, m.index + m[0].length + 80)) ||
           hasBareLeadingCount(combined.slice(Math.max(0, m.index - 80), m.index)),
+        // Same seat/user/license number extraction the licensing engine
+        // uses, reused here so a Dynamics lead's real count (not just
+        // "a count was mentioned") survives into the result for ranking.
+        seatCount: cat.label === "Dynamics 365" ? extractCountNear(combined, m.index, m[0].length).count : null,
       });
       if (m.index === re.lastIndex) re.lastIndex++;
     }
@@ -342,7 +352,9 @@ export function scanRowPlatform(
   const tier: "signal" | "mention" = hits.some((h) => h.hasTrigger) ? "signal" : "mention";
   const bestHit = hits.find((h) => h.fromProductArea) || hits.find((h) => h.hasTrigger) || hits[0];
   const notesSummary = commentsValue ? summarizeNotes(commentsValue, categories) : summarizeFromSnippets(hits.map((h) => h.snippet), categories);
-  return { categories, tier, snippet: bestHit.snippet, notesSummary, hits };
+  const dynamicsCounts = hits.filter((h) => h.category === "Dynamics 365" && h.seatCount != null).map((h) => h.seatCount as number);
+  const dynamicsSeatCount = dynamicsCounts.length ? Math.max(...dynamicsCounts) : null;
+  return { categories, tier, snippet: bestHit.snippet, notesSummary, hits, dynamicsSeatCount };
 }
 
 /* ------------------------------------------------------------------ */
@@ -411,6 +423,10 @@ export interface ScanResult {
   licensing: LicensingResult | null;
   platform: { snippet: string } | null;
   notesSummary: string;
+  // Highest Dynamics 365 seat/user/license count stated, if any — null
+  // means none was stated, never a guessed 0. See "Dynamics 365 seat-count
+  // ranking" in CLAUDE.md.
+  dynamicsSeatCount: number | null;
 }
 
 export function scanRowUnified(row: Record<string, unknown>, columns: string[], resolved: ResolvedFields): ScanResult | null {
@@ -450,7 +466,17 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
   const dqReasons = getDQReasons(combinedForDQ, resolved, licensing);
   if (dqReasons.length > 0) tier = "dq";
 
-  return { categories, autoCategory, category: autoCategory, tier, dqReasons, licensing, platform: platform ? { snippet: platform.snippet } : null, notesSummary };
+  return {
+    categories,
+    autoCategory,
+    category: autoCategory,
+    tier,
+    dqReasons,
+    licensing,
+    platform: platform ? { snippet: platform.snippet } : null,
+    notesSummary,
+    dynamicsSeatCount: platform ? platform.dynamicsSeatCount : null,
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -517,6 +543,7 @@ export interface ResultRow {
   licensing: LicensingResult | null;
   platform: { snippet: string } | null;
   notesSummary: string;
+  dynamicsSeatCount: number | null;
   // Present only on shallow copies made for a combined History view.
   __sourceEntryId?: string;
   __sourceRowId?: string;
@@ -610,4 +637,15 @@ export function scanParsedFiles(parsedFiles: ParsedFile[]): { results: ResultRow
   });
   markDuplicateLeads(results);
   return { results, rowsScanned };
+}
+
+// Dynamics 365 ranking, top to bottom: a stated seat/user/license count
+// wins over one that isn't, and among stated counts, higher wins — "21
+// User" outranks "15 users". A lead with no stated count is never treated
+// as a count of 0; it just sinks below every counted lead as its own
+// group, in whatever order it was already in (stable sort). Applies only
+// where the caller chooses to use it (Dynamics 365 views specifically) —
+// see CLAUDE.md "Dynamics 365 seat-count ranking".
+export function sortByDynamicsSeatCount<T extends { dynamicsSeatCount?: number | null }>(rows: T[]): T[] {
+  return [...rows].sort((a, b) => (b.dynamicsSeatCount ?? -Infinity) - (a.dynamicsSeatCount ?? -Infinity));
 }

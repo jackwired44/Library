@@ -1,7 +1,7 @@
 import Papa from "papaparse";
 import type { ExportLabel } from "./detection";
 
-export function toCSV(rows: Record<string, string>[], columns: readonly string[]): string {
+export function toCSV(rows: Record<string, unknown>[], columns: readonly string[]): string {
   return Papa.unparse({ fields: columns as string[], data: rows.map((r) => columns.map((c) => r[c] ?? "")) });
 }
 

@@ -15,9 +15,11 @@ import {
   updateLibraryRowField,
   deleteLibraryRow,
   moveLibraryRowToBucket,
+  sortDynamicsStoredRows,
   type LibraryEntry,
   type LibraryGroup,
 } from "../lib/library";
+import { toCSV } from "../lib/csv";
 
 // Fields editable inline per lead — Product Area is controlled via the
 // "Move to" select instead (matches legacy's editableFields split).
@@ -85,7 +87,11 @@ export default function LibraryView({ entries, setEntries, groups, setGroups, lo
     deleteLibraryEntryFromDB(id);
   }
   function handleDownload(entry: LibraryEntry) {
-    downloadBlob(entry.rawText, entry.fileName);
+    // Dynamics downloads seat-count sorted, same ranking as everywhere
+    // else — the underlying stored order (append order) is left alone;
+    // only the exported/displayed view is reordered.
+    const rawText = entry.bucketKey === "dynamics" ? toCSV(sortDynamicsStoredRows(entry.rows), EXPORT_LABELS) : entry.rawText;
+    downloadBlob(rawText, entry.fileName);
   }
   function handleLoad(fileName: string, rawText: string) {
     onLoadIntoScanner([parseCSVText(fileName, rawText)]);
@@ -347,6 +353,11 @@ interface CategoryFileCardProps {
 
 function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownload, onLoad, onReceivedDate, onRename, onRowField, onRowDelete, onRowMove }: CategoryFileCardProps) {
   const meta = CATEGORY_META[Object.keys(CATEGORY_META).find((k) => CATEGORY_META[k as keyof typeof CATEGORY_META].bucket === entry.bucketKey) as keyof typeof CATEGORY_META];
+  const isDynamics = entry.bucketKey === "dynamics";
+  // Ranked highest seat/user/license count first when this is the
+  // Dynamics 365 file — a lead with no stated count sinks to its own
+  // lower block rather than being treated as a count of 0.
+  const displayRows = isDynamics ? sortDynamicsStoredRows(entry.rows) : entry.rows;
   return (
     <div style={{ background: "#fff", border: "1px solid #E4E7EC", borderRadius: 13, overflow: "hidden" }}>
       <div style={{ padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
@@ -366,12 +377,13 @@ function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownl
       </div>
       {expanded && (
         <div style={{ padding: "0 18px 16px", overflowX: "auto", borderTop: "1px solid #F0F1F4" }}>
-          {entry.rows.length === 0 ? (
+          {displayRows.length === 0 ? (
             <div style={{ fontSize: 12, color: "#9aa1ac", paddingTop: 12 }}>No individual leads left in this file.</div>
           ) : (
             <table style={{ marginTop: 10 }}>
               <thead>
                 <tr>
+                  {isDynamics && <th style={{ textAlign: "left", padding: "6px 8px", fontSize: 10, color: "#9aa1ac", textTransform: "uppercase" }}>Seats</th>}
                   {EDITABLE_FIELDS.map((f) => (
                     <th key={f} style={{ textAlign: "left", padding: "6px 8px", fontSize: 10, color: "#9aa1ac", textTransform: "uppercase" }}>{f}</th>
                   ))}
@@ -380,11 +392,12 @@ function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownl
                 </tr>
               </thead>
               <tbody>
-                {entry.rows.slice(0, ROW_EDITOR_CAP).map((row, idx) => {
+                {displayRows.slice(0, ROW_EDITOR_CAP).map((row, idx) => {
                   const rowKey = row.__rowKey || String(idx);
                   return (
                     <Fragment key={rowKey}>
                       <tr style={{ borderTop: "1px solid #EEF0F3" }}>
+                        {isDynamics && <td style={{ padding: "4px 6px", fontSize: 12, color: row.__dynamicsSeatCount != null ? "#081E22" : "#9aa1ac", fontWeight: row.__dynamicsSeatCount != null ? 700 : 400 }}>{row.__dynamicsSeatCount ?? "—"}</td>}
                         {EDITABLE_FIELDS.map((f) => (
                           <td key={f} style={{ padding: "4px 6px" }}>
                             <input defaultValue={row[f] || ""} onBlur={(ev) => onRowField(rowKey, f, ev.target.value)} style={{ width: "100%", minWidth: 90, border: "1px solid transparent", borderRadius: 5, padding: "5px 6px", fontSize: 12 }} />
