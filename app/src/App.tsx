@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import Scanner from "./components/Scanner";
 import LibraryView from "./components/Library";
+import LockScreen from "./components/LockScreen";
 import type { ParsedFile, ResultRow } from "./lib/detection";
 import { scanParsedFiles } from "./lib/detection";
 import { loadLibraryFromDB, ensureMonthFoldersExist, persistGroup, type LibraryEntry, type LibraryGroup } from "./lib/library";
+import { isUnlocked, setUnlocked } from "./lib/auth";
 
 type View = "scanner" | "history" | "library";
 
@@ -21,6 +23,7 @@ export interface UploadedFile {
 // this, not the source of truth for the running session — same relationship
 // legacy/unified-tool.js's single global `state` object had to its DB.
 export default function App() {
+  const [unlocked, setUnlockedState] = useState(isUnlocked());
   const [view, setView] = useState<View>("scanner");
   const [results, setResults] = useState<ResultRow[] | null>(null);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
@@ -56,6 +59,8 @@ export default function App() {
     return scanned;
   }
 
+  if (!unlocked) return <LockScreen onUnlock={() => setUnlockedState(true)} />;
+
   return (
     <div style={{ maxWidth: 1240, margin: "0 auto", padding: "36px 28px 60px" }}>
       <header style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
@@ -80,6 +85,13 @@ export default function App() {
               {v === "library" ? `library (${libraryEntries.length})` : v}
             </button>
           ))}
+          <button
+            onClick={() => { setUnlocked(false); setUnlockedState(false); }}
+            title="Lock this page again"
+            style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 700, color: "#4c6167" }}
+          >
+            Lock
+          </button>
         </nav>
       </header>
 
