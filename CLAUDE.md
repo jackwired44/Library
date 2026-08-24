@@ -451,3 +451,7 @@ above — that tradeoff needs Jack's explicit sign-off when the time comes).
   tests (pointed at whichever build is currently under test) before calling
   it done — "it compiles" is not the bar, "it matches the legacy behavior"
   is.
+- When Jack says **"CRM"** on its own, that means: pull up the platform —
+  rebuild if there are uncommitted changes since the last publish, then
+  republish/refresh the claude.ai Artifact and hand him the link. Treat it
+  the same as "open the platform"/"drop the platform link," just shorter.
