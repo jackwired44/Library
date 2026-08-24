@@ -222,6 +222,14 @@ interleaved by guesswork. Scoped to Dynamics 365 only, by explicit choice;
 M365/Azure (below) keeps its existing order until asked. This is an
 app/-only enhancement — legacy/unified-tool.js does not have it.
 
+The seat-count secondary key's direction is user-togglable (Scanner, next
+to the category filter buttons, visible only when the Dynamics 365 filter
+is active) — "greatest to least" (default) or "least to greatest." The
+module-tier grouping never flips with it; only which end of the count
+range comes first *within* each tier block changes, and an uncounted lead
+still always sinks to the bottom of its own block either way
+(`sortByDynamicsSeatCount`'s `desc` param).
+
 ### App/-only detection tightening (fine-tuning pass)
 
 The rules below are deliberate, Jack-directed departures from the
@@ -311,6 +319,36 @@ them in the free-text summary was pure duplication. Any candidate sentence
 containing an email or phone pattern is dropped from the summary the same
 way a sentence with a date/BANT/serial-number pattern already was
 (`hasForbiddenContent()` in `app/src/lib/detection.ts`).
+
+**High Priority Leads panel (app/ only, Scanner landing screen).** The
+Scanner's empty/upload screen has a small panel at the bottom, below
+"Recent uploads," listing every lead marked High Priority (⭐) across *all*
+of History — not just the 6-most-recent uploads shown above it — since a
+priority tag can be set long after its own batch scrolled out of "recent."
+Each row shows company/contact, the exact source CSV file it came from
+(`ResultRow.sourceFile`, not the History entry's combined `fileName`, so a
+multi-file upload still attributes correctly), and lets you edit the
+month/year tag or unmark it right there, without reopening that upload. A
+filter dropdown narrows the list to one source file when more than one is
+represented. Editing writes straight through to the History entry the row
+came from (`onSyncToHistory`, reusing the same `__sourceEntryId`/
+`__sourceRowId` plumbing every row already carries from the moment it's
+first scanned) — no separate storage, no new persistence path.
+
+**Bug fixed while building the panel:** `Scanner.tsx`'s `mutateResults`
+(added last session to make `onSyncToHistory` StrictMode-safe) read a
+setState functional updater's result via a `let touched` variable captured
+from *outside* the updater, assuming the updater always runs synchronously
+before that line executes. Confirmed via direct instrumentation that this
+assumption is false in React 18 for at least one real case (a second edit
+fired shortly after a first one to the same state) — the outer read ran
+before the updater's own internal logic did, so `touched` was still empty
+and the History sync silently never happened. This wasn't limited to the
+new panel: it affected every Scanner-side edit (tier toggle, category
+reassignment, disposition, cross-out, priority) whenever one fired as an
+isolated `mutateResults` call shortly after another. Fixed by having
+`mutateResults` read the `results` prop directly (always current when an
+event handler runs) instead of depending on the updater's timing at all.
 
 ## Library architecture (the trickiest part to port correctly)
 

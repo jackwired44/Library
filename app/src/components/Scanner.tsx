@@ -59,6 +59,11 @@ interface ScannerProps {
   // without switching to the History tab first.
   recentUploads: HistoryEntry[];
   onOpenRecentUpload: (id: string) => void;
+  // Full History (not just the 6-most-recent recentUploads slice) — the
+  // High Priority panel on the landing screen searches every past upload,
+  // since a priority lead can be tagged long after its own batch scrolled
+  // out of "recent."
+  allHistory: HistoryEntry[];
   ruleOverrides: RuleOverrides;
 }
 
@@ -76,6 +81,7 @@ export default function Scanner({
   onSyncToHistory,
   recentUploads,
   onOpenRecentUpload,
+  allHistory,
   ruleOverrides,
 }: ScannerProps) {
   // Per-bucket download file name — editable, defaults to the standard
@@ -98,6 +104,15 @@ export default function Scanner({
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // High Priority panel (landing screen) — filter by which source CSV a
+  // priority lead came from; "all" shows every priority lead across all
+  // of History, not just the recent-uploads slice.
+  const [priorityFileFilter, setPriorityFileFilter] = useState("all");
+  // Dynamics numeric sort direction — module-tier grouping (ERP block,
+  // then Sales/CRM, then the rest) always stays intact; this only flips
+  // which end of the seat-count secondary key comes first within each
+  // block. Defaults to Jack's standing rule (greatest to least).
+  const [dynamicsSortDesc, setDynamicsSortDesc] = useState(true);
 
   async function handleFiles(fileListLike: FileList | null) {
     const all = Array.from(fileListLike || []).filter((f) => /\.csv$/i.test(f.name));
@@ -176,10 +191,12 @@ export default function Scanner({
       });
     }
     // Always-on: viewing Dynamics 365 leads ranks them by stated seat/user/
-    // license count, highest first, regardless of which tier tab is active.
-    if (categoryFilter === "dynamics365") list = sortByDynamicsSeatCount(list);
+    // license count (direction togglable below), regardless of which tier
+    // tab is active. Module-tier grouping (ERP block, then Sales/CRM, then
+    // the rest) never flips.
+    if (categoryFilter === "dynamics365") list = sortByDynamicsSeatCount(list, dynamicsSortDesc);
     return list;
-  }, [results, tierFilter, categoryFilter, duplicatesOnly, priorityOnly, search]);
+  }, [results, tierFilter, categoryFilter, duplicatesOnly, priorityOnly, search, dynamicsSortDesc]);
 
   const tierCounts = useMemo(() => {
     let signal = 0, mention = 0, dq = 0;
@@ -198,19 +215,39 @@ export default function Scanner({
   const duplicateCount = useMemo(() => (results || []).filter((r) => r.isDuplicate).length, [results]);
   const priorityCount = useMemo(() => (results || []).filter((r) => r.priority).length, [results]);
 
+  // High Priority panel (landing screen) — every priority lead across all
+  // of History, not scoped to the active scan. sourceFile (the actual CSV
+  // it came from) drives the file filter, not the History entry's combined
+  // fileName, so a multi-file upload still filters per-file correctly.
+  const priorityLeads = useMemo(() => {
+    const items: { entry: HistoryEntry; row: ResultRow }[] = [];
+    allHistory.forEach((h) => h.results.forEach((r) => { if (r.priority) items.push({ entry: h, row: r }); }));
+    return items;
+  }, [allHistory]);
+  const priorityFileOptions = useMemo(() => [...new Set(priorityLeads.map(({ row }) => row.sourceFile))].sort(), [priorityLeads]);
+  const filteredPriorityLeads = useMemo(
+    () => (priorityFileFilter === "all" ? priorityLeads : priorityLeads.filter(({ row }) => row.sourceFile === priorityFileFilter)),
+    [priorityLeads, priorityFileFilter]
+  );
+
   // fn mutates `next` in place and returns whichever rows it touched. The
   // touched rows are synced to History AFTER setResults returns, never
   // inside the updater — React 18 StrictMode double-invokes updaters in
   // dev, and a side effect (onSyncToHistory writes to IndexedDB) inside one
   // would silently double-write.
+  // Reads `results` directly (a plain prop, always current at the time an
+  // event handler runs) rather than a setState functional updater — a
+  // functional updater's callback isn't guaranteed to run synchronously
+  // for every call in React 18 (confirmed: a second state update fired
+  // shortly after a first one to the same state could still be pending
+  // when the code right after setResults() ran, silently dropping the
+  // onSyncToHistory call that depended on reading its result there).
+  // setResults(next) with a plain array avoids that dependency entirely.
   function mutateResults(fn: (list: ResultRow[]) => ResultRow[]) {
-    let touched: ResultRow[] = [];
-    setResults((prev) => {
-      if (!prev) return prev;
-      const next = prev.map((r) => ({ ...r }));
-      touched = fn(next);
-      return next;
-    });
+    if (!results) return;
+    const next = results.map((r) => ({ ...r }));
+    const touched = fn(next);
+    setResults(next);
     touched.forEach((row) => onSyncToHistory(row));
   }
 
@@ -385,6 +422,59 @@ export default function Scanner({
             </div>
           </div>
         )}
+
+        {priorityLeads.length > 0 && (
+          <div style={{ marginTop: 28 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+              <div style={{ fontSize: 11.5, color: "#8b93a0", fontWeight: 700, textTransform: "uppercase" }}>⭐ High Priority Leads ({filteredPriorityLeads.length})</div>
+              {priorityFileOptions.length > 1 && (
+                <select
+                  value={priorityFileFilter}
+                  onChange={(e) => setPriorityFileFilter(e.target.value)}
+                  style={{ border: "1px solid #D5D9E0", borderRadius: 9, padding: "6px 10px", fontSize: 12 }}
+                >
+                  <option value="all">All upload files</option>
+                  {priorityFileOptions.map((f) => (
+                    <option key={f} value={f}>{f}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {filteredPriorityLeads.map(({ entry, row }) => {
+                const f = row.row.__f;
+                return (
+                  <div
+                    key={`${entry.id}::${row.id}`}
+                    style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", background: "#FFF7E5", border: "1px solid #F5DFA0", borderRadius: 11, padding: "10px 14px" }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 13 }}>
+                        {f.company || "—"} <span style={{ fontWeight: 500, color: "#4c6167" }}>· {getFullName(f) || f.email || "—"}</span>
+                      </div>
+                      <div style={{ fontSize: 11.5, color: "#9aa1ac" }}>{row.sourceFile} · {CATEGORY_META[row.category].label}</div>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <input
+                        type="month"
+                        value={row.priorityMonth || ""}
+                        onChange={(e) => onSyncToHistory({ ...row, priorityMonth: e.target.value || null })}
+                        style={{ border: "1px solid #D8DBE1", borderRadius: 6, padding: "4px 6px", fontSize: 11.5 }}
+                      />
+                      <button
+                        onClick={() => onSyncToHistory({ ...row, priority: false })}
+                        title="Unmark High Priority"
+                        style={{ border: "1px solid #F0D6D6", background: "#fff", color: "#B5443B", borderRadius: 6, padding: "4px 8px", fontSize: 11.5, whiteSpace: "nowrap" }}
+                      >
+                        Unmark
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -508,6 +598,17 @@ export default function Scanner({
             {CATEGORY_META[k].label} ({categoryCounts[k] || 0})
           </button>
         ))}
+        {categoryFilter === "dynamics365" && (
+          <select
+            value={dynamicsSortDesc ? "desc" : "asc"}
+            onChange={(e) => setDynamicsSortDesc(e.target.value === "desc")}
+            title="Seat count order within each module block (ERP block always ranks above Sales/CRM, regardless of this setting)"
+            style={{ border: "1px solid #D5D9E0", borderRadius: 9, padding: "7px 10px", fontSize: 12.5, fontWeight: 600, color: "#4C6167" }}
+          >
+            <option value="desc">Seat count: greatest to least</option>
+            <option value="asc">Seat count: least to greatest</option>
+          </select>
+        )}
         <input
           value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(1); }}

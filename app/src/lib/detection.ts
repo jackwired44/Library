@@ -870,11 +870,20 @@ export function scanParsedFiles(parsedFiles: ParsedFile[], overrides: RuleOverri
 // below every counted lead in its own block, in whatever order it was
 // already in (stable sort). Applies only where the caller chooses to use
 // it (Dynamics 365 views specifically).
-export function sortByDynamicsSeatCount<T extends { dynamicsSeatCount?: number | null; dynamicsModuleTier?: number }>(rows: T[]): T[] {
+// `desc` flips which end of the seat-count secondary key comes first
+// (greatest-to-least by default, per Jack's standing rule) — an uncounted
+// lead stays pinned below every counted lead in its own block either way;
+// the toggle never promotes "no count" above a real one.
+export function sortByDynamicsSeatCount<T extends { dynamicsSeatCount?: number | null; dynamicsModuleTier?: number }>(rows: T[], desc: boolean = true): T[] {
   return [...rows].sort((a, b) => {
     const tierDiff = (a.dynamicsModuleTier ?? 2) - (b.dynamicsModuleTier ?? 2);
     if (tierDiff !== 0) return tierDiff;
-    return (b.dynamicsSeatCount ?? -Infinity) - (a.dynamicsSeatCount ?? -Infinity);
+    const aCount = a.dynamicsSeatCount ?? null;
+    const bCount = b.dynamicsSeatCount ?? null;
+    if (aCount === null && bCount === null) return 0;
+    if (aCount === null) return 1;
+    if (bCount === null) return -1;
+    return desc ? bCount - aCount : aCount - bCount;
   });
 }
 

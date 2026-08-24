@@ -287,6 +287,7 @@ export default function App() {
           onSyncToHistory={syncToHistory}
           recentUploads={historyEntries.slice(0, 6)}
           onOpenRecentUpload={(id) => loadHistoryIntoScanner([id])}
+          allHistory={historyEntries}
           ruleOverrides={ruleOverrides}
         />
       )}
