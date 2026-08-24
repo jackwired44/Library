@@ -951,6 +951,28 @@ export interface ParsedFile {
   data: Record<string, unknown>[];
 }
 
+// Column-guessing + per-row field resolution, factored out of the scan
+// pass below so other consumers (lib/contacts.ts) can resolve every raw
+// row's fields — including ones with no detection signal at all — without
+// duplicating this logic or running the detection engine over them.
+export function computeFileFieldMapping(pf: ParsedFile): Partial<Record<keyof ResolvedFields, string>> {
+  const fileMapping: Partial<Record<keyof ResolvedFields, string>> = {};
+  FIELD_DEFS.forEach((f) => { fileMapping[f.key] = guessColumn(pf.fields, f.candidates) || undefined; });
+  const claimedCols = new Set(Object.values(fileMapping).filter(Boolean) as string[]);
+  const unclaimedPhoneCols = pf.fields.filter((c) => !claimedCols.has(c) && PHONE_LIKE_RE.test(c));
+  if (!fileMapping.workPhone && unclaimedPhoneCols.length > 0) fileMapping.workPhone = unclaimedPhoneCols.shift();
+  if (!fileMapping.mobilePhone && unclaimedPhoneCols.length > 0) fileMapping.mobilePhone = unclaimedPhoneCols.shift();
+  return fileMapping;
+}
+export function resolveRowFields(row: Record<string, unknown>, fileMapping: Partial<Record<keyof ResolvedFields, string>>): ResolvedFields {
+  const resolved: ResolvedFields = {};
+  FIELD_DEFS.forEach((f) => {
+    const col = fileMapping[f.key];
+    (resolved as Record<string, unknown>)[f.key] = col ? row[col] ?? "" : "";
+  });
+  return resolved;
+}
+
 // The mapping + scan pass — runs once per upload/reload, feeds both the
 // Scanner/History entry (every row, every tier) and the Library save (just
 // the Strong Signal rows).
@@ -962,18 +984,9 @@ export function scanParsedFiles(
   const results: ResultRow[] = [];
   parsedFiles.forEach((pf, fileIdx) => {
     rowsScanned += pf.data.length;
-    const fileMapping: Partial<Record<keyof ResolvedFields, string>> = {};
-    FIELD_DEFS.forEach((f) => { fileMapping[f.key] = guessColumn(pf.fields, f.candidates) || undefined; });
-    const claimedCols = new Set(Object.values(fileMapping).filter(Boolean) as string[]);
-    const unclaimedPhoneCols = pf.fields.filter((c) => !claimedCols.has(c) && PHONE_LIKE_RE.test(c));
-    if (!fileMapping.workPhone && unclaimedPhoneCols.length > 0) fileMapping.workPhone = unclaimedPhoneCols.shift();
-    if (!fileMapping.mobilePhone && unclaimedPhoneCols.length > 0) fileMapping.mobilePhone = unclaimedPhoneCols.shift();
+    const fileMapping = computeFileFieldMapping(pf);
     pf.data.forEach((row, i) => {
-      const resolved: ResolvedFields = {};
-      FIELD_DEFS.forEach((f) => {
-        const col = fileMapping[f.key];
-        (resolved as Record<string, unknown>)[f.key] = col ? row[col] ?? "" : "";
-      });
+      const resolved = resolveRowFields(row, fileMapping);
       const scan = scanRowUnified(row, pf.fields, resolved, overrides);
       if (!scan) return;
       results.push({

@@ -6,9 +6,11 @@ import LockScreen from "./components/LockScreen";
 import BackupRestore from "./components/BackupRestore";
 import CheatSheet from "./components/CheatSheet";
 import Home from "./components/Home";
+import ContactsView from "./components/Contacts";
 import type { ParsedFile, ResultRow, RuleOverrides } from "./lib/detection";
 import { scanParsedFiles, DEFAULT_RULE_OVERRIDES } from "./lib/detection";
 import { loadLibraryFromDB, ensureMonthFoldersExist, persistGroup, type LibraryEntry, type LibraryGroup } from "./lib/library";
+import { loadContactsFromDB, mergeContactsFromParsedFiles, persistContact, type Contact } from "./lib/contacts";
 import {
   loadHistoryFromDB,
   persistHistoryEntry,
@@ -23,11 +25,12 @@ import TaskBoard from "./components/TaskBoard";
 import { loadTasksFromDB, persistTask, deleteTaskFromDB, createTask, type Task } from "./lib/tasks";
 import { isUnlocked, setUnlocked } from "./lib/auth";
 
-type View = "home" | "scanner" | "history" | "library" | "board";
+type View = "home" | "scanner" | "history" | "library" | "board" | "contacts";
 const NAV_ITEMS: { key: View; label: string; icon: string }[] = [
   { key: "home", label: "Home", icon: "🏠" },
   { key: "scanner", label: "Scanner", icon: "🔎" },
   { key: "library", label: "Library", icon: "📚" },
+  { key: "contacts", label: "Contacts", icon: "🪪" },
   { key: "history", label: "History", icon: "🕘" },
   { key: "board", label: "Board", icon: "🗓" },
 ];
@@ -70,6 +73,10 @@ export default function App() {
   const [tasksLoading, setTasksLoading] = useState(true);
   const [tasksError, setTasksError] = useState<string | null>(null);
 
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [contactsLoading, setContactsLoading] = useState(true);
+  const [contactsError, setContactsError] = useState<string | null>(null);
+
   useEffect(() => {
     loadLibraryFromDB()
       .then(({ entries, groups }) => {
@@ -104,6 +111,15 @@ export default function App() {
       .catch(() => {
         setTasksError("Couldn't load your task board from this browser's local storage.");
         setTasksLoading(false);
+      });
+    loadContactsFromDB()
+      .then((loaded) => {
+        setContacts(loaded);
+        setContactsLoading(false);
+      })
+      .catch(() => {
+        setContactsError("Couldn't load your Contacts directory from this browser's local storage.");
+        setContactsLoading(false);
       });
   }, []);
 
@@ -160,7 +176,20 @@ export default function App() {
     });
     setHistoryEntries((prev) => [entry, ...prev]);
     persistHistoryEntry(entry);
+    mergeContacts(parsedFiles);
     return entry;
+  }
+
+  // Every fresh CSV upload becomes a History entry (see recordHistory
+  // above) — the same choke point folds EVERY raw row (not just the ones
+  // that cleared detection into `scanned`) into the permanent Contacts
+  // directory — see CLAUDE.md "Contacts."
+  function mergeContacts(parsedFiles: ParsedFile[]) {
+    setContacts((prev) => {
+      const { contacts: next, touched } = mergeContactsFromParsedFiles(prev, parsedFiles);
+      touched.forEach((c) => persistContact(c));
+      return next;
+    });
   }
 
   // Writes a category/tier/cross-out edit made on a row loaded FROM History
@@ -279,6 +308,7 @@ export default function App() {
               libraryCount={libraryEntries.length}
               historyCount={historyEntries.length}
               tasksOpenCount={tasks.filter((t) => !t.done).length}
+              contactsCount={contacts.length}
             />
           )}
           {view === "scanner" && (
@@ -303,6 +333,7 @@ export default function App() {
               ruleOverrides={ruleOverrides}
             />
           )}
+          {view === "contacts" && <ContactsView contacts={contacts} loading={contactsLoading} error={contactsError} />}
           {view === "history" && (
             <HistoryView
               history={historyEntries}

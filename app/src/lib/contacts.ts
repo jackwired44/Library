@@ -1,0 +1,193 @@
+// Contacts — a permanent, cross-upload directory of every person seen in
+// any CSV upload (Scanner or Library's direct-into-folder flow) — every row
+// of every upload, per Jack's explicit call, not just rows the detection
+// engine found a Dynamics/M365/licensing signal on. Broader than both the
+// Scanner's results (Strong Signal/Needs Review/Bad Leads only — a row
+// with zero signal never becomes a ResultRow at all, see scanRowUnified)
+// and the Library itself (which only ever files Strong Signal leads) —
+// this is the full universe of contacts ever uploaded, deduplicated
+// permanently rather than the Scanner's own single-batch-scoped duplicate
+// check.
+//
+// Dedup key, per Jack's explicit call: email first (the most stable
+// identity for the same real person across different lead lists, since
+// company name/spelling can vary upload to upload), name+company fallback
+// (same normalization as the Scanner's batch-scoped duplicate check —
+// case/whitespace-insensitive, exact match, no fuzzy matching) when a row
+// has no email. A row with neither still gets a Contact record, it's just
+// never matched as a duplicate of anything else.
+import { dbGetAll, dbPut, STORE_CONTACTS } from "./db";
+import { computeFileFieldMapping, getFullName, resolveRowFields, type ParsedFile, type ResolvedFields } from "./detection";
+
+export interface Contact {
+  id: string;
+  firstName: string;
+  lastName: string;
+  fullName: string;
+  title: string;
+  company: string;
+  email: string;
+  workPhone: string;
+  mobilePhone: string;
+  employees: string;
+  productArea: string;
+  sourceFiles: string[];
+  firstSeenAt: string;
+  lastSeenAt: string;
+  timesSeen: number;
+}
+
+function newId() {
+  return `contact-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normalizeText(s: unknown): string {
+  return String(s || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+// Both keys are derived live from a Contact's CURRENT fields every merge
+// run, never persisted — a contact first seen with no email (matched only
+// by name+company) still needs to be found once a later upload supplies
+// its email, so lookups always try both keys rather than trusting whatever
+// key identified it the first time.
+function emailKeyOf(email: unknown): string | null {
+  const e = normalizeText(email);
+  return e ? `email:${e}` : null;
+}
+function nameCompanyKeyOf(fullName: unknown, company: unknown): string | null {
+  const n = normalizeText(fullName);
+  const co = normalizeText(company);
+  return n && co ? `namecompany:${n}|||${co}` : null;
+}
+
+function fillBlank(oldVal: string, newVal: unknown): string {
+  return oldVal || String(newVal || "").trim();
+}
+
+export async function loadContactsFromDB(): Promise<Contact[]> {
+  return dbGetAll<Contact>(STORE_CONTACTS);
+}
+export async function persistContact(contact: Contact) {
+  await dbPut(STORE_CONTACTS, contact);
+}
+
+interface ContactInput {
+  resolved: ResolvedFields;
+  sourceFile: string;
+}
+
+// Every raw row of every uploaded file, regardless of tier or whether the
+// detection engine found any Dynamics/M365/licensing signal on it at all —
+// per Jack: "adds contacts as they're added through the csv uploads,"
+// answered explicitly as every row, every upload, not just the ones that
+// clear the Scanner's own detection rules. Deliberately built from the
+// ParsedFile[] the Scanner/Library upload handlers already have, NOT from
+// the ResultRow[] scanParsedFiles returns — that array has already dropped
+// every row with zero detection signal (see scanRowUnified's early
+// returns), which would silently exclude plenty of real contacts.
+function contactInputsFromParsedFiles(parsedFiles: ParsedFile[]): ContactInput[] {
+  const inputs: ContactInput[] = [];
+  parsedFiles.forEach((pf) => {
+    const fileMapping = computeFileFieldMapping(pf);
+    pf.data.forEach((row) => {
+      inputs.push({ resolved: resolveRowFields(row, fileMapping), sourceFile: pf.name });
+    });
+  });
+  return inputs;
+}
+
+// Folds a freshly-uploaded batch of rows into the existing Contacts
+// directory (additive merge — a later, sparser upload never blanks out a
+// field a prior upload already filled in). Returns the full updated array
+// plus just the touched records, so the caller can persist only those
+// instead of rewriting the whole store on every upload.
+export function mergeContactsFromParsedFiles(existing: Contact[], parsedFiles: ParsedFile[]): { contacts: Contact[]; touched: Contact[]; added: number; updated: number } {
+  const byId = new Map<string, Contact>(existing.map((c) => [c.id, c]));
+  const byEmail = new Map<string, Contact>();
+  const byNameCompany = new Map<string, Contact>();
+  const index = (c: Contact) => {
+    const ek = emailKeyOf(c.email);
+    if (ek) byEmail.set(ek, c);
+    const nk = nameCompanyKeyOf(c.fullName, c.company);
+    if (nk) byNameCompany.set(nk, c);
+  };
+  existing.forEach(index);
+  const touchedIds = new Set<string>();
+  const now = new Date().toISOString();
+  let added = 0;
+  let updated = 0;
+
+  contactInputsFromParsedFiles(parsedFiles).forEach(({ resolved: f, sourceFile }) => {
+    const fullName = getFullName(f);
+    const company = String(f.company || "").trim();
+    const email = String(f.email || "").trim();
+    if (!fullName && !company && !email) return;
+
+    // Email first, name+company fallback — but check BOTH against what's
+    // already on file, not just whichever key this particular row happens
+    // to carry. Otherwise a contact first seen with no email (matched only
+    // by name+company) would never be found again once a later upload
+    // supplies their email, and would get filed as a brand new duplicate
+    // instead of merged.
+    const emailKey = emailKeyOf(email);
+    const nameCompanyKey = nameCompanyKeyOf(fullName, company);
+    const match = (emailKey && byEmail.get(emailKey)) || (nameCompanyKey && byNameCompany.get(nameCompanyKey)) || undefined;
+
+    if (match) {
+      const merged: Contact = {
+        ...match,
+        firstName: fillBlank(match.firstName, f.firstName),
+        lastName: fillBlank(match.lastName, f.lastName),
+        fullName: match.fullName || fullName,
+        title: fillBlank(match.title, f.title),
+        company: match.company || company,
+        email: match.email || email,
+        workPhone: fillBlank(match.workPhone, f.workPhone),
+        mobilePhone: fillBlank(match.mobilePhone, f.mobilePhone),
+        employees: fillBlank(match.employees, f.employees),
+        productArea: fillBlank(match.productArea, f.productArea),
+        sourceFiles: match.sourceFiles.includes(sourceFile) ? match.sourceFiles : [...match.sourceFiles, sourceFile],
+        lastSeenAt: now,
+        timesSeen: match.timesSeen + 1,
+      };
+      byId.set(merged.id, merged);
+      index(merged);
+      touchedIds.add(merged.id);
+      updated++;
+    } else {
+      const contact: Contact = {
+        id: newId(),
+        firstName: String(f.firstName || "").trim(),
+        lastName: String(f.lastName || "").trim(),
+        fullName,
+        title: String(f.title || "").trim(),
+        company,
+        email,
+        workPhone: String(f.workPhone || "").trim(),
+        mobilePhone: String(f.mobilePhone || "").trim(),
+        employees: String(f.employees || "").trim(),
+        productArea: String(f.productArea || "").trim(),
+        sourceFiles: [sourceFile],
+        firstSeenAt: now,
+        lastSeenAt: now,
+        timesSeen: 1,
+      };
+      byId.set(contact.id, contact);
+      index(contact);
+      touchedIds.add(contact.id);
+      added++;
+    }
+  });
+
+  const contacts = Array.from(byId.values());
+  const touched = contacts.filter((c) => touchedIds.has(c.id));
+  return { contacts, touched, added, updated };
+}
+
+export function searchContacts(contacts: Contact[], query: string): Contact[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return contacts;
+  return contacts.filter((c) =>
+    [c.fullName, c.company, c.title, c.email, c.workPhone, c.mobilePhone].some((v) => v.toLowerCase().includes(q))
+  );
+}

@@ -599,6 +599,52 @@ Sheet's own behavior changed — only how you get to them.
   widths, maybe more on the Home page) rather than treating this shape as
   final.
 
+## Contacts (app/ only)
+
+A permanent, cross-upload directory of every person seen in any CSV upload
+— its own nav item (between Library and History), described in-app as an
+extension of the Library ("an additional function of the library," per
+Jack), but broader in scope: it captures every row of every upload, not
+just Strong Signal leads. Two product decisions here were confirmed with
+Jack before building (cross-checked per his explicit ask, not guessed):
+
+- **Capture scope: every row, every upload — not just detection hits.**
+  `lib/contacts.ts`'s `mergeContactsFromParsedFiles` is deliberately built
+  from the raw `ParsedFile[]` the Scanner/Library upload handlers already
+  have, NOT from the `ResultRow[]` `scanParsedFiles` returns — that array
+  has already dropped every row with zero Dynamics/M365/licensing signal
+  (`scanRowUnified`'s early returns), which would've silently excluded
+  plenty of real contacts. `computeFileFieldMapping`/`resolveRowFields`
+  were factored out of `scanParsedFiles` in `lib/detection.ts` specifically
+  so Contacts could resolve every row's fields (name/company/email/phone/
+  title) without running detection over rows that will never match
+  anything. Hooked into `App.tsx`'s `recordHistory` — the single existing
+  choke point every fresh CSV upload already passes through (Scanner's
+  direct upload, Library's upload-into-folder, and a Library "Load into
+  Scanner" reload all funnel here) — via a new `mergeContacts(parsedFiles)`
+  call.
+- **Dedup key: email first, name+company fallback — checked as two
+  independent lookups, not one fixed key per contact.** A row's email
+  (case/whitespace-normalized) is checked first; if absent, the same
+  normalized exact-match name+company key the Scanner's own batch-scoped
+  duplicate check uses. Critically, `mergeContactsFromParsedFiles` derives
+  BOTH keys fresh from each existing Contact's CURRENT fields on every
+  merge run (`emailKeyOf`/`nameCompanyKeyOf`, never a field frozen at
+  creation) and tries both — a contact first seen with no email (matched
+  only by name+company) still gets found and merged, not duplicated, once
+  a later upload supplies their email. Merging is additive: a later,
+  sparser upload never blanks a field a prior upload already filled in
+  (`fillBlank`), and `sourceFiles`/`timesSeen`/`lastSeenAt` accumulate
+  across every upload a contact appears in.
+- **Contacts.tsx is read-only** — search (name/company/title/email/phone)
+  and a sort dropdown (most recent/name/company/times seen), no per-
+  contact editing here. Editing still lives on the lead itself in Scanner/
+  Library, deliberately, to avoid a second edit surface for the same
+  person's data.
+- Persistence is its own IndexedDB store (`STORE_CONTACTS`, `lib/db.ts`,
+  `DB_VERSION` bumped 4→5) — same one-store-per-concern pattern as Library/
+  History/Tasks, not folded into an existing store.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool
