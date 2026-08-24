@@ -5,7 +5,70 @@ export function toCSV(rows: Record<string, unknown>[], columns: readonly string[
   return Papa.unparse({ fields: columns as string[], data: rows.map((r) => columns.map((c) => r[c] ?? "")) });
 }
 
-export function downloadBlob(text: string, fileName: string, mime = "text/csv;charset=utf-8;") {
+// `window.claude` only exists when this app is running inside a
+// claude.ai Artifact viewer that declared the `downloads` capability
+// (see the Artifact publish call) — a real deployed build or `npm run
+// dev` never has it. Typed narrowly and locally rather than pulling the
+// platform's own capability contract into this app's source tree, since
+// the app has to keep working standalone too.
+interface ClaudeDownloadsNamespace {
+  save(request: { filename: string; data: string }): Promise<{ status: "saved" }>;
+}
+declare global {
+  interface Window {
+    claude?: {
+      use(name: "downloads"): Promise<ClaudeDownloadsNamespace | null>;
+    };
+  }
+}
+
+function swapExtension(fileName: string, ext: string): string {
+  return fileName.replace(/\.[^./\\]+$/, "") + ext;
+}
+
+// Tries the capability's own save prompt first (this is the ONLY way a
+// file leaves the page when running inside the Artifact preview — the
+// viewer's sandbox blocks the classic <a download> trick outright, see
+// the Artifact tool's own warning). CSV is in the capability's "extended"
+// file-type set, which isn't guaranteed enabled for every viewer, so a
+// rejected/unsupported CSV extension falls back to a .txt with the same
+// content rather than failing outright.
+async function saveViaClaudeDownloads(fileName: string, text: string): Promise<boolean> {
+  if (typeof window === "undefined" || !window.claude?.use) return false;
+  let downloads: ClaudeDownloadsNamespace | null;
+  try {
+    downloads = await window.claude.use("downloads");
+  } catch {
+    return false;
+  }
+  if (!downloads) return false;
+  try {
+    await downloads.save({ filename: fileName, data: text });
+    return true;
+  } catch (err) {
+    const code = (err as { code?: string } | null)?.code;
+    if (code === "declined") return true; // the viewer said no — not a failure, never auto-retry
+    if (code === "rejected_extension" || code === "extension_not_enabled") {
+      try {
+        await downloads.save({ filename: swapExtension(fileName, ".txt"), data: text });
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+}
+
+export async function downloadBlob(text: string, fileName: string, mime = "text/csv;charset=utf-8;"): Promise<void> {
+  if (await saveViaClaudeDownloads(fileName, text)) return;
+  if (typeof window !== "undefined" && window.claude?.use) {
+    // Inside a claude.ai viewer, but the save genuinely failed (not a
+    // decline) — the classic <a download> fallback below is a guaranteed
+    // no-op here, so say so instead of silently doing nothing.
+    window.alert(`Couldn't save "${fileName}" here. Try again, or run this app outside the preview (npm run dev) to download normally.`);
+    return;
+  }
   const blob = new Blob([text], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -17,8 +80,8 @@ export function downloadBlob(text: string, fileName: string, mime = "text/csv;ch
   URL.revokeObjectURL(url);
 }
 
-export function downloadCSV(fileName: string, rows: Record<ExportLabel, string>[], columns: readonly ExportLabel[]) {
-  downloadBlob(toCSV(rows, columns), fileName);
+export async function downloadCSV(fileName: string, rows: Record<ExportLabel, string>[], columns: readonly ExportLabel[]): Promise<void> {
+  await downloadBlob(toCSV(rows, columns), fileName);
 }
 
 export function parseCSVFile(file: File): Promise<{ name: string; fields: string[]; data: Record<string, unknown>[] }> {
