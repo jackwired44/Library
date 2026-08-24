@@ -68,6 +68,13 @@ export type StoredRow = ExportRow & {
   __rowKey: string;
   __dynamicsSeatCount: number | null;
   __dynamicsModuleTier: number;
+  // Same view-level sub-filter flags as ResultRow (see CLAUDE.md "Google ->
+  // Microsoft view" / "Business Central view") — carried through filing so
+  // the same View tabs work once a lead is stored in the Library, not just
+  // in the Scanner. Optional so a StoredRow filed before these flags
+  // existed still loads fine (undefined reads as false everywhere used).
+  __isGoogleToMicrosoft?: boolean;
+  __isBusinessCentral?: boolean;
   __disposition: Disposition;
   __dispositionNote: string;
   __priority: boolean;
@@ -234,6 +241,8 @@ export function fileSignalRowsIntoGroup(
       __rowKey: `${historyEntryId}-${r.id}`,
       __dynamicsSeatCount: r.dynamicsSeatCount,
       __dynamicsModuleTier: r.dynamicsModuleTier,
+      __isGoogleToMicrosoft: r.isGoogleToMicrosoft,
+      __isBusinessCentral: r.isBusinessCentral,
       __disposition: r.disposition,
       __dispositionNote: r.dispositionNote,
       __priority: r.priority,

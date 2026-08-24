@@ -522,10 +522,27 @@ interface CategoryFileCardProps {
 function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownload, onLoad, onReceivedDate, onRename, onRowField, onRowStatus, onRowDelete, onRowMove }: CategoryFileCardProps) {
   const meta = CATEGORY_META[Object.keys(CATEGORY_META).find((k) => CATEGORY_META[k as keyof typeof CATEGORY_META].bucket === entry.bucketKey) as keyof typeof CATEGORY_META];
   const isDynamics = entry.bucketKey === "dynamics";
+  const isM365 = entry.bucketKey === "m365Tenant";
+  // Same View-tab sub-filter as the Scanner (see CLAUDE.md "Google ->
+  // Microsoft view" / "Business Central view") — now available once a
+  // lead is filed/stored here too, not just pre-filing in the Scanner.
+  const [subView, setSubView] = useState<"all" | "special" | "other">("all");
+  const specialCount = isDynamics
+    ? entry.rows.filter((r) => r.__isBusinessCentral).length
+    : isM365
+      ? entry.rows.filter((r) => r.__isGoogleToMicrosoft).length
+      : 0;
+  const subFiltered =
+    subView === "all"
+      ? entry.rows
+      : entry.rows.filter((r) => {
+          const flag = isDynamics ? r.__isBusinessCentral : r.__isGoogleToMicrosoft;
+          return subView === "special" ? flag : !flag;
+        });
   // Ranked highest seat/user/license count first when this is the
   // Dynamics 365 file — a lead with no stated count sinks to its own
   // lower block rather than being treated as a count of 0.
-  const displayRows = isDynamics ? sortDynamicsStoredRows(entry.rows) : entry.rows;
+  const displayRows = isDynamics ? sortDynamicsStoredRows(subFiltered) : subFiltered;
   return (
     <div style={{ background: "#fff", border: "1px solid #E4E7EC", borderRadius: 13, overflow: "hidden" }}>
       <div style={{ padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
@@ -545,8 +562,38 @@ function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownl
       </div>
       {expanded && (
         <div style={{ padding: "0 18px 16px", overflowX: "auto", borderTop: "1px solid #F0F1F4" }}>
+          {(isDynamics || isM365) && (
+            <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", margin: "12px 0 4px" }}>
+              <span style={{ fontSize: 10.5, color: "#8b93a0", fontWeight: 700, textTransform: "uppercase" }}>View:</span>
+              {(
+                [
+                  ["all", `All (${entry.rows.length})`],
+                  ["special", `${isDynamics ? "Business Central / ERP" : "Google → Microsoft"} (${specialCount})`],
+                  ["other", `Everything else (${entry.rows.length - specialCount})`],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  onClick={() => setSubView(key)}
+                  style={{
+                    border: "none",
+                    borderRadius: 7,
+                    padding: "5px 10px",
+                    fontSize: 11.5,
+                    fontWeight: 600,
+                    background: subView === key ? "#081E22" : "#F6FAFA",
+                    color: subView === key ? "#fff" : "#4C6167",
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
           {displayRows.length === 0 ? (
-            <div style={{ fontSize: 12, color: "#9aa1ac", paddingTop: 12 }}>No individual leads left in this file.</div>
+            <div style={{ fontSize: 12, color: "#9aa1ac", paddingTop: 12 }}>
+              {entry.rows.length === 0 ? "No individual leads left in this file." : "No leads in this view."}
+            </div>
           ) : (
             <table style={{ marginTop: 10 }}>
               <thead>
@@ -631,8 +678,8 @@ function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownl
               </tbody>
             </table>
           )}
-          {entry.rows.length > ROW_EDITOR_CAP && (
-            <div style={{ fontSize: 11, color: "#9aa1ac", marginTop: 8 }}>Showing the first {ROW_EDITOR_CAP} of {entry.rows.length} leads — Download still gets every row.</div>
+          {displayRows.length > ROW_EDITOR_CAP && (
+            <div style={{ fontSize: 11, color: "#9aa1ac", marginTop: 8 }}>Showing the first {ROW_EDITOR_CAP} of {displayRows.length} leads{subView !== "all" ? " in this view" : ""} — Download still gets every row.</div>
           )}
         </div>
       )}

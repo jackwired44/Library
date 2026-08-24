@@ -469,6 +469,25 @@ regardless of which tab is active. Per Jack, this is one of a growing set
 of these keyword-triggered sub-filters, meant to make filed leads easier
 to slice once stored — expect more of these as specific keywords come up.
 
+**Both View-tab sub-filters now also live in the Library, not just the
+Scanner.** Per Jack: "we are slowly building out the filters for the
+leads so when they become stored it is easy to filter through" — the
+whole point of these sub-filters is to still be usable once a lead is
+filed, not just during the original scan. `StoredRow` (`app/src/lib/
+library.ts`) now carries `__isGoogleToMicrosoft`/`__isBusinessCentral`,
+copied straight from the `ResultRow` at filing time (`fileSignalRowsIntoGroup`)
+— both optional, so a `StoredRow` filed before this existed just reads as
+`false` everywhere it's checked, no migration needed. Each category
+file's card in `Library.tsx` (`CategoryFileCard`) now shows the same
+"View:" tab row inside its expanded editor — Business Central/ERP vs
+Everything else on a Dynamics 365 file, Google→Microsoft vs Everything
+else on an M365/Azure file — filtering only what's shown/edited there;
+download and the combined "All Strong Signal Leads" export are
+unaffected. Each category file card tracks its own sub-view
+independently (a `useState` local to `CategoryFileCard`), so having both
+a Dynamics and an M365/Azure file open at once with different tabs
+selected works fine.
+
 ## Library architecture (the trickiest part to port correctly)
 
 - Saving to the Library is **opt-in per upload** (a checkbox, default OFF) —
