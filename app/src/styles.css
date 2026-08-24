@@ -101,6 +101,33 @@ button:disabled {
   border-color: var(--ink);
 }
 
+.side-nav-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-weight: 600;
+  font-size: 13px;
+  text-align: left;
+  background: transparent;
+  color: var(--muted);
+}
+.side-nav-btn:hover {
+  background: var(--surface);
+  border-color: var(--border);
+}
+.side-nav-btn.active {
+  background: var(--ink);
+  color: #fff;
+}
+.side-nav-btn span:first-child {
+  font-size: 15px;
+  flex-shrink: 0;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }

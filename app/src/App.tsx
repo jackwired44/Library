@@ -5,6 +5,7 @@ import HistoryView from "./components/History";
 import LockScreen from "./components/LockScreen";
 import BackupRestore from "./components/BackupRestore";
 import CheatSheet from "./components/CheatSheet";
+import Home from "./components/Home";
 import type { ParsedFile, ResultRow, RuleOverrides } from "./lib/detection";
 import { scanParsedFiles, DEFAULT_RULE_OVERRIDES } from "./lib/detection";
 import { loadLibraryFromDB, ensureMonthFoldersExist, persistGroup, type LibraryEntry, type LibraryGroup } from "./lib/library";
@@ -22,7 +23,14 @@ import TaskBoard from "./components/TaskBoard";
 import { loadTasksFromDB, persistTask, deleteTaskFromDB, createTask, type Task } from "./lib/tasks";
 import { isUnlocked, setUnlocked } from "./lib/auth";
 
-type View = "scanner" | "history" | "library" | "board";
+type View = "home" | "scanner" | "history" | "library" | "board";
+const NAV_ITEMS: { key: View; label: string; icon: string }[] = [
+  { key: "home", label: "Home", icon: "🏠" },
+  { key: "scanner", label: "Scanner", icon: "🔎" },
+  { key: "library", label: "Library", icon: "📚" },
+  { key: "history", label: "History", icon: "🕘" },
+  { key: "board", label: "Board", icon: "🗓" },
+];
 
 export interface UploadedFile {
   name: string;
@@ -39,7 +47,7 @@ export interface UploadedFile {
 // legacy/unified-tool.js's single global `state` object had to its DB.
 export default function App() {
   const [unlocked, setUnlockedState] = useState(isUnlocked());
-  const [view, setView] = useState<View>("scanner");
+  const [view, setView] = useState<View>("home");
   const [showCheatSheet, setShowCheatSheet] = useState(false);
   const [results, setResults] = useState<ResultRow[] | null>(null);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
@@ -208,7 +216,7 @@ export default function App() {
   if (!unlocked) return <LockScreen onUnlock={() => setUnlockedState(true)} />;
 
   return (
-    <div style={{ maxWidth: 1240, margin: "0 auto", padding: "0 28px 60px" }}>
+    <div style={{ maxWidth: 1320, margin: "0 auto", padding: "0 28px 60px" }}>
       <header className="app-header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div className="app-mark" aria-hidden="true">W</div>
@@ -217,32 +225,120 @@ export default function App() {
             <div style={{ fontSize: 11.5, color: "#8b93a0", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Lead Scanner</div>
           </div>
         </div>
-        <nav style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          {(["scanner", "history", "library", "board"] as View[]).map((v) => (
-            <button key={v} onClick={() => setView(v)} className={`nav-btn${view === v ? " active" : ""}`}>
-              {v === "library" ? `library (${libraryEntries.length})` : v === "history" ? `history (${historyEntries.length})` : v === "board" ? "board" : v}
-            </button>
-          ))}
-          <button
-            onClick={() => { setUnlocked(false); setUnlockedState(false); }}
-            title="Lock this page again"
-            className="nav-btn"
-            style={{ textTransform: "none", letterSpacing: "normal" }}
-          >
-            Lock
-          </button>
-        </nav>
+        <button
+          onClick={() => { setUnlocked(false); setUnlockedState(false); }}
+          title="Lock this page again"
+          className="nav-btn"
+          style={{ textTransform: "none", letterSpacing: "normal" }}
+        >
+          Lock
+        </button>
       </header>
 
-      <div style={{ marginBottom: 20 }}>
-        <BackupRestore
-          libraryEntries={libraryEntries}
-          libraryGroups={libraryGroups}
-          historyEntries={historyEntries}
-          setLibraryEntries={setLibraryEntries}
-          setLibraryGroups={setLibraryGroups}
-          setHistoryEntries={setHistoryEntries}
-        />
+      <div style={{ display: "flex", gap: 26, alignItems: "flex-start" }}>
+        <aside
+          style={{
+            width: 190,
+            flexShrink: 0,
+            position: "sticky",
+            top: 88,
+            maxHeight: "calc(100vh - 108px)",
+            overflowY: "auto",
+            paddingBottom: 12,
+          }}
+        >
+          <nav style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {NAV_ITEMS.map((item) => (
+              <button key={item.key} onClick={() => setView(item.key)} className={`side-nav-btn${view === item.key ? " active" : ""}`}>
+                <span aria-hidden="true">{item.icon}</span>
+                <span>
+                  {item.label}
+                  {item.key === "library" ? ` (${libraryEntries.length})` : item.key === "history" ? ` (${historyEntries.length})` : ""}
+                </span>
+              </button>
+            ))}
+          </nav>
+        </aside>
+
+        <main style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ marginBottom: 20 }}>
+            <BackupRestore
+              libraryEntries={libraryEntries}
+              libraryGroups={libraryGroups}
+              historyEntries={historyEntries}
+              setLibraryEntries={setLibraryEntries}
+              setLibraryGroups={setLibraryGroups}
+              setHistoryEntries={setHistoryEntries}
+            />
+          </div>
+
+          {view === "home" && (
+            <Home
+              onNavigate={(v) => setView(v)}
+              onOpenCheatSheet={() => setShowCheatSheet(true)}
+              libraryCount={libraryEntries.length}
+              historyCount={historyEntries.length}
+              tasksOpenCount={tasks.filter((t) => !t.done).length}
+            />
+          )}
+          {view === "scanner" && (
+            <Scanner
+              results={results}
+              setResults={setResults}
+              uploadedFiles={uploadedFiles}
+              setUploadedFiles={setUploadedFiles}
+              onReset={() => {
+                setResults(null);
+                setUploadedFiles([]);
+              }}
+              libraryEntries={libraryEntries}
+              setLibraryEntries={setLibraryEntries}
+              libraryGroups={libraryGroups}
+              setLibraryGroups={setLibraryGroups}
+              onRecordHistory={recordHistory}
+              onSyncToHistory={syncToHistory}
+              recentUploads={historyEntries.slice(0, 6)}
+              onOpenRecentUpload={(id) => loadHistoryIntoScanner([id])}
+              allHistory={historyEntries}
+              ruleOverrides={ruleOverrides}
+            />
+          )}
+          {view === "history" && (
+            <HistoryView
+              history={historyEntries}
+              setHistory={setHistoryEntries}
+              loading={historyLoading}
+              error={historyError}
+              onLoadIntoScanner={loadHistoryIntoScanner}
+              onDeleteEntry={deleteHistoryEntry}
+              onUpdateEntry={updateHistoryEntry}
+            />
+          )}
+          {view === "library" && (
+            <LibraryView
+              entries={libraryEntries}
+              setEntries={setLibraryEntries}
+              groups={libraryGroups}
+              setGroups={setLibraryGroups}
+              loading={libraryLoading}
+              error={libraryError}
+              onLoadIntoScanner={loadParsedFilesIntoScanner}
+              onRecordHistory={recordHistory}
+              ruleOverrides={ruleOverrides}
+            />
+          )}
+          {view === "board" && (
+            <TaskBoard
+              tasks={tasks}
+              loading={tasksLoading}
+              error={tasksError}
+              onAddTask={addTask}
+              onToggleTask={toggleTask}
+              onEditTask={editTask}
+              onDeleteTask={deleteTask}
+            />
+          )}
+        </main>
       </div>
 
       <button
@@ -268,64 +364,6 @@ export default function App() {
       </button>
 
       {showCheatSheet && <CheatSheet onClose={() => setShowCheatSheet(false)} ruleOverrides={ruleOverrides} onChangeRuleOverrides={updateRuleOverrides} />}
-
-      {view === "scanner" && (
-        <Scanner
-          results={results}
-          setResults={setResults}
-          uploadedFiles={uploadedFiles}
-          setUploadedFiles={setUploadedFiles}
-          onReset={() => {
-            setResults(null);
-            setUploadedFiles([]);
-          }}
-          libraryEntries={libraryEntries}
-          setLibraryEntries={setLibraryEntries}
-          libraryGroups={libraryGroups}
-          setLibraryGroups={setLibraryGroups}
-          onRecordHistory={recordHistory}
-          onSyncToHistory={syncToHistory}
-          recentUploads={historyEntries.slice(0, 6)}
-          onOpenRecentUpload={(id) => loadHistoryIntoScanner([id])}
-          allHistory={historyEntries}
-          ruleOverrides={ruleOverrides}
-        />
-      )}
-      {view === "history" && (
-        <HistoryView
-          history={historyEntries}
-          setHistory={setHistoryEntries}
-          loading={historyLoading}
-          error={historyError}
-          onLoadIntoScanner={loadHistoryIntoScanner}
-          onDeleteEntry={deleteHistoryEntry}
-          onUpdateEntry={updateHistoryEntry}
-        />
-      )}
-      {view === "library" && (
-        <LibraryView
-          entries={libraryEntries}
-          setEntries={setLibraryEntries}
-          groups={libraryGroups}
-          setGroups={setLibraryGroups}
-          loading={libraryLoading}
-          error={libraryError}
-          onLoadIntoScanner={loadParsedFilesIntoScanner}
-          onRecordHistory={recordHistory}
-          ruleOverrides={ruleOverrides}
-        />
-      )}
-      {view === "board" && (
-        <TaskBoard
-          tasks={tasks}
-          loading={tasksLoading}
-          error={tasksError}
-          onAddTask={addTask}
-          onToggleTask={toggleTask}
-          onEditTask={editTask}
-          onDeleteTask={deleteTask}
-        />
-      )}
     </div>
   );
 }

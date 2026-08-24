@@ -561,6 +561,44 @@ already defined as neither flag set.
 - Persistence is IndexedDB, and it needs to survive a full page reload —
   that's the entire point of a "Library," and it's directly tested.
 
+## Shell — landing page + sidebar nav (app/ only)
+
+Per Jack: "need to start somewhere then fine tune" — a first-pass app shell
+to make this read as a structured platform rather than a single tool, not a
+redesign of any module. Nothing about Scanner/Library/History/Board/Cheat
+Sheet's own behavior changed — only how you get to them.
+
+- **Home** (`app/src/components/Home.tsx`) is a new, non-module landing
+  view — the default view on load (`App.tsx`'s `view` state starts at
+  `"home"` instead of `"scanner"`). It has a welcome banner stating the
+  product thesis Jack gave verbatim: the Library is the single source of
+  truth for every qualified lead, and this is the first step toward a
+  lighter-weight, self-hosted CRM built solely for outbound sales (calling/
+  emailing/sequencing), not a general sales platform — see the Roadmap
+  section below, this is that same framing surfaced in-app. Below the
+  banner, a card grid lists every module (Scanner, Library, History, Board,
+  Cheat Sheet) with a one-line description and live counts (Library file
+  count, History upload count, open task count) pulled from the same state
+  `App.tsx` already holds — Home doesn't read its own IndexedDB or introduce
+  a new data path. Clicking a card calls `onNavigate`/`onOpenCheatSheet`,
+  the same handlers the sidebar nav uses.
+- **Sidebar navigation** replaces the old horizontal nav-button row in the
+  header. `App.tsx` now renders a `flex` row below the header: a `<aside>`
+  (`.side-nav-btn` in `styles.css`) with Home/Scanner/Library/History/Board,
+  `position: sticky` with its own `overflow-y: auto` and a `max-height`
+  capped to the viewport — so it stays in view while the main content
+  scrolls, and scrolls internally on its own if the nav list ever grows
+  past the viewport (per Jack's explicit ask for a "scroll option"), rather
+  than pushing the page down. The Lock button stays in the top header (not
+  moved into the sidebar). The floating Cheat Sheet button/modal are
+  unchanged in behavior, just moved after `</main>` in the JSX so they sit
+  outside the two-column layout (harmless — they're `position: fixed`
+  either way).
+- This is explicitly a v1 pass, not a finished design — expect follow-up
+  fine-tuning (visual polish, maybe collapsing the sidebar on narrow
+  widths, maybe more on the Home page) rather than treating this shape as
+  final.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool
