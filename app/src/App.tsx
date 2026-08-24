@@ -178,13 +178,6 @@ export default function App() {
             </button>
           ))}
           <button
-            onClick={() => setShowCheatSheet(true)}
-            title="What each Detected badge means"
-            style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 700, color: "#4c6167" }}
-          >
-            Cheat Sheet
-          </button>
-          <button
             onClick={() => { setUnlocked(false); setUnlockedState(false); }}
             title="Lock this page again"
             style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 700, color: "#4c6167" }}
@@ -204,6 +197,28 @@ export default function App() {
           setHistoryEntries={setHistoryEntries}
         />
       </div>
+
+      <button
+        onClick={() => setShowCheatSheet(true)}
+        title="Cheat Sheet — what each category/Detected badge means and how leads get filtered"
+        style={{
+          position: "fixed",
+          bottom: 24,
+          right: 24,
+          width: 52,
+          height: 52,
+          borderRadius: "50%",
+          border: "none",
+          background: "#081E22",
+          color: "#fff",
+          fontSize: 22,
+          boxShadow: "0 6px 18px rgba(8,30,34,0.35)",
+          cursor: "pointer",
+          zIndex: 40,
+        }}
+      >
+        📋
+      </button>
 
       {showCheatSheet && <CheatSheet onClose={() => setShowCheatSheet(false)} />}
 
