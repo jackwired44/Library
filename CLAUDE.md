@@ -355,19 +355,26 @@ isolated `mutateResults` call shortly after another. Fixed by having
 `mutateResults` read the `results` prop directly (always current when an
 event handler runs) instead of depending on the updater's timing at all.
 
-**Duplicates excluded from downloads and Library filing (app/ only).** A
-duplicate (per the batch-scoped exact name+company match above) is still
-fully visible and flagged in the Scanner table — nothing about the
-detection/flagging itself changed — but per Jack: "it shouldn't appear
-twice in the strong signal... flagged and pulled so it doesn't get
-downloaded like that." So the *first-seen* row of a duplicate group still
-downloads/files normally; every repeat (`isDuplicate: true`) is excluded
-from the Scanner's Final Downloads CSVs, History's per-entry redownload
-(both go through `exportRowsForBucket` in `app/src/lib/detection.ts`), and
-Library filing (`signalRows` in `Scanner.tsx`'s upload handler) — same
-"visible but not exported" treatment a Bad Lead already gets. Still scoped
-to the current batch, same as the underlying duplicate check itself —
-this doesn't touch the deferred cross-batch/Library-wide widening.
+**Duplicates are removed outright, not just flagged (app/ only — a
+deliberate escalation past the point above).** First pass only excluded a
+duplicate from downloads/filing while still showing it in the Scanner
+table. Per Jack's explicit follow-up — "i dont want it to be possible to
+dupe" — that wasn't enough: `scanParsedFiles` (`app/src/lib/detection.ts`)
+now runs `markDuplicateLeads` and then drops every repeat
+(`isDuplicate: true`) from the returned `results` array itself, before
+anything reaches the Scanner table, History, or the Library. The
+*first-seen* row of a duplicate group is the only one that survives — same
+exact name+company match key, still scoped to the current upload/batch
+only (this doesn't touch the deferred cross-batch/Library-wide widening).
+`scanParsedFiles` returns a new `duplicatesRemoved` count so the removal
+isn't silent — Scanner shows "Removed N duplicate lead(s)..." next to the
+upload, and Library's per-folder direct-upload flow appends the same count
+to its "Filed..." notice. The `isDuplicate`/`duplicateOfId`/
+`duplicateGroupSize` fields, the Scanner's "Duplicates" filter button, and
+the DUPLICATE badge are all left in place (harmless — they just never
+trigger for a fresh scan now) purely so any row already sitting in History
+or the Library from before this change, still flagged from the old
+"visible but excluded" behavior, keeps rendering correctly.
 
 ## Library architecture (the trickiest part to port correctly)
 

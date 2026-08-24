@@ -91,6 +91,7 @@ export default function Scanner({
   const [saveToLibrary, setSaveToLibrary] = useState(false);
   const [uploadMonthKey, setUploadMonthKey] = useState(() => monthKeyFromDate(new Date()));
   const [filedNotice, setFiledNotice] = useState<string | null>(null);
+  const [dedupeNotice, setDedupeNotice] = useState<string | null>(null);
   const [tierFilter, setTierFilter] = useState<Tier | "all">("signal");
   const [categoryFilter, setCategoryFilter] = useState<CategoryKey | "all">("all");
   const [duplicatesOnly, setDuplicatesOnly] = useState(false);
@@ -125,14 +126,22 @@ export default function Scanner({
     }
     setError(notice);
     setFiledNotice(null);
+    setDedupeNotice(null);
     try {
       const parsedFiles = await Promise.all(files.map(parseCSVFile));
-      const { results: scanned } = scanParsedFiles(parsedFiles, ruleOverrides);
+      const { results: scanned, duplicatesRemoved } = scanParsedFiles(parsedFiles, ruleOverrides);
       setResults(scanned);
       setUploadedFiles(parsedFiles.map((pf) => ({ name: pf.name, rows: pf.data.length })));
       setPage(1);
       setSelected(new Set());
       onRecordHistory(parsedFiles, scanned);
+      // Per Jack: no duplicate (exact name+company match within this same
+      // upload) should ever make it into the uploaded leads at all — the
+      // first-seen row is kept, every repeat was already dropped inside
+      // scanParsedFiles. Surfaced here so the removal isn't silent.
+      if (duplicatesRemoved > 0) {
+        setDedupeNotice(`Removed ${duplicatesRemoved} duplicate lead${duplicatesRemoved === 1 ? "" : "s"} (exact name + company match already seen in this upload).`);
+      }
 
       // Opt-in, off by default (see CLAUDE.md "Library architecture") — a
       // one-off scan never touches the Library unless this box is checked.
@@ -172,6 +181,7 @@ export default function Scanner({
     setSaveToLibrary(false);
     setUploadMonthKey(monthKeyFromDate(new Date()));
     setFiledNotice(null);
+    setDedupeNotice(null);
   }
 
   const filtered = useMemo(() => {
@@ -499,6 +509,7 @@ export default function Scanner({
 
       {error && <div style={{ marginBottom: 16, color: "#9A5B22" }}>{error}</div>}
       {filedNotice && <div style={{ marginBottom: 16, color: "#2CC295", fontWeight: 600 }}>{filedNotice}</div>}
+      {dedupeNotice && <div style={{ marginBottom: 16, color: "#8A5A00", fontWeight: 600 }}>{dedupeNotice}</div>}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 18 }}>
         {[

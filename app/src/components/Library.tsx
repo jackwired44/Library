@@ -153,19 +153,22 @@ export default function LibraryView({ entries, setEntries, groups, setGroups, lo
     setUploadNotice(null);
     try {
       const parsedFiles = await Promise.all(csvFiles.map(parseCSVFile));
-      const { results: scanned } = scanParsedFiles(parsedFiles, ruleOverrides);
-      const signalRows = scanned.filter((r) => r.tier === "signal");
+      const { results: scanned, duplicatesRemoved } = scanParsedFiles(parsedFiles, ruleOverrides);
+      const signalRows = scanned.filter((r) => r.tier === "signal" && !r.isDuplicate);
       const { entries: nextEntries, touchedIds } = fileSignalRowsIntoGroup(entries, groups, groupId, signalRows, `${Date.now()}`);
       setEntries(nextEntries);
       const touchedEntries = nextEntries.filter((e) => touchedIds.includes(e.id));
       await persistLibraryEntries(touchedEntries);
       const folderName = groups.find((g) => g.id === groupId)?.name || "this folder";
       onRecordHistory(parsedFiles, scanned, `Uploaded into ${folderName}`);
-      setUploadNotice(
+      const filedMessage =
         signalRows.length > 0
           ? `Filed ${signalRows.length} Strong Signal lead${signalRows.length === 1 ? "" : "s"} into ${folderName}.`
-          : "No Strong Signal leads in that file — nothing to file."
-      );
+          : "No Strong Signal leads in that file — nothing to file.";
+      // Per Jack: no duplicate (exact name+company match within this same
+      // upload) should ever make it in at all — already dropped inside
+      // scanParsedFiles; surfaced here so it isn't silent.
+      setUploadNotice(duplicatesRemoved > 0 ? `${filedMessage} Removed ${duplicatesRemoved} duplicate lead${duplicatesRemoved === 1 ? "" : "s"}.` : filedMessage);
     } catch (err) {
       setUploadNotice(null);
       setUploadError(err instanceof Error ? err.message : "Could not parse that file.");

@@ -834,7 +834,10 @@ export interface ParsedFile {
 // The mapping + scan pass — runs once per upload/reload, feeds both the
 // Scanner/History entry (every row, every tier) and the Library save (just
 // the Strong Signal rows).
-export function scanParsedFiles(parsedFiles: ParsedFile[], overrides: RuleOverrides = DEFAULT_RULE_OVERRIDES): { results: ResultRow[]; rowsScanned: number } {
+export function scanParsedFiles(
+  parsedFiles: ParsedFile[],
+  overrides: RuleOverrides = DEFAULT_RULE_OVERRIDES
+): { results: ResultRow[]; rowsScanned: number; duplicatesRemoved: number } {
   let rowsScanned = 0;
   const results: ResultRow[] = [];
   parsedFiles.forEach((pf, fileIdx) => {
@@ -869,7 +872,14 @@ export function scanParsedFiles(parsedFiles: ParsedFile[], overrides: RuleOverri
     });
   });
   markDuplicateLeads(results);
-  return { results, rowsScanned };
+  // Per Jack: a duplicate (exact name+company match within this same
+  // upload) should never be possible in the uploaded leads at all, not
+  // just flagged and excluded from downloads — the first-seen row of a
+  // duplicate group is kept, every repeat is dropped here so it never
+  // reaches the Scanner table, History, or the Library to begin with.
+  const deduped = results.filter((r) => !r.isDuplicate);
+  const duplicatesRemoved = results.length - deduped.length;
+  return { results: deduped, rowsScanned, duplicatesRemoved };
 }
 
 // Dynamics 365 ranking, top to bottom: Business Central/ERP leads first,
