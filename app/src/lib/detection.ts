@@ -70,6 +70,23 @@ const COUNT_PATTERNS: RegExp[] = [
 const WINDOW = 65;
 export const QUALIFY_THRESHOLD = 15; // seats/users below this auto-DQ — lowered from 20 per Jack's rules audit
 
+// User-editable layer on top of the rules above (see CLAUDE.md and the
+// Cheat Sheet) — a per-installation override, never a change to the base
+// rules themselves. Jack can raise/lower the qualify threshold and add
+// extra plain-text trigger words per category; a custom keyword match
+// always counts as a Strong Signal trigger for that category, same as a
+// built-in one. Persisted via lib/ruleOverrides.ts; every scan call below
+// defaults to DEFAULT_RULE_OVERRIDES when none is supplied, so nothing
+// here behaves differently until Jack actually sets an override.
+export interface RuleOverrides {
+  qualifyThreshold: number;
+  customKeywords: Record<CategoryKey, string[]>;
+}
+export const DEFAULT_RULE_OVERRIDES: RuleOverrides = {
+  qualifyThreshold: QUALIFY_THRESHOLD,
+  customKeywords: { dynamics365: [], dataPlatform: [], m365Tenant: [] },
+};
+
 function extractCountNear(haystack: string, matchIndex: number, matchLength: number) {
   const start = Math.max(0, matchIndex - WINDOW);
   const end = Math.min(haystack.length, matchIndex + matchLength + WINDOW);
@@ -94,10 +111,12 @@ export interface LicensingResult {
   status: "qualified" | "review" | "dq";
 }
 
-// Returns null if nothing found. A confirmed count under QUALIFY_THRESHOLD
-// still comes back (status: "dq") rather than vanishing — visible in Bad
-// Leads, not silently dropped.
-export function scanRowLicensing(row: Record<string, unknown>, columns: string[]): LicensingResult | null {
+// Returns null if nothing found. A confirmed count under the qualify
+// threshold still comes back (status: "dq") rather than vanishing —
+// visible in Bad Leads, not silently dropped. `qualifyThreshold` defaults
+// to the built-in QUALIFY_THRESHOLD; pass RuleOverrides.qualifyThreshold to
+// use Jack's own override instead.
+export function scanRowLicensing(row: Record<string, unknown>, columns: string[], qualifyThreshold: number = QUALIFY_THRESHOLD): LicensingResult | null {
   const fields = columns.map((c) => String(row[c] ?? ""));
   const combined = fields.join("   ");
   const hits: { sku: string; count: number | null; snippet: string }[] = [];
@@ -115,7 +134,7 @@ export function scanRowLicensing(row: Record<string, unknown>, columns: string[]
   const countsFound = hits.map((h) => h.count).filter((c): c is number => c !== null);
   const bestCount = countsFound.length ? Math.max(...countsFound) : null;
   const bestSnippetHit = hits.find((h) => h.count === bestCount && bestCount !== null) || hits[0];
-  const status: LicensingResult["status"] = bestCount === null ? "review" : bestCount < QUALIFY_THRESHOLD ? "dq" : "qualified";
+  const status: LicensingResult["status"] = bestCount === null ? "review" : bestCount < qualifyThreshold ? "dq" : "qualified";
   return { skus: skuSet, count: bestCount, snippet: bestSnippetHit.snippet, status };
 }
 
@@ -303,15 +322,45 @@ export interface PlatformResult {
   dynamicsSeatCount: number | null;
 }
 
+// Jack's own custom trigger words (see RuleOverrides), plain text — not
+// regex — matched as a simple case-insensitive substring so a typo-prone
+// UI field can never produce a broken/catastrophic pattern. A match always
+// counts as hasTrigger: true, since the entire point of adding one is "if
+// you see this, treat it as a real signal."
+const CUSTOM_KEYWORD_LABEL: Record<CategoryKey, string> = { dynamics365: "Dynamics 365", dataPlatform: "Power BI", m365Tenant: TENANT_SUPPORT_LABEL };
+function escapeForLiteralMatch(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+function matchCustomKeywords(combined: string, customKeywords: Record<CategoryKey, string[]> | undefined): PlatformHit[] {
+  if (!customKeywords) return [];
+  const hits: PlatformHit[] = [];
+  (Object.keys(customKeywords) as CategoryKey[]).forEach((key) => {
+    customKeywords[key].forEach((raw) => {
+      const word = raw.trim();
+      if (!word) return;
+      const re = new RegExp(escapeForLiteralMatch(word), "gi");
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(combined)) !== null) {
+        const start = Math.max(0, m.index - SIGNAL_WINDOW);
+        const end = Math.min(combined.length, m.index + m[0].length + SIGNAL_WINDOW);
+        hits.push({ category: CUSTOM_KEYWORD_LABEL[key], snippet: combined.slice(start, end).trim(), hasTrigger: true });
+        if (m.index === re.lastIndex) re.lastIndex++;
+      }
+    });
+  });
+  return hits;
+}
+
 export function scanRowPlatform(
   row: Record<string, unknown>,
   columns: string[],
   commentsValue: unknown,
-  productAreaValue: unknown
+  productAreaValue: unknown,
+  customKeywords?: Record<CategoryKey, string[]>
 ): PlatformResult | null {
   const fields = columns.map((c) => String(row[c] ?? ""));
   const combined = fields.join("   ");
-  const hits: PlatformHit[] = [];
+  const hits: PlatformHit[] = matchCustomKeywords(combined, customKeywords);
   for (const cat of PLATFORM_CATALOGUE) {
     const re = new RegExp(cat.pattern.source, cat.pattern.flags.includes("g") ? cat.pattern.flags : cat.pattern.flags + "g");
     let m: RegExpExecArray | null;
@@ -405,10 +454,10 @@ export interface ResolvedFields {
   comments?: string;
 }
 
-function getDQReasons(combinedText: string, resolved: ResolvedFields, licensing: LicensingResult | null): string[] {
+function getDQReasons(combinedText: string, resolved: ResolvedFields, licensing: LicensingResult | null, qualifyThreshold: number): string[] {
   const reasons: string[] = [];
   for (const rule of DQ_RULES) if (rule.pattern.test(combinedText)) reasons.push(rule.label);
-  if (licensing && licensing.status === "dq") reasons.push(`Low seat count (under ${QUALIFY_THRESHOLD})`);
+  if (licensing && licensing.status === "dq") reasons.push(`Low seat count (under ${qualifyThreshold})`);
   if (!resolved.company || !String(resolved.company).trim()) reasons.push("Missing company name");
   if (resolved.email && PLACEHOLDER_EMAIL_RE.test(String(resolved.email).trim())) reasons.push("Placeholder/invalid email");
   return reasons;
@@ -432,9 +481,9 @@ export interface ScanResult {
   dynamicsSeatCount: number | null;
 }
 
-export function scanRowUnified(row: Record<string, unknown>, columns: string[], resolved: ResolvedFields): ScanResult | null {
-  const licensing = scanRowLicensing(row, columns);
-  const platform = scanRowPlatform(row, columns, resolved.comments || null, resolved.productArea || null);
+export function scanRowUnified(row: Record<string, unknown>, columns: string[], resolved: ResolvedFields, overrides: RuleOverrides = DEFAULT_RULE_OVERRIDES): ScanResult | null {
+  const licensing = scanRowLicensing(row, columns, overrides.qualifyThreshold);
+  const platform = scanRowPlatform(row, columns, resolved.comments || null, resolved.productArea || null, overrides.customKeywords);
   if (!licensing && !platform) return null;
 
   const categorySet = new Set<CategoryKey>();
@@ -466,7 +515,7 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
   }
 
   const combinedForDQ = columns.map((c) => String(row[c] ?? "")).join("   ");
-  const dqReasons = getDQReasons(combinedForDQ, resolved, licensing);
+  const dqReasons = getDQReasons(combinedForDQ, resolved, licensing, overrides.qualifyThreshold);
   if (dqReasons.length > 0) tier = "dq";
 
   return {
@@ -608,7 +657,7 @@ export interface ParsedFile {
 // The mapping + scan pass — runs once per upload/reload, feeds both the
 // Scanner/History entry (every row, every tier) and the Library save (just
 // the Strong Signal rows).
-export function scanParsedFiles(parsedFiles: ParsedFile[]): { results: ResultRow[]; rowsScanned: number } {
+export function scanParsedFiles(parsedFiles: ParsedFile[], overrides: RuleOverrides = DEFAULT_RULE_OVERRIDES): { results: ResultRow[]; rowsScanned: number } {
   let rowsScanned = 0;
   const results: ResultRow[] = [];
   parsedFiles.forEach((pf, fileIdx) => {
@@ -625,7 +674,7 @@ export function scanParsedFiles(parsedFiles: ParsedFile[]): { results: ResultRow
         const col = fileMapping[f.key];
         (resolved as Record<string, unknown>)[f.key] = col ? row[col] ?? "" : "";
       });
-      const scan = scanRowUnified(row, pf.fields, resolved);
+      const scan = scanRowUnified(row, pf.fields, resolved, overrides);
       if (!scan) return;
       results.push({
         id: `${fileIdx}-${i}`,

@@ -5,8 +5,8 @@ import HistoryView from "./components/History";
 import LockScreen from "./components/LockScreen";
 import BackupRestore from "./components/BackupRestore";
 import CheatSheet from "./components/CheatSheet";
-import type { ParsedFile, ResultRow } from "./lib/detection";
-import { scanParsedFiles } from "./lib/detection";
+import type { ParsedFile, ResultRow, RuleOverrides } from "./lib/detection";
+import { scanParsedFiles, DEFAULT_RULE_OVERRIDES } from "./lib/detection";
 import { loadLibraryFromDB, ensureMonthFoldersExist, persistGroup, type LibraryEntry, type LibraryGroup } from "./lib/library";
 import {
   loadHistoryFromDB,
@@ -17,6 +17,7 @@ import {
   syncRowIntoHistory,
   type HistoryEntry,
 } from "./lib/history";
+import { loadRuleOverrides, persistRuleOverrides } from "./lib/ruleOverrides";
 import { isUnlocked, setUnlocked } from "./lib/auth";
 
 type View = "scanner" | "history" | "library";
@@ -50,6 +51,11 @@ export default function App() {
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState<string | null>(null);
 
+  // Jack's own edits on top of the base detection rules (qualify threshold,
+  // extra trigger keywords per category) — see lib/ruleOverrides.ts and the
+  // Cheat Sheet editor. Defaults to the built-in rules until loaded/changed.
+  const [ruleOverrides, setRuleOverrides] = useState<RuleOverrides>(DEFAULT_RULE_OVERRIDES);
+
   useEffect(() => {
     loadLibraryFromDB()
       .then(({ entries, groups }) => {
@@ -75,7 +81,13 @@ export default function App() {
         setHistoryError("Couldn't load previous imports from this browser's local storage.");
         setHistoryLoading(false);
       });
+    loadRuleOverrides().then(setRuleOverrides).catch(() => {});
   }, []);
+
+  function updateRuleOverrides(next: RuleOverrides) {
+    setRuleOverrides(next);
+    persistRuleOverrides(next);
+  }
 
   // Every scan/import — fresh upload or a reload from the Library — is kept
   // in History automatically (unlike the Library, which is opt-in per
@@ -117,7 +129,7 @@ export default function App() {
   }
 
   function loadParsedFilesIntoScanner(parsedFiles: ParsedFile[], tag = "Loaded from Library") {
-    const { results: scanned } = scanParsedFiles(parsedFiles);
+    const { results: scanned } = scanParsedFiles(parsedFiles, ruleOverrides);
     setResults(scanned);
     setUploadedFiles(parsedFiles.map((pf) => ({ name: pf.name, rows: pf.data.length })));
     setView("scanner");
@@ -220,7 +232,7 @@ export default function App() {
         📋
       </button>
 
-      {showCheatSheet && <CheatSheet onClose={() => setShowCheatSheet(false)} />}
+      {showCheatSheet && <CheatSheet onClose={() => setShowCheatSheet(false)} ruleOverrides={ruleOverrides} onChangeRuleOverrides={updateRuleOverrides} />}
 
       {view === "scanner" && (
         <Scanner
@@ -240,6 +252,7 @@ export default function App() {
           onSyncToHistory={syncToHistory}
           recentUploads={historyEntries.slice(0, 6)}
           onOpenRecentUpload={(id) => loadHistoryIntoScanner([id])}
+          ruleOverrides={ruleOverrides}
         />
       )}
       {view === "history" && (
@@ -263,6 +276,7 @@ export default function App() {
           error={libraryError}
           onLoadIntoScanner={loadParsedFilesIntoScanner}
           onRecordHistory={recordHistory}
+          ruleOverrides={ruleOverrides}
         />
       )}
     </div>

@@ -10,6 +10,7 @@ import {
   type CategoryKey,
   type ParsedFile,
   type ResultRow,
+  type RuleOverrides,
   type Tier,
   type BucketKey,
 } from "../lib/detection";
@@ -53,6 +54,7 @@ interface ScannerProps {
   // without switching to the History tab first.
   recentUploads: HistoryEntry[];
   onOpenRecentUpload: (id: string) => void;
+  ruleOverrides: RuleOverrides;
 }
 
 export default function Scanner({
@@ -69,6 +71,7 @@ export default function Scanner({
   onSyncToHistory,
   recentUploads,
   onOpenRecentUpload,
+  ruleOverrides,
 }: ScannerProps) {
   // Per-bucket download file name — editable, defaults to the standard
   // wired-cio-<bucket>-leads.csv name until Jack renames it. Reset on
@@ -101,7 +104,7 @@ export default function Scanner({
     setFiledNotice(null);
     try {
       const parsedFiles = await Promise.all(files.map(parseCSVFile));
-      const { results: scanned } = scanParsedFiles(parsedFiles);
+      const { results: scanned } = scanParsedFiles(parsedFiles, ruleOverrides);
       setResults(scanned);
       setUploadedFiles(parsedFiles.map((pf) => ({ name: pf.name, rows: pf.data.length })));
       setPage(1);

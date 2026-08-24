@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, Fragment } from "react";
-import { BUCKET_META, CATEGORY_META, EXPORT_LABELS, scanParsedFiles, type BucketKey, type ExportLabel, type ParsedFile, type ResultRow } from "../lib/detection";
+import { BUCKET_META, CATEGORY_META, EXPORT_LABELS, scanParsedFiles, type BucketKey, type ExportLabel, type ParsedFile, type ResultRow, type RuleOverrides } from "../lib/detection";
 import { parseCSVFile, parseCSVText, downloadBlob } from "../lib/csv";
 import {
   createGroup,
@@ -47,9 +47,10 @@ interface LibraryProps {
   // category files — every scan gets recorded to History too, same as a
   // Scanner upload, via the same callback Scanner itself uses.
   onRecordHistory: (parsedFiles: ParsedFile[], scanned: ResultRow[], tag?: string) => void;
+  ruleOverrides: RuleOverrides;
 }
 
-export default function LibraryView({ entries, setEntries, groups, setGroups, loading, error, onLoadIntoScanner, onRecordHistory }: LibraryProps) {
+export default function LibraryView({ entries, setEntries, groups, setGroups, loading, error, onLoadIntoScanner, onRecordHistory, ruleOverrides }: LibraryProps) {
   const [openFolderId, setOpenFolderId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [showNewGroupForm, setShowNewGroupForm] = useState(false);
@@ -133,7 +134,7 @@ export default function LibraryView({ entries, setEntries, groups, setGroups, lo
     setUploadNotice(null);
     try {
       const parsedFiles = await Promise.all(csvFiles.map(parseCSVFile));
-      const { results: scanned } = scanParsedFiles(parsedFiles);
+      const { results: scanned } = scanParsedFiles(parsedFiles, ruleOverrides);
       const signalRows = scanned.filter((r) => r.tier === "signal");
       const { entries: nextEntries, touchedIds } = fileSignalRowsIntoGroup(entries, groups, groupId, signalRows, `${Date.now()}`);
       setEntries(nextEntries);

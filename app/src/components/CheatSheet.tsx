@@ -5,13 +5,17 @@
 // live from detection.ts where possible (QUALIFY_THRESHOLD, the SKU list,
 // the Auto-DQ reasons) so it can't quietly drift out of sync with a rule
 // change the way a hand-copied description could.
-import { CATEGORY_META, QUALIFY_THRESHOLD, SKU_CATALOGUE, DQ_RULES, type CategoryKey } from "../lib/detection";
+import { useState } from "react";
+import { CATEGORY_META, SKU_CATALOGUE, DQ_RULES, type CategoryKey, type RuleOverrides } from "../lib/detection";
+import { addCustomKeyword, removeCustomKeyword, setQualifyThreshold } from "../lib/ruleOverrides";
 
 interface CheatSheetProps {
   onClose: () => void;
+  ruleOverrides: RuleOverrides;
+  onChangeRuleOverrides: (next: RuleOverrides) => void;
 }
 
-export default function CheatSheet({ onClose }: CheatSheetProps) {
+export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrides }: CheatSheetProps) {
   return (
     <div
       onClick={onClose}
@@ -27,15 +31,27 @@ export default function CheatSheet({ onClose }: CheatSheetProps) {
         </div>
         <p style={{ color: "#4c6167", fontSize: 13, marginTop: 0, marginBottom: 20 }}>
           Two independent engines run over every row and combine into one result. Reassign or re-tier any row manually any
-          time — this is what the auto-detection is doing before you touch it.
+          time — this is what the auto-detection is doing before you touch it. The threshold and extra trigger words below
+          are yours to edit; everything else here is the fixed rule set built into the app.
         </p>
 
         <Section title="Licensing — Microsoft SKUs">
           <p>
             Looks for any of {SKU_CATALOGUE.length} Microsoft SKU patterns. A <strong>Strong Signal</strong> requires a
-            confirmed seat/user/license count at or above <strong>{QUALIFY_THRESHOLD}</strong>. A confirmed count under that
-            threshold routes straight to Bad Leads — it's never silently dropped.
+            confirmed seat/user/license count at or above the threshold below. A confirmed count under that threshold
+            routes straight to Bad Leads — it's never silently dropped.
           </p>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "8px 0 12px" }}>
+            <label style={{ fontWeight: 700, fontSize: 12.5 }}>Qualify threshold:</label>
+            <input
+              type="number"
+              min={0}
+              value={ruleOverrides.qualifyThreshold}
+              onChange={(e) => onChangeRuleOverrides(setQualifyThreshold(ruleOverrides, Number(e.target.value)))}
+              style={{ width: 70, border: "1px solid #D8DBE1", borderRadius: 7, padding: "5px 8px", fontSize: 13, fontWeight: 700 }}
+            />
+            <span style={{ fontSize: 11.5, color: "#9aa1ac" }}>seats/users — a confirmed count below this is a Bad Lead, not silently dropped</span>
+          </div>
           <ChipList items={SKU_CATALOGUE.map((s) => s.label)} />
         </Section>
 
@@ -52,6 +68,7 @@ export default function CheatSheet({ onClose }: CheatSheetProps) {
             Dynamics 365/D365/CRM/AX/NAV/GP, Business Central, Finance and Operations, Customer Engagement, Supply Chain
             Management, bare "ERP". Strong Signal if ERP+CRM are mentioned together, OR a specific product/module is named
             with a real or estimated count, OR any generic trigger word is present, OR a bare number sits next to the match.
+            <KeywordEditor category="dynamics365" ruleOverrides={ruleOverrides} onChangeRuleOverrides={onChangeRuleOverrides} />
           </CategoryDetail>
           <CategoryDetail k="dataPlatform">
             One shared bucket fed by three independent patterns: Power BI (broadened — also catches generic "analytics
@@ -59,12 +76,14 @@ export default function CheatSheet({ onClose }: CheatSheetProps) {
             and Azure (narrow — bare word "azure"). Azure-flavored migration language ("azure" near "migrat-," lift-and-shift
             near azure) is redirected here instead of the generic Migration path below, even though that pattern would also
             match.
+            <KeywordEditor category="dataPlatform" ruleOverrides={ruleOverrides} onChangeRuleOverrides={onChangeRuleOverrides} />
           </CategoryDetail>
           <CategoryDetail k="m365Tenant">
             The combined/generic bucket: Tenant Support (Google→Microsoft migration, new tenant setup, MSP/co-managed IT
             language, plain "IT support"/"help desk"), generic Migration/Modernization (data migration, legacy system,
             re-platforming — minus anything the Azure override above already claimed), and Licensing hits with no specific
             product angle.
+            <KeywordEditor category="m365Tenant" ruleOverrides={ruleOverrides} onChangeRuleOverrides={onChangeRuleOverrides} />
           </CategoryDetail>
         </Section>
 
@@ -100,6 +119,62 @@ function CategoryDetail({ k, children }: { k: CategoryKey; children: React.React
     <div style={{ marginBottom: 10, paddingLeft: 2 }}>
       <div style={{ marginBottom: 3 }}><CategoryBadge k={k} /></div>
       <div style={{ color: "#4c6167" }}>{children}</div>
+    </div>
+  );
+}
+
+// Extra plain-text trigger words Jack adds per category — matched as a
+// simple substring (never regex), and any match always counts as a Strong
+// Signal trigger. Applies to future scans only, not a retroactive
+// reclassification of anything already sitting in the Scanner/Library.
+function KeywordEditor({
+  category,
+  ruleOverrides,
+  onChangeRuleOverrides,
+}: {
+  category: CategoryKey;
+  ruleOverrides: RuleOverrides;
+  onChangeRuleOverrides: (next: RuleOverrides) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const words = ruleOverrides.customKeywords[category];
+
+  function add() {
+    const w = draft.trim();
+    if (!w) return;
+    onChangeRuleOverrides(addCustomKeyword(ruleOverrides, category, w));
+    setDraft("");
+  }
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={{ fontSize: 11, color: "#9aa1ac", fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>Your extra trigger words</div>
+      {words.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
+          {words.map((w) => (
+            <span key={w} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, background: "#EEF2FF", color: "#3A4B8C", padding: "3px 6px 3px 9px", borderRadius: 20 }}>
+              {w}
+              <button
+                onClick={() => onChangeRuleOverrides(removeCustomKeyword(ruleOverrides, category, w))}
+                title={`Remove "${w}"`}
+                style={{ border: "none", background: "none", color: "#3A4B8C", cursor: "pointer", fontSize: 12, padding: 0 }}
+              >
+                ✕
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 6 }}>
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && add()}
+          placeholder="Add a trigger word or phrase"
+          style={{ flex: "1 1 200px", border: "1px solid #E1E4E9", borderRadius: 7, padding: "5px 9px", fontSize: 12 }}
+        />
+        <button onClick={add} style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 7, padding: "5px 10px", fontSize: 12, fontWeight: 700 }}>Add</button>
+      </div>
     </div>
   );
 }
