@@ -234,6 +234,37 @@ This is an app/-only enhancement — legacy/unified-tool.js does not have it.
 - Persistence is IndexedDB, and it needs to survive a full page reload —
   that's the entire point of a "Library," and it's directly tested.
 
+## Roadmap — long-term direction, not a build queue
+
+Jack's own words, captured so they don't get re-derived or lost: this tool
+is meant to slowly grow into a lighter-weight, self-hosted alternative to
+Apollo, scoped strictly to Jack's own sequenced outbound work (calling,
+emailing, outreach) — not a general sales platform. Nothing below is
+scheduled or approved for building yet; treat it as direction, not a task
+list. Build toward it opportunistically (e.g. lean field/data-model choices
+that don't foreclose these paths), but don't start any of it without Jack
+explicitly asking, since each item is a real architecture and access-model
+decision in its own right (several would also require a real backend and
+break the "local-only, no shared backend" constraint in Access & ownership
+above — that tradeoff needs Jack's explicit sign-off when the time comes).
+
+- Pull Apollo.io company/contact data into the app directly (API tie-in),
+  instead of only ever importing a CSV export of it.
+- Detect Teams meetings booked and auto-label/cross out the matching lead as
+  "intro booked" — ties into the disposition/status tracking Jack's asked
+  for (meeting booked / not interested / no contact yet / other, with a free
+  -text note).
+- A power dialer, eventually a 2x parallel dialer, hooked up to VOIP or
+  Teams phone numbers.
+- Sequenced outbound task management — calling/emailing/outreach cadences
+  per lead, Apollo-style.
+- User accounts/login policies as a real precursor to any of the above
+  (today's single shared password gate, per Access & ownership, isn't that).
+- SendGrid tie-in for sending + monitoring outbound email, and a view of
+  emails actually sent per lead.
+- Filtering/segmenting companies by size, industry, etc. — richer company-
+  level data than what a lead CSV export alone carries today.
+
 ## Working style
 
 - Don't ask permission for routine implementation choices; do ask before any
