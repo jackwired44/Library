@@ -524,20 +524,34 @@ function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownl
   const isDynamics = entry.bucketKey === "dynamics";
   const isM365 = entry.bucketKey === "m365Tenant";
   // Same View-tab sub-filter as the Scanner (see CLAUDE.md "Google ->
-  // Microsoft view" / "Business Central view") — now available once a
-  // lead is filed/stored here too, not just pre-filing in the Scanner.
-  const [subView, setSubView] = useState<"all" | "special" | "other">("all");
+  // Microsoft view" / "Business Central view" / "Sales / CRM view") — now
+  // available once a lead is filed/stored here too, not just pre-filing in
+  // the Scanner. Dynamics has two keyword-triggered sub-views (Business
+  // Central/ERP and Sales/CRM — a lead can match both); M365/Azure has one
+  // (Google -> Microsoft). "special2" is unused/hidden for M365 files.
+  const [subView, setSubView] = useState<"all" | "special" | "special2" | "other">("all");
   const specialCount = isDynamics
     ? entry.rows.filter((r) => r.__isBusinessCentral).length
     : isM365
       ? entry.rows.filter((r) => r.__isGoogleToMicrosoft).length
       : 0;
+  const special2Count = isDynamics ? entry.rows.filter((r) => r.__isSalesCrm).length : 0;
+  const otherCount = isDynamics
+    ? entry.rows.filter((r) => !r.__isBusinessCentral && !r.__isSalesCrm).length
+    : entry.rows.length - specialCount;
+  const subViewTabs: Array<["all" | "special" | "special2" | "other", string]> = [
+    ["all", `All (${entry.rows.length})`],
+    ["special", `${isDynamics ? "Business Central / ERP" : "Google → Microsoft"} (${specialCount})`],
+    ...(isDynamics ? ([["special2", `Sales / CRM (${special2Count})`]] as Array<["special2", string]>) : []),
+    ["other", `Everything else (${otherCount})`],
+  ];
   const subFiltered =
     subView === "all"
       ? entry.rows
       : entry.rows.filter((r) => {
-          const flag = isDynamics ? r.__isBusinessCentral : r.__isGoogleToMicrosoft;
-          return subView === "special" ? flag : !flag;
+          if (subView === "special") return isDynamics ? r.__isBusinessCentral : r.__isGoogleToMicrosoft;
+          if (subView === "special2") return r.__isSalesCrm;
+          return isDynamics ? !r.__isBusinessCentral && !r.__isSalesCrm : !r.__isGoogleToMicrosoft;
         });
   // Ranked highest seat/user/license count first when this is the
   // Dynamics 365 file — a lead with no stated count sinks to its own
@@ -565,13 +579,7 @@ function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownl
           {(isDynamics || isM365) && (
             <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", margin: "12px 0 4px" }}>
               <span style={{ fontSize: 10.5, color: "#8b93a0", fontWeight: 700, textTransform: "uppercase" }}>View:</span>
-              {(
-                [
-                  ["all", `All (${entry.rows.length})`],
-                  ["special", `${isDynamics ? "Business Central / ERP" : "Google → Microsoft"} (${specialCount})`],
-                  ["other", `Everything else (${entry.rows.length - specialCount})`],
-                ] as const
-              ).map(([key, label]) => (
+              {subViewTabs.map(([key, label]) => (
                 <button
                   key={key}
                   onClick={() => setSubView(key)}

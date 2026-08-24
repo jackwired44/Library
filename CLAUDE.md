@@ -488,6 +488,33 @@ independently (a `useState` local to `CategoryFileCard`), so having both
 a Dynamics and an M365/Azure file open at once with different tabs
 selected works fine.
 
+**Sales / CRM view (app/ only) — third Dynamics 365 tab, same pattern
+again.** Per Jack: "add a section for Dynamics 'Sales' or 'CRM' or 'crm'
+// just like we did with the business central filter." `SALES_CRM_RE =
+/\b(sales|crm)\b/i` (`app/src/lib/detection.ts`) — exactly three keywords
+per Jack ("Sales," "CRM," "crm," the last two case variants already
+covered by `/i`), scoped to `cat.label === "Dynamics 365"` the same way
+`BUSINESS_CENTRAL_RE` is. Deliberately narrower than `DYNAMICS_CRM_RE`
+(which also covers Customer Engagement/Insights/Contact Center/Field
+Service/Marketing/Project Operations/Human Resources for the module-tier
+ranking) — a lead that only says "Customer Engagement" with no bare
+"Sales" or "CRM" wording stays in "Everything else" even though it
+shares the same tier-1 ranking block. `isSalesCrm` is plumbed through
+`PlatformHit`/`PlatformResult`/`ScanResult`/`ResultRow` (and
+`StoredRow.__isSalesCrm` in `library.ts`) the same way `isBusinessCentral`
+is. A lead can trigger both tabs at once (e.g. "ERP and CRM" mentioned
+together) — Business Central/ERP and Sales/CRM aren't mutually exclusive,
+only "Everything else" is defined in terms of both (`!isBusinessCentral
+&& !isSalesCrm`). The Dynamics 365 "View:" row is now four tabs — "All
+Dynamics 365," "Business Central / ERP," "Sales / CRM," "Everything
+else" — in both the Scanner (`dynamicsSubView`, `Scanner.tsx`) and the
+Library's `CategoryFileCard` (`Library.tsx`, whose `subView` state grew a
+`"special2"` option alongside `"special"` — M365/Azure files still only
+ever render `"special"` (Google→Microsoft), since that category has just
+the one keyword tab so far). Still purely a view-level filter: Final
+Downloads, Library filing, and History all still file every Dynamics 365
+lead into the same single bucket regardless of which tab is active.
+
 ## Library architecture (the trickiest part to port correctly)
 
 - Saving to the Library is **opt-in per upload** (a checkbox, default OFF) —

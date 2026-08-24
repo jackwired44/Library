@@ -119,11 +119,13 @@ export default function Scanner({
   // Microsoft view." Purely a view-level split; doesn't touch category,
   // bucket, or export — both tabs still file/download as M365/Azure.
   const [m365SubView, setM365SubView] = useState<"all" | "google" | "other">("all");
-  // Same pattern, for Business Central within the Dynamics 365 category
-  // view — see CLAUDE.md "Business Central view." Purely a view-level
-  // split; doesn't touch category, bucket, or export — both tabs still
-  // file/download as Dynamics 365.
-  const [dynamicsSubView, setDynamicsSubView] = useState<"all" | "businessCentral" | "other">("all");
+  // Same pattern, for Business Central/ERP and Sales/CRM within the
+  // Dynamics 365 category view — see CLAUDE.md "Business Central view" /
+  // "Sales / CRM view." Purely a view-level split; doesn't touch
+  // category, bucket, or export — every tab still files/downloads as
+  // Dynamics 365. A lead can match both (e.g. "ERP and CRM" together) and
+  // show up under both specific tabs; "Everything else" means neither.
+  const [dynamicsSubView, setDynamicsSubView] = useState<"all" | "businessCentral" | "salesCrm" | "other">("all");
 
   async function handleFiles(fileListLike: FileList | null) {
     const all = Array.from(fileListLike || []).filter((f) => /\.csv$/i.test(f.name));
@@ -205,7 +207,11 @@ export default function Scanner({
       list = list.filter((r) => (m365SubView === "google" ? r.isGoogleToMicrosoft : !r.isGoogleToMicrosoft));
     }
     if (categoryFilter === "dynamics365" && dynamicsSubView !== "all") {
-      list = list.filter((r) => (dynamicsSubView === "businessCentral" ? r.isBusinessCentral : !r.isBusinessCentral));
+      list = list.filter((r) => {
+        if (dynamicsSubView === "businessCentral") return r.isBusinessCentral;
+        if (dynamicsSubView === "salesCrm") return r.isSalesCrm;
+        return !r.isBusinessCentral && !r.isSalesCrm;
+      });
     }
     if (duplicatesOnly) list = list.filter((r) => r.isDuplicate);
     if (priorityOnly) list = list.filter((r) => r.priority);
@@ -260,7 +266,9 @@ export default function Scanner({
     const base = tierFilter === "all" ? results || [] : (results || []).filter((r) => r.tier === tierFilter);
     const dynamics = base.filter((r) => r.category === "dynamics365");
     const businessCentral = dynamics.filter((r) => r.isBusinessCentral).length;
-    return { all: dynamics.length, businessCentral, other: dynamics.length - businessCentral };
+    const salesCrm = dynamics.filter((r) => r.isSalesCrm).length;
+    const other = dynamics.filter((r) => !r.isBusinessCentral && !r.isSalesCrm).length;
+    return { all: dynamics.length, businessCentral, salesCrm, other };
   }, [results, tierFilter]);
 
   // High Priority panel (landing screen) — every priority lead across all
@@ -703,6 +711,7 @@ export default function Scanner({
             [
               ["all", `All Dynamics 365 (${dynamicsSubViewCounts.all})`],
               ["businessCentral", `Business Central / ERP (${dynamicsSubViewCounts.businessCentral})`],
+              ["salesCrm", `Sales / CRM (${dynamicsSubViewCounts.salesCrm})`],
               ["other", `Everything else (${dynamicsSubViewCounts.other})`],
             ] as const
           ).map(([key, label]) => (

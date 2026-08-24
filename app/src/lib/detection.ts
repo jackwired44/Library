@@ -271,6 +271,14 @@ const DYNAMICS_MULTI_MODULE_RE = /\berp\b.{0,30}\bcrm\b|\bcrm\b.{0,30}\berp\b/i;
 // M365/Azure — this is one of a growing set of these keyword-triggered
 // sub-filters, meant to make filed leads easier to slice once stored.
 const BUSINESS_CENTRAL_RE = /\b(business\s*central|erp)\b/i;
+// Sales / CRM tab trigger — same pattern, exactly three keywords per
+// Jack: "Sales," "CRM," "crm" (the last two just case variants). Also
+// narrower than the full DYNAMICS_CRM_RE tier (which also covers Customer
+// Engagement/Insights/Contact Center/Field Service/Marketing/Project
+// Operations/Human Resources) — a lead that only says "Customer
+// Engagement" with no bare "Sales" or "CRM" wording doesn't trigger this
+// tab, even though it shares the same module-tier ranking block.
+const SALES_CRM_RE = /\b(sales|crm)\b/i;
 
 function hasBareTrailingCount(afterText: string) {
   const snippet = afterText.slice(0, 80);
@@ -409,6 +417,9 @@ interface PlatformHit {
   // pattern as isGoogleToMicrosoft, drives the Scanner's separate
   // Business Central tab within the Dynamics 365 category.
   isBusinessCentral?: boolean;
+  // "Sales"/"CRM" specifically, within a Dynamics 365 hit — same pattern,
+  // drives the Scanner's separate Sales / CRM tab.
+  isSalesCrm?: boolean;
 }
 export interface PlatformResult {
   categories: string[];
@@ -429,6 +440,8 @@ export interface PlatformResult {
   isGoogleToMicrosoft: boolean;
   // True if any hit is "Business Central" specifically.
   isBusinessCentral: boolean;
+  // True if any hit is "Sales"/"CRM" specifically.
+  isSalesCrm: boolean;
 }
 
 // Jack's own custom trigger words (see RuleOverrides), plain text — not
@@ -564,6 +577,7 @@ export function scanRowPlatform(
           cat.label === MIGRATION_LABEL ||
           (cat.label === "Azure" && AZURE_MIGRATION_OVERRIDE_RE.test(win)),
         isBusinessCentral: cat.label === "Dynamics 365" && BUSINESS_CENTRAL_RE.test(win),
+        isSalesCrm: cat.label === "Dynamics 365" && SALES_CRM_RE.test(win),
       });
       if (m.index === re.lastIndex) re.lastIndex++;
     }
@@ -596,6 +610,7 @@ export function scanRowPlatform(
           cat.label === MIGRATION_LABEL ||
           (cat.label === "Azure" && AZURE_MIGRATION_OVERRIDE_RE.test(paText)),
         isBusinessCentral: cat.label === "Dynamics 365" && BUSINESS_CENTRAL_RE.test(paText),
+        isSalesCrm: cat.label === "Dynamics 365" && SALES_CRM_RE.test(paText),
       });
     }
   }
@@ -606,11 +621,12 @@ export function scanRowPlatform(
   const notesSummary = commentsValue ? summarizeNotes(commentsValue, categories) : summarizeFromSnippets(hits.map((h) => h.snippet), categories);
   const isGoogleToMicrosoft = hits.some((h) => h.isGoogleToMicrosoft);
   const isBusinessCentral = hits.some((h) => h.isBusinessCentral);
+  const isSalesCrm = hits.some((h) => h.isSalesCrm);
   const dynamicsCounts = hits.filter((h) => h.category === "Dynamics 365" && h.seatCount != null).map((h) => h.seatCount as number);
   const dynamicsSeatCount = dynamicsCounts.length ? Math.max(...dynamicsCounts) : null;
   const dynamicsModuleTiers = hits.filter((h) => h.category === "Dynamics 365" && h.moduleTier != null).map((h) => h.moduleTier as number);
   const dynamicsModuleTier = dynamicsModuleTiers.length ? Math.min(...dynamicsModuleTiers) : 2;
-  return { categories, tier, snippet: bestHit.snippet, notesSummary, hits, dynamicsSeatCount, dynamicsModuleTier, isGoogleToMicrosoft, isBusinessCentral };
+  return { categories, tier, snippet: bestHit.snippet, notesSummary, hits, dynamicsSeatCount, dynamicsModuleTier, isGoogleToMicrosoft, isBusinessCentral, isSalesCrm };
 }
 
 /* ------------------------------------------------------------------ */
@@ -717,6 +733,9 @@ export interface ScanResult {
   // Business Central tab within the Dynamics 365 category (see "Business
   // Central view" in CLAUDE.md). Doesn't change category/bucket/export.
   isBusinessCentral: boolean;
+  // True for a "Sales"/"CRM" Dynamics 365 lead — drives the Scanner's
+  // separate Sales / CRM tab, same pattern as isBusinessCentral.
+  isSalesCrm: boolean;
 }
 
 export function scanRowUnified(row: Record<string, unknown>, columns: string[], resolved: ResolvedFields, overrides: RuleOverrides = DEFAULT_RULE_OVERRIDES): ScanResult | null {
@@ -769,6 +788,7 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
     dynamicsModuleTier: platform ? platform.dynamicsModuleTier : 2,
     isGoogleToMicrosoft: platform ? platform.isGoogleToMicrosoft : false,
     isBusinessCentral: platform ? platform.isBusinessCentral : false,
+    isSalesCrm: platform ? platform.isSalesCrm : false,
   };
 }
 
@@ -852,6 +872,7 @@ export interface ResultRow {
   dynamicsModuleTier: number;
   isGoogleToMicrosoft: boolean;
   isBusinessCentral: boolean;
+  isSalesCrm: boolean;
   // Manual status tracking (see DISPOSITION_META above) — never set by the
   // scan itself, always "none"/false/null until someone sets it by hand.
   disposition: Disposition;

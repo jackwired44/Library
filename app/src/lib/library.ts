@@ -75,6 +75,7 @@ export type StoredRow = ExportRow & {
   // existed still loads fine (undefined reads as false everywhere used).
   __isGoogleToMicrosoft?: boolean;
   __isBusinessCentral?: boolean;
+  __isSalesCrm?: boolean;
   __disposition: Disposition;
   __dispositionNote: string;
   __priority: boolean;
@@ -243,6 +244,7 @@ export function fileSignalRowsIntoGroup(
       __dynamicsModuleTier: r.dynamicsModuleTier,
       __isGoogleToMicrosoft: r.isGoogleToMicrosoft,
       __isBusinessCentral: r.isBusinessCentral,
+      __isSalesCrm: r.isSalesCrm,
       __disposition: r.disposition,
       __dispositionNote: r.dispositionNote,
       __priority: r.priority,
