@@ -386,6 +386,11 @@ interface PlatformHit {
   seatCount?: number | null;
   // 0 = Business Central/ERP, 1 = Sales/CRM, 2 = no specific module named.
   moduleTier?: number;
+  // Google Workspace/G Suite -> Microsoft 365 migration language
+  // specifically, within the Tenant Support hit — see CLAUDE.md "Google ->
+  // Microsoft view". Drives the Scanner's separate Google->Microsoft tab
+  // within the M365/Azure category; doesn't change category/bucket/export.
+  isGoogleToMicrosoft?: boolean;
 }
 export interface PlatformResult {
   categories: string[];
@@ -402,6 +407,8 @@ export interface PlatformResult {
   // wins if more than one is named) — see DYNAMICS_ERP_RE/DYNAMICS_CRM_RE
   // above. Defaults to 2 ("the rest") when no Dynamics hit exists at all.
   dynamicsModuleTier: number;
+  // True if any hit is Google->Microsoft migration language specifically.
+  isGoogleToMicrosoft: boolean;
 }
 
 // Jack's own custom trigger words (see RuleOverrides), plain text — not
@@ -525,6 +532,7 @@ export function scanRowPlatform(
         // "a count was mentioned") survives into the result for ranking.
         seatCount: cat.label === "Dynamics 365" ? extractCountNear(combined, m.index, m[0].length).count : null,
         moduleTier: cat.label === "Dynamics 365" ? (DYNAMICS_ERP_RE.test(win) ? 0 : DYNAMICS_CRM_RE.test(win) ? 1 : 2) : undefined,
+        isGoogleToMicrosoft: cat.label === TENANT_SUPPORT_LABEL && GOOGLE_TO_MICROSOFT_RE.test(win),
       });
       if (m.index === re.lastIndex) re.lastIndex++;
     }
@@ -552,6 +560,7 @@ export function scanRowPlatform(
         hasTrigger: true,
         fromProductArea: true,
         moduleTier: cat.label === "Dynamics 365" ? (DYNAMICS_ERP_RE.test(paText) ? 0 : DYNAMICS_CRM_RE.test(paText) ? 1 : 2) : undefined,
+        isGoogleToMicrosoft: cat.label === TENANT_SUPPORT_LABEL && GOOGLE_TO_MICROSOFT_RE.test(paText),
       });
     }
   }
@@ -560,11 +569,12 @@ export function scanRowPlatform(
   const tier: "signal" | "mention" = hits.some((h) => h.hasTrigger) ? "signal" : "mention";
   const bestHit = hits.find((h) => h.fromProductArea) || hits.find((h) => h.hasTrigger) || hits[0];
   const notesSummary = commentsValue ? summarizeNotes(commentsValue, categories) : summarizeFromSnippets(hits.map((h) => h.snippet), categories);
+  const isGoogleToMicrosoft = hits.some((h) => h.isGoogleToMicrosoft);
   const dynamicsCounts = hits.filter((h) => h.category === "Dynamics 365" && h.seatCount != null).map((h) => h.seatCount as number);
   const dynamicsSeatCount = dynamicsCounts.length ? Math.max(...dynamicsCounts) : null;
   const dynamicsModuleTiers = hits.filter((h) => h.category === "Dynamics 365" && h.moduleTier != null).map((h) => h.moduleTier as number);
   const dynamicsModuleTier = dynamicsModuleTiers.length ? Math.min(...dynamicsModuleTiers) : 2;
-  return { categories, tier, snippet: bestHit.snippet, notesSummary, hits, dynamicsSeatCount, dynamicsModuleTier };
+  return { categories, tier, snippet: bestHit.snippet, notesSummary, hits, dynamicsSeatCount, dynamicsModuleTier, isGoogleToMicrosoft };
 }
 
 /* ------------------------------------------------------------------ */
@@ -659,6 +669,12 @@ export interface ScanResult {
   // 0 = Business Central/ERP, 1 = Sales/CRM, 2 = no specific module named —
   // see "Dynamics 365 module-type ranking" in CLAUDE.md.
   dynamicsModuleTier: number;
+  // True for a Google Workspace/G Suite -> Microsoft 365 migration lead —
+  // drives the Scanner's separate Google->Microsoft tab within the M365/
+  // Azure category (see "Google -> Microsoft view" in CLAUDE.md). Doesn't
+  // change category/bucket/export — still exactly one of the two active
+  // categories, still one of the two download files.
+  isGoogleToMicrosoft: boolean;
 }
 
 export function scanRowUnified(row: Record<string, unknown>, columns: string[], resolved: ResolvedFields, overrides: RuleOverrides = DEFAULT_RULE_OVERRIDES): ScanResult | null {
@@ -709,6 +725,7 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
     notesSummary,
     dynamicsSeatCount: platform ? platform.dynamicsSeatCount : null,
     dynamicsModuleTier: platform ? platform.dynamicsModuleTier : 2,
+    isGoogleToMicrosoft: platform ? platform.isGoogleToMicrosoft : false,
   };
 }
 
@@ -790,6 +807,7 @@ export interface ResultRow {
   notesSummary: string;
   dynamicsSeatCount: number | null;
   dynamicsModuleTier: number;
+  isGoogleToMicrosoft: boolean;
   // Manual status tracking (see DISPOSITION_META above) — never set by the
   // scan itself, always "none"/false/null until someone sets it by hand.
   disposition: Disposition;

@@ -114,6 +114,11 @@ export default function Scanner({
   // which end of the seat-count secondary key comes first within each
   // block. Defaults to Jack's standing rule (greatest to least).
   const [dynamicsSortDesc, setDynamicsSortDesc] = useState(true);
+  // A separate tab within the M365/Azure category view for Google->
+  // Microsoft migration leads specifically — see CLAUDE.md "Google ->
+  // Microsoft view." Purely a view-level split; doesn't touch category,
+  // bucket, or export — both tabs still file/download as M365/Azure.
+  const [m365SubView, setM365SubView] = useState<"all" | "google" | "other">("all");
 
   async function handleFiles(fileListLike: FileList | null) {
     const all = Array.from(fileListLike || []).filter((f) => /\.csv$/i.test(f.name));
@@ -174,6 +179,7 @@ export default function Scanner({
     setTierFilter("signal");
     setDuplicatesOnly(false);
     setPriorityOnly(false);
+    setM365SubView("all");
     setPage(1);
     setSelected(new Set());
     // Saving is an explicit, per-batch choice — never carries over to the
@@ -189,6 +195,9 @@ export default function Scanner({
     let list = results;
     if (tierFilter !== "all") list = list.filter((r) => r.tier === tierFilter);
     if (categoryFilter !== "all") list = list.filter((r) => r.category === categoryFilter);
+    if (categoryFilter === "m365Tenant" && m365SubView !== "all") {
+      list = list.filter((r) => (m365SubView === "google" ? r.isGoogleToMicrosoft : !r.isGoogleToMicrosoft));
+    }
     if (duplicatesOnly) list = list.filter((r) => r.isDuplicate);
     if (priorityOnly) list = list.filter((r) => r.priority);
     if (search.trim()) {
@@ -209,7 +218,7 @@ export default function Scanner({
     // the rest) never flips.
     if (categoryFilter === "dynamics365") list = sortByDynamicsSeatCount(list, dynamicsSortDesc);
     return list;
-  }, [results, tierFilter, categoryFilter, duplicatesOnly, priorityOnly, search, dynamicsSortDesc]);
+  }, [results, tierFilter, categoryFilter, duplicatesOnly, priorityOnly, search, dynamicsSortDesc, m365SubView]);
 
   const tierCounts = useMemo(() => {
     let signal = 0, mention = 0, dq = 0;
@@ -227,6 +236,15 @@ export default function Scanner({
 
   const duplicateCount = useMemo(() => (results || []).filter((r) => r.isDuplicate).length, [results]);
   const priorityCount = useMemo(() => (results || []).filter((r) => r.priority).length, [results]);
+
+  // Counts for the M365/Azure sub-view tabs — same tier-filtered base as
+  // categoryCounts above, further narrowed to the M365/Azure category.
+  const m365SubViewCounts = useMemo(() => {
+    const base = tierFilter === "all" ? results || [] : (results || []).filter((r) => r.tier === tierFilter);
+    const m365 = base.filter((r) => r.category === "m365Tenant");
+    const google = m365.filter((r) => r.isGoogleToMicrosoft).length;
+    return { all: m365.length, google, other: m365.length - google };
+  }, [results, tierFilter]);
 
   // High Priority panel (landing screen) — every priority lead across all
   // of History, not scoped to the active scan. sourceFile (the actual CSV
@@ -630,6 +648,36 @@ export default function Scanner({
           style={{ flex: "1 1 200px", border: "1px solid #E1E4E9", borderRadius: 9, padding: "8px 12px" }}
         />
       </div>
+
+      {categoryFilter === "m365Tenant" && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+          <span style={{ fontSize: 11.5, color: "#8b93a0", fontWeight: 700, textTransform: "uppercase" }}>View:</span>
+          {(
+            [
+              ["all", `All M365/Azure (${m365SubViewCounts.all})`],
+              ["google", `Google → Microsoft (${m365SubViewCounts.google})`],
+              ["other", `Everything else (${m365SubViewCounts.other})`],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setM365SubView(key)}
+              title="Still files/downloads as M365/Azure either way — this only changes what's shown here."
+              style={{
+                border: "none",
+                borderRadius: 8,
+                padding: "7px 12px",
+                fontSize: 12.5,
+                fontWeight: 600,
+                background: m365SubView === key ? "#081E22" : "#F6FAFA",
+                color: m365SubView === key ? "#fff" : "#4C6167",
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {selected.size > 0 && (
         <div style={{ display: "flex", gap: 10, alignItems: "center", background: "#EEF2FF", border: "1px solid #D6DEFA", borderRadius: 11, padding: "10px 17px", marginBottom: 14, flexWrap: "wrap" }}>

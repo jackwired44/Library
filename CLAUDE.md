@@ -418,6 +418,21 @@ trigger for a fresh scan now) purely so any row already sitting in History
 or the Library from before this change, still flagged from the old
 "visible but excluded" behavior, keeps rendering correctly.
 
+**Google → Microsoft view (app/ only, Scanner).** Per Jack: Google→
+Microsoft migration leads should always be viewable as their own group,
+but the two download categories (Dynamics 365, M365 / Azure) stay exactly
+as they are — this is a view-level split within M365/Azure, not a third
+category or a third download file. Every `ResultRow` carries a new
+`isGoogleToMicrosoft` flag (`app/src/lib/detection.ts`, set on the
+Tenant Support platform hit when `GOOGLE_TO_MICROSOFT_RE` matches, plumbed
+through `PlatformResult`/`ScanResult`/`ResultRow` the same way
+`dynamicsSeatCount` is). When the M365 / Azure category filter is active,
+Scanner shows a "View:" row of three tabs — "All M365/Azure," "Google →
+Microsoft," "Everything else" — that only filters what's shown in the
+table; it never touches `category`/`bucket`, so the Final Downloads CSV,
+Library filing, and History all still file every M365/Azure lead into
+exactly the same single bucket regardless of which tab is active.
+
 ## Library architecture (the trickiest part to port correctly)
 
 - Saving to the Library is **opt-in per upload** (a checkbox, default OFF) —
