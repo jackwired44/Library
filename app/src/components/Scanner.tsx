@@ -139,7 +139,10 @@ export default function Scanner({
       if (saveToLibrary) {
         const monthLabel = monthLabelFromKey(uploadMonthKey);
         const { groups: groupsWithMonth, group } = getOrCreateGroupByName(libraryGroups, monthLabel);
-        const signalRows = scanned.filter((r) => r.tier === "signal");
+        // A duplicate never gets filed either — same reasoning as the CSV
+        // downloads (see exportRowsForBucket): the first-seen row of a
+        // duplicate group still files normally, only the repeat(s) don't.
+        const signalRows = scanned.filter((r) => r.tier === "signal" && !r.isDuplicate);
         const isNewGroup = groupsWithMonth !== libraryGroups;
         const { entries: nextEntries, touchedIds } = fileSignalRowsIntoGroup(libraryEntries, groupsWithMonth, group.id, signalRows, `${Date.now()}`);
         setLibraryGroups(groupsWithMonth);

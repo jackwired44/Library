@@ -900,9 +900,14 @@ export function sortByDynamicsSeatCount<T extends { dynamicsSeatCount?: number |
 
 // Shared by the Scanner's "Final downloads" buttons and History's per-entry
 // redownload buttons, so the two never diverge on what counts as a bucket's
-// export rows (Strong Signal only, Dynamics ranked by seat count).
+// export rows (Strong Signal only, Dynamics ranked by seat count). A
+// duplicate (per markDuplicateLeads — exact name+company match within this
+// same batch) is excluded here the same way a Bad Lead already is: still
+// fully visible and flagged in the Scanner table, just never downloaded
+// twice. The first-seen row of a duplicate group (isDuplicate: false)
+// still exports normally — only the repeat(s) get pulled.
 export function exportRowsForBucket(results: ResultRow[], bucketKey: BucketKey): ExportRow[] {
-  let rows = results.filter((r) => r.tier === "signal" && CATEGORY_META[r.category].bucket === bucketKey);
+  let rows = results.filter((r) => r.tier === "signal" && !r.isDuplicate && CATEGORY_META[r.category].bucket === bucketKey);
   if (bucketKey === "dynamics") rows = sortByDynamicsSeatCount(rows);
   return rows.map(buildExportRow);
 }

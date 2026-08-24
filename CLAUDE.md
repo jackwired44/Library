@@ -355,6 +355,20 @@ isolated `mutateResults` call shortly after another. Fixed by having
 `mutateResults` read the `results` prop directly (always current when an
 event handler runs) instead of depending on the updater's timing at all.
 
+**Duplicates excluded from downloads and Library filing (app/ only).** A
+duplicate (per the batch-scoped exact name+company match above) is still
+fully visible and flagged in the Scanner table — nothing about the
+detection/flagging itself changed — but per Jack: "it shouldn't appear
+twice in the strong signal... flagged and pulled so it doesn't get
+downloaded like that." So the *first-seen* row of a duplicate group still
+downloads/files normally; every repeat (`isDuplicate: true`) is excluded
+from the Scanner's Final Downloads CSVs, History's per-entry redownload
+(both go through `exportRowsForBucket` in `app/src/lib/detection.ts`), and
+Library filing (`signalRows` in `Scanner.tsx`'s upload handler) — same
+"visible but not exported" treatment a Bad Lead already gets. Still scoped
+to the current batch, same as the underlying duplicate check itself —
+this doesn't touch the deferred cross-batch/Library-wide widening.
+
 ## Library architecture (the trickiest part to port correctly)
 
 - Saving to the Library is **opt-in per upload** (a checkbox, default OFF) —
