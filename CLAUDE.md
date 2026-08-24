@@ -258,8 +258,8 @@ purely so anything already sitting in the Library or History under the old
 disappearing or crashing. Don't remove that legacy scaffolding without
 confirming no persisted data still references it.
 
-**Power BI / Azure / Fabric tightened qualification** — a bare product
-mention no longer counts as a hit at all:
+**Power BI / Azure / Fabric / Migration tightened qualification** — a bare
+product or generic-migration mention no longer counts as a hit at all:
 - **Power BI** only counts when there's language about actually bringing in
   a partner, vendor, consultant, reseller, MSP, or CSP for it — wanting
   better dashboards/reporting alone no longer qualifies.
@@ -277,6 +277,11 @@ mention no longer counts as a hit at all:
   larger project: an Azure tie-in, custom app/solution development, or
   (Azure) Document Intelligence specifically (`FABRIC_PROJECT_RE` in
   `app/src/lib/detection.ts`).
+- **Migration / Modernization** (generic — "legacy system," "re-platforming,"
+  "lift and shift," "modernizing") now needs the same partner/vendor/
+  consultant/MSP/CSP language as Power BI to count at all — a bare mention
+  of legacy/modernization language, even with a trigger word like "budget"
+  or "this year" nearby, no longer qualifies on its own.
 - Google→Microsoft migration language is also a hot signal right now —
   already auto-promotes M365/Azure to Strong Signal on its own (see the
   M365 Tenant Strong Signal boost above); no change needed, called out

@@ -89,13 +89,17 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
             mention either — it only counts when it ties into a larger project: an Azure tie-in, custom app/solution
             development, or (Azure) Document Intelligence specifically.
             <br />
-            <strong>Tenant Support / Migration / Licensing</strong> — Google→Microsoft migration, new tenant setup, MSP/
-            co-managed IT/full partner engagement language, security design/architecture/hardening work, plain "IT
-            support"/"help desk", generic data migration/legacy-system/re-platforming language, and Licensing hits with
-            no specific product angle. Strong Signal auto-promotes on Google→Microsoft migration language, MSP/CSP/
-            partner-engagement language, security design/hardening language, or a confirmed seat count at or above the
-            licensing threshold above — a bare "IT support"/"help desk" mention alone still only counts toward the
-            category match, not the Strong Signal promotion.
+            <strong>Migration / Modernization</strong> (generic data migration/legacy-system/re-platforming/lift-and-
+            shift language) no longer qualifies on a bare mention either, same bar as Power BI — it needs partner/
+            vendor/consultant/MSP/CSP language nearby to count as a hit at all. A trigger word like "budget" or "this
+            year" next to bare legacy-system language is not enough on its own anymore.
+            <br />
+            <strong>Tenant Support / Licensing</strong> — Google→Microsoft migration, new tenant setup, MSP/co-managed
+            IT/full partner engagement language, security design/architecture/hardening work, plain "IT support"/"help
+            desk", and Licensing hits with no specific product angle. Strong Signal auto-promotes on Google→Microsoft
+            migration language, MSP/CSP/partner-engagement language, security design/hardening language, or a confirmed
+            seat count at or above the licensing threshold above — a bare "IT support"/"help desk" mention alone still
+            only counts toward the category match, not the Strong Signal promotion.
             <br />
             <strong>Auto-DQ override:</strong> a small one-off project or a request for free consultancy/advice — "quick
             question," "no budget," "pick your brain" — is a Bad Lead regardless of category, even if it otherwise reads

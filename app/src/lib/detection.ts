@@ -299,7 +299,7 @@ const CATEGORY_BLURBS: Record<string, string> = {
   "Power BI": "bringing in a partner for Power BI",
   "Microsoft Fabric": "a Microsoft Fabric project tied to Azure or custom app development",
   Azure: "an on-prem-to-Azure migration or routing their Azure billing through a partner/CSP",
-  [MIGRATION_LABEL]: "migrating off their current systems",
+  [MIGRATION_LABEL]: "bringing in a partner to migrate off their current systems",
   [TENANT_SUPPORT_LABEL]: "setting up or supporting their M365 tenant — new tenant creation, migrating from Google, or ongoing IT support",
 };
 function fallbackSummary(categories: string[]) {
@@ -474,17 +474,27 @@ export function scanRowPlatform(
         if (m.index === re.lastIndex) re.lastIndex++;
         continue;
       }
+      // Migration/Modernization, tightened per Jack's ask, same bar as
+      // Power BI: "legacy system"/"re-platforming"/"lift and shift" alone
+      // no longer counts — needs partner/vendor/consultant/MSP/CSP
+      // language nearby to prove it's a real engagement, not just
+      // background color in the notes.
+      if (cat.label === MIGRATION_LABEL && !PARTNER_ENGAGEMENT_RE.test(win)) {
+        if (m.index === re.lastIndex) re.lastIndex++;
+        continue;
+      }
 
       hits.push({
         category: cat.label,
         snippet: win,
         hasTrigger:
-          // Power BI/Azure/Fabric hits already cleared the strict gate
-          // above — by definition that's a real opportunity, not just a
-          // mention.
+          // Power BI/Azure/Fabric/Migration hits already cleared the
+          // strict gate above — by definition that's a real opportunity,
+          // not just a mention.
           cat.label === "Power BI" ||
           cat.label === "Azure" ||
           cat.label === "Microsoft Fabric" ||
+          cat.label === MIGRATION_LABEL ||
           TRIGGER_WORDS_RE.test(win) ||
           LICENSE_COUNT_RE.test(win) ||
           (cat.label === TENANT_SUPPORT_LABEL &&
@@ -519,6 +529,7 @@ export function scanRowPlatform(
       )
         continue;
       if (cat.label === "Microsoft Fabric" && !FABRIC_PROJECT_RE.test(combined)) continue;
+      if (cat.label === MIGRATION_LABEL && !PARTNER_ENGAGEMENT_RE.test(combined)) continue;
       hits.push({
         category: cat.label,
         snippet: cleanText(paText),
