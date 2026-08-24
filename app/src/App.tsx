@@ -208,33 +208,26 @@ export default function App() {
   if (!unlocked) return <LockScreen onUnlock={() => setUnlockedState(true)} />;
 
   return (
-    <div style={{ maxWidth: 1240, margin: "0 auto", padding: "36px 28px 60px" }}>
-      <header style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
-        <h1 style={{ fontSize: 22, margin: 0 }}>Wired CIO Lead Scanner</h1>
-        <nav style={{ display: "flex", gap: 6 }}>
+    <div style={{ maxWidth: 1240, margin: "0 auto", padding: "0 28px 60px" }}>
+      <header className="app-header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div className="app-mark" aria-hidden="true">W</div>
+          <div>
+            <h1 style={{ fontSize: 18, margin: 0, lineHeight: 1.2 }}>Wired CIO</h1>
+            <div style={{ fontSize: 11.5, color: "#8b93a0", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Lead Scanner</div>
+          </div>
+        </div>
+        <nav style={{ display: "flex", gap: 6, alignItems: "center" }}>
           {(["scanner", "history", "library", "board"] as View[]).map((v) => (
-            <button
-              key={v}
-              onClick={() => setView(v)}
-              style={{
-                border: "none",
-                borderRadius: 8,
-                padding: "8px 14px",
-                fontWeight: 700,
-                fontSize: 12,
-                textTransform: "uppercase",
-                letterSpacing: "0.05em",
-                background: view === v ? "#081e22" : "#e9ebef",
-                color: view === v ? "#fff" : "#4c6167",
-              }}
-            >
+            <button key={v} onClick={() => setView(v)} className={`nav-btn${view === v ? " active" : ""}`}>
               {v === "library" ? `library (${libraryEntries.length})` : v === "history" ? `history (${historyEntries.length})` : v === "board" ? "board" : v}
             </button>
           ))}
           <button
             onClick={() => { setUnlocked(false); setUnlockedState(false); }}
             title="Lock this page again"
-            style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 700, color: "#4c6167" }}
+            className="nav-btn"
+            style={{ textTransform: "none", letterSpacing: "normal" }}
           >
             Lock
           </button>
