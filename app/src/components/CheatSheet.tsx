@@ -6,7 +6,7 @@
 // the Auto-DQ reasons) so it can't quietly drift out of sync with a rule
 // change the way a hand-copied description could.
 import { useState } from "react";
-import { CATEGORY_META, SKU_CATALOGUE, DQ_RULES, type CategoryKey, type RuleOverrides } from "../lib/detection";
+import { ACTIVE_CATEGORY_KEYS, CATEGORY_META, SKU_CATALOGUE, DQ_RULES, type CategoryKey, type RuleOverrides } from "../lib/detection";
 import { addCustomKeyword, removeCustomKeyword, setQualifyThreshold } from "../lib/ruleOverrides";
 
 interface CheatSheetProps {
@@ -55,10 +55,10 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
           <ChipList items={SKU_CATALOGUE.map((s) => s.label)} />
         </Section>
 
-        <Section title="Platform — three product-line buckets">
-          <p>Every row also gets checked against three independent product-line buckets. When a row matches more than one, the auto-default picks in this order (always manually reassignable regardless):</p>
+        <Section title="Platform — two product-line buckets">
+          <p>Every row also gets checked against two independent product-line buckets. When a row matches both, the auto-default picks in this order (always manually reassignable regardless):</p>
           <ol style={{ margin: "8px 0 14px", paddingLeft: 20 }}>
-            {(["dynamics365", "dataPlatform", "m365Tenant"] as CategoryKey[]).map((k) => (
+            {ACTIVE_CATEGORY_KEYS.map((k) => (
               <li key={k} style={{ marginBottom: 4 }}>
                 <CategoryBadge k={k} />
               </li>
@@ -68,22 +68,41 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
             Dynamics 365/D365/CRM/AX/NAV/GP, Business Central, Finance and Operations, Customer Engagement, Supply Chain
             Management, bare "ERP". Strong Signal if ERP+CRM are mentioned together, OR a specific product/module is named
             with a real or estimated count, OR any generic trigger word is present, OR a bare number sits next to the match.
+            Ranked greatest-to-smallest by stated seat count once scanned — Business Central/ERP leads first, then Sales/
+            CRM leads, then everything else, each block ranked by count within itself.
             <KeywordEditor category="dynamics365" ruleOverrides={ruleOverrides} onChangeRuleOverrides={onChangeRuleOverrides} />
           </CategoryDetail>
-          <CategoryDetail k="dataPlatform">
-            One shared bucket fed by three independent patterns: Power BI (broadened — also catches generic "analytics
-            dashboard," "business intelligence," etc.), Microsoft Fabric (narrow — "Microsoft Fabric" or "OneLake" only),
-            and Azure (narrow — bare word "azure"). Azure-flavored migration language ("azure" near "migrat-," lift-and-shift
-            near azure) is redirected here instead of the generic Migration path below, even though that pattern would also
-            match.
-            <KeywordEditor category="dataPlatform" ruleOverrides={ruleOverrides} onChangeRuleOverrides={onChangeRuleOverrides} />
-          </CategoryDetail>
           <CategoryDetail k="m365Tenant">
-            The combined/generic bucket: Tenant Support (Google→Microsoft migration, new tenant setup, MSP/co-managed IT
-            language, plain "IT support"/"help desk"), generic Migration/Modernization (data migration, legacy system,
-            re-platforming — minus anything the Azure override above already claimed), and Licensing hits with no specific
-            product angle.
+            The merged bucket — everything that isn't a Dynamics 365 opportunity: Azure, Power BI, Microsoft Fabric, Google→
+            Microsoft migrations, tenant support, licensing, Azure billing, CSP/MSP/partner engagement, ongoing support, and
+            security-hardening asks. Tightened qualification on the product-specific halves — a bare product mention no
+            longer counts:
+            <br />
+            <strong>Power BI</strong> only counts when there's language about actually bringing in a partner, vendor,
+            consultant, reseller, MSP, or CSP for it — "we want better dashboards" alone does not qualify anymore.
+            <br />
+            <strong>Azure</strong> only counts for exactly three things: an on-prem-to-cloud migration, Azure billing/cost
+            language, or looking for a partner/CSP to route that billing through. Generic "VMs/usage/adoption" scale
+            language no longer qualifies on its own.
+            <br />
+            <strong>Microsoft Fabric</strong> stays narrow and untightened — "Microsoft Fabric" or "OneLake" only.
+            <br />
+            <strong>Tenant Support / Migration / Licensing</strong> — Google→Microsoft migration, new tenant setup, MSP/
+            co-managed IT language, plain "IT support"/"help desk", generic data migration/legacy-system/re-platforming
+            language, and Licensing hits with no specific product angle. Strong Signal auto-promotes on Google→Microsoft
+            migration language, MSP/CSP/partner-being-brought-in language, or a confirmed seat count at or above the
+            licensing threshold above — a bare "IT support"/"help desk" mention alone still only counts toward the
+            category match, not the Strong Signal promotion.
             <KeywordEditor category="m365Tenant" ruleOverrides={ruleOverrides} onChangeRuleOverrides={onChangeRuleOverrides} />
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 11, color: "#9aa1ac", fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>
+                Extra Power BI / Azure trigger words
+              </div>
+              <div style={{ fontSize: 12, color: "#4c6167", marginBottom: 4 }}>
+                Tagged separately from the words above, but files into this same M365 / Azure bucket.
+              </div>
+              <KeywordEditor category="dataPlatform" ruleOverrides={ruleOverrides} onChangeRuleOverrides={onChangeRuleOverrides} />
+            </div>
           </CategoryDetail>
         </Section>
 

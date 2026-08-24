@@ -197,21 +197,93 @@ or a company is skipped from the check entirely. Don't widen the scope
 (cross-batch/Library-wide) or change flag-vs-remove without asking — both are
 explicitly-deferred next steps he already flagged himself, not oversights.
 
-**Dynamics 365 seat-count ranking (app/ only, added during the rebuild):**
-Dynamics 365 leads are always ranked by stated seat/user/license count,
-highest first, wherever they're shown or exported — the Scanner table when
-filtered to Dynamics 365, the Scanner's Dynamics CSV export, and the
-Library's Dynamics 365 category file (display, per-lead editor, download,
-and its slice of the combined "All Strong Signal Leads" file). The count is
-extracted from the matched text itself (`app/src/lib/detection.ts`,
-`sortByDynamicsSeatCount` / `PlatformResult.dynamicsSeatCount`) — same
+**Dynamics 365 ranking (app/ only, added during the rebuild):** Dynamics 365
+leads are always ranked wherever they're shown or exported — the Scanner
+table when filtered to Dynamics 365, the Scanner's Dynamics CSV export, and
+the Library's Dynamics 365 category file (display, per-lead editor,
+download, and its slice of the combined "All Strong Signal Leads" file) —
+by a two-key sort: **module type first, seat count second.** Every Dynamics
+hit is tagged with a module tier — 0 for Business Central/ERP/Finance and
+Operations/Supply Chain Management/AX/NAV/GP/bare "ERP", 1 for Dynamics 365
+Sales/Dynamics CRM/Customer Engagement/Insights/Service/Marketing/Field
+Service/Project Operations/Human Resources/bare "CRM", 2 for everything else
+— and a row's overall tier is the most specific (lowest-numbered) tier among
+its hits. Rows sort by that tier ascending first (ERP/BC leads always above
+Sales/CRM leads, which are always above the rest, regardless of count), then
+by stated seat/user/license count descending *within* each tier block. The
+count is extracted from the matched text itself
+(`app/src/lib/detection.ts`, `sortByDynamicsSeatCount` /
+`PlatformResult.dynamicsSeatCount` / `dynamicsModuleTier`) — same
 seat/user/license number-extraction the licensing engine already used,
 applied to Dynamics hits too. A lead with no stated count is never treated
-as a count of 0: it sinks below every counted lead as its own lower block,
-in whatever order it was already in — not interleaved by guesswork. Scoped
-to Dynamics 365 only for now, by explicit choice; the other two categories
-(Power BI/Azure/Fabric, M365 Tenant) keep their existing order until asked.
-This is an app/-only enhancement — legacy/unified-tool.js does not have it.
+as a count of 0: within its module-tier block it sinks below every counted
+lead in that same block, in whatever order it was already in — not
+interleaved by guesswork. Scoped to Dynamics 365 only, by explicit choice;
+M365/Azure (below) keeps its existing order until asked. This is an
+app/-only enhancement — legacy/unified-tool.js does not have it.
+
+### App/-only detection tightening (fine-tuning pass)
+
+The rules below are deliberate, Jack-directed departures from the
+legacy/-described model above, made as the business gets more specialized.
+They apply to `app/` only — `legacy/unified-tool.js` is untouched and still
+runs the original 3-category model exactly as described above.
+
+**Category merge — two live categories, not three.** Power BI / Azure /
+Fabric no longer has its own bucket. Its rule *logic* still lives in the
+code under the internal key `dataPlatform` (kept only for backward
+compatibility with already-filed Library entries and already-recorded
+History entries tagged with that key — see below), but every new scan now
+routes those hits straight into the `m365Tenant` bucket, relabeled
+**"M365 / Azure"**. Going forward there are exactly two categories Jack
+tackles: **Dynamics 365** and **M365 / Azure** (Azure, migrations, Google→
+Microsoft, tenant support, licensing, Azure billing, CSP/MSP/partner
+engagement, ongoing support, security-hardening). `CATEGORY_PRIORITY` is now
+just `["dynamics365", "m365Tenant"]`. New-facing UI (category filters, bulk
+move, Final Downloads, Cheat Sheet) iterates `ACTIVE_CATEGORY_KEYS`/
+`ACTIVE_BUCKET_KEYS` (`app/src/lib/detection.ts`) rather than the full type,
+so it only ever presents the two live categories — while the full 3-value
+`CategoryKey`/`BucketKey` type and `CATEGORY_META`/`BUCKET_META` (with a
+"(legacy)"-suffixed label on the old `dataPlatform` entry) stay intact
+purely so anything already sitting in the Library or History under the old
+`dataPlatform` value keeps rendering and downloading correctly instead of
+disappearing or crashing. Don't remove that legacy scaffolding without
+confirming no persisted data still references it.
+
+**Power BI / Azure tightened qualification** — a bare product mention no
+longer counts as a hit at all:
+- **Power BI** only counts when there's language about actually bringing in
+  a partner, vendor, consultant, reseller, MSP, or CSP for it — wanting
+  better dashboards/reporting alone no longer qualifies.
+- **Azure** only counts for exactly three things: an on-prem-to-cloud
+  migration, Azure billing/cost language, or looking for a partner/CSP to
+  route that billing through. The old generic "VMs/usage/consumption/
+  adoption" scale-language qualifier was removed entirely — it no longer
+  promotes to Strong Signal *or* creates a category match on its own.
+- **Microsoft Fabric** is untouched — still narrow, "Microsoft Fabric" or
+  "OneLake" only.
+- Any hit that clears one of these gates is automatically Strong Signal —
+  surviving the gate already proves real intent, so there's no separate
+  "trigger word" requirement layered on top the way Dynamics/Tenant still
+  have.
+
+**M365 Tenant Strong Signal boost.** On top of the existing licensing-count
+path (a confirmed seat/user/license count at or above the qualify threshold
+already promotes to Strong Signal — e.g. "Service-Microsoft 365 Business
+Standard-50 users"), Strong Signal now also auto-promotes on: Google→
+Microsoft migration language, or MSP/CSP/partner-being-brought-in language.
+A bare "IT support"/"help desk" mention on its own still only counts toward
+the category match, not this promotion — that distinction was intentional,
+not loosened.
+
+**Email/phone redaction.** The auto-generated "Matched snippet" (Scanner)
+and exported "Notes" column (CSV) never include an email address or phone
+number, even if the sentence they were extracted from contains one — those
+already have their own dedicated Email/Phone export columns, so repeating
+them in the free-text summary was pure duplication. Any candidate sentence
+containing an email or phone pattern is dropped from the summary the same
+way a sentence with a date/BANT/serial-number pattern already was
+(`hasForbiddenContent()` in `app/src/lib/detection.ts`).
 
 ## Library architecture (the trickiest part to port correctly)
 
@@ -221,9 +293,20 @@ This is an app/-only enhancement — legacy/unified-tool.js does not have it.
   please."
 - Only **Strong Signal** rows ever get filed — Needs Review and Bad Leads
   are never archived.
-- Files are organized **3 per month per category** (Dynamics / Power BI-
-  Azure-Fabric / M365 Tenant), appended to across multiple uploads in the
-  same month rather than creating a new file per upload.
+- Files are organized **up to 3 per month** — one combined "All Strong
+  Signal Leads" file plus one file per active category (Dynamics 365, M365
+  / Azure — see the category-merge note under Detection engine above),
+  appended to across multiple uploads in the same month rather than
+  creating a new file per upload. A custom (non-month) folder holds the
+  same up-to-3 file shape and can also be uploaded into directly.
+- A custom folder is tracked as such via an explicit `isAutoMonthFolder:
+  false` flag (`app/src/lib/library.ts`), not guessed from whether its name
+  parses as a month — so a custom folder someone names like a month (e.g.
+  "March 2025") is never misclassified as one of the auto-managed month
+  folders. Deleting a folder (month or custom) only ungroups its files
+  (`groupId: null`) — never deletes them — and the Library view has an
+  "Ungrouped files" section so those files stay reachable (load/download/
+  delete) afterward instead of orphaned.
 - Every individual lead inside a filed category file is editable, deletable,
   and movable to a different category (within the same month) in place —
   this is the fix for Scanner-side reassignments/tier promotions otherwise

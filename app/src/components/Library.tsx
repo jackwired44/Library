@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState, Fragment } from "react";
 import {
+  ACTIVE_BUCKET_KEYS,
   BUCKET_META,
   CATEGORY_META,
   DISPOSITION_META,
@@ -47,7 +48,6 @@ const EDITABLE_FIELDS = EXPORT_LABELS.filter((f) => f !== "Product Area");
 // DOM-size safeguard for an unusually large shared file — Download still
 // exports every row regardless of this cap.
 const ROW_EDITOR_CAP = 400;
-const BUCKET_ORDER: BucketKey[] = ["dynamics", "dataPlatform", "m365Tenant"];
 
 interface LibraryProps {
   entries: LibraryEntry[];
@@ -86,6 +86,10 @@ export default function LibraryView({ entries, setEntries, groups, setGroups, lo
     [groups]
   );
   const filterFolders = (list: LibraryGroup[]) => (search.trim() ? list.filter((g) => g.name.toLowerCase().includes(search.trim().toLowerCase())) : list);
+  // Deleting a folder ungroups its files (groupId: null) rather than
+  // deleting them — this is what keeps them reachable afterward instead of
+  // silently stranded outside any folder the UI ever shows.
+  const ungroupedEntries = useMemo(() => entries.filter((e) => !e.groupId), [entries]);
 
   function fileCountFor(groupId: string) {
     return getFolderEntries(entries, groupId).length;
@@ -286,8 +290,8 @@ export default function LibraryView({ entries, setEntries, groups, setGroups, lo
     <div>
       <p style={{ color: "#4c6167", maxWidth: 700 }}>
         Every month from October 2025 forward has its own folder, ready to file leads into whether or not anything's been
-        uploaded yet. Each folder holds up to 4 files: one combined list of every Strong Signal lead that month, plus the 3
-        category breakdowns. Only Strong Signal leads are ever kept here.
+        uploaded yet. Each folder holds up to 3 files: one combined list of every Strong Signal lead that month, plus the 2
+        category breakdowns (Dynamics 365, M365 / Azure). Only Strong Signal leads are ever kept here.
       </p>
       {error && <div style={{ color: "#9A5B22", marginBottom: 12 }}>{error}</div>}
 
@@ -325,6 +329,29 @@ export default function LibraryView({ entries, setEntries, groups, setGroups, lo
           </button>
         )}
       </FolderSection>
+
+      {ungroupedEntries.length > 0 && (
+        <div style={{ marginBottom: 28 }}>
+          <div style={{ fontSize: 11.5, color: "#8b93a0", fontWeight: 700, textTransform: "uppercase", marginBottom: 10 }}>
+            Ungrouped files — from a deleted folder
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {ungroupedEntries.map((entry) => (
+              <div key={entry.id} style={{ background: "#fff", border: "1px solid #E4E7EC", borderRadius: 13, padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+                <div>
+                  <div style={{ fontWeight: 600 }}>{entry.fileName}</div>
+                  <div style={{ fontSize: 11.5, color: "#9aa1ac" }}>{entry.rowCount} leads · {BUCKET_META[entry.bucketKey].label}</div>
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={() => handleLoad(entry.fileName, entry.rawText)} style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 7, padding: "6px 10px" }}>Load</button>
+                  <button onClick={() => handleDownload(entry)} style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 7, padding: "6px 10px" }}>⬇ Download</button>
+                  <button onClick={() => handleDeleteEntry(entry.id)} title="Delete this file" style={{ border: "1px solid #F0D6D6", background: "#fff", borderRadius: 7, padding: "6px 8px", color: "#B5443B" }}>✕</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -344,7 +371,7 @@ function FolderCard({ group, fileCount, onOpen, onDelete }: { group: LibraryGrou
       <button onClick={onOpen} style={{ width: "100%", border: "none", background: "none", padding: 16, textAlign: "left", cursor: "pointer" }}>
         <div style={{ fontSize: 26, marginBottom: 6 }}>{group.isPrivate ? "🔒" : "🗂️"}</div>
         <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 2 }}>{group.name}</div>
-        <div style={{ fontSize: 11.5, color: "#9aa1ac" }}>{fileCount} of 4 files{group.isPrivate ? " · Private" : ""}</div>
+        <div style={{ fontSize: 11.5, color: "#9aa1ac" }}>{fileCount} of 3 files{group.isPrivate ? " · Private" : ""}</div>
       </button>
       {onDelete && (
         <button onClick={onDelete} title="Delete folder (files stay, just ungrouped)" style={{ position: "absolute", top: 8, right: 8, border: "none", background: "none", color: "#B5443B", fontSize: 12 }}>✕</button>
@@ -422,7 +449,7 @@ function FolderContents({
         <input ref={uploadInputRef} type="file" accept=".csv" multiple style={{ display: "none" }} onChange={(e) => { onUpload(e.target.files); e.target.value = ""; }} />
         <PrivacyControls folder={folder} onSetPrivate={onSetPrivate} onSetPublic={onSetPublic} />
       </div>
-      <div style={{ color: "#9aa1ac", fontSize: 12.5, marginBottom: 8 }}>{folderEntries.length} of 3 category files filed · {combined.rowCount} total leads</div>
+      <div style={{ color: "#9aa1ac", fontSize: 12.5, marginBottom: 8 }}>{folderEntries.length} category file{folderEntries.length === 1 ? "" : "s"} filed · {combined.rowCount} total leads</div>
       {uploadNotice && <div style={{ color: "#2CC295", fontWeight: 600, fontSize: 13, marginBottom: 12 }}>{uploadNotice}</div>}
       {uploadError && <div style={{ color: "#9A5B22", fontSize: 13, marginBottom: 12 }}>{uploadError}</div>}
 
@@ -463,7 +490,7 @@ function FolderContents({
             />
           ))}
 
-          {BUCKET_ORDER.filter((bk) => !folderEntries.some((e) => e.bucketKey === bk)).map((bk) => (
+          {ACTIVE_BUCKET_KEYS.filter((bk) => !folderEntries.some((e) => e.bucketKey === bk)).map((bk) => (
             <div key={bk} style={{ background: "#F9FAFB", border: "1px dashed #E4E7EC", borderRadius: 13, padding: "14px 18px", color: "#9aa1ac" }}>
               <strong style={{ color: "#4c6167" }}>{BUCKET_META[bk].label}</strong> — no leads filed yet.
             </div>
@@ -548,7 +575,7 @@ function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownl
                         ))}
                         <td style={{ padding: "4px 6px", whiteSpace: "nowrap" }}>
                           <select value={entry.bucketKey} onChange={(ev) => onRowMove(rowKey, ev.target.value as BucketKey)} style={{ border: "1px solid #D8DBE1", borderRadius: 6, padding: "4px 6px", fontSize: 11.5, fontWeight: 600 }}>
-                            {(Object.keys(BUCKET_META) as BucketKey[]).map((bk) => (
+                            {ACTIVE_BUCKET_KEYS.map((bk) => (
                               <option key={bk} value={bk}>{BUCKET_META[bk].label}</option>
                             ))}
                           </select>

@@ -1,5 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import {
+  ACTIVE_CATEGORY_KEYS,
+  ACTIVE_BUCKET_KEYS,
   CATEGORY_META,
   BUCKET_META,
   DISPOSITION_META,
@@ -196,69 +198,76 @@ export default function Scanner({
   const duplicateCount = useMemo(() => (results || []).filter((r) => r.isDuplicate).length, [results]);
   const priorityCount = useMemo(() => (results || []).filter((r) => r.priority).length, [results]);
 
-  function mutateResults(fn: (list: ResultRow[]) => void) {
+  // fn mutates `next` in place and returns whichever rows it touched. The
+  // touched rows are synced to History AFTER setResults returns, never
+  // inside the updater — React 18 StrictMode double-invokes updaters in
+  // dev, and a side effect (onSyncToHistory writes to IndexedDB) inside one
+  // would silently double-write.
+  function mutateResults(fn: (list: ResultRow[]) => ResultRow[]) {
+    let touched: ResultRow[] = [];
     setResults((prev) => {
       if (!prev) return prev;
       const next = prev.map((r) => ({ ...r }));
-      fn(next);
+      touched = fn(next);
       return next;
     });
+    touched.forEach((row) => onSyncToHistory(row));
   }
 
   function toggleTier(id: string) {
     mutateResults((list) => {
       const row = list.find((r) => r.id === id);
-      if (!row) return;
+      if (!row) return [];
       row.tier = TIER_CYCLE[(TIER_CYCLE.indexOf(row.tier) + 1) % TIER_CYCLE.length];
-      onSyncToHistory(row);
+      return [row];
     });
   }
   function reassignRow(id: string, category: CategoryKey) {
     mutateResults((list) => {
       const row = list.find((r) => r.id === id);
-      if (!row) return;
+      if (!row) return [];
       row.category = category;
-      onSyncToHistory(row);
+      return [row];
     });
   }
   function toggleCrossedOut(id: string) {
     mutateResults((list) => {
       const row = list.find((r) => r.id === id);
-      if (!row) return;
+      if (!row) return [];
       row.crossedOut = !row.crossedOut;
-      onSyncToHistory(row);
+      return [row];
     });
   }
   function setDisposition(id: string, disposition: Disposition) {
     mutateResults((list) => {
       const row = list.find((r) => r.id === id);
-      if (!row) return;
+      if (!row) return [];
       row.disposition = disposition;
-      onSyncToHistory(row);
+      return [row];
     });
   }
   function setDispositionNote(id: string, note: string) {
     mutateResults((list) => {
       const row = list.find((r) => r.id === id);
-      if (!row) return;
+      if (!row) return [];
       row.dispositionNote = note;
-      onSyncToHistory(row);
+      return [row];
     });
   }
   function togglePriority(id: string) {
     mutateResults((list) => {
       const row = list.find((r) => r.id === id);
-      if (!row) return;
+      if (!row) return [];
       row.priority = !row.priority;
-      onSyncToHistory(row);
+      return [row];
     });
   }
   function setPriorityMonth(id: string, month: string) {
     mutateResults((list) => {
       const row = list.find((r) => r.id === id);
-      if (!row) return;
+      if (!row) return [];
       row.priorityMonth = month || null;
-      onSyncToHistory(row);
+      return [row];
     });
   }
   function toggleSelectRow(id: string) {
@@ -270,30 +279,30 @@ export default function Scanner({
   }
   function moveSelectedTo(category: CategoryKey) {
     if (!selected.size) return;
-    mutateResults((list) => list.forEach((r) => { if (selected.has(r.id)) { r.category = category; onSyncToHistory(r); } }));
+    mutateResults((list) => list.filter((r) => selected.has(r.id)).map((r) => { r.category = category; return r; }));
     setSelected(new Set());
   }
   function setTierForSelected(tier: Tier) {
     if (!selected.size) return;
-    mutateResults((list) => list.forEach((r) => { if (selected.has(r.id)) { r.tier = tier; onSyncToHistory(r); } }));
+    mutateResults((list) => list.filter((r) => selected.has(r.id)).map((r) => { r.tier = tier; return r; }));
     setSelected(new Set());
   }
   function setCrossedOutForSelected(value: boolean) {
     if (!selected.size) return;
-    mutateResults((list) => list.forEach((r) => { if (selected.has(r.id)) { r.crossedOut = value; onSyncToHistory(r); } }));
+    mutateResults((list) => list.filter((r) => selected.has(r.id)).map((r) => { r.crossedOut = value; return r; }));
     setSelected(new Set());
   }
   function setDispositionForSelected(disposition: Disposition) {
     if (!selected.size) return;
-    mutateResults((list) => list.forEach((r) => { if (selected.has(r.id)) { r.disposition = disposition; onSyncToHistory(r); } }));
+    mutateResults((list) => list.filter((r) => selected.has(r.id)).map((r) => { r.disposition = disposition; return r; }));
   }
   function setPriorityForSelected(value: boolean) {
     if (!selected.size) return;
-    mutateResults((list) => list.forEach((r) => { if (selected.has(r.id)) { r.priority = value; onSyncToHistory(r); } }));
+    mutateResults((list) => list.filter((r) => selected.has(r.id)).map((r) => { r.priority = value; return r; }));
   }
   function setPriorityMonthForSelected(month: string) {
     if (!selected.size || !month) return;
-    mutateResults((list) => list.forEach((r) => { if (selected.has(r.id)) { r.priorityMonth = month; onSyncToHistory(r); } }));
+    mutateResults((list) => list.filter((r) => selected.has(r.id)).map((r) => { r.priorityMonth = month; return r; }));
   }
 
   function bucketRowsFor(bucketKey: BucketKey) {
@@ -415,7 +424,7 @@ export default function Scanner({
       <div style={{ background: "#fff", border: "1px solid #E4E7EC", borderRadius: 13, padding: "18px 19px", marginBottom: 20 }}>
         <div style={{ fontWeight: 700, marginBottom: 12 }}>Final downloads — exactly three, every lead in exactly one</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {(Object.keys(BUCKET_META) as BucketKey[]).map((bk) => {
+          {ACTIVE_BUCKET_KEYS.map((bk) => {
             const count = bucketRowsFor(bk).length;
             return (
               <div key={bk} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -490,7 +499,7 @@ export default function Scanner({
         >
           All product lines ({categoryCounts.all})
         </button>
-        {(Object.keys(CATEGORY_META) as CategoryKey[]).map((k) => (
+        {ACTIVE_CATEGORY_KEYS.map((k) => (
           <button
             key={k}
             onClick={() => setCategoryFilter(k)}
@@ -512,7 +521,7 @@ export default function Scanner({
           <span style={{ fontWeight: 700, color: "#3A4B8C" }}>{selected.size} lead{selected.size === 1 ? "" : "s"} selected</span>
           <span>Move to:</span>
           <select value={bulkTarget} onChange={(e) => setBulkTarget(e.target.value as CategoryKey)}>
-            {(Object.keys(CATEGORY_META) as CategoryKey[]).map((k) => (
+            {ACTIVE_CATEGORY_KEYS.map((k) => (
               <option key={k} value={k}>{CATEGORY_META[k].label}</option>
             ))}
           </select>
@@ -585,13 +594,13 @@ export default function Scanner({
                         ))}
                       </div>
                     </td>
-                    <td style={{ padding: "10px 14px", color: "#4C6167", fontSize: 12.5, maxWidth: 300 }}>{r.notesSummary || r.licensing?.snippet || ""}</td>
+                    <td style={{ padding: "10px 14px", color: "#4C6167", fontSize: 12.5, maxWidth: 300 }}>{r.notesSummary}</td>
                     <td style={{ padding: "10px 14px" }}>
                       <button onClick={() => toggleTier(r.id)} style={{ border: "none", borderRadius: 20, padding: "4px 10px", fontWeight: 700, color: tierColor, background: tierBg }}>{tierLabel}</button>
                     </td>
                     <td style={{ padding: "10px 14px" }}>
                       <select value={r.category} onChange={(e) => reassignRow(r.id, e.target.value as CategoryKey)} style={{ background: meta.bg, color: meta.color, fontWeight: 600, border: "1px solid #D8DBE1", borderRadius: 7, padding: "6px 8px" }}>
-                        {(Object.keys(CATEGORY_META) as CategoryKey[]).map((k) => (
+                        {ACTIVE_CATEGORY_KEYS.map((k) => (
                           <option key={k} value={k}>{CATEGORY_META[k].label}</option>
                         ))}
                       </select>

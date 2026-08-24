@@ -3,8 +3,18 @@
 // engine" for the human-readable rule summary; this is the source of truth.
 
 export type Tier = "signal" | "mention" | "dq";
+// "dataPlatform" is kept as a valid key/bucket ONLY so anything already
+// filed under the old "Power BI / Azure / Fabric" category (Library files,
+// History entries saved before this merge) keeps rendering correctly —
+// see CLAUDE.md "Category merge". No new scan ever produces it: Power
+// BI/Azure/Fabric hits now route into "m365Tenant" (relabeled "M365 /
+// Azure") alongside Tenant Support/Migration/Licensing. ACTIVE_CATEGORY_KEYS
+// / ACTIVE_BUCKET_KEYS below are what new UI (filters, bulk-move, Final
+// Downloads) should iterate over — exactly the two live categories.
 export type CategoryKey = "m365Tenant" | "dynamics365" | "dataPlatform";
 export type BucketKey = "m365Tenant" | "dynamics" | "dataPlatform";
+export const ACTIVE_CATEGORY_KEYS: CategoryKey[] = ["dynamics365", "m365Tenant"];
+export const ACTIVE_BUCKET_KEYS: BucketKey[] = ["dynamics", "m365Tenant"];
 
 export interface CategoryMeta {
   label: string;
@@ -14,15 +24,17 @@ export interface CategoryMeta {
 }
 
 export const CATEGORY_META: Record<CategoryKey, CategoryMeta> = {
-  m365Tenant: { label: "M365 Tenant", color: "#B34A1F", bg: "#FBE7DB", bucket: "m365Tenant" },
+  m365Tenant: { label: "M365 / Azure", color: "#B34A1F", bg: "#FBE7DB", bucket: "m365Tenant" },
   dynamics365: { label: "Dynamics 365", color: "#5B3FC4", bg: "#EEEAFC", bucket: "dynamics" },
-  dataPlatform: { label: "Power BI / Azure / Fabric", color: "#1470A0", bg: "#E1F1FA", bucket: "dataPlatform" },
+  // Legacy only — see the type comment above.
+  dataPlatform: { label: "Power BI / Azure / Fabric (legacy)", color: "#1470A0", bg: "#E1F1FA", bucket: "dataPlatform" },
 };
 
 export const BUCKET_META: Record<BucketKey, { label: string; slug: string }> = {
-  m365Tenant: { label: "M365 Tenant", slug: "m365-tenant" },
+  m365Tenant: { label: "M365 / Azure", slug: "m365-azure" },
   dynamics: { label: "Dynamics", slug: "dynamics" },
-  dataPlatform: { label: "Power BI / Azure / Fabric", slug: "power-bi-azure-fabric" },
+  // Legacy only — see the CategoryKey type comment above.
+  dataPlatform: { label: "Power BI / Azure / Fabric (legacy)", slug: "power-bi-azure-fabric" },
 };
 
 export const BUCKET_LABEL: Record<BucketKey, string> = {
@@ -33,7 +45,7 @@ export const BUCKET_LABEL: Record<BucketKey, string> = {
 
 // Default-category priority when a row trips more than one bucket — a
 // default only, every row stays manually reassignable regardless.
-const CATEGORY_PRIORITY: CategoryKey[] = ["dynamics365", "dataPlatform", "m365Tenant"];
+const CATEGORY_PRIORITY: CategoryKey[] = ["dynamics365", "m365Tenant"];
 
 /* ------------------------------------------------------------------ */
 /* Licensing (Microsoft SKU / seat-count) engine                        */
@@ -143,6 +155,12 @@ export function scanRowLicensing(row: Record<string, unknown>, columns: string[]
 /* ------------------------------------------------------------------ */
 const TENANT_SUPPORT_LABEL = "Tenant Support";
 const MIGRATION_LABEL = "Migration / Modernization";
+// Shared with TENANT_SUPPORT_LABEL's Strong Signal boost below — see
+// GOOGLE_TO_MICROSOFT_RE/ONGOING_PARTNER_RE.
+const GOOGLE_TO_MICROSOFT_SRC =
+  "\\b(google\\s*workspace|g\\s*suite|gmail\\s*for\\s*(?:work|business))\\b.{0,60}\\b(microsoft(?:\\s*365)?|office\\s*365|m365)\\b|\\b(microsoft(?:\\s*365)?|office\\s*365|m365)\\b.{0,60}\\b(google\\s*workspace|g\\s*suite)\\b|\\bgoogle\\s*to\\s*microsoft\\b|\\bmigrat\\w*\\s*(?:off|from|away\\s*from)?\\s*google\\b";
+const ONGOING_PARTNER_SRC =
+  "\\b(msp|managed\\s*(?:it\\s*)?services?|managed\\s*service\\s*providers?|co-?managed\\s*it|outsourced?\\s*it|it\\s*outsourcing|long[\\s-]?term\\s*(?:partner|relationship)|ongoing\\s*(?:it\\s*)?support|dedicated\\s*(?:it\\s*)?partner|trusted\\s*(?:it\\s*)?partner|strategic\\s*(?:it\\s*)?partner|extension\\s*of\\s*(?:our|their|my)\\s*team|third[\\s-]?party\\s*(?:support|help|it)|3rd[\\s-]?party\\s*(?:support|help|it)|committed\\s*(?:it\\s*)?relationship)\\b";
 
 const PLATFORM_CATALOGUE: { label: string; pattern: RegExp }[] = [
   {
@@ -164,15 +182,22 @@ const PLATFORM_CATALOGUE: { label: string; pattern: RegExp }[] = [
   },
   {
     label: TENANT_SUPPORT_LABEL,
-    pattern:
-      /\b(google\s*workspace|g\s*suite|gmail\s*for\s*(?:work|business))\b.{0,60}\b(microsoft(?:\s*365)?|office\s*365|m365)\b|\b(microsoft(?:\s*365)?|office\s*365|m365)\b.{0,60}\b(google\s*workspace|g\s*suite)\b|\bgoogle\s*to\s*microsoft\b|\bmigrat\w*\s*(?:off|from|away\s*from)?\s*google\b|\btenant\s*(?:creation|setup|set\s*up|provisioning|onboarding|migration|support)\b|\b(?:create|creating|set(?:ting)?\s*up|stand(?:ing)?\s*up|provision(?:ing)?)\s*(?:a\s*)?(?:new\s*)?tenant\b|\bnew\s*tenant\b|\b(msp|managed\s*(?:it\s*)?services?|managed\s*service\s*providers?|co-?managed\s*it|outsourced?\s*it|it\s*outsourcing|long[\s-]?term\s*(?:partner|relationship)|ongoing\s*(?:it\s*)?support|dedicated\s*(?:it\s*)?partner|trusted\s*(?:it\s*)?partner|strategic\s*(?:it\s*)?partner|extension\s*of\s*(?:our|their|my)\s*team|third[\s-]?party\s*(?:support|help|it)|3rd[\s-]?party\s*(?:support|help|it)|committed\s*(?:it\s*)?relationship|it\s*support|technical\s*support|help\s*desk|helpdesk|support\s*(?:contract|plan|request|ticket|team)|need(?:s|ing)?\s*(?:it\s*)?support|looking\s*for\s*(?:it\s*)?support)\b/i,
+    pattern: new RegExp(
+      `${GOOGLE_TO_MICROSOFT_SRC}|\\btenant\\s*(?:creation|setup|set\\s*up|provisioning|onboarding|migration|support)\\b|\\b(?:create|creating|set(?:ting)?\\s*up|stand(?:ing)?\\s*up|provision(?:ing)?)\\s*(?:a\\s*)?(?:new\\s*)?tenant\\b|\\bnew\\s*tenant\\b|${ONGOING_PARTNER_SRC}|\\bit\\s*support\\b|\\btechnical\\s*support\\b|\\bhelp\\s*desk\\b|\\bhelpdesk\\b|\\bsupport\\s*(?:contract|plan|request|ticket|team)\\b|\\bneed(?:s|ing)?\\s*(?:it\\s*)?support\\b|\\blooking\\s*for\\s*(?:it\\s*)?support\\b`,
+      "i"
+    ),
   },
 ];
+// Power BI/Microsoft Fabric/Azure now roll into "m365Tenant" ("M365 /
+// Azure") alongside Tenant Support/Migration/Licensing — see the
+// CategoryKey comment above and CLAUDE.md "Category merge". Nothing here
+// still routes to "dataPlatform"; that key only survives for rendering
+// data filed before this merge.
 const PLATFORM_LABEL_TO_KEY: Record<string, CategoryKey> = {
   "Dynamics 365": "dynamics365",
-  "Power BI": "dataPlatform",
-  "Microsoft Fabric": "dataPlatform",
-  Azure: "dataPlatform",
+  "Power BI": "m365Tenant",
+  "Microsoft Fabric": "m365Tenant",
+  Azure: "m365Tenant",
   [MIGRATION_LABEL]: "m365Tenant",
   [TENANT_SUPPORT_LABEL]: "m365Tenant",
 };
@@ -182,9 +207,36 @@ const TRIGGER_WORDS_RE =
 const LICENSE_COUNT_RE = /\b(?!1\s*(?:users?|seats?|licenses?|licences?|suers)\b)\d+\s*(?:users?|seats?|licenses?|licences?|suers)\b/i;
 const GROWTH_OVERLOAD_RE =
   /\b(growing\s*(?:fast|rapidly|quickly)?|growth|scaling\s*(?:up|fast)?|too\s*much\s*on\s*(?:our|my|their)\s*plate|stretched\s*(?:too\s*)?thin|wearing\s*too\s*many\s*hats|understaffed|short[\s-]?staffed|overwhelmed|can'?t\s*keep\s*up|need(?:s|ing)?\s*(?:extra|additional|outside|external|more)\s*help|no\s*(?:internal\s*)?it\s*(?:staff|team|department)|don'?t\s*have\s*(?:an\s*)?it\s*(?:staff|team|department)|outgrow\w+)\b/i;
-const AZURE_SCALE_RE = /\b(virtual\s*machines?|\bvms?\b|user\s*count|usage|consumption|adoption)\b/i;
+// M365 Tenant Strong Signal boost, per Jack's ask: an actual Google->
+// Microsoft migration, or MSP/CSP/partner-being-brought-in language, is a
+// real buying-intent signal on its own — unlike a bare "IT support"/"help
+// desk" mention (still part of the category match above, just not
+// promoted to Strong Signal by itself).
+const GOOGLE_TO_MICROSOFT_RE = new RegExp(GOOGLE_TO_MICROSOFT_SRC, "i");
+const ONGOING_PARTNER_RE = new RegExp(ONGOING_PARTNER_SRC, "i");
+// Power BI/Azure qualification, tightened per Jack's rules audit: a bare
+// product mention no longer counts on its own for either bucket — see
+// CLAUDE.md "Power BI / Azure — tightened qualification".
+// Power BI only counts when there's language about actually bringing in a
+// partner/vendor/consultant/reseller/CSP for it — generic "we want better
+// dashboards" text alone no longer qualifies.
+const PARTNER_ENGAGEMENT_RE =
+  /\b(looking\s*for\s*(?:a\s*)?(?:partner|vendor|consultant|provider|reseller|msp|csp)|bring(?:ing)?\s*in\s*(?:a\s*)?(?:partner|vendor|consultant)|need(?:s|ing)?\s*(?:a\s*)?(?:partner|vendor|consultant|reseller|csp)|hire(?:ing)?\s*(?:a\s*)?(?:consultant|vendor|partner)|outsourc\w*|work(?:ing)?\s*with\s*a\s*partner|engage\s*(?:a\s*)?(?:partner|vendor|consultant)|\bcsp\b|cloud\s*solution\s*provider)\b/i;
+// Azure now qualifies on exactly three things: on-prem-to-cloud migration
+// (AZURE_MIGRATION_OVERRIDE_RE below), Azure billing/cost language, or
+// looking for a partner/CSP to route that billing through. Generic
+// "usage/VMs/adoption" scale language no longer qualifies by itself.
+const AZURE_BILLING_RE =
+  /\b(azure\s*(?:billing|invoic\w*|cost\s*management|spend|bill)|billing\s*(?:for|on|through|via)\s*azure|route\s*(?:our|their|my)?\s*(?:azure\s*)?billing|billing\s*(?:to\s*)?(?:go|run)\s*through)\b/i;
 const DYNAMICS_SPECIFIC_INSTANCE_RE =
   /\b(business\s*central|finance\s*(?:and|&)\s*operations|customer\s*engagement|customer\s*insights|contact\s*center|supply\s*chain(?:\s*management)?|dynamics\s*crm|dynamics\s*ax|dynamics\s*nav|dynamics\s*gp|dynamics\s*365\s*sales|dynamics\s*365\s*field\s*service|dynamics\s*365\s*project\s*operations|dynamics\s*365\s*customer\s*service|dynamics\s*365\s*marketing|dynamics\s*365\s*human\s*resources)\b/i;
+// Dynamics 365 leads rank in three blocks (see CLAUDE.md "Dynamics 365
+// module-type ranking"): Business Central/ERP first, Sales/CRM next, then
+// everything else (a bare "Dynamics 365"/"D365" mention with no specific
+// module named) — seat count still breaks ties within each block.
+const DYNAMICS_ERP_RE = /\b(business\s*central|finance\s*(?:and|&)\s*operations|supply\s*chain(?:\s*management)?|dynamics\s*ax|dynamics\s*nav|dynamics\s*gp|erp)\b/i;
+const DYNAMICS_CRM_RE =
+  /\b(dynamics\s*365\s*sales|dynamics\s*crm|customer\s*engagement|customer\s*insights|contact\s*center|dynamics\s*365\s*customer\s*service|dynamics\s*365\s*marketing|dynamics\s*365\s*field\s*service|dynamics\s*365\s*project\s*operations|dynamics\s*365\s*human\s*resources|crm)\b/i;
 const DYNAMICS_ESTIMATED_COUNT_RE =
   /\b(?:estimated|approx(?:imately)?|roughly|about|around|a\s*handful\s*of|a\s*few|several|dozens?\s*of|hundreds?\s*of)\b.{0,25}\b(?:users?|seats?|licenses?|licences?|suers|employees?|people|staff)\b/i;
 const DYNAMICS_MULTI_MODULE_RE = /\berp\b.{0,30}\bcrm\b|\bcrm\b.{0,30}\berp\b/i;
@@ -215,14 +267,19 @@ const DATE_RE =
 const BILLING_BANT_RE =
   /\$\s?\d[\d,]*(?:\.\d{1,2})?\b|\b\d+\s*(?:k|thousand|million)\b|\b(budget|pricing|price|quote|quoted|cost|contract|renewal|renew\w*|invoice|deadline|timeline|decision[\s-]?maker|approv\w*|procurement|purchase\s*order|\bpo\b|per\s*(?:seat|user|month|year))\b/i;
 const SERIAL_RE = /\b(?:serial|order|invoice|case|ticket|ref(?:erence)?)\s*#?\s*[:\-]?\s*[a-z0-9-]{4,}\b|\b[a-z]{1,3}-?\d{4,}\b|\b\d{5,}\b/i;
+// Email/phone already have their own dedicated export columns — see
+// CLAUDE.md — so a candidate summary sentence carrying either is dropped
+// here rather than shown a second time in the Matched snippet/Notes text.
+const EMAIL_RE = /\b[\w.+-]+@[\w-]+\.[a-z]{2,}\b/i;
+const PHONE_RE = /(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/;
 function hasForbiddenContent(s: string) {
-  return DATE_RE.test(s) || BILLING_BANT_RE.test(s) || SERIAL_RE.test(s);
+  return DATE_RE.test(s) || BILLING_BANT_RE.test(s) || SERIAL_RE.test(s) || EMAIL_RE.test(s) || PHONE_RE.test(s);
 }
 const CATEGORY_BLURBS: Record<string, string> = {
   "Dynamics 365": "modernizing their CRM/ERP setup",
-  "Power BI": "improving reporting and analytics",
+  "Power BI": "bringing in a partner for Power BI",
   "Microsoft Fabric": "consolidating their data platform",
-  Azure: "evaluating cloud infrastructure",
+  Azure: "an on-prem-to-Azure migration or routing their Azure billing through a partner/CSP",
   [MIGRATION_LABEL]: "migrating off their current systems",
   [TENANT_SUPPORT_LABEL]: "setting up or supporting their M365 tenant — new tenant creation, migrating from Google, or ongoing IT support",
 };
@@ -308,6 +365,8 @@ interface PlatformHit {
   hasTrigger: boolean;
   fromProductArea?: boolean;
   seatCount?: number | null;
+  // 0 = Business Central/ERP, 1 = Sales/CRM, 2 = no specific module named.
+  moduleTier?: number;
 }
 export interface PlatformResult {
   categories: string[];
@@ -320,6 +379,10 @@ export interface PlatformResult {
   // "Dynamics 365 seat-count ranking"). null when no number was stated;
   // never guessed at or defaulted to 0.
   dynamicsSeatCount: number | null;
+  // The most specific Dynamics module block this row belongs in (lowest
+  // wins if more than one is named) — see DYNAMICS_ERP_RE/DYNAMICS_CRM_RE
+  // above. Defaults to 2 ("the rest") when no Dynamics hit exists at all.
+  dynamicsModuleTier: number;
 }
 
 // Jack's own custom trigger words (see RuleOverrides), plain text — not
@@ -372,14 +435,31 @@ export function scanRowPlatform(
       extended = 0;
       while (start > 0 && /\w/.test(combined[start - 1]) && extended < 15) { start--; extended++; }
       const win = combined.slice(start, end).trim();
+
+      // Power BI and Azure no longer qualify on a bare product mention —
+      // see PARTNER_ENGAGEMENT_RE/AZURE_BILLING_RE above. Skip the hit
+      // entirely (not just its Strong Signal trigger) if the window
+      // doesn't clear the tightened bar for that specific bucket.
+      if (cat.label === "Power BI" && !PARTNER_ENGAGEMENT_RE.test(win)) {
+        if (m.index === re.lastIndex) re.lastIndex++;
+        continue;
+      }
+      if (cat.label === "Azure" && !(AZURE_MIGRATION_OVERRIDE_RE.test(win) || AZURE_BILLING_RE.test(win) || PARTNER_ENGAGEMENT_RE.test(win))) {
+        if (m.index === re.lastIndex) re.lastIndex++;
+        continue;
+      }
+
       hits.push({
         category: cat.label,
         snippet: win,
         hasTrigger:
+          // Power BI/Azure hits already cleared the strict gate above —
+          // by definition that's a real opportunity, not just a mention.
+          cat.label === "Power BI" ||
+          cat.label === "Azure" ||
           TRIGGER_WORDS_RE.test(win) ||
           LICENSE_COUNT_RE.test(win) ||
-          (cat.label === TENANT_SUPPORT_LABEL && GROWTH_OVERLOAD_RE.test(win)) ||
-          (cat.label === "Azure" && AZURE_SCALE_RE.test(win)) ||
+          (cat.label === TENANT_SUPPORT_LABEL && (GROWTH_OVERLOAD_RE.test(win) || GOOGLE_TO_MICROSOFT_RE.test(win) || ONGOING_PARTNER_RE.test(win) || PARTNER_ENGAGEMENT_RE.test(win))) ||
           (cat.label === "Dynamics 365" &&
             (DYNAMICS_MULTI_MODULE_RE.test(win) ||
               (DYNAMICS_SPECIFIC_INSTANCE_RE.test(win) && (LICENSE_COUNT_RE.test(win) || DYNAMICS_ESTIMATED_COUNT_RE.test(win))))) ||
@@ -389,6 +469,7 @@ export function scanRowPlatform(
         // uses, reused here so a Dynamics lead's real count (not just
         // "a count was mentioned") survives into the result for ranking.
         seatCount: cat.label === "Dynamics 365" ? extractCountNear(combined, m.index, m[0].length).count : null,
+        moduleTier: cat.label === "Dynamics 365" ? (DYNAMICS_ERP_RE.test(win) ? 0 : DYNAMICS_CRM_RE.test(win) ? 1 : 2) : undefined,
       });
       if (m.index === re.lastIndex) re.lastIndex++;
     }
@@ -396,7 +477,20 @@ export function scanRowPlatform(
   if (productAreaValue) {
     const paText = String(productAreaValue);
     for (const cat of PLATFORM_CATALOGUE) {
-      if (cat.pattern.test(paText)) hits.push({ category: cat.label, snippet: cleanText(paText), hasTrigger: true, fromProductArea: true });
+      if (!cat.pattern.test(paText)) continue;
+      // A Product Area column tagged "Power BI"/"Azure" is still just a
+      // category label, not proof of partner/billing intent — check the
+      // WHOLE row's text (Product Area rarely carries that language
+      // itself) before letting it through under the same tightened bar.
+      if (cat.label === "Power BI" && !PARTNER_ENGAGEMENT_RE.test(combined)) continue;
+      if (cat.label === "Azure" && !(AZURE_MIGRATION_OVERRIDE_RE.test(combined) || AZURE_BILLING_RE.test(combined) || PARTNER_ENGAGEMENT_RE.test(combined))) continue;
+      hits.push({
+        category: cat.label,
+        snippet: cleanText(paText),
+        hasTrigger: true,
+        fromProductArea: true,
+        moduleTier: cat.label === "Dynamics 365" ? (DYNAMICS_ERP_RE.test(paText) ? 0 : DYNAMICS_CRM_RE.test(paText) ? 1 : 2) : undefined,
+      });
     }
   }
   if (hits.length === 0) return null;
@@ -406,7 +500,9 @@ export function scanRowPlatform(
   const notesSummary = commentsValue ? summarizeNotes(commentsValue, categories) : summarizeFromSnippets(hits.map((h) => h.snippet), categories);
   const dynamicsCounts = hits.filter((h) => h.category === "Dynamics 365" && h.seatCount != null).map((h) => h.seatCount as number);
   const dynamicsSeatCount = dynamicsCounts.length ? Math.max(...dynamicsCounts) : null;
-  return { categories, tier, snippet: bestHit.snippet, notesSummary, hits, dynamicsSeatCount };
+  const dynamicsModuleTiers = hits.filter((h) => h.category === "Dynamics 365" && h.moduleTier != null).map((h) => h.moduleTier as number);
+  const dynamicsModuleTier = dynamicsModuleTiers.length ? Math.min(...dynamicsModuleTiers) : 2;
+  return { categories, tier, snippet: bestHit.snippet, notesSummary, hits, dynamicsSeatCount, dynamicsModuleTier };
 }
 
 /* ------------------------------------------------------------------ */
@@ -479,6 +575,9 @@ export interface ScanResult {
   // means none was stated, never a guessed 0. See "Dynamics 365 seat-count
   // ranking" in CLAUDE.md.
   dynamicsSeatCount: number | null;
+  // 0 = Business Central/ERP, 1 = Sales/CRM, 2 = no specific module named —
+  // see "Dynamics 365 module-type ranking" in CLAUDE.md.
+  dynamicsModuleTier: number;
 }
 
 export function scanRowUnified(row: Record<string, unknown>, columns: string[], resolved: ResolvedFields, overrides: RuleOverrides = DEFAULT_RULE_OVERRIDES): ScanResult | null {
@@ -488,13 +587,13 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
 
   const categorySet = new Set<CategoryKey>();
   if (platform) {
+    // Azure-flavored migration language used to get redirected into the
+    // separate Power BI/Azure/Fabric bucket instead of the generic
+    // Migration one — now a no-op, since both roll into "m365Tenant"
+    // either way after the category merge (see CLAUDE.md).
     platform.hits.forEach((h) => {
-      if (h.category === MIGRATION_LABEL && AZURE_MIGRATION_OVERRIDE_RE.test(h.snippet)) {
-        categorySet.add("dataPlatform");
-      } else {
-        const key = PLATFORM_LABEL_TO_KEY[h.category];
-        if (key) categorySet.add(key);
-      }
+      const key = PLATFORM_LABEL_TO_KEY[h.category];
+      if (key) categorySet.add(key);
     });
   }
   let licensingTier: Tier | null = null;
@@ -528,6 +627,7 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
     platform: platform ? { snippet: platform.snippet } : null,
     notesSummary,
     dynamicsSeatCount: platform ? platform.dynamicsSeatCount : null,
+    dynamicsModuleTier: platform ? platform.dynamicsModuleTier : 2,
   };
 }
 
@@ -608,6 +708,7 @@ export interface ResultRow {
   platform: { snippet: string } | null;
   notesSummary: string;
   dynamicsSeatCount: number | null;
+  dynamicsModuleTier: number;
   // Manual status tracking (see DISPOSITION_META above) — never set by the
   // scan itself, always "none"/false/null until someone sets it by hand.
   disposition: Disposition;
@@ -718,15 +819,21 @@ export function scanParsedFiles(parsedFiles: ParsedFile[], overrides: RuleOverri
   return { results, rowsScanned };
 }
 
-// Dynamics 365 ranking, top to bottom: a stated seat/user/license count
-// wins over one that isn't, and among stated counts, higher wins — "21
-// User" outranks "15 users". A lead with no stated count is never treated
-// as a count of 0; it just sinks below every counted lead as its own
-// group, in whatever order it was already in (stable sort). Applies only
-// where the caller chooses to use it (Dynamics 365 views specifically) —
-// see CLAUDE.md "Dynamics 365 seat-count ranking".
-export function sortByDynamicsSeatCount<T extends { dynamicsSeatCount?: number | null }>(rows: T[]): T[] {
-  return [...rows].sort((a, b) => (b.dynamicsSeatCount ?? -Infinity) - (a.dynamicsSeatCount ?? -Infinity));
+// Dynamics 365 ranking, top to bottom: Business Central/ERP leads first,
+// then Sales/CRM, then everything else with no specific module named (see
+// CLAUDE.md "Dynamics 365 module-type ranking") — and WITHIN each of those
+// three blocks, a stated seat/user/license count wins over one that isn't,
+// higher count outranking lower ("21 User" outranks "15 users"). A lead
+// with no stated count is never treated as a count of 0; it just sinks
+// below every counted lead in its own block, in whatever order it was
+// already in (stable sort). Applies only where the caller chooses to use
+// it (Dynamics 365 views specifically).
+export function sortByDynamicsSeatCount<T extends { dynamicsSeatCount?: number | null; dynamicsModuleTier?: number }>(rows: T[]): T[] {
+  return [...rows].sort((a, b) => {
+    const tierDiff = (a.dynamicsModuleTier ?? 2) - (b.dynamicsModuleTier ?? 2);
+    if (tierDiff !== 0) return tierDiff;
+    return (b.dynamicsSeatCount ?? -Infinity) - (a.dynamicsSeatCount ?? -Infinity);
+  });
 }
 
 // Shared by the Scanner's "Final downloads" buttons and History's per-entry

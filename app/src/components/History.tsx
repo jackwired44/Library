@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { BUCKET_META, EXPORT_LABELS, exportRowsForBucket, getFullName, type BucketKey } from "../lib/detection";
+import { ACTIVE_BUCKET_KEYS, BUCKET_META, EXPORT_LABELS, exportRowsForBucket, getFullName, type BucketKey } from "../lib/detection";
 import { downloadCSV, toCSV, downloadBlob } from "../lib/csv";
 import { getWeeks, getDays, getFilteredHistory, buildAuditTrailRows, AUDIT_TRAIL_COLUMNS, type HistoryEntry } from "../lib/history";
 
@@ -188,7 +188,7 @@ function HistoryCard({
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           <button onClick={onView} style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 7, padding: "6px 10px" }}>View / edit</button>
-          {(Object.keys(BUCKET_META) as BucketKey[]).map((bk) => (
+          {ACTIVE_BUCKET_KEYS.map((bk) => (
             <button key={bk} onClick={() => onDownloadBucket(bk)} title={`Download ${BUCKET_META[bk].label} leads from this import`} style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 7, padding: "6px 10px", fontSize: 12 }}>
               ⬇ {BUCKET_META[bk].label}
             </button>
