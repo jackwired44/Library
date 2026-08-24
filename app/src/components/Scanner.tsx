@@ -63,6 +63,10 @@ export default function Scanner({
   onRecordHistory,
   onSyncToHistory,
 }: ScannerProps) {
+  // Per-bucket download file name — editable, defaults to the standard
+  // wired-cio-<bucket>-leads.csv name until Jack renames it. Reset on
+  // "Start over" via `reset()` below, same as every other per-batch choice.
+  const [bucketFileNames, setBucketFileNames] = useState<Record<BucketKey, string>>({ m365Tenant: "", dynamics: "", dataPlatform: "" });
   const [saveToLibrary, setSaveToLibrary] = useState(false);
   const [uploadMonthKey, setUploadMonthKey] = useState(() => monthKeyFromDate(new Date()));
   const [filedNotice, setFiledNotice] = useState<string | null>(null);
@@ -118,6 +122,7 @@ export default function Scanner({
 
   function reset() {
     onReset();
+    setBucketFileNames({ m365Tenant: "", dynamics: "", dataPlatform: "" });
     setError(null);
     setSearch("");
     setCategoryFilter("all");
@@ -231,8 +236,13 @@ export default function Scanner({
   function bucketRowsFor(bucketKey: BucketKey) {
     return exportRowsForBucket(results || [], bucketKey);
   }
+  function defaultBucketFileName(bucketKey: BucketKey) {
+    return `wired-cio-${BUCKET_META[bucketKey].slug}-leads.csv`;
+  }
   function exportBucket(bucketKey: BucketKey) {
-    downloadCSV(`wired-cio-${BUCKET_META[bucketKey].slug}-leads.csv`, bucketRowsFor(bucketKey), EXPORT_LABELS);
+    const raw = (bucketFileNames[bucketKey] || defaultBucketFileName(bucketKey)).trim() || defaultBucketFileName(bucketKey);
+    const fileName = /\.csv$/i.test(raw) ? raw : `${raw}.csv`;
+    downloadCSV(fileName, bucketRowsFor(bucketKey), EXPORT_LABELS);
   }
 
   if (!results) {
@@ -318,26 +328,35 @@ export default function Scanner({
 
       <div style={{ background: "#fff", border: "1px solid #E4E7EC", borderRadius: 13, padding: "18px 19px", marginBottom: 20 }}>
         <div style={{ fontWeight: 700, marginBottom: 12 }}>Final downloads — exactly three, every lead in exactly one</div>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {(Object.keys(BUCKET_META) as BucketKey[]).map((bk) => {
             const count = bucketRowsFor(bk).length;
             return (
-              <button
-                key={bk}
-                disabled={count === 0}
-                onClick={() => exportBucket(bk)}
-                style={{
-                  background: count ? "#2CC295" : "#E1E5E4",
-                  color: count ? "#081E22" : "#9AA6A5",
-                  border: `2px solid ${count ? "#2CC295" : "#E1E5E4"}`,
-                  borderRadius: 999,
-                  padding: "9px 19px",
-                  fontWeight: 700,
-                  cursor: count ? "pointer" : "not-allowed",
-                }}
-              >
-                {BUCKET_META[bk].label} ({count})
-              </button>
+              <div key={bk} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <span style={{ fontWeight: 700, minWidth: 190, color: count ? "#081E22" : "#9AA6A5" }}>{BUCKET_META[bk].label} ({count})</span>
+                <input
+                  value={bucketFileNames[bk]}
+                  onChange={(e) => setBucketFileNames((prev) => ({ ...prev, [bk]: e.target.value }))}
+                  placeholder={defaultBucketFileName(bk)}
+                  style={{ flex: "1 1 220px", border: "1px solid #E1E4E9", borderRadius: 8, padding: "8px 11px", fontSize: 12.5 }}
+                />
+                <button
+                  disabled={count === 0}
+                  onClick={() => exportBucket(bk)}
+                  style={{
+                    background: count ? "#2CC295" : "#E1E5E4",
+                    color: count ? "#081E22" : "#9AA6A5",
+                    border: `2px solid ${count ? "#2CC295" : "#E1E5E4"}`,
+                    borderRadius: 999,
+                    padding: "8px 18px",
+                    fontWeight: 700,
+                    cursor: count ? "pointer" : "not-allowed",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  ⬇ Download CSV
+                </button>
+              </div>
             );
           })}
         </div>

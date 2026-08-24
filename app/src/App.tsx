@@ -245,6 +245,7 @@ export default function App() {
           loading={libraryLoading}
           error={libraryError}
           onLoadIntoScanner={loadParsedFilesIntoScanner}
+          onRecordHistory={recordHistory}
         />
       )}
     </div>

@@ -1,6 +1,6 @@
-import { Fragment, useMemo, useState } from "react";
-import { BUCKET_META, CATEGORY_META, EXPORT_LABELS, type BucketKey, type ExportLabel, type ParsedFile } from "../lib/detection";
-import { parseCSVText, downloadBlob } from "../lib/csv";
+import { useMemo, useRef, useState, Fragment } from "react";
+import { BUCKET_META, CATEGORY_META, EXPORT_LABELS, scanParsedFiles, type BucketKey, type ExportLabel, type ParsedFile, type ResultRow } from "../lib/detection";
+import { parseCSVFile, parseCSVText, downloadBlob } from "../lib/csv";
 import {
   createGroup,
   renameGroup,
@@ -8,7 +8,9 @@ import {
   isMonthFolder,
   getFolderEntries,
   getCombinedFolderExport,
+  fileSignalRowsIntoGroup,
   persistLibraryEntry,
+  persistLibraryEntries,
   persistGroup,
   deleteGroupFromDB,
   deleteLibraryEntryFromDB,
@@ -40,9 +42,14 @@ interface LibraryProps {
   loading: boolean;
   error: string | null;
   onLoadIntoScanner: (parsedFiles: ParsedFile[]) => void;
+  // Uploading a CSV straight into an open folder scans it (same engine the
+  // Scanner uses) and files its Strong Signal rows into THIS folder's
+  // category files — every scan gets recorded to History too, same as a
+  // Scanner upload, via the same callback Scanner itself uses.
+  onRecordHistory: (parsedFiles: ParsedFile[], scanned: ResultRow[], tag?: string) => void;
 }
 
-export default function LibraryView({ entries, setEntries, groups, setGroups, loading, error, onLoadIntoScanner }: LibraryProps) {
+export default function LibraryView({ entries, setEntries, groups, setGroups, loading, error, onLoadIntoScanner, onRecordHistory }: LibraryProps) {
   const [openFolderId, setOpenFolderId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [showNewGroupForm, setShowNewGroupForm] = useState(false);
@@ -91,6 +98,8 @@ export default function LibraryView({ entries, setEntries, groups, setGroups, lo
       });
     }
     setOpenFolderId(null);
+    setUploadNotice(null);
+    setUploadError(null);
   }
   async function handleUnlockFolder(id: string, password: string): Promise<boolean> {
     const group = groups.find((g) => g.id === id);
@@ -114,6 +123,33 @@ export default function LibraryView({ entries, setEntries, groups, setGroups, lo
     setGroups(next);
     const updated = next.find((g) => g.id === id);
     if (updated) persistGroup(updated);
+  }
+  const [uploadNotice, setUploadNotice] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  async function handleUploadIntoFolder(groupId: string, files: FileList | null) {
+    const csvFiles = Array.from(files || []).filter((f) => /\.csv$/i.test(f.name));
+    if (!csvFiles.length) return;
+    setUploadError(null);
+    setUploadNotice(null);
+    try {
+      const parsedFiles = await Promise.all(csvFiles.map(parseCSVFile));
+      const { results: scanned } = scanParsedFiles(parsedFiles);
+      const signalRows = scanned.filter((r) => r.tier === "signal");
+      const { entries: nextEntries, touchedIds } = fileSignalRowsIntoGroup(entries, groups, groupId, signalRows, `${Date.now()}`);
+      setEntries(nextEntries);
+      const touchedEntries = nextEntries.filter((e) => touchedIds.includes(e.id));
+      await persistLibraryEntries(touchedEntries);
+      const folderName = groups.find((g) => g.id === groupId)?.name || "this folder";
+      onRecordHistory(parsedFiles, scanned, `Uploaded into ${folderName}`);
+      setUploadNotice(
+        signalRows.length > 0
+          ? `Filed ${signalRows.length} Strong Signal lead${signalRows.length === 1 ? "" : "s"} into ${folderName}.`
+          : "No Strong Signal leads in that file — nothing to file."
+      );
+    } catch (err) {
+      setUploadNotice(null);
+      setUploadError(err instanceof Error ? err.message : "Could not parse that file.");
+    }
   }
   function handleDeleteGroup(id: string) {
     const { groups: nextGroups, entries: nextEntries } = deleteGroup(groups, entries, id);
@@ -214,6 +250,9 @@ export default function LibraryView({ entries, setEntries, groups, setGroups, lo
         onRowMove={handleRowMove}
         onSetPrivate={(password) => handleSetPrivate(openFolder.id, password)}
         onSetPublic={() => handleSetPublic(openFolder.id)}
+        onUpload={(files) => handleUploadIntoFolder(openFolder.id, files)}
+        uploadNotice={uploadNotice}
+        uploadError={uploadError}
       />
     );
   }
@@ -306,6 +345,9 @@ interface FolderContentsProps {
   onRowMove: (entryId: string, rowKey: string, newBucket: BucketKey) => void;
   onSetPrivate: (password: string) => void;
   onSetPublic: () => void;
+  onUpload: (files: FileList | null) => void;
+  uploadNotice: string | null;
+  uploadError: string | null;
 }
 
 function FolderContents({
@@ -325,10 +367,14 @@ function FolderContents({
   onRowMove,
   onSetPrivate,
   onSetPublic,
+  onUpload,
+  uploadNotice,
+  uploadError,
 }: FolderContentsProps) {
   const folderEntries = getFolderEntries(entries, folder.id);
   const combined = getCombinedFolderExport(entries, folder.id);
   const combinedFileName = `All Strong Signal Leads — ${folder.name}.csv`;
+  const uploadInputRef = useRef<HTMLInputElement>(null);
 
   return (
     <div>
@@ -339,9 +385,19 @@ function FolderContents({
           onBlur={(e) => onRenameFolder(e.target.value)}
           style={{ flex: "1 1 260px", fontSize: 21, fontWeight: 700, border: "none", marginBottom: 4, padding: 0 }}
         />
+        <button
+          onClick={() => uploadInputRef.current?.click()}
+          title="Scan a CSV and file its Strong Signal leads directly into this folder"
+          style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, color: "#4c6167", whiteSpace: "nowrap" }}
+        >
+          ⬆ Upload CSV
+        </button>
+        <input ref={uploadInputRef} type="file" accept=".csv" multiple style={{ display: "none" }} onChange={(e) => { onUpload(e.target.files); e.target.value = ""; }} />
         <PrivacyControls folder={folder} onSetPrivate={onSetPrivate} onSetPublic={onSetPublic} />
       </div>
-      <div style={{ color: "#9aa1ac", fontSize: 12.5, marginBottom: 20 }}>{folderEntries.length} of 3 category files filed · {combined.rowCount} total leads</div>
+      <div style={{ color: "#9aa1ac", fontSize: 12.5, marginBottom: 8 }}>{folderEntries.length} of 3 category files filed · {combined.rowCount} total leads</div>
+      {uploadNotice && <div style={{ color: "#2CC295", fontWeight: 600, fontSize: 13, marginBottom: 12 }}>{uploadNotice}</div>}
+      {uploadError && <div style={{ color: "#9A5B22", fontSize: 13, marginBottom: 12 }}>{uploadError}</div>}
 
       {folderEntries.length === 0 ? (
         <div style={{ padding: 40, textAlign: "center", color: "#9aa1ac", background: "#fff", border: "1px solid #E4E7EC", borderRadius: 13 }}>
