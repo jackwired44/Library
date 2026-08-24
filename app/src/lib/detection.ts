@@ -578,6 +578,18 @@ export function getFullName(f: ResolvedFields): string {
   return combined || String(f.fullName || "").trim();
 }
 
+// Manual, per-lead status tracking — entirely separate from the detection
+// engine above (nothing here is auto-set). See CLAUDE.md "Lead status".
+export type Disposition = "none" | "meeting-booked" | "not-interested" | "no-contact" | "other";
+export const DISPOSITION_META: Record<Disposition, { label: string; color: string; bg: string }> = {
+  none: { label: "No disposition", color: "#9aa1ac", bg: "#F4F6F7" },
+  "meeting-booked": { label: "Meeting booked", color: "#2CC295", bg: "#E7F1EA" },
+  "not-interested": { label: "Not interested", color: "#B5443B", bg: "#FBEAE8" },
+  "no-contact": { label: "No contact made", color: "#8A5A00", bg: "#FBF3E7" },
+  other: { label: "Other", color: "#3A4B8C", bg: "#EEF2FF" },
+};
+export const DISPOSITION_ORDER: Disposition[] = ["none", "meeting-booked", "not-interested", "no-contact", "other"];
+
 export interface ResultRow {
   id: string;
   row: { __f: ResolvedFields } & Record<string, unknown>;
@@ -596,6 +608,17 @@ export interface ResultRow {
   platform: { snippet: string } | null;
   notesSummary: string;
   dynamicsSeatCount: number | null;
+  // Manual status tracking (see DISPOSITION_META above) — never set by the
+  // scan itself, always "none"/false/null until someone sets it by hand.
+  disposition: Disposition;
+  dispositionNote: string;
+  priority: boolean;
+  // A priority lead can be tagged with a month/year that's NOT necessarily
+  // when it was uploaded — e.g. backfiling an older lead as "a priority for
+  // September 2025" — see CLAUDE.md. Format: YYYY-MM. Only meaningful when
+  // priority is true; left alone (not auto-cleared) if priority toggles off,
+  // so re-enabling remembers the last month picked.
+  priorityMonth: string | null;
   // Present only on shallow copies made for a combined History view.
   __sourceEntryId?: string;
   __sourceRowId?: string;
@@ -683,6 +706,10 @@ export function scanParsedFiles(parsedFiles: ParsedFile[], overrides: RuleOverri
         crossedOut: false,
         isDuplicate: false,
         duplicateOfId: null,
+        disposition: "none",
+        dispositionNote: "",
+        priority: false,
+        priorityMonth: null,
         ...scan,
       });
     });

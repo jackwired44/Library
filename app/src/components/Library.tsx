@@ -1,5 +1,18 @@
 import { useMemo, useRef, useState, Fragment } from "react";
-import { BUCKET_META, CATEGORY_META, EXPORT_LABELS, scanParsedFiles, type BucketKey, type ExportLabel, type ParsedFile, type ResultRow, type RuleOverrides } from "../lib/detection";
+import {
+  BUCKET_META,
+  CATEGORY_META,
+  DISPOSITION_META,
+  DISPOSITION_ORDER,
+  EXPORT_LABELS,
+  scanParsedFiles,
+  type BucketKey,
+  type Disposition,
+  type ExportLabel,
+  type ParsedFile,
+  type ResultRow,
+  type RuleOverrides,
+} from "../lib/detection";
 import { parseCSVFile, parseCSVText, downloadBlob } from "../lib/csv";
 import {
   createGroup,
@@ -15,6 +28,7 @@ import {
   deleteGroupFromDB,
   deleteLibraryEntryFromDB,
   updateLibraryRowField,
+  updateLibraryRowStatus,
   deleteLibraryRow,
   moveLibraryRowToBucket,
   sortDynamicsStoredRows,
@@ -22,6 +36,7 @@ import {
   setGroupPublic,
   type LibraryEntry,
   type LibraryGroup,
+  type StoredRow,
 } from "../lib/library";
 import { hashFolderPassword, checkFolderPassword } from "../lib/folderAuth";
 import { toCSV } from "../lib/csv";
@@ -207,6 +222,14 @@ export default function LibraryView({ entries, setEntries, groups, setGroups, lo
       return next;
     });
   }
+  function handleRowStatus(entryId: string, rowKey: string, patch: Partial<Pick<StoredRow, "__disposition" | "__dispositionNote" | "__priority" | "__priorityMonth">>) {
+    setEntries((prev) => {
+      const next = updateLibraryRowStatus(prev, entryId, rowKey, patch);
+      const updated = next.find((e) => e.id === entryId);
+      if (updated) persistLibraryEntry(updated);
+      return next;
+    });
+  }
   function handleRowDelete(entryId: string, rowKey: string) {
     setEntries((prev) => {
       const next = deleteLibraryRow(prev, entryId, rowKey);
@@ -247,6 +270,7 @@ export default function LibraryView({ entries, setEntries, groups, setGroups, lo
         onReceivedDate={handleReceivedDate}
         onRenameEntry={handleRename}
         onRowField={handleRowField}
+        onRowStatus={handleRowStatus}
         onRowDelete={handleRowDelete}
         onRowMove={handleRowMove}
         onSetPrivate={(password) => handleSetPrivate(openFolder.id, password)}
@@ -342,6 +366,7 @@ interface FolderContentsProps {
   onReceivedDate: (id: string, value: string) => void;
   onRenameEntry: (id: string, name: string) => void;
   onRowField: (entryId: string, rowKey: string, field: ExportLabel, value: string) => void;
+  onRowStatus: (entryId: string, rowKey: string, patch: Partial<Pick<StoredRow, "__disposition" | "__dispositionNote" | "__priority" | "__priorityMonth">>) => void;
   onRowDelete: (entryId: string, rowKey: string) => void;
   onRowMove: (entryId: string, rowKey: string, newBucket: BucketKey) => void;
   onSetPrivate: (password: string) => void;
@@ -364,6 +389,7 @@ function FolderContents({
   onReceivedDate,
   onRenameEntry,
   onRowField,
+  onRowStatus,
   onRowDelete,
   onRowMove,
   onSetPrivate,
@@ -431,6 +457,7 @@ function FolderContents({
               onReceivedDate={(v) => onReceivedDate(entry.id, v)}
               onRename={(v) => onRenameEntry(entry.id, v)}
               onRowField={(rowKey, field, value) => onRowField(entry.id, rowKey, field, value)}
+              onRowStatus={(rowKey, patch) => onRowStatus(entry.id, rowKey, patch)}
               onRowDelete={(rowKey) => onRowDelete(entry.id, rowKey)}
               onRowMove={(rowKey, bk) => onRowMove(entry.id, rowKey, bk)}
             />
@@ -457,11 +484,12 @@ interface CategoryFileCardProps {
   onReceivedDate: (value: string) => void;
   onRename: (value: string) => void;
   onRowField: (rowKey: string, field: ExportLabel, value: string) => void;
+  onRowStatus: (rowKey: string, patch: Partial<Pick<StoredRow, "__disposition" | "__dispositionNote" | "__priority" | "__priorityMonth">>) => void;
   onRowDelete: (rowKey: string) => void;
   onRowMove: (rowKey: string, newBucket: BucketKey) => void;
 }
 
-function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownload, onLoad, onReceivedDate, onRename, onRowField, onRowDelete, onRowMove }: CategoryFileCardProps) {
+function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownload, onLoad, onReceivedDate, onRename, onRowField, onRowStatus, onRowDelete, onRowMove }: CategoryFileCardProps) {
   const meta = CATEGORY_META[Object.keys(CATEGORY_META).find((k) => CATEGORY_META[k as keyof typeof CATEGORY_META].bucket === entry.bucketKey) as keyof typeof CATEGORY_META];
   const isDynamics = entry.bucketKey === "dynamics";
   // Ranked highest seat/user/license count first when this is the
@@ -498,12 +526,17 @@ function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownl
                     <th key={f} style={{ textAlign: "left", padding: "6px 8px", fontSize: 10, color: "#9aa1ac", textTransform: "uppercase" }}>{f}</th>
                   ))}
                   <th style={{ textAlign: "left", padding: "6px 8px", fontSize: 10, color: "#9aa1ac", textTransform: "uppercase" }}>Category</th>
+                  <th style={{ textAlign: "left", padding: "6px 8px", fontSize: 10, color: "#9aa1ac", textTransform: "uppercase" }}>Status</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody>
                 {displayRows.slice(0, ROW_EDITOR_CAP).map((row, idx) => {
                   const rowKey = row.__rowKey || String(idx);
+                  // Rows saved before per-lead status tracking existed won't
+                  // have these fields at all.
+                  const disposition = row.__disposition || "none";
+                  const priority = row.__priority || false;
                   return (
                     <Fragment key={rowKey}>
                       <tr style={{ borderTop: "1px solid #EEF0F3" }}>
@@ -519,6 +552,44 @@ function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownl
                               <option key={bk} value={bk}>{BUCKET_META[bk].label}</option>
                             ))}
                           </select>
+                        </td>
+                        <td style={{ padding: "4px 6px", minWidth: 150 }}>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                            <select
+                              value={disposition}
+                              onChange={(ev) => onRowStatus(rowKey, { __disposition: ev.target.value as Disposition })}
+                              style={{ background: DISPOSITION_META[disposition].bg, color: DISPOSITION_META[disposition].color, fontWeight: 600, border: "1px solid #D8DBE1", borderRadius: 6, padding: "4px 6px", fontSize: 11.5 }}
+                            >
+                              {DISPOSITION_ORDER.map((d) => (
+                                <option key={d} value={d}>{DISPOSITION_META[d].label}</option>
+                              ))}
+                            </select>
+                            {disposition !== "none" && (
+                              <input
+                                defaultValue={row.__dispositionNote || ""}
+                                onBlur={(ev) => onRowStatus(rowKey, { __dispositionNote: ev.target.value })}
+                                placeholder="Note"
+                                style={{ border: "1px solid #E1E4E9", borderRadius: 5, padding: "3px 5px", fontSize: 11 }}
+                              />
+                            )}
+                            <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                              <button
+                                onClick={() => onRowStatus(rowKey, { __priority: !priority })}
+                                title={priority ? "Unmark High Priority" : "Mark High Priority"}
+                                style={{ border: "1px solid #F5DFA0", background: priority ? "#F7B955" : "#FFF7E5", color: "#8A5A00", borderRadius: 5, padding: "2px 6px", fontSize: 11 }}
+                              >
+                                ⭐
+                              </button>
+                              {priority && (
+                                <input
+                                  type="month"
+                                  value={row.__priorityMonth || ""}
+                                  onChange={(ev) => onRowStatus(rowKey, { __priorityMonth: ev.target.value || null })}
+                                  style={{ border: "1px solid #D8DBE1", borderRadius: 5, padding: "2px 4px", fontSize: 10.5 }}
+                                />
+                              )}
+                            </div>
+                          </div>
                         </td>
                         <td style={{ padding: "4px 6px" }}>
                           <button onClick={() => onRowDelete(rowKey)} title="Delete this lead" style={{ border: "1px solid #F0D6D6", background: "#fff", borderRadius: 6, padding: "5px 7px", color: "#B5443B" }}>✕</button>

@@ -2,12 +2,15 @@ import { useMemo, useRef, useState } from "react";
 import {
   CATEGORY_META,
   BUCKET_META,
+  DISPOSITION_META,
+  DISPOSITION_ORDER,
   EXPORT_LABELS,
   exportRowsForBucket,
   getFullName,
   scanParsedFiles,
   sortByDynamicsSeatCount,
   type CategoryKey,
+  type Disposition,
   type ParsedFile,
   type ResultRow,
   type RuleOverrides,
@@ -83,9 +86,12 @@ export default function Scanner({
   const [tierFilter, setTierFilter] = useState<Tier | "all">("signal");
   const [categoryFilter, setCategoryFilter] = useState<CategoryKey | "all">("all");
   const [duplicatesOnly, setDuplicatesOnly] = useState(false);
+  const [priorityOnly, setPriorityOnly] = useState(false);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkTarget, setBulkTarget] = useState<CategoryKey>("dynamics365");
+  const [bulkDisposition, setBulkDisposition] = useState<Disposition>("none");
+  const [bulkPriorityMonth, setBulkPriorityMonth] = useState("");
   const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -138,6 +144,7 @@ export default function Scanner({
     setCategoryFilter("all");
     setTierFilter("signal");
     setDuplicatesOnly(false);
+    setPriorityOnly(false);
     setPage(1);
     setSelected(new Set());
     // Saving is an explicit, per-batch choice — never carries over to the
@@ -153,6 +160,7 @@ export default function Scanner({
     if (tierFilter !== "all") list = list.filter((r) => r.tier === tierFilter);
     if (categoryFilter !== "all") list = list.filter((r) => r.category === categoryFilter);
     if (duplicatesOnly) list = list.filter((r) => r.isDuplicate);
+    if (priorityOnly) list = list.filter((r) => r.priority);
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter((r) => {
@@ -169,7 +177,7 @@ export default function Scanner({
     // license count, highest first, regardless of which tier tab is active.
     if (categoryFilter === "dynamics365") list = sortByDynamicsSeatCount(list);
     return list;
-  }, [results, tierFilter, categoryFilter, duplicatesOnly, search]);
+  }, [results, tierFilter, categoryFilter, duplicatesOnly, priorityOnly, search]);
 
   const tierCounts = useMemo(() => {
     let signal = 0, mention = 0, dq = 0;
@@ -186,6 +194,7 @@ export default function Scanner({
   }, [results, tierFilter]);
 
   const duplicateCount = useMemo(() => (results || []).filter((r) => r.isDuplicate).length, [results]);
+  const priorityCount = useMemo(() => (results || []).filter((r) => r.priority).length, [results]);
 
   function mutateResults(fn: (list: ResultRow[]) => void) {
     setResults((prev) => {
@@ -220,6 +229,38 @@ export default function Scanner({
       onSyncToHistory(row);
     });
   }
+  function setDisposition(id: string, disposition: Disposition) {
+    mutateResults((list) => {
+      const row = list.find((r) => r.id === id);
+      if (!row) return;
+      row.disposition = disposition;
+      onSyncToHistory(row);
+    });
+  }
+  function setDispositionNote(id: string, note: string) {
+    mutateResults((list) => {
+      const row = list.find((r) => r.id === id);
+      if (!row) return;
+      row.dispositionNote = note;
+      onSyncToHistory(row);
+    });
+  }
+  function togglePriority(id: string) {
+    mutateResults((list) => {
+      const row = list.find((r) => r.id === id);
+      if (!row) return;
+      row.priority = !row.priority;
+      onSyncToHistory(row);
+    });
+  }
+  function setPriorityMonth(id: string, month: string) {
+    mutateResults((list) => {
+      const row = list.find((r) => r.id === id);
+      if (!row) return;
+      row.priorityMonth = month || null;
+      onSyncToHistory(row);
+    });
+  }
   function toggleSelectRow(id: string) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -241,6 +282,18 @@ export default function Scanner({
     if (!selected.size) return;
     mutateResults((list) => list.forEach((r) => { if (selected.has(r.id)) { r.crossedOut = value; onSyncToHistory(r); } }));
     setSelected(new Set());
+  }
+  function setDispositionForSelected(disposition: Disposition) {
+    if (!selected.size) return;
+    mutateResults((list) => list.forEach((r) => { if (selected.has(r.id)) { r.disposition = disposition; onSyncToHistory(r); } }));
+  }
+  function setPriorityForSelected(value: boolean) {
+    if (!selected.size) return;
+    mutateResults((list) => list.forEach((r) => { if (selected.has(r.id)) { r.priority = value; onSyncToHistory(r); } }));
+  }
+  function setPriorityMonthForSelected(month: string) {
+    if (!selected.size || !month) return;
+    mutateResults((list) => list.forEach((r) => { if (selected.has(r.id)) { r.priorityMonth = month; onSyncToHistory(r); } }));
   }
 
   function bucketRowsFor(bucketKey: BucketKey) {
@@ -420,6 +473,14 @@ export default function Scanner({
             {duplicatesOnly ? "Showing duplicates only" : `Duplicates (${duplicateCount})`}
           </button>
         )}
+        {priorityCount > 0 && (
+          <button
+            onClick={() => setPriorityOnly((v) => !v)}
+            style={{ background: priorityOnly ? "#F7B955" : "#FFF7E5", color: "#8A5A00", border: "1px solid #F5DFA0", borderRadius: 9, padding: "7px 13px", fontWeight: 700 }}
+          >
+            {priorityOnly ? "Showing priority only" : `⭐ Priority (${priorityCount})`}
+          </button>
+        )}
       </div>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
@@ -461,6 +522,18 @@ export default function Scanner({
           <button onClick={() => setTierForSelected("dq")} style={{ background: "#fff", color: "#B5443B", border: "1px solid #F0C6C1", borderRadius: 8, padding: "7px 12px" }}>Bad lead</button>
           <button onClick={() => setCrossedOutForSelected(true)} style={{ background: "#fff", border: "1px solid #D5D9E0", borderRadius: 8, padding: "7px 12px" }}>Cross out</button>
           <button onClick={() => setCrossedOutForSelected(false)} style={{ background: "none", border: "none", textDecoration: "underline" }}>Restore</button>
+          <span style={{ width: 1, height: 20, background: "#D6DEFA" }} />
+          <span>Disposition:</span>
+          <select value={bulkDisposition} onChange={(e) => setBulkDisposition(e.target.value as Disposition)}>
+            {DISPOSITION_ORDER.map((d) => (
+              <option key={d} value={d}>{DISPOSITION_META[d].label}</option>
+            ))}
+          </select>
+          <button onClick={() => setDispositionForSelected(bulkDisposition)} style={{ background: "#2CC295", color: "#081E22", border: "none", borderRadius: 8, padding: "7px 14px", fontWeight: 700 }}>Apply</button>
+          <button onClick={() => setPriorityForSelected(true)} style={{ background: "#FFF7E5", color: "#8A5A00", border: "1px solid #F5DFA0", borderRadius: 8, padding: "7px 12px", fontWeight: 700 }}>⭐ Mark Priority</button>
+          <button onClick={() => setPriorityForSelected(false)} style={{ background: "#fff", border: "1px solid #D5D9E0", borderRadius: 8, padding: "7px 12px" }}>Unmark Priority</button>
+          <input type="month" value={bulkPriorityMonth} onChange={(e) => setBulkPriorityMonth(e.target.value)} style={{ border: "1px solid #D5D9E0", borderRadius: 8, padding: "6px 8px" }} />
+          <button onClick={() => setPriorityMonthForSelected(bulkPriorityMonth)} style={{ background: "#fff", border: "1px solid #D5D9E0", borderRadius: 8, padding: "7px 12px" }}>Apply month</button>
           <button onClick={() => setSelected(new Set())} style={{ background: "none", border: "none", textDecoration: "underline" }}>Clear selection</button>
         </div>
       )}
@@ -476,12 +549,13 @@ export default function Scanner({
               <th style={{ textAlign: "left", padding: "11px 14px" }}>Matched snippet</th>
               <th style={{ textAlign: "left", padding: "11px 14px" }}>Tier</th>
               <th style={{ textAlign: "left", padding: "11px 14px" }}>Product line</th>
+              <th style={{ textAlign: "left", padding: "11px 14px" }}>Status</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {pageItems.length === 0 ? (
-              <tr><td colSpan={8} style={{ padding: 36, textAlign: "center", color: "#9AA1AC" }}>No rows match this filter.</td></tr>
+              <tr><td colSpan={9} style={{ padding: 36, textAlign: "center", color: "#9AA1AC" }}>No rows match this filter.</td></tr>
             ) : (
               pageItems.map((r) => {
                 const f = r.row.__f;
@@ -521,6 +595,44 @@ export default function Scanner({
                           <option key={k} value={k}>{CATEGORY_META[k].label}</option>
                         ))}
                       </select>
+                    </td>
+                    <td style={{ padding: "10px 14px" }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 150 }}>
+                        <select
+                          value={r.disposition}
+                          onChange={(e) => setDisposition(r.id, e.target.value as Disposition)}
+                          style={{ background: DISPOSITION_META[r.disposition].bg, color: DISPOSITION_META[r.disposition].color, fontWeight: 600, border: "1px solid #D8DBE1", borderRadius: 7, padding: "5px 7px", fontSize: 12 }}
+                        >
+                          {DISPOSITION_ORDER.map((d) => (
+                            <option key={d} value={d}>{DISPOSITION_META[d].label}</option>
+                          ))}
+                        </select>
+                        {r.disposition !== "none" && (
+                          <input
+                            defaultValue={r.dispositionNote}
+                            onBlur={(e) => setDispositionNote(r.id, e.target.value)}
+                            placeholder="Note"
+                            style={{ border: "1px solid #E1E4E9", borderRadius: 6, padding: "4px 6px", fontSize: 11.5 }}
+                          />
+                        )}
+                        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                          <button
+                            onClick={() => togglePriority(r.id)}
+                            title={r.priority ? "Unmark High Priority" : "Mark High Priority"}
+                            style={{ border: "1px solid #F5DFA0", background: r.priority ? "#F7B955" : "#FFF7E5", color: "#8A5A00", borderRadius: 6, padding: "3px 7px", fontSize: 11.5, fontWeight: 700 }}
+                          >
+                            ⭐
+                          </button>
+                          {r.priority && (
+                            <input
+                              type="month"
+                              value={r.priorityMonth || ""}
+                              onChange={(e) => setPriorityMonth(r.id, e.target.value)}
+                              style={{ border: "1px solid #D8DBE1", borderRadius: 6, padding: "3px 5px", fontSize: 11 }}
+                            />
+                          )}
+                        </div>
+                      </div>
                     </td>
                     <td style={{ padding: "10px 14px", textAlign: "center" }}>
                       <button

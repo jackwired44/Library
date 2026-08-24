@@ -188,11 +188,12 @@ export function combineHistoryEntries(entries: HistoryEntry[]): { results: Resul
   return { results, rowsScanned };
 }
 
-// Writes a category/tier/cross-out edit made on a row tagged with
-// __sourceEntryId back to the row it was copied from inside `history`, and
-// returns the updated history array (or the same array, unchanged, if this
-// row isn't tied to any history entry — an ordinary fresh-scan row). Doesn't
-// persist — the caller decides when/whether to write through to IndexedDB.
+// Writes a category/tier/cross-out/disposition/priority edit made on a row
+// tagged with __sourceEntryId back to the row it was copied from inside
+// `history`, and returns the updated history array (or the same array,
+// unchanged, if this row isn't tied to any history entry — an ordinary
+// fresh-scan row). Doesn't persist — the caller decides when/whether to
+// write through to IndexedDB.
 export function syncRowIntoHistory(history: HistoryEntry[], row: ResultRow): HistoryEntry[] {
   if (!row.__sourceEntryId) return history;
   const entryIdx = history.findIndex((h) => h.id === row.__sourceEntryId);
@@ -200,7 +201,20 @@ export function syncRowIntoHistory(history: HistoryEntry[], row: ResultRow): His
   const entry = history[entryIdx];
   const rowIdx = entry.results.findIndex((r) => r.id === row.__sourceRowId);
   if (rowIdx === -1) return history;
-  const updatedResults = entry.results.map((r, i) => (i === rowIdx ? { ...r, category: row.category, tier: row.tier, crossedOut: row.crossedOut } : r));
+  const updatedResults = entry.results.map((r, i) =>
+    i === rowIdx
+      ? {
+          ...r,
+          category: row.category,
+          tier: row.tier,
+          crossedOut: row.crossedOut,
+          disposition: row.disposition,
+          dispositionNote: row.dispositionNote,
+          priority: row.priority,
+          priorityMonth: row.priorityMonth,
+        }
+      : r
+  );
   const updatedEntry = { ...entry, results: updatedResults };
   return history.map((h, i) => (i === entryIdx ? updatedEntry : h));
 }

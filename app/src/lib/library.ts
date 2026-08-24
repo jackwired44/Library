@@ -14,6 +14,7 @@ import {
   scanRowUnified,
   type BucketKey,
   type CategoryKey,
+  type Disposition,
   type ExportRow,
   type ResolvedFields,
   type ResultRow,
@@ -44,7 +45,15 @@ export function normalizeGroup(g: RawLibraryGroup): LibraryGroup {
   return { isPrivate: false, passwordHash: null, passwordSalt: null, ...g };
 }
 
-export type StoredRow = ExportRow & { __historyEntryId: string; __rowKey: string; __dynamicsSeatCount: number | null };
+export type StoredRow = ExportRow & {
+  __historyEntryId: string;
+  __rowKey: string;
+  __dynamicsSeatCount: number | null;
+  __disposition: Disposition;
+  __dispositionNote: string;
+  __priority: boolean;
+  __priorityMonth: string | null;
+};
 
 export interface LibraryEntry {
   id: string;
@@ -197,7 +206,16 @@ export function fileSignalRowsIntoGroup(
   const touchedIds: string[] = [];
   byBucket.forEach((rows, bk) => {
     const { entries: next, entry } = getOrCreateMonthCategoryEntry(working, groups, groupId, bk);
-    const exportRows: StoredRow[] = rows.map((r) => ({ ...buildExportRow(r), __historyEntryId: historyEntryId, __rowKey: `${historyEntryId}-${r.id}`, __dynamicsSeatCount: r.dynamicsSeatCount }));
+    const exportRows: StoredRow[] = rows.map((r) => ({
+      ...buildExportRow(r),
+      __historyEntryId: historyEntryId,
+      __rowKey: `${historyEntryId}-${r.id}`,
+      __dynamicsSeatCount: r.dynamicsSeatCount,
+      __disposition: r.disposition,
+      __dispositionNote: r.dispositionNote,
+      __priority: r.priority,
+      __priorityMonth: r.priorityMonth,
+    }));
     const updated = serialize({ ...entry, rows: [...entry.rows, ...exportRows] });
     working = next.map((e) => (e.id === entry.id ? updated : e));
     touchedIds.push(entry.id);
@@ -237,6 +255,23 @@ export function updateLibraryRowField(entries: LibraryEntry[], entryId: string, 
   const idx = findLibraryRowIndex(entry, rowKey);
   if (idx === -1) return entries;
   const rows = entry.rows.map((r, i) => (i === idx ? { ...r, [field]: value } : r));
+  return entries.map((e) => (e.id === entryId ? serialize({ ...entry, rows }) : e));
+}
+
+// Same per-lead status fields as the Scanner (disposition/note/priority/
+// month) — edited independently here, same as every other Library row
+// edit (no live sync back to the Scanner/History copy, per CLAUDE.md).
+export function updateLibraryRowStatus(
+  entries: LibraryEntry[],
+  entryId: string,
+  rowKey: string,
+  patch: Partial<Pick<StoredRow, "__disposition" | "__dispositionNote" | "__priority" | "__priorityMonth">>
+): LibraryEntry[] {
+  const entry = entries.find((e) => e.id === entryId);
+  if (!entry) return entries;
+  const idx = findLibraryRowIndex(entry, rowKey);
+  if (idx === -1) return entries;
+  const rows = entry.rows.map((r, i) => (i === idx ? { ...r, ...patch } : r));
   return entries.map((e) => (e.id === entryId ? serialize({ ...entry, rows }) : e));
 }
 
