@@ -502,18 +502,32 @@ ranking) — a lead that only says "Customer Engagement" with no bare
 shares the same tier-1 ranking block. `isSalesCrm` is plumbed through
 `PlatformHit`/`PlatformResult`/`ScanResult`/`ResultRow` (and
 `StoredRow.__isSalesCrm` in `library.ts`) the same way `isBusinessCentral`
-is. A lead can trigger both tabs at once (e.g. "ERP and CRM" mentioned
-together) — Business Central/ERP and Sales/CRM aren't mutually exclusive,
-only "Everything else" is defined in terms of both (`!isBusinessCentral
-&& !isSalesCrm`). The Dynamics 365 "View:" row is now four tabs — "All
-Dynamics 365," "Business Central / ERP," "Sales / CRM," "Everything
-else" — in both the Scanner (`dynamicsSubView`, `Scanner.tsx`) and the
-Library's `CategoryFileCard` (`Library.tsx`, whose `subView` state grew a
+is. The Dynamics 365 "View:" row is four tabs — "All Dynamics 365,"
+"Business Central / ERP," "Sales / CRM," "Everything else" — in both the
+Scanner (`dynamicsSubView`, `Scanner.tsx`) and the Library's
+`CategoryFileCard` (`Library.tsx`, whose `subView` state grew a
 `"special2"` option alongside `"special"` — M365/Azure files still only
 ever render `"special"` (Google→Microsoft), since that category has just
 the one keyword tab so far). Still purely a view-level filter: Final
 Downloads, Library filing, and History all still file every Dynamics 365
 lead into the same single bucket regardless of which tab is active.
+
+**Bug fixed: Business Central/ERP and Sales/CRM tabs originally weren't
+mutually exclusive.** A lead whose text hit both keyword sets (e.g.
+"Business Central for finance, and also want to grow our CRM side" — or
+two separate hits, one BC-flavored and one Sales/CRM-flavored, from
+different sentences in the same row) showed under BOTH tabs. Per Jack —
+"some business central [leads] went to sales/crm," with an explicit ask
+to cross-check and DQ each from entering the other's view — the two tabs
+are now strictly mutually exclusive at the row level, with Business
+Central/ERP taking priority (same precedence as the module-tier ranking,
+where tier 0/ERP already ranks above tier 1/Sales-CRM): in
+`scanRowPlatform`'s aggregation (`app/src/lib/detection.ts`),
+`isSalesCrm` is now `!isBusinessCentral && hits.some((h) => h.isSalesCrm)`
+— if any hit on the row is Business Central/ERP-flavored, the row is
+Business Central/ERP only and never also shows in Sales/CRM, regardless
+of what else the text mentions. "Everything else" is unaffected — it was
+already defined as neither flag set.
 
 ## Library architecture (the trickiest part to port correctly)
 

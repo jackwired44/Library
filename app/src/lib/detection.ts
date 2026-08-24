@@ -620,8 +620,17 @@ export function scanRowPlatform(
   const bestHit = hits.find((h) => h.fromProductArea) || hits.find((h) => h.hasTrigger) || hits[0];
   const notesSummary = commentsValue ? summarizeNotes(commentsValue, categories) : summarizeFromSnippets(hits.map((h) => h.snippet), categories);
   const isGoogleToMicrosoft = hits.some((h) => h.isGoogleToMicrosoft);
+  // Business Central/ERP and Sales/CRM are mutually exclusive at the row
+  // level, Business Central/ERP taking priority — same precedence as the
+  // module-tier ranking (tier 0 beats tier 1). A lead whose text hits both
+  // keyword sets (e.g. "Business Central for finance, and also want to
+  // grow our CRM side") used to show under both View tabs; per Jack that's
+  // wrong — it should only ever show as Business Central/ERP. This also
+  // covers a row with two separate hits (one BC-flavored, one Sales/CRM-
+  // flavored, from different sentences), not just one hit matching both
+  // keywords in its own signal window.
   const isBusinessCentral = hits.some((h) => h.isBusinessCentral);
-  const isSalesCrm = hits.some((h) => h.isSalesCrm);
+  const isSalesCrm = !isBusinessCentral && hits.some((h) => h.isSalesCrm);
   const dynamicsCounts = hits.filter((h) => h.category === "Dynamics 365" && h.seatCount != null).map((h) => h.seatCount as number);
   const dynamicsSeatCount = dynamicsCounts.length ? Math.max(...dynamicsCounts) : null;
   const dynamicsModuleTiers = hits.filter((h) => h.category === "Dynamics 365" && h.moduleTier != null).map((h) => h.moduleTier as number);
