@@ -30,6 +30,11 @@ function openDB(): Promise<IDBDatabase> {
   });
 }
 
+// Every call below opens its own fresh connection via openDB() (simplest
+// way to share one function across a page that's never tracking a long-
+// lived handle) — closed once its transaction settles, either way, so a
+// long editing session doesn't accumulate hundreds of open connections,
+// and a future DB_VERSION bump isn't stalled behind old open ones.
 export async function dbGetAll<T>(storeName: string): Promise<T[]> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
@@ -37,6 +42,9 @@ export async function dbGetAll<T>(storeName: string): Promise<T[]> {
     const req = tx.objectStore(storeName).getAll();
     req.onsuccess = () => resolve(req.result || []);
     req.onerror = () => reject(req.error);
+    tx.oncomplete = () => db.close();
+    tx.onerror = () => db.close();
+    tx.onabort = () => db.close();
   });
 }
 
@@ -45,8 +53,9 @@ export async function dbPut<T>(storeName: string, entry: T): Promise<void> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(storeName, "readwrite");
     tx.objectStore(storeName).put(entry);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
+    tx.onabort = () => db.close();
   });
 }
 
@@ -55,7 +64,8 @@ export async function dbDelete(storeName: string, id: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(storeName, "readwrite");
     tx.objectStore(storeName).delete(id);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
+    tx.onabort = () => db.close();
   });
 }

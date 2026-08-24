@@ -51,6 +51,17 @@ export async function deleteHistoryEntryFromDB(id: string) {
   await dbDelete(STORE_HISTORY, id);
 }
 
+// Local calendar-day key (YYYY-MM-DD) — NOT toISOString().slice(0,10),
+// which converts to UTC first and silently shifts the date for anyone not
+// at UTC+0 (an import at 11pm in a positive-UTC-offset timezone would file
+// under the wrong, earlier day). Same approach as lib/tasks.ts's dateKey().
+function localDateKey(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 /* ------------------------------------------------------------------ */
 /* Week grouping                                                        */
 /* ------------------------------------------------------------------ */
@@ -63,7 +74,7 @@ function startOfWeek(d: Date): Date {
   return date;
 }
 function weekKeyOf(d: Date): string {
-  return startOfWeek(d).toISOString().slice(0, 10);
+  return localDateKey(startOfWeek(d));
 }
 function weekLabelOf(key: string): string {
   const start = new Date(`${key}T00:00:00`);
@@ -99,9 +110,7 @@ export function getWeeks(history: HistoryEntry[]): Week[] {
 /* days files are inputted"), one level finer than the week tabs above. */
 /* ------------------------------------------------------------------ */
 function dayKeyOf(d: Date): string {
-  const date = new Date(d);
-  date.setHours(0, 0, 0, 0);
-  return date.toISOString().slice(0, 10);
+  return localDateKey(d);
 }
 function dayLabelOf(key: string): string {
   return new Date(`${key}T00:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
