@@ -495,15 +495,31 @@ export function scanRowPlatform(
           cat.label === "Azure" ||
           cat.label === "Microsoft Fabric" ||
           cat.label === MIGRATION_LABEL ||
-          TRIGGER_WORDS_RE.test(win) ||
+          // Generic trigger words ("upgrade," "budget," "this year," etc.)
+          // still promote Dynamics 365 on their own (an original, documented
+          // rule) but no longer Tenant Support — "we need support on
+          // upgrade from our current version" is generic IT-support
+          // language, not real M365/Azure buying intent, and shouldn't
+          // auto-promote just because it contains the word "upgrade."
+          // Tenant Support's own tightened boost list right below is its
+          // only path to Strong Signal now, on top of a real license count.
+          (cat.label !== TENANT_SUPPORT_LABEL && TRIGGER_WORDS_RE.test(win)) ||
           LICENSE_COUNT_RE.test(win) ||
           (cat.label === TENANT_SUPPORT_LABEL &&
             (GROWTH_OVERLOAD_RE.test(win) || GOOGLE_TO_MICROSOFT_RE.test(win) || ONGOING_PARTNER_RE.test(win) || PARTNER_ENGAGEMENT_RE.test(win) || SECURITY_DESIGN_RE.test(win))) ||
+          // The "bare number sits next to the match" rule is Dynamics-365-
+          // specific by design (see CLAUDE.md) — it used to run for every
+          // category, so a support-ticket number, a software version
+          // ("...current version which is 15."), or any other stray digit
+          // near a generic "support"/"legacy system" mention got misread
+          // as a seat count and wrongly promoted to Strong Signal. Real
+          // seat/user/license counts elsewhere still count via
+          // LICENSE_COUNT_RE above, which requires an actual unit word.
           (cat.label === "Dynamics 365" &&
             (DYNAMICS_MULTI_MODULE_RE.test(win) ||
-              (DYNAMICS_SPECIFIC_INSTANCE_RE.test(win) && (LICENSE_COUNT_RE.test(win) || DYNAMICS_ESTIMATED_COUNT_RE.test(win))))) ||
-          hasBareTrailingCount(combined.slice(m.index + m[0].length, m.index + m[0].length + 80)) ||
-          hasBareLeadingCount(combined.slice(Math.max(0, m.index - 80), m.index)),
+              (DYNAMICS_SPECIFIC_INSTANCE_RE.test(win) && (LICENSE_COUNT_RE.test(win) || DYNAMICS_ESTIMATED_COUNT_RE.test(win))) ||
+              hasBareTrailingCount(combined.slice(m.index + m[0].length, m.index + m[0].length + 80)) ||
+              hasBareLeadingCount(combined.slice(Math.max(0, m.index - 80), m.index)))),
         // Same seat/user/license number extraction the licensing engine
         // uses, reused here so a Dynamics lead's real count (not just
         // "a count was mentioned") survives into the result for ranking.

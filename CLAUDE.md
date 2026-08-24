@@ -305,6 +305,30 @@ desk". A bare "IT support"/"help desk" mention on its own still only counts
 toward the category match, not this promotion — that distinction was
 intentional, not loosened.
 
+**Bug fixed: generic trigger words and bare numbers were still promoting
+Tenant Support to Strong Signal, undermining the whole tightening pass
+above.** Jack caught it with real examples that got wrongly marked Strong
+Signal: "Support Ticket ID: 4521" and "We need support on upgrade from our
+current version which is 15." Two separate root causes, both in
+`scanRowPlatform` (`app/src/lib/detection.ts`):
+- `hasBareTrailingCount`/`hasBareLeadingCount` (the "a bare number sits
+  next to the match" rule) was being checked for *every* category, when
+  it was only ever meant to be Dynamics-365-specific (see the original
+  rule above) — so a support ticket number or a software version number
+  sitting near a generic "support" mention got misread as a seat count.
+  Now scoped to `cat.label === "Dynamics 365"` only.
+- `TRIGGER_WORDS_RE` ("upgrade," "budget," "this year," etc.) was also
+  checked for every category. It's an original, intentional Dynamics 365
+  rule ("any generic trigger word present" promotes Dynamics on its own)
+  but was never meant to apply to Tenant Support once Tenant Support got
+  its own tightened boost list this session — "we need support on
+  upgrade..." isn't real M365/Azure buying intent just because it contains
+  the word "upgrade." Now excluded for `cat.label === TENANT_SUPPORT_LABEL`
+  specifically; Dynamics 365 keeps it.
+- `LICENSE_COUNT_RE` (an actual "N users/seats/licenses" phrase) stays
+  global on purpose — a real stated seat count near support language is
+  still a genuine signal, unlike a bare unitless number.
+
 **Small-project / free-consultancy Auto-DQ.** Per Jack: the business wants
 longer-term partner engagements, not one-off jobs or free advice. A new
 cross-cutting Auto-DQ rule ("Small one-off project / free consultancy

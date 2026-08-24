@@ -97,9 +97,12 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
             <strong>Tenant Support / Licensing</strong> — Google→Microsoft migration, new tenant setup, MSP/co-managed
             IT/full partner engagement language, security design/architecture/hardening work, plain "IT support"/"help
             desk", and Licensing hits with no specific product angle. Strong Signal auto-promotes on Google→Microsoft
-            migration language, MSP/CSP/partner-engagement language, security design/hardening language, or a confirmed
-            seat count at or above the licensing threshold above — a bare "IT support"/"help desk" mention alone still
-            only counts toward the category match, not the Strong Signal promotion.
+            migration language, MSP/CSP/partner-engagement language, security design/hardening language, or a stated
+            seat/user count nearby — a bare "IT support"/"help desk" mention, a generic trigger word like "upgrade" or
+            "budget," or a stray number that isn't actually a seat count (a support ticket ID, a software version) no
+            longer promotes anything on their own. Dynamics 365 is the one category a bare trigger word or a bare
+            number next to the match can still promote on its own — that's an original, documented Dynamics rule, not
+            a loophole.
             <br />
             <strong>Auto-DQ override:</strong> a small one-off project or a request for free consultancy/advice — "quick
             question," "no budget," "pick your brain" — is a Bad Lead regardless of category, even if it otherwise reads
