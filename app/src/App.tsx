@@ -18,9 +18,11 @@ import {
   type HistoryEntry,
 } from "./lib/history";
 import { loadRuleOverrides, persistRuleOverrides } from "./lib/ruleOverrides";
+import TaskBoard from "./components/TaskBoard";
+import { loadTasksFromDB, persistTask, deleteTaskFromDB, createTask, type Task } from "./lib/tasks";
 import { isUnlocked, setUnlocked } from "./lib/auth";
 
-type View = "scanner" | "history" | "library";
+type View = "scanner" | "history" | "library" | "board";
 
 export interface UploadedFile {
   name: string;
@@ -56,6 +58,10 @@ export default function App() {
   // Cheat Sheet editor. Defaults to the built-in rules until loaded/changed.
   const [ruleOverrides, setRuleOverrides] = useState<RuleOverrides>(DEFAULT_RULE_OVERRIDES);
 
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [tasksLoading, setTasksLoading] = useState(true);
+  const [tasksError, setTasksError] = useState<string | null>(null);
+
   useEffect(() => {
     loadLibraryFromDB()
       .then(({ entries, groups }) => {
@@ -82,7 +88,43 @@ export default function App() {
         setHistoryLoading(false);
       });
     loadRuleOverrides().then(setRuleOverrides).catch(() => {});
+    loadTasksFromDB()
+      .then((loaded) => {
+        setTasks(loaded);
+        setTasksLoading(false);
+      })
+      .catch(() => {
+        setTasksError("Couldn't load your task board from this browser's local storage.");
+        setTasksLoading(false);
+      });
   }, []);
+
+  function addTask(date: string, text: string) {
+    const task = createTask(date, text);
+    if (!task) return;
+    setTasks((prev) => [...prev, task]);
+    persistTask(task);
+  }
+  function toggleTask(id: string) {
+    setTasks((prev) => {
+      const next = prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t));
+      const updated = next.find((t) => t.id === id);
+      if (updated) persistTask(updated);
+      return next;
+    });
+  }
+  function editTask(id: string, text: string) {
+    setTasks((prev) => {
+      const next = prev.map((t) => (t.id === id ? { ...t, text: text.trim() || t.text } : t));
+      const updated = next.find((t) => t.id === id);
+      if (updated) persistTask(updated);
+      return next;
+    });
+  }
+  function deleteTask(id: string) {
+    setTasks((prev) => prev.filter((t) => t.id !== id));
+    deleteTaskFromDB(id);
+  }
 
   function updateRuleOverrides(next: RuleOverrides) {
     setRuleOverrides(next);
@@ -170,7 +212,7 @@ export default function App() {
       <header style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
         <h1 style={{ fontSize: 22, margin: 0 }}>Wired CIO Lead Scanner</h1>
         <nav style={{ display: "flex", gap: 6 }}>
-          {(["scanner", "history", "library"] as View[]).map((v) => (
+          {(["scanner", "history", "library", "board"] as View[]).map((v) => (
             <button
               key={v}
               onClick={() => setView(v)}
@@ -186,7 +228,7 @@ export default function App() {
                 color: view === v ? "#fff" : "#4c6167",
               }}
             >
-              {v === "library" ? `library (${libraryEntries.length})` : v === "history" ? `history (${historyEntries.length})` : v}
+              {v === "library" ? `library (${libraryEntries.length})` : v === "history" ? `history (${historyEntries.length})` : v === "board" ? "board" : v}
             </button>
           ))}
           <button
@@ -277,6 +319,17 @@ export default function App() {
           onLoadIntoScanner={loadParsedFilesIntoScanner}
           onRecordHistory={recordHistory}
           ruleOverrides={ruleOverrides}
+        />
+      )}
+      {view === "board" && (
+        <TaskBoard
+          tasks={tasks}
+          loading={tasksLoading}
+          error={tasksError}
+          onAddTask={addTask}
+          onToggleTask={toggleTask}
+          onEditTask={editTask}
+          onDeleteTask={deleteTask}
         />
       )}
     </div>
