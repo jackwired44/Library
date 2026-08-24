@@ -391,10 +391,12 @@ interface PlatformHit {
   seatCount?: number | null;
   // 0 = Business Central/ERP, 1 = Sales/CRM, 2 = no specific module named.
   moduleTier?: number;
-  // Google Workspace/G Suite -> Microsoft 365 migration language
-  // specifically, within the Tenant Support hit — see CLAUDE.md "Google ->
-  // Microsoft view". Drives the Scanner's separate Google->Microsoft tab
-  // within the M365/Azure category; doesn't change category/bucket/export.
+  // Google Workspace/G Suite -> Microsoft 365 migration language, OR any
+  // other migration-flavored hit already qualifying as Strong Signal
+  // within M365/Azure (generic Migration/Modernization, Azure's own
+  // on-prem-to-cloud migration hits) — see CLAUDE.md "Google -> Microsoft
+  // view". Drives the Scanner's separate Google->Microsoft tab within the
+  // M365/Azure category; doesn't change category/bucket/export.
   isGoogleToMicrosoft?: boolean;
   // "Business Central" specifically, within a Dynamics 365 hit — same
   // pattern as isGoogleToMicrosoft, drives the Scanner's separate
@@ -543,7 +545,17 @@ export function scanRowPlatform(
         // "a count was mentioned") survives into the result for ranking.
         seatCount: cat.label === "Dynamics 365" ? extractCountNear(combined, m.index, m[0].length).count : null,
         moduleTier: cat.label === "Dynamics 365" ? (DYNAMICS_ERP_RE.test(win) ? 0 : DYNAMICS_CRM_RE.test(win) ? 1 : 2) : undefined,
-        isGoogleToMicrosoft: cat.label === TENANT_SUPPORT_LABEL && GOOGLE_TO_MICROSOFT_RE.test(win),
+        // Per Jack: the Google->Microsoft tab should also pick up any
+        // other migration-flavored lead that's already qualifying as
+        // Strong Signal within M365/Azure — generic Migration/
+        // Modernization hits (already gated behind partner-engagement
+        // language, so any hit here is already Strong Signal) and
+        // Azure's own on-prem-to-cloud migration hits specifically (not
+        // Azure hits that qualified via billing/partner language instead).
+        isGoogleToMicrosoft:
+          (cat.label === TENANT_SUPPORT_LABEL && GOOGLE_TO_MICROSOFT_RE.test(win)) ||
+          cat.label === MIGRATION_LABEL ||
+          (cat.label === "Azure" && AZURE_MIGRATION_OVERRIDE_RE.test(win)),
         isBusinessCentral: cat.label === "Dynamics 365" && BUSINESS_CENTRAL_RE.test(win),
       });
       if (m.index === re.lastIndex) re.lastIndex++;
@@ -572,7 +584,10 @@ export function scanRowPlatform(
         hasTrigger: true,
         fromProductArea: true,
         moduleTier: cat.label === "Dynamics 365" ? (DYNAMICS_ERP_RE.test(paText) ? 0 : DYNAMICS_CRM_RE.test(paText) ? 1 : 2) : undefined,
-        isGoogleToMicrosoft: cat.label === TENANT_SUPPORT_LABEL && GOOGLE_TO_MICROSOFT_RE.test(paText),
+        isGoogleToMicrosoft:
+          (cat.label === TENANT_SUPPORT_LABEL && GOOGLE_TO_MICROSOFT_RE.test(paText)) ||
+          cat.label === MIGRATION_LABEL ||
+          (cat.label === "Azure" && AZURE_MIGRATION_OVERRIDE_RE.test(paText)),
         isBusinessCentral: cat.label === "Dynamics 365" && BUSINESS_CENTRAL_RE.test(paText),
       });
     }
@@ -683,11 +698,13 @@ export interface ScanResult {
   // 0 = Business Central/ERP, 1 = Sales/CRM, 2 = no specific module named —
   // see "Dynamics 365 module-type ranking" in CLAUDE.md.
   dynamicsModuleTier: number;
-  // True for a Google Workspace/G Suite -> Microsoft 365 migration lead —
-  // drives the Scanner's separate Google->Microsoft tab within the M365/
-  // Azure category (see "Google -> Microsoft view" in CLAUDE.md). Doesn't
-  // change category/bucket/export — still exactly one of the two active
-  // categories, still one of the two download files.
+  // True for a Google Workspace/G Suite -> Microsoft 365 migration lead,
+  // or any other migration-flavored lead already qualifying as Strong
+  // Signal within M365/Azure — drives the Scanner's separate Google->
+  // Microsoft tab within the M365/Azure category (see "Google -> Microsoft
+  // view" in CLAUDE.md). Doesn't change category/bucket/export — still
+  // exactly one of the two active categories, still one of the two
+  // download files.
   isGoogleToMicrosoft: boolean;
   // True for a Business Central lead — drives the Scanner's separate
   // Business Central tab within the Dynamics 365 category (see "Business

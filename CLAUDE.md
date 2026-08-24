@@ -433,6 +433,20 @@ table; it never touches `category`/`bucket`, so the Final Downloads CSV,
 Library filing, and History all still file every M365/Azure lead into
 exactly the same single bucket regardless of which tab is active.
 
+**Google → Microsoft tab widened to "migrations" generally.** Per Jack:
+the tab should also pick up any other migration-flavored lead that's
+already qualifying as Strong Signal within M365/Azure, not just literal
+Google Workspace → Microsoft 365 migrations. `isGoogleToMicrosoft` now
+also goes true for any `Migration / Modernization`-category hit (these
+already require partner-engagement language to exist as a hit at all, so
+any hit there is already Strong Signal) and for Azure hits specifically
+qualified via `AZURE_MIGRATION_OVERRIDE_RE` (on-prem-to-cloud migration
+language) — but *not* Azure hits that qualified via billing/CSP language
+instead, and *not* security-design hits, both of which stay in "Everything
+else." The tab label itself is unchanged ("Google → Microsoft") since
+Jack referred to it by that name when asking for the widening; flag if a
+more general label ("Migrations") is wanted instead.
+
 **Business Central view (app/ only, Scanner) — same pattern, Dynamics
 365 side.** Per Jack, built the same exact way as the Google→Microsoft
 view above: Business Central leads should always be viewable as their
