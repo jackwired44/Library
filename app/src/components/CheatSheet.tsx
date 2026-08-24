@@ -81,18 +81,25 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
             <strong>Power BI</strong> only counts when there's language about actually bringing in a partner, vendor,
             consultant, reseller, MSP, or CSP for it — "we want better dashboards" alone does not qualify anymore.
             <br />
-            <strong>Azure</strong> only counts for exactly three things: an on-prem-to-cloud migration, Azure billing/cost
-            language, or looking for a partner/CSP to route that billing through. Generic "VMs/usage/adoption" scale
-            language no longer qualifies on its own.
+            <strong>Azure</strong> counts for: an on-prem-to-cloud migration, Azure billing/cost language, looking for a
+            partner/CSP to route that billing through, Azure Document Intelligence, or a full custom-app build on Azure
+            (the last two are hot right now). Generic "VMs/usage/adoption" scale language still doesn't qualify on its own.
             <br />
-            <strong>Microsoft Fabric</strong> stays narrow and untightened — "Microsoft Fabric" or "OneLake" only.
+            <strong>Microsoft Fabric</strong> ("Microsoft Fabric" or "OneLake" only) no longer qualifies on a bare
+            mention either — it only counts when it ties into a larger project: an Azure tie-in, custom app/solution
+            development, or (Azure) Document Intelligence specifically.
             <br />
             <strong>Tenant Support / Migration / Licensing</strong> — Google→Microsoft migration, new tenant setup, MSP/
-            co-managed IT language, plain "IT support"/"help desk", generic data migration/legacy-system/re-platforming
-            language, and Licensing hits with no specific product angle. Strong Signal auto-promotes on Google→Microsoft
-            migration language, MSP/CSP/partner-being-brought-in language, or a confirmed seat count at or above the
+            co-managed IT/full partner engagement language, security design/architecture/hardening work, plain "IT
+            support"/"help desk", generic data migration/legacy-system/re-platforming language, and Licensing hits with
+            no specific product angle. Strong Signal auto-promotes on Google→Microsoft migration language, MSP/CSP/
+            partner-engagement language, security design/hardening language, or a confirmed seat count at or above the
             licensing threshold above — a bare "IT support"/"help desk" mention alone still only counts toward the
             category match, not the Strong Signal promotion.
+            <br />
+            <strong>Auto-DQ override:</strong> a small one-off project or a request for free consultancy/advice — "quick
+            question," "no budget," "pick your brain" — is a Bad Lead regardless of category, even if it otherwise reads
+            as a match. The goal here is always a longer-term partner engagement, not a one-off job.
             <KeywordEditor category="m365Tenant" ruleOverrides={ruleOverrides} onChangeRuleOverrides={onChangeRuleOverrides} />
             <div style={{ marginTop: 10 }}>
               <div style={{ fontSize: 11, color: "#9aa1ac", fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>

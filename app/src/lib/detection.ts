@@ -160,7 +160,11 @@ const MIGRATION_LABEL = "Migration / Modernization";
 const GOOGLE_TO_MICROSOFT_SRC =
   "\\b(google\\s*workspace|g\\s*suite|gmail\\s*for\\s*(?:work|business))\\b.{0,60}\\b(microsoft(?:\\s*365)?|office\\s*365|m365)\\b|\\b(microsoft(?:\\s*365)?|office\\s*365|m365)\\b.{0,60}\\b(google\\s*workspace|g\\s*suite)\\b|\\bgoogle\\s*to\\s*microsoft\\b|\\bmigrat\\w*\\s*(?:off|from|away\\s*from)?\\s*google\\b";
 const ONGOING_PARTNER_SRC =
-  "\\b(msp|managed\\s*(?:it\\s*)?services?|managed\\s*service\\s*providers?|co-?managed\\s*it|outsourced?\\s*it|it\\s*outsourcing|long[\\s-]?term\\s*(?:partner|relationship)|ongoing\\s*(?:it\\s*)?support|dedicated\\s*(?:it\\s*)?partner|trusted\\s*(?:it\\s*)?partner|strategic\\s*(?:it\\s*)?partner|extension\\s*of\\s*(?:our|their|my)\\s*team|third[\\s-]?party\\s*(?:support|help|it)|3rd[\\s-]?party\\s*(?:support|help|it)|committed\\s*(?:it\\s*)?relationship)\\b";
+  "\\b(msp|managed\\s*(?:it\\s*)?services?|managed\\s*service\\s*providers?|co-?managed\\s*it|outsourced?\\s*it|it\\s*outsourcing|long[\\s-]?term\\s*(?:partner|relationship)|ongoing\\s*(?:it\\s*)?support|dedicated\\s*(?:it\\s*)?partner|trusted\\s*(?:it\\s*)?partner|strategic\\s*(?:it\\s*)?partner|extension\\s*of\\s*(?:our|their|my)\\s*team|third[\\s-]?party\\s*(?:support|help|it)|3rd[\\s-]?party\\s*(?:support|help|it)|committed\\s*(?:it\\s*)?relationship|(?:full|deep)\\s*(?:partner\\s*)?engagement|partner\\s*engagement)\\b";
+// Security design/hardening work — hot per Jack's ask, part of the
+// original "security measures" scope named when M365/Azure was merged.
+const SECURITY_DESIGN_SRC =
+  "\\bsecurity\\s*(?:design|architecture|hardening|posture|assessment|audit|review)\\b|\\bharden(?:ing)?\\s*(?:our|their|my)?\\s*security\\b";
 
 const PLATFORM_CATALOGUE: { label: string; pattern: RegExp }[] = [
   {
@@ -183,7 +187,7 @@ const PLATFORM_CATALOGUE: { label: string; pattern: RegExp }[] = [
   {
     label: TENANT_SUPPORT_LABEL,
     pattern: new RegExp(
-      `${GOOGLE_TO_MICROSOFT_SRC}|\\btenant\\s*(?:creation|setup|set\\s*up|provisioning|onboarding|migration|support)\\b|\\b(?:create|creating|set(?:ting)?\\s*up|stand(?:ing)?\\s*up|provision(?:ing)?)\\s*(?:a\\s*)?(?:new\\s*)?tenant\\b|\\bnew\\s*tenant\\b|${ONGOING_PARTNER_SRC}|\\bit\\s*support\\b|\\btechnical\\s*support\\b|\\bhelp\\s*desk\\b|\\bhelpdesk\\b|\\bsupport\\s*(?:contract|plan|request|ticket|team)\\b|\\bneed(?:s|ing)?\\s*(?:it\\s*)?support\\b|\\blooking\\s*for\\s*(?:it\\s*)?support\\b`,
+      `${GOOGLE_TO_MICROSOFT_SRC}|\\btenant\\s*(?:creation|setup|set\\s*up|provisioning|onboarding|migration|support)\\b|\\b(?:create|creating|set(?:ting)?\\s*up|stand(?:ing)?\\s*up|provision(?:ing)?)\\s*(?:a\\s*)?(?:new\\s*)?tenant\\b|\\bnew\\s*tenant\\b|${ONGOING_PARTNER_SRC}|${SECURITY_DESIGN_SRC}|\\bit\\s*support\\b|\\btechnical\\s*support\\b|\\bhelp\\s*desk\\b|\\bhelpdesk\\b|\\bsupport\\s*(?:contract|plan|request|ticket|team)\\b|\\bneed(?:s|ing)?\\s*(?:it\\s*)?support\\b|\\blooking\\s*for\\s*(?:it\\s*)?support\\b`,
       "i"
     ),
   },
@@ -214,6 +218,9 @@ const GROWTH_OVERLOAD_RE =
 // promoted to Strong Signal by itself).
 const GOOGLE_TO_MICROSOFT_RE = new RegExp(GOOGLE_TO_MICROSOFT_SRC, "i");
 const ONGOING_PARTNER_RE = new RegExp(ONGOING_PARTNER_SRC, "i");
+// Security design/hardening work is also a Strong Signal boost, same
+// footing as the Google->Microsoft/ongoing-partner language above.
+const SECURITY_DESIGN_RE = new RegExp(SECURITY_DESIGN_SRC, "i");
 // Power BI/Azure qualification, tightened per Jack's rules audit: a bare
 // product mention no longer counts on its own for either bucket — see
 // CLAUDE.md "Power BI / Azure — tightened qualification".
@@ -222,12 +229,24 @@ const ONGOING_PARTNER_RE = new RegExp(ONGOING_PARTNER_SRC, "i");
 // dashboards" text alone no longer qualifies.
 const PARTNER_ENGAGEMENT_RE =
   /\b(looking\s*for\s*(?:a\s*)?(?:partner|vendor|consultant|provider|reseller|msp|csp)|bring(?:ing)?\s*in\s*(?:a\s*)?(?:partner|vendor|consultant)|need(?:s|ing)?\s*(?:a\s*)?(?:partner|vendor|consultant|reseller|csp)|hire(?:ing)?\s*(?:a\s*)?(?:consultant|vendor|partner)|outsourc\w*|work(?:ing)?\s*with\s*a\s*partner|engage\s*(?:a\s*)?(?:partner|vendor|consultant)|\bcsp\b|cloud\s*solution\s*provider)\b/i;
-// Azure now qualifies on exactly three things: on-prem-to-cloud migration
-// (AZURE_MIGRATION_OVERRIDE_RE below), Azure billing/cost language, or
-// looking for a partner/CSP to route that billing through. Generic
-// "usage/VMs/adoption" scale language no longer qualifies by itself.
+// Azure Document Intelligence and full custom-app builds are hot per
+// Jack's ask — shared sub-patterns so Azure's own gate and Fabric's project
+// gate below both recognize them the same way.
+const DOCUMENT_INTELLIGENCE_RE = /\bdocument\s*intelligence\b/i;
+const APP_BUILD_RE =
+  /\b(?:build(?:ing)?|develop(?:ing)?|creat(?:e|ing))\s*(?:an?\s*)?(?:app|application|custom\s*app|custom\s*application|custom\s*solution)\b|\bapp\s*development\b|\bfull\s*(?:app|application)\s*build\b/i;
+// Azure now qualifies on: on-prem-to-cloud migration (AZURE_MIGRATION_
+// OVERRIDE_RE below), Azure billing/cost language, looking for a partner/
+// CSP to route that billing through, Azure Document Intelligence, or a
+// full custom-app build on Azure — all hot per Jack's ask. Generic
+// "usage/VMs/adoption" scale language still doesn't qualify by itself.
 const AZURE_BILLING_RE =
   /\b(azure\s*(?:billing|invoic\w*|cost\s*management|spend|bill)|billing\s*(?:for|on|through|via)\s*azure|route\s*(?:our|their|my)?\s*(?:azure\s*)?billing|billing\s*(?:to\s*)?(?:go|run)\s*through)\b/i;
+// Microsoft Fabric, per Jack's ask: a bare "Microsoft Fabric"/"OneLake"
+// mention no longer counts on its own — it only qualifies when it ties
+// into a larger project: an Azure tie-in, custom app/solution development,
+// or (Azure) Document Intelligence specifically.
+const FABRIC_PROJECT_RE = new RegExp(`\\bazure\\b|${DOCUMENT_INTELLIGENCE_RE.source}|${APP_BUILD_RE.source}`, "i");
 const DYNAMICS_SPECIFIC_INSTANCE_RE =
   /\b(business\s*central|finance\s*(?:and|&)\s*operations|customer\s*engagement|customer\s*insights|contact\s*center|supply\s*chain(?:\s*management)?|dynamics\s*crm|dynamics\s*ax|dynamics\s*nav|dynamics\s*gp|dynamics\s*365\s*sales|dynamics\s*365\s*field\s*service|dynamics\s*365\s*project\s*operations|dynamics\s*365\s*customer\s*service|dynamics\s*365\s*marketing|dynamics\s*365\s*human\s*resources)\b/i;
 // Dynamics 365 leads rank in three blocks (see CLAUDE.md "Dynamics 365
@@ -278,7 +297,7 @@ function hasForbiddenContent(s: string) {
 const CATEGORY_BLURBS: Record<string, string> = {
   "Dynamics 365": "modernizing their CRM/ERP setup",
   "Power BI": "bringing in a partner for Power BI",
-  "Microsoft Fabric": "consolidating their data platform",
+  "Microsoft Fabric": "a Microsoft Fabric project tied to Azure or custom app development",
   Azure: "an on-prem-to-Azure migration or routing their Azure billing through a partner/CSP",
   [MIGRATION_LABEL]: "migrating off their current systems",
   [TENANT_SUPPORT_LABEL]: "setting up or supporting their M365 tenant — new tenant creation, migrating from Google, or ongoing IT support",
@@ -444,7 +463,14 @@ export function scanRowPlatform(
         if (m.index === re.lastIndex) re.lastIndex++;
         continue;
       }
-      if (cat.label === "Azure" && !(AZURE_MIGRATION_OVERRIDE_RE.test(win) || AZURE_BILLING_RE.test(win) || PARTNER_ENGAGEMENT_RE.test(win))) {
+      if (
+        cat.label === "Azure" &&
+        !(AZURE_MIGRATION_OVERRIDE_RE.test(win) || AZURE_BILLING_RE.test(win) || PARTNER_ENGAGEMENT_RE.test(win) || DOCUMENT_INTELLIGENCE_RE.test(win) || APP_BUILD_RE.test(win))
+      ) {
+        if (m.index === re.lastIndex) re.lastIndex++;
+        continue;
+      }
+      if (cat.label === "Microsoft Fabric" && !FABRIC_PROJECT_RE.test(win)) {
         if (m.index === re.lastIndex) re.lastIndex++;
         continue;
       }
@@ -453,13 +479,16 @@ export function scanRowPlatform(
         category: cat.label,
         snippet: win,
         hasTrigger:
-          // Power BI/Azure hits already cleared the strict gate above —
-          // by definition that's a real opportunity, not just a mention.
+          // Power BI/Azure/Fabric hits already cleared the strict gate
+          // above — by definition that's a real opportunity, not just a
+          // mention.
           cat.label === "Power BI" ||
           cat.label === "Azure" ||
+          cat.label === "Microsoft Fabric" ||
           TRIGGER_WORDS_RE.test(win) ||
           LICENSE_COUNT_RE.test(win) ||
-          (cat.label === TENANT_SUPPORT_LABEL && (GROWTH_OVERLOAD_RE.test(win) || GOOGLE_TO_MICROSOFT_RE.test(win) || ONGOING_PARTNER_RE.test(win) || PARTNER_ENGAGEMENT_RE.test(win))) ||
+          (cat.label === TENANT_SUPPORT_LABEL &&
+            (GROWTH_OVERLOAD_RE.test(win) || GOOGLE_TO_MICROSOFT_RE.test(win) || ONGOING_PARTNER_RE.test(win) || PARTNER_ENGAGEMENT_RE.test(win) || SECURITY_DESIGN_RE.test(win))) ||
           (cat.label === "Dynamics 365" &&
             (DYNAMICS_MULTI_MODULE_RE.test(win) ||
               (DYNAMICS_SPECIFIC_INSTANCE_RE.test(win) && (LICENSE_COUNT_RE.test(win) || DYNAMICS_ESTIMATED_COUNT_RE.test(win))))) ||
@@ -478,12 +507,18 @@ export function scanRowPlatform(
     const paText = String(productAreaValue);
     for (const cat of PLATFORM_CATALOGUE) {
       if (!cat.pattern.test(paText)) continue;
-      // A Product Area column tagged "Power BI"/"Azure" is still just a
-      // category label, not proof of partner/billing intent — check the
-      // WHOLE row's text (Product Area rarely carries that language
-      // itself) before letting it through under the same tightened bar.
+      // A Product Area column tagged "Power BI"/"Azure"/"Microsoft Fabric"
+      // is still just a category label, not proof of partner/billing/
+      // project intent — check the WHOLE row's text (Product Area rarely
+      // carries that language itself) before letting it through under the
+      // same tightened bar.
       if (cat.label === "Power BI" && !PARTNER_ENGAGEMENT_RE.test(combined)) continue;
-      if (cat.label === "Azure" && !(AZURE_MIGRATION_OVERRIDE_RE.test(combined) || AZURE_BILLING_RE.test(combined) || PARTNER_ENGAGEMENT_RE.test(combined))) continue;
+      if (
+        cat.label === "Azure" &&
+        !(AZURE_MIGRATION_OVERRIDE_RE.test(combined) || AZURE_BILLING_RE.test(combined) || PARTNER_ENGAGEMENT_RE.test(combined) || DOCUMENT_INTELLIGENCE_RE.test(combined) || APP_BUILD_RE.test(combined))
+      )
+        continue;
+      if (cat.label === "Microsoft Fabric" && !FABRIC_PROJECT_RE.test(combined)) continue;
       hits.push({
         category: cat.label,
         snippet: cleanText(paText),
@@ -532,6 +567,13 @@ export const DQ_RULES: { label: string; pattern: RegExp }[] = [
   {
     label: "Wants direct Microsoft support",
     pattern: /\bcontact\s*microsoft\s*support\b|\bmicrosoft\s*support\s*(?:ticket|case|line)\b|\bopen\s*a\s*case\s*with\s*microsoft\b|\bcall\s*microsoft\b|\bmicrosoft\s*technical\s*support\b/i,
+  },
+  // Per Jack: the goal is a longer-term partner engagement, not a one-off
+  // job or free advice — added when tightening M365/Azure.
+  {
+    label: "Small one-off project / free consultancy request",
+    pattern:
+      /\bone[\s-]?off\s*(?:project|job|gig)\b|\bsmall\s*project\b|\bone[\s-]?time\s*project\b|\bquick\s*(?:project|job|gig)\b|\bshort[\s-]?term\s*project\b|\bfree\s*consult(?:ation|ing)?\b|\bpick\s*(?:your|someone'?s|my)\s*brain\b|\bjust\s*(?:need|want)(?:s|ing)?\s*(?:some\s*)?(?:free\s*)?advice\b|\bquick\s*question\b|\bno\s*budget\b|\bnot\s*looking\s*to\s*(?:hire|engage|pay)\b/i,
   },
 ];
 const PLACEHOLDER_EMAIL_RE = /^(?:test|noemail|none|na|asdf|example|foo|bar|sample|placeholder|xxx+)@|@(?:test|example)\.(?:com|org|net)$/i;

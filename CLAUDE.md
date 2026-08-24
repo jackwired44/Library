@@ -250,18 +250,29 @@ purely so anything already sitting in the Library or History under the old
 disappearing or crashing. Don't remove that legacy scaffolding without
 confirming no persisted data still references it.
 
-**Power BI / Azure tightened qualification** — a bare product mention no
-longer counts as a hit at all:
+**Power BI / Azure / Fabric tightened qualification** — a bare product
+mention no longer counts as a hit at all:
 - **Power BI** only counts when there's language about actually bringing in
   a partner, vendor, consultant, reseller, MSP, or CSP for it — wanting
   better dashboards/reporting alone no longer qualifies.
-- **Azure** only counts for exactly three things: an on-prem-to-cloud
-  migration, Azure billing/cost language, or looking for a partner/CSP to
-  route that billing through. The old generic "VMs/usage/consumption/
-  adoption" scale-language qualifier was removed entirely — it no longer
-  promotes to Strong Signal *or* creates a category match on its own.
-- **Microsoft Fabric** is untouched — still narrow, "Microsoft Fabric" or
-  "OneLake" only.
+- **Azure** counts for: an on-prem-to-cloud migration, Azure billing/cost
+  language, looking for a partner/CSP to route that billing through, Azure
+  Document Intelligence, or a full custom-app build on Azure. The old
+  generic "VMs/usage/consumption/adoption" scale-language qualifier was
+  removed entirely — it no longer promotes to Strong Signal *or* creates a
+  category match on its own. Document Intelligence and full app builds are
+  a hot signal right now per Jack — `DOCUMENT_INTELLIGENCE_RE`/
+  `APP_BUILD_RE` in `app/src/lib/detection.ts`, shared with Fabric's gate
+  below.
+- **Microsoft Fabric** ("Microsoft Fabric" or "OneLake" only) also no
+  longer qualifies on a bare mention — it only counts when it ties into a
+  larger project: an Azure tie-in, custom app/solution development, or
+  (Azure) Document Intelligence specifically (`FABRIC_PROJECT_RE` in
+  `app/src/lib/detection.ts`).
+- Google→Microsoft migration language is also a hot signal right now —
+  already auto-promotes M365/Azure to Strong Signal on its own (see the
+  M365 Tenant Strong Signal boost above); no change needed, called out
+  here so it isn't mistaken for something still to build.
 - Any hit that clears one of these gates is automatically Strong Signal —
   surviving the gate already proves real intent, so there's no separate
   "trigger word" requirement layered on top the way Dynamics/Tenant still
@@ -271,10 +282,26 @@ longer counts as a hit at all:
 path (a confirmed seat/user/license count at or above the qualify threshold
 already promotes to Strong Signal — e.g. "Service-Microsoft 365 Business
 Standard-50 users"), Strong Signal now also auto-promotes on: Google→
-Microsoft migration language, or MSP/CSP/partner-being-brought-in language.
-A bare "IT support"/"help desk" mention on its own still only counts toward
-the category match, not this promotion — that distinction was intentional,
-not loosened.
+Microsoft migration language, MSP/CSP/partner-being-brought-in language
+(now also including plain "partner engagement"/"full engagement" phrasing,
+not just verbs like "bring in a partner" — `ONGOING_PARTNER_SRC` in
+`app/src/lib/detection.ts`), or security design/architecture/hardening
+language (`SECURITY_DESIGN_RE`) — this last one also creates the Tenant
+Support category match on its own, same footing as "IT support"/"help
+desk". A bare "IT support"/"help desk" mention on its own still only counts
+toward the category match, not this promotion — that distinction was
+intentional, not loosened.
+
+**Small-project / free-consultancy Auto-DQ.** Per Jack: the business wants
+longer-term partner engagements, not one-off jobs or free advice. A new
+cross-cutting Auto-DQ rule ("Small one-off project / free consultancy
+request" in `DQ_RULES`) catches "one-off/small/quick project," "free
+consultation," "pick your brain," "just want some advice," "quick
+question," "no budget," and "not looking to hire/engage/pay" — same
+cross-cutting semantics as every other Auto-DQ rule: it overrides whatever
+category/tier the row would otherwise get (even an otherwise-qualifying
+Strong Signal), and the lead stays visible/reversible, just excluded from
+the three CSV downloads.
 
 **Email/phone redaction.** The auto-generated "Matched snippet" (Scanner)
 and exported "Notes" column (CSV) never include an email address or phone
