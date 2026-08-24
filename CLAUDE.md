@@ -433,6 +433,24 @@ table; it never touches `category`/`bucket`, so the Final Downloads CSV,
 Library filing, and History all still file every M365/Azure lead into
 exactly the same single bucket regardless of which tab is active.
 
+**Business Central view (app/ only, Scanner) — same pattern, Dynamics
+365 side.** Per Jack, built the same exact way as the Google→Microsoft
+view above: Business Central leads should always be viewable as their
+own group, but Dynamics 365 stays exactly one category and one download
+file. `ResultRow.isBusinessCentral` (`app/src/lib/detection.ts`) is set on
+a Dynamics 365 hit when the narrow `BUSINESS_CENTRAL_RE` ("business
+central" only) matches — deliberately narrower than `DYNAMICS_ERP_RE`,
+which also covers Finance and Operations/Supply Chain Management/AX/NAV/
+GP/bare "ERP" for the module-tier ranking; those still land in "Everything
+else" here even though they share Business Central's tier-0 ranking
+block. Plumbed through `PlatformResult`/`ScanResult`/`ResultRow` the same
+way `isGoogleToMicrosoft` is. When the Dynamics 365 category filter is
+active, Scanner shows the same "View:" row of three tabs — "All Dynamics
+365," "Business Central," "Everything else" — purely a view-level filter;
+Final Downloads, Library filing, and History all still file every
+Dynamics 365 lead into the same single bucket regardless of which tab is
+active.
+
 ## Library architecture (the trickiest part to port correctly)
 
 - Saving to the Library is **opt-in per upload** (a checkbox, default OFF) —

@@ -119,6 +119,11 @@ export default function Scanner({
   // Microsoft view." Purely a view-level split; doesn't touch category,
   // bucket, or export — both tabs still file/download as M365/Azure.
   const [m365SubView, setM365SubView] = useState<"all" | "google" | "other">("all");
+  // Same pattern, for Business Central within the Dynamics 365 category
+  // view — see CLAUDE.md "Business Central view." Purely a view-level
+  // split; doesn't touch category, bucket, or export — both tabs still
+  // file/download as Dynamics 365.
+  const [dynamicsSubView, setDynamicsSubView] = useState<"all" | "businessCentral" | "other">("all");
 
   async function handleFiles(fileListLike: FileList | null) {
     const all = Array.from(fileListLike || []).filter((f) => /\.csv$/i.test(f.name));
@@ -180,6 +185,7 @@ export default function Scanner({
     setDuplicatesOnly(false);
     setPriorityOnly(false);
     setM365SubView("all");
+    setDynamicsSubView("all");
     setPage(1);
     setSelected(new Set());
     // Saving is an explicit, per-batch choice — never carries over to the
@@ -197,6 +203,9 @@ export default function Scanner({
     if (categoryFilter !== "all") list = list.filter((r) => r.category === categoryFilter);
     if (categoryFilter === "m365Tenant" && m365SubView !== "all") {
       list = list.filter((r) => (m365SubView === "google" ? r.isGoogleToMicrosoft : !r.isGoogleToMicrosoft));
+    }
+    if (categoryFilter === "dynamics365" && dynamicsSubView !== "all") {
+      list = list.filter((r) => (dynamicsSubView === "businessCentral" ? r.isBusinessCentral : !r.isBusinessCentral));
     }
     if (duplicatesOnly) list = list.filter((r) => r.isDuplicate);
     if (priorityOnly) list = list.filter((r) => r.priority);
@@ -218,7 +227,7 @@ export default function Scanner({
     // the rest) never flips.
     if (categoryFilter === "dynamics365") list = sortByDynamicsSeatCount(list, dynamicsSortDesc);
     return list;
-  }, [results, tierFilter, categoryFilter, duplicatesOnly, priorityOnly, search, dynamicsSortDesc, m365SubView]);
+  }, [results, tierFilter, categoryFilter, duplicatesOnly, priorityOnly, search, dynamicsSortDesc, m365SubView, dynamicsSubView]);
 
   const tierCounts = useMemo(() => {
     let signal = 0, mention = 0, dq = 0;
@@ -244,6 +253,14 @@ export default function Scanner({
     const m365 = base.filter((r) => r.category === "m365Tenant");
     const google = m365.filter((r) => r.isGoogleToMicrosoft).length;
     return { all: m365.length, google, other: m365.length - google };
+  }, [results, tierFilter]);
+
+  // Same, for the Dynamics 365 sub-view tabs.
+  const dynamicsSubViewCounts = useMemo(() => {
+    const base = tierFilter === "all" ? results || [] : (results || []).filter((r) => r.tier === tierFilter);
+    const dynamics = base.filter((r) => r.category === "dynamics365");
+    const businessCentral = dynamics.filter((r) => r.isBusinessCentral).length;
+    return { all: dynamics.length, businessCentral, other: dynamics.length - businessCentral };
   }, [results, tierFilter]);
 
   // High Priority panel (landing screen) — every priority lead across all
@@ -671,6 +688,36 @@ export default function Scanner({
                 fontWeight: 600,
                 background: m365SubView === key ? "#081E22" : "#F6FAFA",
                 color: m365SubView === key ? "#fff" : "#4C6167",
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {categoryFilter === "dynamics365" && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+          <span style={{ fontSize: 11.5, color: "#8b93a0", fontWeight: 700, textTransform: "uppercase" }}>View:</span>
+          {(
+            [
+              ["all", `All Dynamics 365 (${dynamicsSubViewCounts.all})`],
+              ["businessCentral", `Business Central (${dynamicsSubViewCounts.businessCentral})`],
+              ["other", `Everything else (${dynamicsSubViewCounts.other})`],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setDynamicsSubView(key)}
+              title="Still files/downloads as Dynamics 365 either way — this only changes what's shown here."
+              style={{
+                border: "none",
+                borderRadius: 8,
+                padding: "7px 12px",
+                fontSize: 12.5,
+                fontWeight: 600,
+                background: dynamicsSubView === key ? "#081E22" : "#F6FAFA",
+                color: dynamicsSubView === key ? "#fff" : "#4C6167",
               }}
             >
               {label}

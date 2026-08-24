@@ -259,6 +259,11 @@ const DYNAMICS_CRM_RE =
 const DYNAMICS_ESTIMATED_COUNT_RE =
   /\b(?:estimated|approx(?:imately)?|roughly|about|around|a\s*handful\s*of|a\s*few|several|dozens?\s*of|hundreds?\s*of)\b.{0,25}\b(?:users?|seats?|licenses?|licences?|suers|employees?|people|staff)\b/i;
 const DYNAMICS_MULTI_MODULE_RE = /\berp\b.{0,30}\bcrm\b|\bcrm\b.{0,30}\berp\b/i;
+// Business Central specifically, narrower than DYNAMICS_ERP_RE's whole
+// ERP tier — drives the Scanner's separate Business Central tab within
+// the Dynamics 365 category (see CLAUDE.md "Business Central view"),
+// same pattern as isGoogleToMicrosoft within M365/Azure.
+const BUSINESS_CENTRAL_RE = /\bbusiness\s*central\b/i;
 
 function hasBareTrailingCount(afterText: string) {
   const snippet = afterText.slice(0, 80);
@@ -391,6 +396,10 @@ interface PlatformHit {
   // Microsoft view". Drives the Scanner's separate Google->Microsoft tab
   // within the M365/Azure category; doesn't change category/bucket/export.
   isGoogleToMicrosoft?: boolean;
+  // "Business Central" specifically, within a Dynamics 365 hit — same
+  // pattern as isGoogleToMicrosoft, drives the Scanner's separate
+  // Business Central tab within the Dynamics 365 category.
+  isBusinessCentral?: boolean;
 }
 export interface PlatformResult {
   categories: string[];
@@ -409,6 +418,8 @@ export interface PlatformResult {
   dynamicsModuleTier: number;
   // True if any hit is Google->Microsoft migration language specifically.
   isGoogleToMicrosoft: boolean;
+  // True if any hit is "Business Central" specifically.
+  isBusinessCentral: boolean;
 }
 
 // Jack's own custom trigger words (see RuleOverrides), plain text — not
@@ -533,6 +544,7 @@ export function scanRowPlatform(
         seatCount: cat.label === "Dynamics 365" ? extractCountNear(combined, m.index, m[0].length).count : null,
         moduleTier: cat.label === "Dynamics 365" ? (DYNAMICS_ERP_RE.test(win) ? 0 : DYNAMICS_CRM_RE.test(win) ? 1 : 2) : undefined,
         isGoogleToMicrosoft: cat.label === TENANT_SUPPORT_LABEL && GOOGLE_TO_MICROSOFT_RE.test(win),
+        isBusinessCentral: cat.label === "Dynamics 365" && BUSINESS_CENTRAL_RE.test(win),
       });
       if (m.index === re.lastIndex) re.lastIndex++;
     }
@@ -561,6 +573,7 @@ export function scanRowPlatform(
         fromProductArea: true,
         moduleTier: cat.label === "Dynamics 365" ? (DYNAMICS_ERP_RE.test(paText) ? 0 : DYNAMICS_CRM_RE.test(paText) ? 1 : 2) : undefined,
         isGoogleToMicrosoft: cat.label === TENANT_SUPPORT_LABEL && GOOGLE_TO_MICROSOFT_RE.test(paText),
+        isBusinessCentral: cat.label === "Dynamics 365" && BUSINESS_CENTRAL_RE.test(paText),
       });
     }
   }
@@ -570,11 +583,12 @@ export function scanRowPlatform(
   const bestHit = hits.find((h) => h.fromProductArea) || hits.find((h) => h.hasTrigger) || hits[0];
   const notesSummary = commentsValue ? summarizeNotes(commentsValue, categories) : summarizeFromSnippets(hits.map((h) => h.snippet), categories);
   const isGoogleToMicrosoft = hits.some((h) => h.isGoogleToMicrosoft);
+  const isBusinessCentral = hits.some((h) => h.isBusinessCentral);
   const dynamicsCounts = hits.filter((h) => h.category === "Dynamics 365" && h.seatCount != null).map((h) => h.seatCount as number);
   const dynamicsSeatCount = dynamicsCounts.length ? Math.max(...dynamicsCounts) : null;
   const dynamicsModuleTiers = hits.filter((h) => h.category === "Dynamics 365" && h.moduleTier != null).map((h) => h.moduleTier as number);
   const dynamicsModuleTier = dynamicsModuleTiers.length ? Math.min(...dynamicsModuleTiers) : 2;
-  return { categories, tier, snippet: bestHit.snippet, notesSummary, hits, dynamicsSeatCount, dynamicsModuleTier, isGoogleToMicrosoft };
+  return { categories, tier, snippet: bestHit.snippet, notesSummary, hits, dynamicsSeatCount, dynamicsModuleTier, isGoogleToMicrosoft, isBusinessCentral };
 }
 
 /* ------------------------------------------------------------------ */
@@ -675,6 +689,10 @@ export interface ScanResult {
   // change category/bucket/export — still exactly one of the two active
   // categories, still one of the two download files.
   isGoogleToMicrosoft: boolean;
+  // True for a Business Central lead — drives the Scanner's separate
+  // Business Central tab within the Dynamics 365 category (see "Business
+  // Central view" in CLAUDE.md). Doesn't change category/bucket/export.
+  isBusinessCentral: boolean;
 }
 
 export function scanRowUnified(row: Record<string, unknown>, columns: string[], resolved: ResolvedFields, overrides: RuleOverrides = DEFAULT_RULE_OVERRIDES): ScanResult | null {
@@ -726,6 +744,7 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
     dynamicsSeatCount: platform ? platform.dynamicsSeatCount : null,
     dynamicsModuleTier: platform ? platform.dynamicsModuleTier : 2,
     isGoogleToMicrosoft: platform ? platform.isGoogleToMicrosoft : false,
+    isBusinessCentral: platform ? platform.isBusinessCentral : false,
   };
 }
 
@@ -808,6 +827,7 @@ export interface ResultRow {
   dynamicsSeatCount: number | null;
   dynamicsModuleTier: number;
   isGoogleToMicrosoft: boolean;
+  isBusinessCentral: boolean;
   // Manual status tracking (see DISPOSITION_META above) — never set by the
   // scan itself, always "none"/false/null until someone sets it by hand.
   disposition: Disposition;
