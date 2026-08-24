@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
 import { BUCKET_META, EXPORT_LABELS, exportRowsForBucket, getFullName, type BucketKey } from "../lib/detection";
-import { downloadCSV } from "../lib/csv";
-import { getWeeks, getFilteredHistory, type HistoryEntry } from "../lib/history";
+import { downloadCSV, toCSV, downloadBlob } from "../lib/csv";
+import { getWeeks, getDays, getFilteredHistory, buildAuditTrailRows, AUDIT_TRAIL_COLUMNS, type HistoryEntry } from "../lib/history";
+
+type GroupBy = "week" | "day";
 
 interface HistoryProps {
   history: HistoryEntry[];
@@ -15,12 +17,15 @@ interface HistoryProps {
 
 export default function HistoryView({ history, loading, error, onLoadIntoScanner, onDeleteEntry, onUpdateEntry }: HistoryProps) {
   const [search, setSearch] = useState("");
-  const [activeWeekKey, setActiveWeekKey] = useState<string | "all">("all");
+  const [groupBy, setGroupBy] = useState<GroupBy>("day");
+  const [activeGroupKey, setActiveGroupKey] = useState<string | "all">("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const filtered = useMemo(() => getFilteredHistory(history, search), [history, search]);
   const weeks = useMemo(() => getWeeks(filtered), [filtered]);
-  const visibleEntries = activeWeekKey === "all" ? filtered : weeks.find((w) => w.key === activeWeekKey)?.entries || [];
+  const days = useMemo(() => getDays(filtered), [filtered]);
+  const groups = groupBy === "day" ? days : weeks;
+  const visibleEntries = activeGroupKey === "all" ? filtered : groups.find((g) => g.key === activeGroupKey)?.entries || [];
 
   function toggleSelect(id: string) {
     setSelected((prev) => {
@@ -32,6 +37,11 @@ export default function HistoryView({ history, loading, error, onLoadIntoScanner
 
   function downloadBucket(entry: HistoryEntry, bucketKey: BucketKey) {
     downloadCSV(`wired-cio-${BUCKET_META[bucketKey].slug}-leads — ${entry.fileName}.csv`, exportRowsForBucket(entry.results, bucketKey), EXPORT_LABELS);
+  }
+
+  function downloadAuditTrail() {
+    const rows = buildAuditTrailRows(filtered);
+    downloadBlob(toCSV(rows, AUDIT_TRAIL_COLUMNS), `wired-cio-lead-scanner-audit-trail-${new Date().toISOString().slice(0, 10)}.csv`);
   }
 
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#9aa1ac" }}>Loading previous imports…</div>;
@@ -47,32 +57,55 @@ export default function HistoryView({ history, loading, error, onLoadIntoScanner
   return (
     <div>
       <p style={{ color: "#4c6167", maxWidth: 700, marginBottom: 16 }}>
-        Every import is kept here automatically, whether or not it was saved to the Library. Search across all of it, revisit a
-        past batch, or combine several into one working Scanner view — edits made there sync back here.
+        Every import is kept here automatically, whether or not it was saved to the Library — an audit trail of exactly which
+        day each file came in. Search across all of it, revisit a past batch, or combine several into one working Scanner
+        view — edits made there sync back here.
       </p>
       {error && <div style={{ color: "#9A5B22", marginBottom: 12 }}>{error}</div>}
 
-      <input
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="Search by company, contact, tag, or file name"
-        style={{ width: "100%", maxWidth: 420, border: "1px solid #E1E4E9", borderRadius: 9, padding: "8px 12px", marginBottom: 14 }}
-      />
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 14 }}>
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by company, contact, tag, or file name"
+          style={{ flex: "1 1 320px", maxWidth: 420, border: "1px solid #E1E4E9", borderRadius: 9, padding: "8px 12px" }}
+        />
+        <button
+          onClick={downloadAuditTrail}
+          title="Download a CSV audit log — one row per import, with the exact date/time it was scanned"
+          style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 700, color: "#4c6167", whiteSpace: "nowrap" }}
+        >
+          ⬇ Export audit trail
+        </button>
+      </div>
+
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
+        <span style={{ fontSize: 11.5, color: "#8b93a0", fontWeight: 700, textTransform: "uppercase" }}>Group by</span>
+        {(["day", "week"] as GroupBy[]).map((g) => (
+          <button
+            key={g}
+            onClick={() => { setGroupBy(g); setActiveGroupKey("all"); }}
+            style={{ border: "none", borderRadius: 8, padding: "5px 11px", fontWeight: 600, fontSize: 12, background: groupBy === g ? "#081E22" : "#F6FAFA", color: groupBy === g ? "#fff" : "#4C6167" }}
+          >
+            {g === "day" ? "Day" : "Week"}
+          </button>
+        ))}
+      </div>
 
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
         <button
-          onClick={() => setActiveWeekKey("all")}
-          style={{ border: "none", borderRadius: 8, padding: "7px 12px", fontWeight: 600, background: activeWeekKey === "all" ? "#081E22" : "#F6FAFA", color: activeWeekKey === "all" ? "#fff" : "#4C6167" }}
+          onClick={() => setActiveGroupKey("all")}
+          style={{ border: "none", borderRadius: 8, padding: "7px 12px", fontWeight: 600, background: activeGroupKey === "all" ? "#081E22" : "#F6FAFA", color: activeGroupKey === "all" ? "#fff" : "#4C6167" }}
         >
           All ({filtered.length})
         </button>
-        {weeks.map((w) => (
+        {groups.map((g) => (
           <button
-            key={w.key}
-            onClick={() => setActiveWeekKey(w.key)}
-            style={{ border: "none", borderRadius: 8, padding: "7px 12px", fontWeight: 600, background: activeWeekKey === w.key ? "#081E22" : "#F6FAFA", color: activeWeekKey === w.key ? "#fff" : "#4C6167" }}
+            key={g.key}
+            onClick={() => setActiveGroupKey(g.key)}
+            style={{ border: "none", borderRadius: 8, padding: "7px 12px", fontWeight: 600, background: activeGroupKey === g.key ? "#081E22" : "#F6FAFA", color: activeGroupKey === g.key ? "#fff" : "#4C6167" }}
           >
-            {w.label} ({w.entries.length})
+            {g.label} ({g.entries.length})
           </button>
         ))}
       </div>

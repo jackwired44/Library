@@ -223,6 +223,8 @@ export default function App() {
           setLibraryGroups={setLibraryGroups}
           onRecordHistory={recordHistory}
           onSyncToHistory={syncToHistory}
+          recentUploads={historyEntries.slice(0, 6)}
+          onOpenRecentUpload={(id) => loadHistoryIntoScanner([id])}
         />
       )}
       {view === "history" && (

@@ -25,6 +25,7 @@ import {
   type LibraryEntry,
   type LibraryGroup,
 } from "../lib/library";
+import type { HistoryEntry } from "../lib/history";
 import type { UploadedFile } from "../App";
 
 const MAX_FILES = 5;
@@ -48,6 +49,10 @@ interface ScannerProps {
   // see lib/history.ts) get written back to the History entry it came from.
   // A no-op for an ordinary fresh-scan row.
   onSyncToHistory: (row: ResultRow) => void;
+  // Shown on the empty/upload screen so a recent batch is one click away
+  // without switching to the History tab first.
+  recentUploads: HistoryEntry[];
+  onOpenRecentUpload: (id: string) => void;
 }
 
 export default function Scanner({
@@ -62,6 +67,8 @@ export default function Scanner({
   setLibraryGroups,
   onRecordHistory,
   onSyncToHistory,
+  recentUploads,
+  onOpenRecentUpload,
 }: ScannerProps) {
   // Per-bucket download file name — editable, defaults to the standard
   // wired-cio-<bucket>-leads.csv name until Jack renames it. Reset on
@@ -290,6 +297,29 @@ export default function Scanner({
           <div style={{ color: "#8B93A0", fontSize: 13.5 }}>or click to browse — scanned for licensing AND platform signals in one pass.</div>
         </div>
         {error && <div style={{ marginTop: 16, color: "#9A5B22" }}>{error}</div>}
+
+        {recentUploads.length > 0 && (
+          <div style={{ marginTop: 28 }}>
+            <div style={{ fontSize: 11.5, color: "#8b93a0", fontWeight: 700, textTransform: "uppercase", marginBottom: 10 }}>Recent uploads</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {recentUploads.map((h) => {
+                const signalCount = h.results.filter((r) => r.tier === "signal").length;
+                return (
+                  <button
+                    key={h.id}
+                    onClick={() => onOpenRecentUpload(h.id)}
+                    style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, textAlign: "left", background: "#fff", border: "1px solid #E4E7EC", borderRadius: 11, padding: "10px 14px", cursor: "pointer" }}
+                  >
+                    <span style={{ fontWeight: 600, fontSize: 13 }}>{h.fileName}</span>
+                    <span style={{ fontSize: 11.5, color: "#9aa1ac", whiteSpace: "nowrap" }}>
+                      {new Date(h.importedAt).toLocaleString()} · {h.rowsScanned} rows · {signalCount} Strong Signal
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     );
   }

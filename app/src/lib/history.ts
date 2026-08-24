@@ -94,6 +94,65 @@ export function getWeeks(history: HistoryEntry[]): Week[] {
 }
 
 /* ------------------------------------------------------------------ */
+/* Day grouping — the actual audit trail: which calendar day each file  */
+/* was brought in on, at the granularity Jack asked for ("track the     */
+/* days files are inputted"), one level finer than the week tabs above. */
+/* ------------------------------------------------------------------ */
+function dayKeyOf(d: Date): string {
+  const date = new Date(d);
+  date.setHours(0, 0, 0, 0);
+  return date.toISOString().slice(0, 10);
+}
+function dayLabelOf(key: string): string {
+  return new Date(`${key}T00:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+}
+export interface Day {
+  key: string;
+  label: string;
+  entries: HistoryEntry[];
+}
+export function getDays(history: HistoryEntry[]): Day[] {
+  const map = new Map<string, HistoryEntry[]>();
+  history.forEach((h) => {
+    const k = dayKeyOf(new Date(h.importedAt));
+    if (!map.has(k)) map.set(k, []);
+    map.get(k)!.push(h);
+  });
+  const keys = [...map.keys()].sort((a, b) => b.localeCompare(a));
+  return keys.map((k) => ({
+    key: k,
+    label: dayLabelOf(k),
+    entries: map.get(k)!.sort((a, b) => new Date(b.importedAt).getTime() - new Date(a.importedAt).getTime()),
+  }));
+}
+
+/* ------------------------------------------------------------------ */
+/* Audit trail export — one row per import: exactly when it landed and  */
+/* what it was, as a flat CSV Jack can hand to someone else or keep     */
+/* outside the app. Distinct from the full JSON backup (backup.ts) —    */
+/* this is metadata-only, readable in a spreadsheet, not a restorable   */
+/* copy of every scanned row.                                           */
+/* ------------------------------------------------------------------ */
+export function buildAuditTrailRows(history: HistoryEntry[]): Record<string, string>[] {
+  return [...history]
+    .sort((a, b) => new Date(b.importedAt).getTime() - new Date(a.importedAt).getTime())
+    .map((h) => {
+      const imported = new Date(h.importedAt);
+      const signalCount = h.results.filter((r) => r.tier === "signal").length;
+      return {
+        Date: imported.toLocaleDateString(),
+        Time: imported.toLocaleTimeString(),
+        Files: h.files.map((f) => f.name).join("; "),
+        "Rows Scanned": String(h.rowsScanned),
+        "Strong Signal": String(signalCount),
+        Tag: h.tag,
+        Notes: h.notes,
+      };
+    });
+}
+export const AUDIT_TRAIL_COLUMNS = ["Date", "Time", "Files", "Rows Scanned", "Strong Signal", "Tag", "Notes"] as const;
+
+/* ------------------------------------------------------------------ */
 /* Search — across ALL of history, not just the active week            */
 /* ------------------------------------------------------------------ */
 export function getFilteredHistory(history: HistoryEntry[], search: string): HistoryEntry[] {
