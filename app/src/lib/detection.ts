@@ -259,11 +259,18 @@ const DYNAMICS_CRM_RE =
 const DYNAMICS_ESTIMATED_COUNT_RE =
   /\b(?:estimated|approx(?:imately)?|roughly|about|around|a\s*handful\s*of|a\s*few|several|dozens?\s*of|hundreds?\s*of)\b.{0,25}\b(?:users?|seats?|licenses?|licences?|suers|employees?|people|staff)\b/i;
 const DYNAMICS_MULTI_MODULE_RE = /\berp\b.{0,30}\bcrm\b|\bcrm\b.{0,30}\berp\b/i;
-// Business Central specifically, narrower than DYNAMICS_ERP_RE's whole
-// ERP tier — drives the Scanner's separate Business Central tab within
-// the Dynamics 365 category (see CLAUDE.md "Business Central view"),
-// same pattern as isGoogleToMicrosoft within M365/Azure.
-const BUSINESS_CENTRAL_RE = /\bbusiness\s*central\b/i;
+// Business Central / ERP tab trigger — per Jack, exactly three keywords:
+// "Business Central," "ERP," "erp" (the last two are just case variants,
+// already covered by the /i flag). Deliberately narrower than
+// DYNAMICS_ERP_RE's whole ERP tier — a lead that only says "Finance and
+// Operations" or "Supply Chain Management" with no "Business Central" or
+// bare "ERP" wording doesn't trigger this tab, even though it shares the
+// same module-tier ranking block. Drives the Scanner's separate Business
+// Central / ERP tab within the Dynamics 365 category (see CLAUDE.md
+// "Business Central view"), same pattern as isGoogleToMicrosoft within
+// M365/Azure — this is one of a growing set of these keyword-triggered
+// sub-filters, meant to make filed leads easier to slice once stored.
+const BUSINESS_CENTRAL_RE = /\b(business\s*central|erp)\b/i;
 
 function hasBareTrailingCount(afterText: string) {
   const snippet = afterText.slice(0, 80);

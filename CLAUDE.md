@@ -449,21 +449,25 @@ more general label ("Migrations") is wanted instead.
 
 **Business Central view (app/ only, Scanner) — same pattern, Dynamics
 365 side.** Per Jack, built the same exact way as the Google→Microsoft
-view above: Business Central leads should always be viewable as their
+view above: Business Central/ERP leads should always be viewable as their
 own group, but Dynamics 365 stays exactly one category and one download
 file. `ResultRow.isBusinessCentral` (`app/src/lib/detection.ts`) is set on
-a Dynamics 365 hit when the narrow `BUSINESS_CENTRAL_RE` ("business
-central" only) matches — deliberately narrower than `DYNAMICS_ERP_RE`,
-which also covers Finance and Operations/Supply Chain Management/AX/NAV/
-GP/bare "ERP" for the module-tier ranking; those still land in "Everything
-else" here even though they share Business Central's tier-0 ranking
-block. Plumbed through `PlatformResult`/`ScanResult`/`ResultRow` the same
-way `isGoogleToMicrosoft` is. When the Dynamics 365 category filter is
-active, Scanner shows the same "View:" row of three tabs — "All Dynamics
-365," "Business Central," "Everything else" — purely a view-level filter;
-Final Downloads, Library filing, and History all still file every
-Dynamics 365 lead into the same single bucket regardless of which tab is
-active.
+a Dynamics 365 hit when `BUSINESS_CENTRAL_RE` matches — exactly three
+keywords per Jack ("Business Central," "ERP," "erp," the last two just
+case variants already covered by the regex's `/i` flag). Deliberately
+narrower than `DYNAMICS_ERP_RE`, which also covers Finance and Operations/
+Supply Chain Management/AX/NAV/GP for the module-tier ranking — a lead
+that only says "Finance and Operations" with no "Business Central" or
+bare "ERP" wording stays in "Everything else" even though it shares the
+same tier-0 ranking block. Plumbed through `PlatformResult`/`ScanResult`/
+`ResultRow` the same way `isGoogleToMicrosoft` is. When the Dynamics 365
+category filter is active, Scanner shows the same "View:" row of three
+tabs — "All Dynamics 365," "Business Central / ERP," "Everything else" —
+purely a view-level filter; Final Downloads, Library filing, and History
+all still file every Dynamics 365 lead into the same single bucket
+regardless of which tab is active. Per Jack, this is one of a growing set
+of these keyword-triggered sub-filters, meant to make filed leads easier
+to slice once stored — expect more of these as specific keywords come up.
 
 ## Library architecture (the trickiest part to port correctly)
 
