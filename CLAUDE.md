@@ -329,6 +329,24 @@ current version which is 15." Two separate root causes, both in
   global on purpose — a real stated seat count near support language is
   still a genuine signal, unlike a bare unitless number.
 
+**Existing-CRM-opportunity Auto-DQ.** Per Jack, with a real example: "Nicole
+Vargas is the owner of this opportunity and Partner: SIS LLC. Particular
+interest was shown in leveraging Purview to support SOC 2 preparation and
+improve overall security posture. Continued executive engagement and
+successful ETC outcomes will be key to advancing the sales cycle." This is
+internal CRM/Dynamics 365 Opportunity-record notes describing a deal
+someone else is *already* tracking — third-person pipeline-management
+language ("owner of this opportunity," "Partner: [name]," "executive
+engagement," "advancing the sales cycle"), not a fresh lead's own expressed
+interest — and it was wrongly promoting to Strong Signal off the security-
+posture language inside it. A new cross-cutting Auto-DQ rule ("Existing CRM
+opportunity notes, not a fresh lead" in `DQ_RULES`) now excludes it
+regardless of what platform/licensing language happens to be nearby, same
+semantics as every other Auto-DQ rule. Scoped narrowly to these specific
+CRM-notes phrasings — the same security-posture language on its own (no
+CRM-opportunity metadata alongside it) still correctly promotes to Strong
+Signal, since that hot-signal boost from earlier this session is unchanged.
+
 **Small-project / free-consultancy Auto-DQ.** Per Jack: the business wants
 longer-term partner engagements, not one-off jobs or free advice. A new
 cross-cutting Auto-DQ rule ("Small one-off project / free consultancy

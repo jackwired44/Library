@@ -602,6 +602,18 @@ export const DQ_RULES: { label: string; pattern: RegExp }[] = [
     pattern:
       /\bone[\s-]?off\s*(?:project|job|gig)\b|\bsmall\s*project\b|\bone[\s-]?time\s*project\b|\bquick\s*(?:project|job|gig)\b|\bshort[\s-]?term\s*project\b|\bfree\s*consult(?:ation|ing)?\b|\bpick\s*(?:your|someone'?s|my)\s*brain\b|\bjust\s*(?:need|want)(?:s|ing)?\s*(?:some\s*)?(?:free\s*)?advice\b|\bquick\s*question\b|\bno\s*budget\b|\bnot\s*looking\s*to\s*(?:hire|engage|pay)\b/i,
   },
+  // Per Jack, with real examples: "Nicole Vargas is the owner of this
+  // opportunity and Partner: SIS LLC" / "...key to advancing the sales
+  // cycle." This is internal CRM/Dynamics 365 Opportunity-record notes
+  // describing a deal someone else is ALREADY tracking — third-person
+  // pipeline-management language, not a fresh lead's own expressed
+  // interest. Excluded regardless of what platform/licensing language
+  // happens to also be nearby (e.g. "security posture").
+  {
+    label: "Existing CRM opportunity notes, not a fresh lead",
+    pattern:
+      /\bowner\s*of\s*this\s*opportunity\b|\bopportunity\s*owner\b|\badvancing\s*the\s*sales\s*cycle\b|\bexecutive\s*engagement\b|\bpartner\s*:\s*[a-z]/i,
+  },
 ];
 const PLACEHOLDER_EMAIL_RE = /^(?:test|noemail|none|na|asdf|example|foo|bar|sample|placeholder|xxx+)@|@(?:test|example)\.(?:com|org|net)$/i;
 
