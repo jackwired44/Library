@@ -25,6 +25,23 @@ export interface LibraryGroup {
   name: string;
   notes: string;
   createdAt: string;
+  // Per-folder privacy — see CLAUDE.md. Public (the default) behaves exactly
+  // as before. Private requires passwordHash/passwordSalt to be entered
+  // correctly EVERY time the folder is opened (unlock state lives only in
+  // memory for the current visit — see components/Library.tsx — never
+  // persisted, so leaving the folder and coming back always re-prompts).
+  isPrivate: boolean;
+  passwordHash: string | null;
+  passwordSalt: string | null;
+}
+
+// Older stored groups (from before per-folder privacy existed) won't have
+// isPrivate/passwordHash/passwordSalt at all in IndexedDB — this is what a
+// row read straight out of the groups store actually looks like.
+export type RawLibraryGroup = Omit<LibraryGroup, "isPrivate" | "passwordHash" | "passwordSalt"> & Partial<Pick<LibraryGroup, "isPrivate" | "passwordHash" | "passwordSalt">>;
+
+export function normalizeGroup(g: RawLibraryGroup): LibraryGroup {
+  return { isPrivate: false, passwordHash: null, passwordSalt: null, ...g };
 }
 
 export type StoredRow = ExportRow & { __historyEntryId: string; __rowKey: string; __dynamicsSeatCount: number | null };
@@ -111,17 +128,17 @@ export function isMonthFolder(group: LibraryGroup): boolean {
 }
 
 export async function loadLibraryFromDB(): Promise<{ entries: LibraryEntry[]; groups: LibraryGroup[] }> {
-  const [entries, groups] = await Promise.all([dbGetAll<LibraryEntry>(STORE_LIBRARY), dbGetAll<LibraryGroup>(STORE_GROUPS)]);
+  const [entries, groups] = await Promise.all([dbGetAll<LibraryEntry>(STORE_LIBRARY), dbGetAll<RawLibraryGroup>(STORE_GROUPS)]);
   return {
     entries: entries.sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime()),
-    groups: groups.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
+    groups: groups.map(normalizeGroup).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
   };
 }
 
 export function getOrCreateGroupByName(groups: LibraryGroup[], label: string): { groups: LibraryGroup[]; group: LibraryGroup } {
   const existing = groups.find((g) => g.name === label);
   if (existing) return { groups, group: existing };
-  const group: LibraryGroup = { id: newId("grp"), name: label, notes: "", createdAt: new Date().toISOString() };
+  const group: LibraryGroup = { id: newId("grp"), name: label, notes: "", createdAt: new Date().toISOString(), isPrivate: false, passwordHash: null, passwordSalt: null };
   return { groups: [...groups, group], group };
 }
 
@@ -275,11 +292,21 @@ export async function deleteGroupFromDB(id: string) {
 export function createGroup(groups: LibraryGroup[], name: string, notes: string): { groups: LibraryGroup[]; group: LibraryGroup | null } {
   const trimmed = name.trim();
   if (!trimmed) return { groups, group: null };
-  const group: LibraryGroup = { id: newId("grp"), name: trimmed, notes: notes.trim(), createdAt: new Date().toISOString() };
+  const group: LibraryGroup = { id: newId("grp"), name: trimmed, notes: notes.trim(), createdAt: new Date().toISOString(), isPrivate: false, passwordHash: null, passwordSalt: null };
   return { groups: [...groups, group], group };
 }
 export function renameGroup(groups: LibraryGroup[], id: string, name: string, notes: string): LibraryGroup[] {
   return groups.map((g) => (g.id === id ? { ...g, name: name.trim() || g.name, notes } : g));
+}
+// Turning a folder private always sets a brand-new password (the caller —
+// see components/Library.tsx — hashes it via lib/folderAuth.ts first); there
+// is no "keep the old password" path, matching "a password is required to
+// be created" for every private toggle-on.
+export function setGroupPrivate(groups: LibraryGroup[], id: string, passwordHash: string, passwordSalt: string): LibraryGroup[] {
+  return groups.map((g) => (g.id === id ? { ...g, isPrivate: true, passwordHash, passwordSalt } : g));
+}
+export function setGroupPublic(groups: LibraryGroup[], id: string): LibraryGroup[] {
+  return groups.map((g) => (g.id === id ? { ...g, isPrivate: false, passwordHash: null, passwordSalt: null } : g));
 }
 // Deleting a group only ungroups its files — never deletes them.
 export function deleteGroup(groups: LibraryGroup[], entries: LibraryEntry[], id: string): { groups: LibraryGroup[]; entries: LibraryEntry[] } {

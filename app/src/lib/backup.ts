@@ -6,7 +6,7 @@
 // update entries, and restoring into an already-empty browser (the main
 // reason to restore at all) produces the same result a full replace would.
 
-import type { LibraryEntry, LibraryGroup } from "./library";
+import { normalizeGroup, type LibraryEntry, type LibraryGroup, type RawLibraryGroup } from "./library";
 import type { HistoryEntry } from "./history";
 
 export interface BackupPayload {
@@ -35,7 +35,10 @@ export function parseBackupPayload(text: string): IncomingBackup {
   const payload = JSON.parse(text);
   if (!payload || typeof payload !== "object") throw new Error("File doesn't contain a recognizable backup.");
   const library = Array.isArray(payload.library) ? payload.library.filter(hasId) : [];
-  const libraryGroups = Array.isArray(payload.libraryGroups) ? payload.libraryGroups.filter(hasId) : [];
+  // A backup taken before per-folder privacy existed won't have
+  // isPrivate/passwordHash/passwordSalt on its groups — normalize on the
+  // way in, same as loadLibraryFromDB does for old IndexedDB records.
+  const libraryGroups = (Array.isArray(payload.libraryGroups) ? payload.libraryGroups.filter(hasId) : []).map((g: RawLibraryGroup) => normalizeGroup(g));
   const history = Array.isArray(payload.history) ? payload.history.filter(hasId) : [];
   if (!library.length && !libraryGroups.length && !history.length) {
     throw new Error("File doesn't contain any Library files, groups, or History to restore.");

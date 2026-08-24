@@ -16,9 +16,12 @@ import {
   deleteLibraryRow,
   moveLibraryRowToBucket,
   sortDynamicsStoredRows,
+  setGroupPrivate,
+  setGroupPublic,
   type LibraryEntry,
   type LibraryGroup,
 } from "../lib/library";
+import { hashFolderPassword, checkFolderPassword } from "../lib/folderAuth";
 import { toCSV } from "../lib/csv";
 
 // Fields editable inline per lead — Product Area is controlled via the
@@ -45,6 +48,11 @@ export default function LibraryView({ entries, setEntries, groups, setGroups, lo
   const [showNewGroupForm, setShowNewGroupForm] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  // Which private folders have had their password entered THIS visit — kept
+  // only in memory, never persisted, and dropped for a folder the moment you
+  // leave it (see handleBack) so a private folder always re-prompts on the
+  // next visit, per CLAUDE.md.
+  const [unlockedFolderIds, setUnlockedFolderIds] = useState<Set<string>>(new Set());
 
   const monthFolders = useMemo(
     () => groups.filter(isMonthFolder).sort((a, b) => new Date(`1 ${b.name}`).getTime() - new Date(`1 ${a.name}`).getTime()),
@@ -70,6 +78,39 @@ export default function LibraryView({ entries, setEntries, groups, setGroups, lo
   }
   function handleRenameGroup(id: string, name: string) {
     const next = renameGroup(groups, id, name, groups.find((g) => g.id === id)?.notes || "");
+    setGroups(next);
+    const updated = next.find((g) => g.id === id);
+    if (updated) persistGroup(updated);
+  }
+  function handleBack() {
+    if (openFolderId) {
+      setUnlockedFolderIds((prev) => {
+        const next = new Set(prev);
+        next.delete(openFolderId);
+        return next;
+      });
+    }
+    setOpenFolderId(null);
+  }
+  async function handleUnlockFolder(id: string, password: string): Promise<boolean> {
+    const group = groups.find((g) => g.id === id);
+    if (!group || !group.passwordHash || !group.passwordSalt) return false;
+    const ok = await checkFolderPassword(password, group.passwordHash, group.passwordSalt);
+    if (ok) setUnlockedFolderIds((prev) => new Set(prev).add(id));
+    return ok;
+  }
+  async function handleSetPrivate(id: string, password: string) {
+    const { hash, salt } = await hashFolderPassword(password);
+    const next = setGroupPrivate(groups, id, hash, salt);
+    setGroups(next);
+    const updated = next.find((g) => g.id === id);
+    if (updated) persistGroup(updated);
+    // Already inside the folder, having just chosen the password — no need
+    // to immediately re-prompt for it.
+    setUnlockedFolderIds((prev) => new Set(prev).add(id));
+  }
+  function handleSetPublic(id: string) {
+    const next = setGroupPublic(groups, id);
     setGroups(next);
     const updated = next.find((g) => g.id === id);
     if (updated) persistGroup(updated);
@@ -152,11 +193,14 @@ export default function LibraryView({ entries, setEntries, groups, setGroups, lo
 
   const openFolder = openFolderId ? groups.find((g) => g.id === openFolderId) : null;
   if (openFolder) {
+    if (openFolder.isPrivate && !unlockedFolderIds.has(openFolder.id)) {
+      return <FolderPasswordGate folder={openFolder} onBack={handleBack} onUnlock={(password) => handleUnlockFolder(openFolder.id, password)} />;
+    }
     return (
       <FolderContents
         folder={openFolder}
         entries={entries}
-        onBack={() => setOpenFolderId(null)}
+        onBack={handleBack}
         onRenameFolder={(name) => handleRenameGroup(openFolder.id, name)}
         expandedIds={expandedIds}
         onToggleExpanded={toggleExpanded}
@@ -168,6 +212,8 @@ export default function LibraryView({ entries, setEntries, groups, setGroups, lo
         onRowField={handleRowField}
         onRowDelete={handleRowDelete}
         onRowMove={handleRowMove}
+        onSetPrivate={(password) => handleSetPrivate(openFolder.id, password)}
+        onSetPublic={() => handleSetPublic(openFolder.id)}
       />
     );
   }
@@ -230,11 +276,11 @@ function FolderSection({ title, children }: { title: string; children: React.Rea
 
 function FolderCard({ group, fileCount, onOpen, onDelete }: { group: LibraryGroup; fileCount: number; onOpen: () => void; onDelete?: () => void }) {
   return (
-    <div style={{ position: "relative", border: "1px solid #E4E7EC", borderRadius: 13, background: "#fff" }}>
+    <div data-folder-id={group.id} style={{ position: "relative", border: "1px solid #E4E7EC", borderRadius: 13, background: "#fff" }}>
       <button onClick={onOpen} style={{ width: "100%", border: "none", background: "none", padding: 16, textAlign: "left", cursor: "pointer" }}>
-        <div style={{ fontSize: 26, marginBottom: 6 }}>🗂️</div>
+        <div style={{ fontSize: 26, marginBottom: 6 }}>{group.isPrivate ? "🔒" : "🗂️"}</div>
         <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 2 }}>{group.name}</div>
-        <div style={{ fontSize: 11.5, color: "#9aa1ac" }}>{fileCount} of 4 files</div>
+        <div style={{ fontSize: 11.5, color: "#9aa1ac" }}>{fileCount} of 4 files{group.isPrivate ? " · Private" : ""}</div>
       </button>
       {onDelete && (
         <button onClick={onDelete} title="Delete folder (files stay, just ungrouped)" style={{ position: "absolute", top: 8, right: 8, border: "none", background: "none", color: "#B5443B", fontSize: 12 }}>✕</button>
@@ -258,6 +304,8 @@ interface FolderContentsProps {
   onRowField: (entryId: string, rowKey: string, field: ExportLabel, value: string) => void;
   onRowDelete: (entryId: string, rowKey: string) => void;
   onRowMove: (entryId: string, rowKey: string, newBucket: BucketKey) => void;
+  onSetPrivate: (password: string) => void;
+  onSetPublic: () => void;
 }
 
 function FolderContents({
@@ -275,6 +323,8 @@ function FolderContents({
   onRowField,
   onRowDelete,
   onRowMove,
+  onSetPrivate,
+  onSetPublic,
 }: FolderContentsProps) {
   const folderEntries = getFolderEntries(entries, folder.id);
   const combined = getCombinedFolderExport(entries, folder.id);
@@ -283,11 +333,14 @@ function FolderContents({
   return (
     <div>
       <button onClick={onBack} style={{ border: "none", background: "none", color: "#4c6167", fontWeight: 600, marginBottom: 14, padding: 0, cursor: "pointer" }}>← Back to folders</button>
-      <input
-        defaultValue={folder.name}
-        onBlur={(e) => onRenameFolder(e.target.value)}
-        style={{ display: "block", fontSize: 21, fontWeight: 700, border: "none", marginBottom: 4, width: "100%", padding: 0 }}
-      />
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <input
+          defaultValue={folder.name}
+          onBlur={(e) => onRenameFolder(e.target.value)}
+          style={{ flex: "1 1 260px", fontSize: 21, fontWeight: 700, border: "none", marginBottom: 4, padding: 0 }}
+        />
+        <PrivacyControls folder={folder} onSetPrivate={onSetPrivate} onSetPublic={onSetPublic} />
+      </div>
       <div style={{ color: "#9aa1ac", fontSize: 12.5, marginBottom: 20 }}>{folderEntries.length} of 3 category files filed · {combined.rowCount} total leads</div>
 
       {folderEntries.length === 0 ? (
@@ -425,6 +478,112 @@ function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownl
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// Sits in the folder's own title row. Public → private always means setting
+// a brand-new password right there (no "keep the old one" option — see
+// lib/library.ts setGroupPrivate). Private → public needs no password check
+// here: you're only shown this control once you've already unlocked the
+// folder for this visit, so the barrier's already been cleared.
+function PrivacyControls({ folder, onSetPrivate, onSetPublic }: { folder: LibraryGroup; onSetPrivate: (password: string) => void; onSetPublic: () => void }) {
+  const [showForm, setShowForm] = useState(false);
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  function submit() {
+    if (!password) { setError("Enter a password."); return; }
+    if (password !== confirm) { setError("Passwords don't match."); return; }
+    onSetPrivate(password);
+    setShowForm(false);
+    setPassword("");
+    setConfirm("");
+    setError(null);
+  }
+
+  if (folder.isPrivate) {
+    return (
+      <button
+        onClick={onSetPublic}
+        title="Make this folder public — no password needed to open it"
+        style={{ border: "1px solid #E7C79A", background: "#FBF3E7", color: "#8A5A00", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" }}
+      >
+        🔒 Private — make public
+      </button>
+    );
+  }
+
+  if (!showForm) {
+    return (
+      <button
+        onClick={() => setShowForm(true)}
+        title="Make this folder private — requires a password to open going forward"
+        style={{ border: "1px solid #D5D9E0", background: "#fff", color: "#4c6167", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" }}
+      >
+        🔓 Public — make private
+      </button>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+      <input type="password" placeholder="New folder password" value={password} onChange={(e) => setPassword(e.target.value)} style={{ border: "1px solid #D8DBE1", borderRadius: 7, padding: "6px 9px", fontSize: 12.5 }} />
+      <input type="password" placeholder="Confirm" value={confirm} onChange={(e) => setConfirm(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} style={{ border: "1px solid #D8DBE1", borderRadius: 7, padding: "6px 9px", fontSize: 12.5 }} />
+      <button onClick={submit} style={{ background: "#2CC295", color: "#081E22", border: "none", borderRadius: 7, padding: "6px 12px", fontWeight: 700, fontSize: 12.5 }}>Set</button>
+      <button onClick={() => { setShowForm(false); setPassword(""); setConfirm(""); setError(null); }} style={{ background: "none", border: "none", textDecoration: "underline", fontSize: 12 }}>Cancel</button>
+      {error && <span style={{ color: "#B5443B", fontSize: 11.5 }}>{error}</span>}
+    </div>
+  );
+}
+
+// Blocks viewing a private folder's files until the password is entered —
+// every visit, not just the first time (see CLAUDE.md and the
+// unlockedFolderIds comment above). Wrong password just clears the field
+// and shows an error; there's no lockout/rate-limit here, matching the same
+// honest ceiling as the app's main password gate (lib/auth.ts).
+function FolderPasswordGate({ folder, onBack, onUnlock }: { folder: LibraryGroup; onBack: () => void; onUnlock: (password: string) => Promise<boolean> }) {
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  async function submit() {
+    if (!password || checking) return;
+    setChecking(true);
+    const ok = await onUnlock(password);
+    setChecking(false);
+    if (!ok) {
+      setError("Wrong password.");
+      setPassword("");
+    }
+  }
+
+  return (
+    <div>
+      <button onClick={onBack} style={{ border: "none", background: "none", color: "#4c6167", fontWeight: 600, marginBottom: 14, padding: 0, cursor: "pointer" }}>← Back to folders</button>
+      <div style={{ maxWidth: 360, margin: "60px auto", textAlign: "center" }}>
+        <div style={{ fontSize: 30, marginBottom: 10 }}>🔒</div>
+        <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 4 }}>{folder.name} is private</div>
+        <div style={{ color: "#9aa1ac", fontSize: 13, marginBottom: 18 }}>Enter this folder's password to view its files.</div>
+        <input
+          type="password"
+          autoFocus
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+          placeholder="Folder password"
+          style={{ width: "100%", padding: "11px 13px", fontSize: 15, border: "1px solid #D5D9E0", borderRadius: 9, boxSizing: "border-box", marginBottom: 10 }}
+        />
+        <button
+          onClick={submit}
+          disabled={checking}
+          style={{ width: "100%", padding: 11, fontSize: 14, fontWeight: 700, background: "#2CC295", color: "#081E22", border: "none", borderRadius: 9 }}
+        >
+          {checking ? "Checking…" : "Unlock folder"}
+        </button>
+        <div style={{ color: "#B5443B", fontSize: 12.5, marginTop: 10, minHeight: 16 }}>{error}</div>
+      </div>
     </div>
   );
 }
