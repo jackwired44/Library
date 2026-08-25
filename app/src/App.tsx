@@ -5,6 +5,7 @@ import HistoryView from "./components/History";
 import LockScreen from "./components/LockScreen";
 import BackupRestore from "./components/BackupRestore";
 import CheatSheet from "./components/CheatSheet";
+import PlatformNotes from "./components/PlatformNotes";
 import Home from "./components/Home";
 import Engage, { type EngageTab } from "./components/Engage";
 import AccountPanel from "./components/AccountPanel";
@@ -55,7 +56,10 @@ export default function App() {
   // header search (see HeaderSearch.tsx) — reset when Engage is opened
   // any other way (sidebar click) so a stale search doesn't linger.
   const [engageEntry, setEngageEntry] = useState<{ tab?: EngageTab; contactsQuery?: string }>({});
-  const [showCheatSheet, setShowCheatSheet] = useState(false);
+  // Shared Platform Notes/Cheat Sheet panel (see CLAUDE.md "Cheat Sheet
+  // relocation + dated Platform Notes") — one panel, two tabs, replacing
+  // the old separate floating Cheat Sheet button + notes popover.
+  const [notesPanelTab, setNotesPanelTab] = useState<"notes" | "cheatsheet" | null>(null);
   const [results, setResults] = useState<ResultRow[] | null>(null);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
 
@@ -370,7 +374,7 @@ export default function App() {
             ))}
           </nav>
           <div style={{ marginTop: "auto" }}>
-            <AccountPanel onOpenSettings={() => setShowCheatSheet(true)} />
+            <AccountPanel onOpenSettings={() => setNotesPanelTab("cheatsheet")} onOpenNotes={() => setNotesPanelTab("notes")} />
           </div>
         </aside>
 
@@ -389,7 +393,7 @@ export default function App() {
           {view === "home" && (
             <Home
               onNavigate={(v) => setView(v)}
-              onOpenCheatSheet={() => setShowCheatSheet(true)}
+              onOpenCheatSheet={() => setNotesPanelTab("cheatsheet")}
               libraryCount={libraryEntries.length}
               historyCount={historyEntries.length}
               tasksOpenCount={tasks.filter((t) => !t.done).length}
@@ -466,29 +470,17 @@ export default function App() {
         </main>
       </div>
 
-      <button
-        onClick={() => setShowCheatSheet(true)}
-        title="Cheat Sheet — what each category/Detected badge means and how leads get filtered"
-        style={{
-          position: "fixed",
-          bottom: 24,
-          right: 24,
-          width: 52,
-          height: 52,
-          borderRadius: "50%",
-          border: "none",
-          background: "#081E22",
-          color: "#fff",
-          fontSize: 22,
-          boxShadow: "0 6px 18px rgba(8,30,34,0.35)",
-          cursor: "pointer",
-          zIndex: 40,
-        }}
-      >
-        📋
-      </button>
-
-      {showCheatSheet && <CheatSheet onClose={() => setShowCheatSheet(false)} ruleOverrides={ruleOverrides} onChangeRuleOverrides={updateRuleOverrides} />}
+      {notesPanelTab === "cheatsheet" && (
+        <CheatSheet
+          onClose={() => setNotesPanelTab(null)}
+          ruleOverrides={ruleOverrides}
+          onChangeRuleOverrides={updateRuleOverrides}
+          onSwitchToNotes={() => setNotesPanelTab("notes")}
+        />
+      )}
+      {notesPanelTab === "notes" && (
+        <PlatformNotes onClose={() => setNotesPanelTab(null)} onSwitchToCheatSheet={() => setNotesPanelTab("cheatsheet")} />
+      )}
     </div>
   );
 }

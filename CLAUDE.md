@@ -1204,6 +1204,59 @@ flagged for Jack rather than decided unilaterally):
   skips contacts with no company name) — an edge case only reachable by
   deliberately clearing the field.
 
+## Cheat Sheet relocation + dated Platform Notes (app/ only)
+
+Per Jack: remove the floating Cheat Sheet button and its Settings-gear
+entry point, and fold it into one panel with Platform Notes as a tab —
+plus Platform Notes itself becomes a real dated/titled log instead of one
+free-text scratchpad. Proposed and approved before building (per the
+standing proposal rule), including confirming what happens to an
+already-saved note (migrated into a dated entry, not discarded).
+
+- **One shared modal, two tabs, not two separate popups.** The floating
+  📋 button (bottom-right, `App.tsx`) and its `onClick` are gone entirely.
+  `AccountPanel`'s Settings gear (`onOpenSettings`) and its "📝 Platform
+  notes" trigger (new `onOpenNotes` prop) both now open the same panel —
+  Settings opens straight to the Cheat Sheet tab, Platform Notes opens to
+  the Notes tab — via one `App.tsx` state, `notesPanelTab: "notes" |
+  "cheatsheet" | null`, replacing the old `showCheatSheet` boolean.
+  `CheatSheet.tsx` gained an optional `onSwitchToNotes` prop (only passed
+  from this entry point) that draws a small tab strip so you can flip
+  back to Notes without closing — additive, no change to Cheat Sheet's
+  own content or its other call site (there isn't one anymore, but the
+  prop is optional so nothing else breaks if `CheatSheet` is ever opened
+  standalone again).
+- **Platform Notes is now `PlatformNoteEntry[]`, not one string.**
+  `lib/platformNotes.ts` replaced `loadPlatformNotes(): string` /
+  `savePlatformNotes(text)` with `loadPlatformNotes(): PlatformNoteEntry[]`,
+  `addPlatformNote(title, body)`, `deletePlatformNote(id)` — each entry
+  auto-stamps `createdAt` (title is user-given, defaults to "Untitled" if
+  left blank). Still `STORE_PLATFORM_NOTES` — no `DB_VERSION` bump needed,
+  since the store was already keyed by `id` and previously held exactly
+  one fixed-id row; it now holds one row per entry instead.
+- **Migration, not data loss.** A browser that still has the old
+  single-blob record (`id: "platform-notes"`, a `text` field) gets it
+  converted into the first dated entry (titled "Untitled", `createdAt`
+  taken from the old record's `updatedAt`) the first time `loadPlatformNotes()`
+  runs, then the legacy record is deleted so it's not re-migrated on every
+  load. An old record that was empty is just cleaned up, nothing created.
+- **`PlatformNotes.tsx`** (new) — "+ New note" opens an inline title+body
+  form; entries list newest-first, each showing title, timestamp, body,
+  and a delete button. "Go back on a calendar day basis" (Jack's ask) is a
+  day-filter dropdown built from the distinct calendar days notes exist on
+  (`dayKeyOf()`, local calendar day — not UTC — so it matches what the
+  entry's own timestamp reads as), each option showing that day's entry
+  count; "All days" clears the filter.
+- Orphaned CSS from the old inline popover (`.notes-popover` bare class,
+  `.notes-textarea`, `.notes-popover-footer`) removed from `styles.css`.
+  `.notes-popover-backdrop`/`-header`/`-close` were kept — `ProfileAccess.tsx`
+  still reuses those for its own modal shell, unrelated to this change.
+- Verified live: floating button confirmed gone from Home; opened via
+  both the Settings gear (lands on Cheat Sheet) and the Platform Notes
+  trigger (lands on Notes); added a dated note, switched tabs both
+  directions without losing it, closed and reopened cleanly; Home's own
+  Cheat Sheet module tile still opens the same shared panel correctly.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

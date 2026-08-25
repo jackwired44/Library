@@ -13,9 +13,14 @@ interface CheatSheetProps {
   onClose: () => void;
   ruleOverrides: RuleOverrides;
   onChangeRuleOverrides: (next: RuleOverrides) => void;
+  // Present only when opened from the combined Platform Notes/Cheat Sheet
+  // entry point (see PlatformNotes.tsx) — renders a small tab strip so you
+  // can flip back to Notes without closing. Absent = no tab strip, same as
+  // before this shared shell existed.
+  onSwitchToNotes?: () => void;
 }
 
-export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrides }: CheatSheetProps) {
+export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrides, onSwitchToNotes }: CheatSheetProps) {
   return (
     <div
       onClick={onClose}
@@ -25,6 +30,16 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
         onClick={(e) => e.stopPropagation()}
         style={{ background: "#fff", borderRadius: 16, maxWidth: 760, width: "100%", padding: "28px 30px", boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}
       >
+        {onSwitchToNotes && (
+          <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+            <button onClick={onSwitchToNotes} style={{ border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 13, fontWeight: 700, background: "#F4F6F7", color: "#5b6b72", cursor: "pointer" }}>
+              Platform Notes
+            </button>
+            <button disabled style={{ border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 13, fontWeight: 700, background: "#081E22", color: "#fff" }}>
+              Cheat Sheet
+            </button>
+          </div>
+        )}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
           <h2 style={{ margin: 0, fontSize: 19 }}>Cheat Sheet — what "Detected" means</h2>
           <button onClick={onClose} style={{ border: "none", background: "none", fontSize: 20, color: "#4c6167", cursor: "pointer" }}>✕</button>
