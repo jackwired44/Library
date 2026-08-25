@@ -1468,6 +1468,45 @@ website field above.
   made · 2 total emails sent," and clicking back to "All" restored all 3
   rows.
 
+### "On CRM" marker (app/ only)
+
+Per Jack: "Add in a feature i can mark onCRM." Confirmed via
+AskUserQuestion before building (ambiguous enough — "on CRM" needed a
+read — and this adds a new field, so it's not a one-liner): a sticky,
+purely manual per-contact flag meaning "this person is already logged in
+the real CRM (Dynamics 365/HubSpot)" — distinct from the scan-derived
+`disposition` and the directly-editable `outreachStatus`, neither of
+which mean "on file elsewhere."
+
+- **`Contact.onCrm?: boolean`** (`lib/contacts.ts`) — never set by any
+  scan/sync/merge path, only by the explicit toggle in `ContactDetail.tsx`
+  (a button under the name/title header, "Mark as On CRM" → "✓ On CRM"
+  once set, calling `onUpdate({ onCrm: !contact.onCrm })`). Persists the
+  same way every other Contact field does — no new store.
+- **`components/OnCrmBadge.tsx`** (new, shared) — a small green "✓ On CRM"
+  pill using the app's brand accent green rather than a status color,
+  since this is a tracking marker ("already handled elsewhere"), not a
+  lead-qualification signal like the disposition badges. Same
+  shared-component pattern as `BookedStamp.tsx`.
+- Shown next to the contact's name wherever one appears: Contacts.tsx's
+  table, Companies.tsx's expanded per-contact rows, and — read-only,
+  since Scanner has no per-row contact editor — Scanner's results table.
+  Scanner looks up the matching Contact via the same `buildContactIndex`/
+  `lookupContact` helpers `applyStickyState` already uses (now exported
+  from `lib/contacts.ts` for this), memoized once per `contacts` prop
+  change rather than looked up freshly on every render.
+- **Bug caught before shipping**: the first pass added the Scanner-side
+  `buildContactIndex` lookup as a `useMemo` placed AFTER Scanner's
+  `if (!results) return …` early-return guard — a real rules-of-hooks
+  violation (React error #310, confirmed live via a Playwright console
+  listener) since the hook would run on some renders and not others.
+  Fixed by moving it up alongside Scanner's other `useMemo` calls, all of
+  which sit before that early return.
+- Verified live: toggled "On CRM" for a contact from the detail modal,
+  confirmed the badge appears in Contacts' table, Companies' expanded
+  card, and Scanner's results table (with zero direct interaction in
+  Scanner itself, confirming the read-only reflect works).
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

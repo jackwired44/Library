@@ -15,6 +15,7 @@ import { CATEGORY_META, DISPOSITION_META, DISPOSITION_ORDER, type Disposition } 
 import { checkApolloAvailability, enrichContactsViaApollo, type EnrichOutcome } from "../lib/apolloEnrich";
 import ContactDetail from "./ContactDetail";
 import BookedStamp from "./BookedStamp";
+import OnCrmBadge from "./OnCrmBadge";
 import type { Task, TaskPriority } from "../lib/tasks";
 
 const MAX_ENRICH_BATCH = 10;
@@ -337,12 +338,15 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
                       <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggleSelected(c.id)} />
                     </td>
                     <td style={{ padding: "9px 12px", fontWeight: 600 }}>
-                      <button
-                        onClick={() => setDetailId(c.id)}
-                        style={{ border: "none", background: "none", padding: 0, font: "inherit", fontWeight: 600, color: "var(--ink)", textDecoration: c.crossedOut ? "line-through" : "underline", cursor: "pointer" }}
-                      >
-                        {c.fullName || "—"}
-                      </button>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                        <button
+                          onClick={() => setDetailId(c.id)}
+                          style={{ border: "none", background: "none", padding: 0, font: "inherit", fontWeight: 600, color: "var(--ink)", textDecoration: c.crossedOut ? "line-through" : "underline", cursor: "pointer" }}
+                        >
+                          {c.fullName || "—"}
+                        </button>
+                        {c.onCrm && <OnCrmBadge />}
+                      </div>
                     </td>
                     <td style={{ padding: "9px 12px" }}>
                       {c.disposition === "meeting-booked" && <BookedStamp />}

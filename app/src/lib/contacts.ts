@@ -80,6 +80,12 @@ export interface Contact {
   // came from auto-derivation or a manual edit. Editable in
   // ContactDetail.tsx the same way linkedinUrl is.
   companyWebsite?: string;
+  // "On CRM" — per Jack, a way to mark a contact as already logged in the
+  // real CRM (Dynamics 365/HubSpot), distinct from disposition/
+  // outreachStatus (which track lead-qualification/outreach state, not
+  // whether the person is on file elsewhere). Purely manual, toggled from
+  // ContactDetail.tsx — never set automatically by any scan or sync path.
+  onCrm?: boolean;
 }
 
 // Free/personal email providers a company website should never be guessed
@@ -148,7 +154,7 @@ function fillBlank(oldVal: string, newVal: unknown): string {
 // email triple without folding new data into it (attachScanResultsToContacts,
 // applyStickyState). mergeContactInputs below keeps its own index since it
 // mutates/re-registers entries as it folds a batch in.
-function buildContactIndex(contacts: Contact[]): { byEmail: Map<string, Contact>; byNameCompany: Map<string, Contact> } {
+export function buildContactIndex(contacts: Contact[]): { byEmail: Map<string, Contact>; byNameCompany: Map<string, Contact> } {
   const byEmail = new Map<string, Contact>();
   const byNameCompany = new Map<string, Contact>();
   contacts.forEach((c) => {
@@ -159,7 +165,7 @@ function buildContactIndex(contacts: Contact[]): { byEmail: Map<string, Contact>
   });
   return { byEmail, byNameCompany };
 }
-function lookupContact(index: { byEmail: Map<string, Contact>; byNameCompany: Map<string, Contact> }, fullName: string, company: string, email: string): Contact | undefined {
+export function lookupContact(index: { byEmail: Map<string, Contact>; byNameCompany: Map<string, Contact> }, fullName: string, company: string, email: string): Contact | undefined {
   const emailKey = emailKeyOf(email);
   const nameCompanyKey = nameCompanyKeyOf(fullName, company);
   return (emailKey && index.byEmail.get(emailKey)) || (nameCompanyKey && index.byNameCompany.get(nameCompanyKey)) || undefined;

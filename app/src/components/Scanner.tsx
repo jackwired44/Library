@@ -21,6 +21,7 @@ import {
 } from "../lib/detection";
 import { downloadCSV, parseCSVFile, parseCSVText } from "../lib/csv";
 import BookedStamp from "./BookedStamp";
+import OnCrmBadge from "./OnCrmBadge";
 import {
   getMonthOptionsForFiling,
   getOrCreateGroupByName,
@@ -35,7 +36,7 @@ import {
   type LibraryGroup,
 } from "../lib/library";
 import type { HistoryEntry } from "../lib/history";
-import { applyStickyState, type Contact } from "../lib/contacts";
+import { applyStickyState, buildContactIndex, lookupContact, type Contact } from "../lib/contacts";
 import type { UploadedFile } from "../App";
 
 const MAX_FILES = 5;
@@ -349,6 +350,9 @@ export default function Scanner({
     () => (priorityFileFilter === "all" ? priorityLeads : priorityLeads.filter(({ row }) => row.sourceFile === priorityFileFilter)),
     [priorityLeads, priorityFileFilter]
   );
+  // Read-only lookup for the "On CRM" badge — editing still only happens
+  // in ContactDetail.tsx (Contacts/Companies), Scanner just reflects it.
+  const contactIndex = useMemo(() => buildContactIndex(contacts), [contacts]);
 
   // fn mutates `next` in place and returns whichever rows it touched. The
   // touched rows are synced to History AFTER setResults returns, never
@@ -923,6 +927,7 @@ export default function Scanner({
                 const tierBg = r.tier === "signal" ? "#E7F1EA" : r.tier === "dq" ? "#FBEAE8" : "#FBEBDD";
                 const tierLabel = r.tier === "signal" ? "Strong Signal" : r.tier === "dq" ? "Bad lead" : "Needs review";
                 const strike = r.crossedOut ? { textDecoration: "line-through", color: "#9AA6A5" } : {};
+                const matchedContact = lookupContact(contactIndex, getFullName(f), String(f.company || "").trim(), String(f.email || "").trim());
                 return (
                   <tr
                     key={r.id}
@@ -944,7 +949,9 @@ export default function Scanner({
                       {r.disposition === "meeting-booked" && <BookedStamp />}
                       <div style={strike}>{f.company || "—"}</div>
                     </td>
-                    <td style={{ padding: "10px 14px", ...strike }}>{getFullName(f) || f.email || "—"}</td>
+                    <td style={{ padding: "10px 14px", ...strike }}>
+                      {getFullName(f) || f.email || "—"} {matchedContact?.onCrm && <OnCrmBadge />}
+                    </td>
                     <td style={{ padding: "10px 14px" }}>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                         {r.isDuplicate && <span style={{ fontSize: 10.5, background: "#F7B955", color: "#5C3A00", padding: "2px 7px", borderRadius: 20, fontWeight: 700 }}>DUPLICATE</span>}

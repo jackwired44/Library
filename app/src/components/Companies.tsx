@@ -15,6 +15,7 @@ import { OUTREACH_STATUS_META, type Contact, type ManualContactInput } from "../
 import { CATEGORY_META, DISPOSITION_META } from "../lib/detection";
 import ContactDetail from "./ContactDetail";
 import BookedStamp from "./BookedStamp";
+import OnCrmBadge from "./OnCrmBadge";
 
 interface CompaniesProps {
   contacts: Contact[];
@@ -138,6 +139,7 @@ export default function Companies({ contacts, onAddContact, onUpdateContact }: C
                                 >
                                   {p.fullName || "—"}
                                 </button>
+                                {p.onCrm && <OnCrmBadge />}
                                 <span style={{ color: "var(--muted)", minWidth: 140 }}>{p.title || "—"}</span>
                                 <span style={{ color: "var(--muted)", minWidth: 160 }}>{p.email || p.workPhone || p.mobilePhone || "—"}</span>
                                 {(p.outreachStatus && p.outreachStatus !== "not-contacted") && (

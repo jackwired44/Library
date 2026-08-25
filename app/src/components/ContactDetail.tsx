@@ -37,6 +37,27 @@ export default function ContactDetail({ contact, onClose, onUpdate }: ContactDet
           <button onClick={onClose} style={{ border: "none", background: "none", fontSize: 18, cursor: "pointer", color: "var(--muted)" }}>✕</button>
         </div>
 
+        <button
+          onClick={() => onUpdate({ onCrm: !contact.onCrm })}
+          title="Mark whether this contact is already logged in the real CRM (Dynamics 365/HubSpot)"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            border: `1px solid ${contact.onCrm ? "#A9E4CC" : "var(--border)"}`,
+            background: contact.onCrm ? "#E1F5EC" : "var(--surface-sunken)",
+            color: contact.onCrm ? "#0B7A56" : "var(--muted)",
+            borderRadius: 8,
+            padding: "7px 12px",
+            fontSize: 12.5,
+            fontWeight: 700,
+            cursor: "pointer",
+            marginBottom: 16,
+          }}
+        >
+          {contact.onCrm ? "✓ On CRM" : "Mark as On CRM"}
+        </button>
+
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 13, marginBottom: 16 }}>
           <DetailField label="Email" value={contact.email} />
           <DetailField label="Phone" value={contact.workPhone || contact.mobilePhone} />
