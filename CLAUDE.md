@@ -1149,6 +1149,61 @@ already qualifies a lead into Strong Signal/Needs Review/Bad Leads today.
 Not scoped or designed yet; captured here so it isn't lost, same as the
 rest of this Roadmap section.
 
+### Design/bug review pass (app/ only)
+
+Per Jack's ask to "check all the design look for bugs re scan" — a full
+read-through of the app's recent code plus a live Playwright sweep of
+every view (Home, Scanner landing/results, Lead Library, History, Engage's
+three tabs, Contact detail, header search, Profile & Access, Platform
+Notes, Cheat Sheet). No visual/design regressions found across any view —
+every screen still renders cleanly against the shared token set. Two real
+bugs found and fixed:
+
+- **`ContactDetail.tsx` never rendered the scan-derived `disposition`** —
+  it was checked as one of three conditions that reveal the "From the
+  last scan" panel, but only the category badge and matched-snippet text
+  were actually drawn inside it. A contact whose only last-scan signal
+  was a disposition (no category, no snippet) showed an empty panel, and
+  no contact ever saw its disposition in the detail modal at all — present
+  in `Contacts.tsx`'s table, missing from the one place Jack asked for "a
+  contact page you can click into and see more info." Fixed: the panel
+  now renders a disposition badge (with the note on hover) alongside the
+  category badge. Verified live: set a lead's disposition to "Not
+  interested" in Scanner, confirmed both the Dynamics 365 category badge
+  and the Not interested badge render together in the detail modal.
+- **`lib/apolloEnrich.ts` mishandled every real Apollo failure.** A
+  connector-call rejection from `mcp.callTool`/`mcp.listTools` is a plain
+  `McpError` object (`{code, message, ...}`, per the artifact-
+  capabilities skill's `mcp.d.ts`), never a real `Error` instance — so the
+  original `err instanceof Error ? err.message : "..."` check was always
+  false for it, silently discarding the runtime's actual message and
+  collapsing every distinct failure (expired Apollo auth, no connector,
+  a genuine tool error) into one generic "Apollo call failed." — exactly
+  the anti-pattern `mcp.d.ts` calls out by name ("never collapse all
+  failures into one generic banner"). Fixed with `describeApolloError()`,
+  which reads the real `McpError` shape and gives specific guidance for
+  `needs_reauth`/`server_not_connected`/`selection_required`; also
+  wrapped the previously-unguarded `findApolloServer()` call inside
+  `enrichContactsViaApollo` so a raw `McpError` can't leak past this
+  module uncaught.
+
+Findings surfaced but NOT changed (judgment calls, not correctness bugs —
+flagged for Jack rather than decided unilaterally):
+- Apollo match results carry a `title` field that's captured but never
+  applied to `Contact.title` or shown anywhere — dead data today. Could
+  fill a blank title, or show it in the per-contact outcome line;
+  unclear which Jack wants, if either.
+- Contacts.tsx's selection (and the "Enrich via Apollo" outcome list)
+  isn't cleared after a run completes, unlike Scanner's bulk-action bar,
+  which clears selection after every "Apply." Selecting new contacts and
+  running enrichment again works fine either way — this is a minor
+  consistency nit, not a functional bug.
+- `Companies.tsx`'s "+ Add contact" form lets the pre-filled Company
+  field be cleared entirely; submitting with a blank company still saves
+  the contact, but it won't group under any company (`groupContactsByCompany`
+  skips contacts with no company name) — an edge case only reachable by
+  deliberately clearing the field.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

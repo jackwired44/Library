@@ -73,6 +73,24 @@ export interface EnrichOutcome {
   errorMessage?: string;
 }
 
+// mcp.callTool rejects with a plain McpError object ({code, message, ...}),
+// never a real Error instance — `err instanceof Error` is always false for
+// it, so a naive check discards the runtime's actual, actionable message
+// (and code-specific guidance like "reconnect Apollo") in favor of one
+// generic string. See the artifact-capabilities skill's mcp.d.ts doctrine:
+// branching on `code`/`message`, never collapsing every failure into one
+// banner, is the explicit contract here.
+function describeApolloError(err: unknown): string {
+  if (err && typeof err === "object") {
+    const e = err as { code?: string; message?: string };
+    if (e.code === "needs_reauth") return "Apollo's connection needs to be reconnected — check claude.ai Settings → Connectors.";
+    if (e.code === "server_not_connected" || e.code === "selection_required") return "Apollo isn't connected — add it in claude.ai Settings → Connectors, then try again.";
+    if (e.message) return e.message;
+  }
+  if (err instanceof Error) return err.message;
+  return "Apollo call failed.";
+}
+
 // Apollo's bulk endpoint caps at 10 people per call — enforced by the
 // caller (Contacts.tsx disables the button past 10 selected) rather than
 // silently chunking into several background calls, per Jack's explicit
@@ -85,7 +103,12 @@ export async function enrichContactsViaApollo(contacts: Contact[]): Promise<Enri
 
   const mcp = await getMcp();
   if (!mcp) throw new Error("Apollo enrichment isn't available in this view.");
-  const handle = await findApolloServer(mcp);
+  let handle: ApolloServerHandle | null;
+  try {
+    handle = await findApolloServer(mcp);
+  } catch (err) {
+    throw new Error(describeApolloError(err));
+  }
   if (!handle) throw new Error("Apollo isn't connected — add it in claude.ai Settings → Connectors, then try again.");
 
   const details = contacts.map((c) => ({
@@ -100,7 +123,7 @@ export async function enrichContactsViaApollo(contacts: Contact[]): Promise<Enri
   try {
     result = await mcp.callTool(handle.server, handle.bulkMatchTool, { details });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Apollo call failed.";
+    const message = describeApolloError(err);
     return contacts.map((c) => ({ contactId: c.id, status: "error" as const, errorMessage: message }));
   }
 

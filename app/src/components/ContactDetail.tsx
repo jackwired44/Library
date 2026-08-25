@@ -9,7 +9,7 @@
 // status — a separate, directly-editable concept from the scan-derived
 // `disposition` field, see lib/contacts.ts).
 import { useState } from "react";
-import { CATEGORY_META } from "../lib/detection";
+import { CATEGORY_META, DISPOSITION_META } from "../lib/detection";
 import { OUTREACH_STATUS_META, OUTREACH_STATUS_ORDER, type Contact, type OutreachStatus } from "../lib/contacts";
 
 interface ContactDetailProps {
@@ -50,6 +50,14 @@ export default function ContactDetail({ contact, onClose, onUpdate }: ContactDet
               {contact.category && (
                 <span style={{ fontSize: 10.5, fontWeight: 700, color: CATEGORY_META[contact.category].color, background: CATEGORY_META[contact.category].bg, borderRadius: 999, padding: "2px 9px" }}>
                   {CATEGORY_META[contact.category].label}
+                </span>
+              )}
+              {contact.disposition && contact.disposition !== "none" && (
+                <span
+                  title={contact.dispositionNote || undefined}
+                  style={{ fontSize: 10.5, fontWeight: 700, color: DISPOSITION_META[contact.disposition].color, background: DISPOSITION_META[contact.disposition].bg, borderRadius: 999, padding: "2px 9px" }}
+                >
+                  {DISPOSITION_META[contact.disposition].label}
                 </span>
               )}
             </div>
