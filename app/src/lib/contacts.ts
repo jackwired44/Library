@@ -74,6 +74,36 @@ export interface Contact {
   // with name+company (no automatic verified match — see CLAUDE.md
   // "Contacts: LinkedIn" for why a deterministic hyperlink isn't possible).
   linkedinUrl?: string;
+  // Auto-derived from the contact's email domain (see deriveCompanyWebsite
+  // below) the first time a contact with an email and no website on file
+  // is merged — never overwrites an already-set value, whether that value
+  // came from auto-derivation or a manual edit. Editable in
+  // ContactDetail.tsx the same way linkedinUrl is.
+  companyWebsite?: string;
+}
+
+// Free/personal email providers a company website should never be guessed
+// from — someone using a gmail/outlook/etc. address tells us nothing about
+// their employer's domain. Not exhaustive, just the common ones a B2B lead
+// list actually turns up.
+const FREE_EMAIL_DOMAINS = new Set([
+  "gmail.com", "googlemail.com", "yahoo.com", "ymail.com", "outlook.com",
+  "hotmail.com", "live.com", "msn.com", "icloud.com", "me.com", "mac.com",
+  "aol.com", "protonmail.com", "proton.me", "mail.com", "gmx.com",
+  "yandex.com", "zoho.com", "comcast.net", "verizon.net", "att.net",
+]);
+
+// Per Jack: "set a rule to use the email domain to figure that out and map
+// it properly." Returns null for a missing/free-provider/malformed email —
+// callers treat null as "leave companyWebsite untouched," never as
+// clearing an existing value.
+export function deriveCompanyWebsite(email: unknown): string | null {
+  const e = normalizeText(email);
+  const at = e.lastIndexOf("@");
+  if (at < 0) return null;
+  const domain = e.slice(at + 1).trim();
+  if (!domain || !domain.includes(".") || FREE_EMAIL_DOMAINS.has(domain)) return null;
+  return `https://${domain}`;
 }
 
 export type OutreachStatus = "not-contacted" | "contacted" | "contacted-successfully" | "not-interested" | "meeting-booked";
@@ -222,6 +252,7 @@ function mergeContactInputs(existing: Contact[], inputs: ContactInput[]): { cont
         employees: fillBlank(match.employees, f.employees),
         productArea: fillBlank(match.productArea, f.productArea),
         sourceFiles: match.sourceFiles.includes(sourceFile) ? match.sourceFiles : [...match.sourceFiles, sourceFile],
+        companyWebsite: match.companyWebsite || deriveCompanyWebsite(email) || undefined,
         lastSeenAt: now,
         timesSeen: match.timesSeen + 1,
       };
@@ -243,6 +274,7 @@ function mergeContactInputs(existing: Contact[], inputs: ContactInput[]): { cont
         employees: String(f.employees || "").trim(),
         productArea: String(f.productArea || "").trim(),
         sourceFiles: [sourceFile],
+        companyWebsite: deriveCompanyWebsite(email) || undefined,
         firstSeenAt: now,
         lastSeenAt: now,
         timesSeen: 1,

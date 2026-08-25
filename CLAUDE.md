@@ -1391,6 +1391,47 @@ proposal round.
   Scanner's table, then confirmed the same stamp renders above that
   person's name in both the Contacts table and Companies' expanded card.
 
+### Company website field, auto-derived from email domain (app/ only)
+
+Per Jack: "Create a place where the company website can be linked in the
+contact//set a rule to use the email domain to figure that out and map it
+properly//this will help ti build out the linkdeln eventualyly also."
+Proposed via AskUserQuestion; the question went unanswered while Jack
+moved on to other requests, and his later "run through all these proposed
+updates" made clear he wanted forward progress rather than more blocking
+dialogs — built to the proposed default below.
+
+- **`Contact.companyWebsite?: string`** (`lib/contacts.ts`) — auto-filled
+  the first time a contact with an email and no website on file is merged
+  (`deriveCompanyWebsite(email)`, called from both branches of
+  `mergeContactInputs` — new contact and merge-into-existing), and never
+  overwritten afterward by a later auto-derivation, same `|| ` precedence
+  pattern `fillBlank` already uses elsewhere in this file — whether the
+  existing value came from auto-derivation or a manual edit, it wins.
+- **Free/personal providers are explicitly excluded** — a fixed
+  `FREE_EMAIL_DOMAINS` set (gmail, yahoo, outlook, hotmail, icloud, aol,
+  live, msn, proton, mail.com, gmx, yandex, zoho, and the big three
+  consumer ISPs) — someone's `gmail.com` address says nothing about their
+  employer's domain, so those are left for manual entry instead of
+  silently deriving a wrong website.
+- **`ContactDetail.tsx`** gained a "Company website" section, same
+  editable-field-plus-save-button pattern as the existing LinkedIn field
+  right below it (deliberately adjacent — per Jack's own "this will help
+  build out the LinkedIn eventually" framing, company website is a step
+  toward that, not a separate concern), with copy that tells you whether
+  the value shown was auto-filled or needs manual entry. Editing and
+  saving overrides the auto-derived value the same way the LinkedIn field
+  already works.
+- Scoped to `ContactDetail.tsx` only for now, not surfaced in the
+  Contacts/Companies table columns — matches the proposed default; flag if
+  a table column or Companies-level display is wanted next.
+- Verified live: uploaded a contact with a real company domain
+  (`dana@diazconsulting.io`) and confirmed `https://diazconsulting.io` was
+  auto-filled and shown as a working link; uploaded a second contact on
+  `gmail.com` and confirmed the field stayed blank with the "no domain to
+  derive" hint instead of guessing a wrong website, then manually saved a
+  website for that contact and confirmed it persisted as a link.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

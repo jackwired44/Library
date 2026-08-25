@@ -20,6 +20,7 @@ interface ContactDetailProps {
 
 export default function ContactDetail({ contact, onClose, onUpdate }: ContactDetailProps) {
   const [linkedinDraft, setLinkedinDraft] = useState(contact.linkedinUrl || "");
+  const [websiteDraft, setWebsiteDraft] = useState(contact.companyWebsite || "");
   const linkedinSearchUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent([contact.fullName, contact.company].filter(Boolean).join(" "))}`;
 
   return (
@@ -64,6 +65,35 @@ export default function ContactDetail({ contact, onClose, onUpdate }: ContactDet
             {contact.matchedSnippet && <div style={{ fontSize: 12, color: "var(--muted)" }}>{contact.matchedSnippet}</div>}
           </div>
         )}
+
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 10.5, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>Company website</div>
+          <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 6 }}>
+            {contact.companyWebsite
+              ? "Auto-filled from the contact's email domain — edit if it's wrong, or if this contact actually belongs to a parent/separate entity."
+              : "No email domain to derive a website from yet (a free provider like gmail/outlook doesn't count) — enter it manually if you know it."}
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <input
+              value={websiteDraft}
+              onChange={(e) => setWebsiteDraft(e.target.value)}
+              placeholder="https://example.com"
+              style={{ flex: 1, border: "1px solid var(--border)", borderRadius: 8, padding: "7px 10px", fontSize: 12.5 }}
+            />
+            <button
+              onClick={() => onUpdate({ companyWebsite: websiteDraft.trim() })}
+              disabled={websiteDraft.trim() === (contact.companyWebsite || "")}
+              style={{ border: "none", borderRadius: 8, padding: "7px 14px", fontWeight: 700, fontSize: 12.5, background: websiteDraft.trim() === (contact.companyWebsite || "") ? "var(--surface-sunken)" : "var(--accent)", color: websiteDraft.trim() === (contact.companyWebsite || "") ? "#B7BEC4" : "#081E22" }}
+            >
+              Save
+            </button>
+          </div>
+          {contact.companyWebsite && (
+            <a href={contact.companyWebsite} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: "#0A66C2", display: "inline-block", marginTop: 6 }}>
+              {contact.companyWebsite}
+            </a>
+          )}
+        </div>
 
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 10.5, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>LinkedIn</div>
