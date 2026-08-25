@@ -12,7 +12,7 @@ import HeaderSearch from "./components/HeaderSearch";
 import type { ParsedFile, ResultRow, RuleOverrides } from "./lib/detection";
 import { scanParsedFiles, DEFAULT_RULE_OVERRIDES } from "./lib/detection";
 import { loadLibraryFromDB, ensureMonthFoldersExist, persistGroup, type LibraryEntry, type LibraryGroup } from "./lib/library";
-import { loadContactsFromDB, mergeContactsFromParsedFiles, persistContact, type Contact } from "./lib/contacts";
+import { loadContactsFromDB, mergeContactsFromParsedFiles, mergeManualContact, persistContact, type Contact, type ManualContactInput } from "./lib/contacts";
 import {
   loadHistoryFromDB,
   persistHistoryEntry,
@@ -162,6 +162,16 @@ export default function App() {
     if (!task) return;
     setTasks((prev) => [...prev, task]);
     persistTask(task);
+  }
+
+  // Companies' "+ Add contact" action — same dedup rules as any CSV-
+  // derived contact (see lib/contacts.ts's mergeManualContact).
+  function addManualContact(input: ManualContactInput) {
+    setContacts((prev) => {
+      const { contacts: next, touched } = mergeManualContact(prev, input);
+      touched.forEach((c) => persistContact(c));
+      return next;
+    });
   }
 
   function updateRuleOverrides(next: RuleOverrides) {
@@ -389,6 +399,7 @@ export default function App() {
               contactsLoading={contactsLoading}
               contactsError={contactsError}
               onAddContactTask={addContactTask}
+              onAddContact={addManualContact}
               initialTab={engageEntry.tab}
               initialContactsSearch={engageEntry.contactsQuery}
             />

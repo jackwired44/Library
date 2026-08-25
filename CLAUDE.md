@@ -742,13 +742,44 @@ company-level data" item, deliberately starting minimal.
   `sourceFiles` across every contact in that company. A contact with no
   company isn't grouped anywhere (not even an "Unknown" bucket) — deferred,
   not an oversight.
-- Companies.tsx is read-only, same posture as Contacts: search (company or
-  contact name) and a sort dropdown (most recent/name/most contacts), no
-  editing. Clicking a company row expands it in place to list its
-  contacts (name/title/email or phone) — the only interaction beyond
-  search/sort for now.
+- Companies.tsx has no company-level fields of its own yet (still just
+  a Contacts roll-up): search (company or contact name) and a sort
+  dropdown (most recent/name/most contacts), no editing of the company
+  itself. Clicking a company row expands it in place to list its
+  contacts (name/title/email or phone) and, per the manual add-contact
+  feature below, add one.
 - No company-level tasks yet (Contacts' "+ Task" stays contact-only) —
   scoped out of this pass, flag if wanted next.
+
+### Companies: manual "+ Add contact" (app/ only)
+
+Per Jack: "add for companies an option to add another contact with their
+first last name email title company also (because it could be a parent or
+separate entity, phone number etc." A company's expanded row now has an
+"+ Add contact" button opening an inline form (First/Last name, Title,
+Company, Email, Phone). The **Company field is pre-filled with the row you
+added from but stays freely editable** — exactly per Jack's own reasoning,
+the new contact might actually belong to a parent or separate entity
+rather than that exact company, so submitting with a different company
+name correctly creates/joins a different company group instead of forcing
+it into the one you started from (verified live: adding a contact from
+"Adams Co" with company overridden to "Adams Holdings" created a separate
+company, not a third contact under Adams Co).
+- `lib/contacts.ts` was refactored so `mergeContactsFromParsedFiles`
+  (CSV path) and the new `mergeManualContact` (this feature) both call a
+  shared `mergeContactInputs` — same email-first/name+company-fallback
+  dedup rules either way, so manually "adding" someone already on file
+  merges into their existing record (additive — never blanks a field
+  that's already filled in) instead of creating a duplicate. A manually
+  added contact's `sourceFiles` gets the fixed label `"Manually added"`
+  instead of a real filename.
+- Threaded through as `onAddContact` (`App.tsx`'s new `addManualContact`
+  → `Engage.tsx` → `Companies.tsx`), the same prop-drilling pattern
+  `onAddContactTask` already uses.
+- Per Jack, this is explicit direction for later, not built yet: a future
+  LinkedIn integration, and richer company profile fields (estimated
+  employees, industry, website) once Companies grows past a pure Contacts
+  roll-up — see Roadmap.
 
 ## Shell — denser, product-grade visual pass + account panel (app/ only)
 
@@ -908,7 +939,10 @@ above — that tradeoff needs Jack's explicit sign-off when the time comes).
 - SendGrid tie-in for sending + monitoring outbound email, and a view of
   emails actually sent per lead.
 - Filtering/segmenting companies by size, industry, etc. — richer company-
-  level data than what a lead CSV export alone carries today.
+  level data than what a lead CSV export alone carries today (Jack's named
+  fields so far: estimated employees, industry, website).
+- A LinkedIn integration — surfaced alongside the company-profile fields
+  above, no scope defined yet (enrichment? profile links per contact?).
 
 ## Working style
 

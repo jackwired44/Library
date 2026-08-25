@@ -12,7 +12,7 @@ import TaskBoard from "./TaskBoard";
 import ContactsView from "./Contacts";
 import CompaniesView from "./Companies";
 import type { Task, TaskPriority } from "../lib/tasks";
-import type { Contact } from "../lib/contacts";
+import type { Contact, ManualContactInput } from "../lib/contacts";
 
 interface EngageProps {
   tasks: Task[];
@@ -27,6 +27,7 @@ interface EngageProps {
   contactsLoading: boolean;
   contactsError: string | null;
   onAddContactTask: (contactId: string, date: string, priority: TaskPriority, text: string) => void;
+  onAddContact: (input: ManualContactInput) => void;
 
   // Set when navigating here from the header search (see App.tsx/
   // HeaderSearch.tsx) so Engage lands straight on the right tab/result
@@ -56,6 +57,7 @@ export default function Engage({
   contactsLoading,
   contactsError,
   onAddContactTask,
+  onAddContact,
   initialTab,
   initialContactsSearch,
 }: EngageProps) {
@@ -100,7 +102,7 @@ export default function Engage({
           initialSearch={initialContactsSearch}
         />
       )}
-      {tab === "companies" && <CompaniesView contacts={contacts} />}
+      {tab === "companies" && <CompaniesView contacts={contacts} onAddContact={onAddContact} />}
     </div>
   );
 }

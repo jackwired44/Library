@@ -96,12 +96,16 @@ function contactInputsFromParsedFiles(parsedFiles: ParsedFile[]): ContactInput[]
   return inputs;
 }
 
-// Folds a freshly-uploaded batch of rows into the existing Contacts
-// directory (additive merge — a later, sparser upload never blanks out a
-// field a prior upload already filled in). Returns the full updated array
+// Folds a batch of resolved-field inputs into the existing Contacts
+// directory (additive merge — a later, sparser input never blanks out a
+// field a prior one already filled in). Returns the full updated array
 // plus just the touched records, so the caller can persist only those
-// instead of rewriting the whole store on every upload.
-export function mergeContactsFromParsedFiles(existing: Contact[], parsedFiles: ParsedFile[]): { contacts: Contact[]; touched: Contact[]; added: number; updated: number } {
+// instead of rewriting the whole store on every merge. Shared by both the
+// CSV-upload path (mergeContactsFromParsedFiles) and the manual-add path
+// (mergeManualContact) — same dedup rules either way, so manually adding
+// someone who's already in the directory merges into their existing
+// record instead of creating a duplicate.
+function mergeContactInputs(existing: Contact[], inputs: ContactInput[]): { contacts: Contact[]; touched: Contact[]; added: number; updated: number } {
   const byId = new Map<string, Contact>(existing.map((c) => [c.id, c]));
   const byEmail = new Map<string, Contact>();
   const byNameCompany = new Map<string, Contact>();
@@ -117,7 +121,7 @@ export function mergeContactsFromParsedFiles(existing: Contact[], parsedFiles: P
   let added = 0;
   let updated = 0;
 
-  contactInputsFromParsedFiles(parsedFiles).forEach(({ resolved: f, sourceFile }) => {
+  inputs.forEach(({ resolved: f, sourceFile }) => {
     const fullName = getFullName(f);
     const company = String(f.company || "").trim();
     const email = String(f.email || "").trim();
@@ -182,6 +186,39 @@ export function mergeContactsFromParsedFiles(existing: Contact[], parsedFiles: P
   const contacts = Array.from(byId.values());
   const touched = contacts.filter((c) => touchedIds.has(c.id));
   return { contacts, touched, added, updated };
+}
+
+export function mergeContactsFromParsedFiles(existing: Contact[], parsedFiles: ParsedFile[]): { contacts: Contact[]; touched: Contact[]; added: number; updated: number } {
+  return mergeContactInputs(existing, contactInputsFromParsedFiles(parsedFiles));
+}
+
+// Manual "+ Add contact" entry point — per Jack, added from the Companies
+// view: "company also (because it could be a parent or separate entity)"
+// — the company field is pre-filled with the row you added from but stays
+// freely editable, since the new contact might actually belong to a
+// related/parent entity rather than that exact company. Goes through the
+// same mergeContactInputs dedup as every CSV-derived contact, so manually
+// adding someone already on file merges into their existing record rather
+// than creating a duplicate. sourceFile is a fixed label rather than a
+// real file name, same idea as History's own manual-entry tags elsewhere.
+export interface ManualContactInput {
+  firstName: string;
+  lastName: string;
+  title: string;
+  company: string;
+  email: string;
+  workPhone: string;
+}
+export function mergeManualContact(existing: Contact[], input: ManualContactInput): { contacts: Contact[]; touched: Contact[]; added: number; updated: number } {
+  const resolved: ResolvedFields = {
+    firstName: input.firstName,
+    lastName: input.lastName,
+    title: input.title,
+    company: input.company,
+    email: input.email,
+    workPhone: input.workPhone,
+  };
+  return mergeContactInputs(existing, [{ resolved, sourceFile: "Manually added" }]);
 }
 
 export function searchContacts(contacts: Contact[], query: string): Contact[] {

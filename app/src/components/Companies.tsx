@@ -1,21 +1,26 @@
 // Companies — a company-level roll-up of Contacts (see lib/companies.ts).
-// Read-only, no data of its own. First pass per Jack: "we will slowly
-// build this out with more data fields and closer to an actual Apollo down
-// the road" — start with the roll-up, expect real company fields later.
+// Mostly read-only — no company fields of its own yet — but a company can
+// have a contact manually added to it (see CLAUDE.md "Companies: manual
+// add contact"). First pass per Jack: "we will slowly build this out with
+// more data fields (estimated employees, industry, website) and closer to
+// an actual Apollo down the road" — a future LinkedIn integration and
+// richer company profiles are direction, not built yet.
 import { Fragment, useMemo, useState } from "react";
 import { groupContactsByCompany, searchCompanies } from "../lib/companies";
-import type { Contact } from "../lib/contacts";
+import type { Contact, ManualContactInput } from "../lib/contacts";
 
 interface CompaniesProps {
   contacts: Contact[];
+  onAddContact: (input: ManualContactInput) => void;
 }
 
 type SortKey = "recent" | "name" | "contactCount";
 
-export default function Companies({ contacts }: CompaniesProps) {
+export default function Companies({ contacts, onAddContact }: CompaniesProps) {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("recent");
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const [addingForKey, setAddingForKey] = useState<string | null>(null);
 
   const companies = useMemo(() => groupContactsByCompany(contacts), [contacts]);
   const filtered = useMemo(() => {
@@ -90,7 +95,7 @@ export default function Companies({ contacts }: CompaniesProps) {
                       <tr style={{ background: "var(--bg)" }}>
                         <td></td>
                         <td colSpan={5} style={{ padding: "6px 12px 12px" }}>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
                             {co.contacts.map((p) => (
                               <div key={p.id} style={{ display: "flex", gap: 10, fontSize: 12.5 }}>
                                 <span style={{ fontWeight: 600, minWidth: 160 }}>{p.fullName || "—"}</span>
@@ -99,6 +104,23 @@ export default function Companies({ contacts }: CompaniesProps) {
                               </div>
                             ))}
                           </div>
+                          {addingForKey === co.key ? (
+                            <AddContactForm
+                              defaultCompany={co.name}
+                              onSubmit={(input) => {
+                                onAddContact(input);
+                                setAddingForKey(null);
+                              }}
+                              onCancel={() => setAddingForKey(null)}
+                            />
+                          ) : (
+                            <button
+                              onClick={() => setAddingForKey(co.key)}
+                              style={{ border: "1px solid var(--border)", background: "var(--surface)", borderRadius: 7, padding: "5px 10px", fontSize: 11.5, fontWeight: 700 }}
+                            >
+                              + Add contact
+                            </button>
+                          )}
                         </td>
                       </tr>
                     )}
@@ -109,6 +131,58 @@ export default function Companies({ contacts }: CompaniesProps) {
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+function AddContactForm({
+  defaultCompany,
+  onSubmit,
+  onCancel,
+}: {
+  defaultCompany: string;
+  onSubmit: (input: ManualContactInput) => void;
+  onCancel: () => void;
+}) {
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [title, setTitle] = useState("");
+  // Pre-filled with the company you added from, but left freely editable —
+  // per Jack, the new contact could belong to a parent or separate entity
+  // rather than this exact company.
+  const [company, setCompany] = useState(defaultCompany);
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+
+  const canSubmit = firstName.trim() || lastName.trim() || email.trim();
+
+  function submit() {
+    if (!canSubmit) return;
+    onSubmit({ firstName: firstName.trim(), lastName: lastName.trim(), title: title.trim(), company: company.trim(), email: email.trim(), workPhone: phone.trim() });
+  }
+
+  const fieldStyle = { border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 12.5 };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 9, padding: 10, maxWidth: 480 }}>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <input value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="First name" style={{ ...fieldStyle, flex: "1 1 120px" }} />
+        <input value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="Last name" style={{ ...fieldStyle, flex: "1 1 120px" }} />
+      </div>
+      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" style={fieldStyle} />
+      <input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Company" style={fieldStyle} title="Editable — this contact could belong to a parent or separate entity" />
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" style={{ ...fieldStyle, flex: "1 1 160px" }} />
+        <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" style={{ ...fieldStyle, flex: "1 1 120px" }} />
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={submit} disabled={!canSubmit} style={{ border: "none", background: canSubmit ? "#2CC295" : "#CDEFE3", color: "#081E22", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: canSubmit ? "pointer" : "not-allowed" }}>
+          Add contact
+        </button>
+        <button onClick={onCancel} style={{ border: "1px solid var(--border)", background: "var(--surface)", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600 }}>
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }
