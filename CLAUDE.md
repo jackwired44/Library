@@ -529,6 +529,16 @@ Business Central/ERP only and never also shows in Sales/CRM, regardless
 of what else the text mentions. "Everything else" is unaffected — it was
 already defined as neither flag set.
 
+**Locked invariant, per Jack's explicit reconfirmation: these View-tab
+sets don't change.** Dynamics 365 is always exactly four tabs — All
+Dynamics 365, Business Central / ERP, Sales / CRM, Everything else. M365 /
+Azure is always exactly three — All M365/Azure, Google → Microsoft,
+Everything else. True in both places they render (Scanner's
+`dynamicsSubView`/`m365SubView`, and the Lead Library's `CategoryFileCard`
+`subView`). Don't add, remove, rename, or reorder a tab in either set
+without Jack explicitly asking — this isn't a "start somewhere then fine
+tune" area the way the visual density passes are.
+
 ## Library architecture (the trickiest part to port correctly)
 
 - Saving to the Library is **opt-in per upload** (a checkbox, default OFF) —
