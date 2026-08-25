@@ -20,6 +20,7 @@ import {
   type BucketKey,
 } from "../lib/detection";
 import { downloadCSV, parseCSVFile, parseCSVText } from "../lib/csv";
+import BookedStamp from "./BookedStamp";
 import {
   getMonthOptionsForFiling,
   getOrCreateGroupByName,
@@ -939,7 +940,10 @@ export default function Scanner({
                     <td style={{ textAlign: "center" }}>
                       <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleSelectRow(r.id)} />
                     </td>
-                    <td style={{ padding: "10px 14px", fontWeight: 600, ...strike }}>{f.company || "—"}</td>
+                    <td style={{ padding: "10px 14px", fontWeight: 600 }}>
+                      {r.disposition === "meeting-booked" && <BookedStamp />}
+                      <div style={strike}>{f.company || "—"}</div>
+                    </td>
                     <td style={{ padding: "10px 14px", ...strike }}>{getFullName(f) || f.email || "—"}</td>
                     <td style={{ padding: "10px 14px" }}>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>

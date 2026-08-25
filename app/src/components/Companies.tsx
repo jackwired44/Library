@@ -14,6 +14,7 @@ import { groupContactsByCompany, searchCompanies } from "../lib/companies";
 import { OUTREACH_STATUS_META, type Contact, type ManualContactInput } from "../lib/contacts";
 import { CATEGORY_META, DISPOSITION_META } from "../lib/detection";
 import ContactDetail from "./ContactDetail";
+import BookedStamp from "./BookedStamp";
 
 interface CompaniesProps {
   contacts: Contact[];
@@ -130,6 +131,7 @@ export default function Companies({ contacts, onAddContact, onUpdateContact }: C
                                         : undefined,
                                 }}
                               >
+                                {p.disposition === "meeting-booked" && <BookedStamp />}
                                 <button
                                   onClick={() => setDetailId(p.id)}
                                   style={{ border: "none", background: "none", padding: 0, font: "inherit", fontWeight: 600, minWidth: 160, textAlign: "left", color: "var(--ink)", textDecoration: p.crossedOut ? "line-through" : "underline", cursor: "pointer" }}

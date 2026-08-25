@@ -14,6 +14,7 @@ import { OUTREACH_STATUS_META, type Contact, searchContacts } from "../lib/conta
 import { CATEGORY_META, DISPOSITION_META } from "../lib/detection";
 import { checkApolloAvailability, enrichContactsViaApollo, type EnrichOutcome } from "../lib/apolloEnrich";
 import ContactDetail from "./ContactDetail";
+import BookedStamp from "./BookedStamp";
 import type { Task, TaskPriority } from "../lib/tasks";
 
 const MAX_ENRICH_BATCH = 10;
@@ -265,7 +266,10 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
                         {c.fullName || "—"}
                       </button>
                     </td>
-                    <td style={{ padding: "9px 12px" }}>{c.company || "—"}</td>
+                    <td style={{ padding: "9px 12px" }}>
+                      {c.disposition === "meeting-booked" && <BookedStamp />}
+                      <div>{c.company || "—"}</div>
+                    </td>
                     <td style={{ padding: "9px 12px", color: "var(--muted)" }}>{c.title || "—"}</td>
                     <td style={{ padding: "9px 12px" }}>{c.email || "—"}</td>
                     <td style={{ padding: "9px 12px" }}>{c.workPhone || c.mobilePhone || "—"}</td>

@@ -1361,6 +1361,36 @@ feature above), so built directly without a separate proposal round.
   clicks, and both the red tint and strikethrough carried into the
   Contacts table for the same person.
 
+### "Booked" stamp on meeting-booked leads (app/ only)
+
+Per Jack: "Put a red word 'Booked' in small leads above the company name
+for a lead if the disposition is selected as meeting booked like a stamp
+also registered to book leads." A concrete, unambiguous UI ask building
+directly on the disposition mechanics above, so built without a separate
+proposal round.
+
+- **`components/BookedStamp.tsx`** (new, shared) — a small bordered,
+  slightly rotated red "BOOKED" label (`#B5443B`, the same red already
+  used for the Not-interested disposition/badge), deliberately red rather
+  than the Meeting-booked disposition's own blue so it reads as a distinct
+  marker/stamp rather than a restatement of the row/badge color already
+  showing the same status.
+- Rendered wherever a lead or contact's company/name is shown and
+  `disposition === "meeting-booked"`: Scanner's results table (above the
+  company name), Contacts.tsx's table (above the company cell), and
+  Companies.tsx's expanded company card (above each contact's name in the
+  per-contact row list). One shared component, three import sites — same
+  pattern as `DISPOSITION_META`/`CATEGORY_META` badges elsewhere in the
+  app, chosen over three separate inline definitions so the stamp's look
+  can't drift between views.
+- Purely a visual marker — doesn't change `disposition`, doesn't add a new
+  field, doesn't touch downloads/filing/History. Reads directly off the
+  disposition value each view already had.
+- Verified live: set a lead's disposition to "Meeting booked" in Scanner,
+  confirmed the red "BOOKED" stamp renders above the company name in
+  Scanner's table, then confirmed the same stamp renders above that
+  person's name in both the Contacts table and Companies' expanded card.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool
@@ -1394,6 +1424,20 @@ above — that tradeoff needs Jack's explicit sign-off when the time comes).
   fields so far: estimated employees, industry, website).
 - A LinkedIn integration — surfaced alongside the company-profile fields
   above, no scope defined yet (enrichment? profile links per contact?).
+- **Timeline-based non-contacted filtering + auto-updating outreach state,
+  feeding into sequences.** Per Jack, verbatim intent: be able to filter
+  down to every lead not yet contacted within a chosen time window (e.g.
+  "everyone untouched in the past N months"), and always have an
+  at-a-glance read per lead of whether they've been contacted, how many
+  calls, how many emails, what the last conversation was and where it
+  stands — with that state able to auto-update over time (e.g. "no contact
+  in 30 days" surfacing itself without a manual check) and eventually
+  feeding a lead straight into a fully built outbound sequence. This is
+  the connective layer between outreach tracking (`Contact.callCount`/
+  `emailCount`/`outreachStatus`, already shipped) and the still-unbuilt
+  power dialer/sequenced task management items above — a date-based
+  "last contacted"/staleness field and a real filter UI for it are the
+  most likely first slice, but not scoped or approved yet.
 
 ## Working style
 
