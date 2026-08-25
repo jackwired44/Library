@@ -11,7 +11,7 @@
 // people-match pass (see lib/apolloEnrich.ts) — never automatic.
 import { Fragment, useMemo, useState } from "react";
 import { OUTREACH_STATUS_META, type Contact, searchContacts } from "../lib/contacts";
-import { CATEGORY_META, DISPOSITION_META } from "../lib/detection";
+import { CATEGORY_META, DISPOSITION_META, DISPOSITION_ORDER, type Disposition } from "../lib/detection";
 import { checkApolloAvailability, enrichContactsViaApollo, type EnrichOutcome } from "../lib/apolloEnrich";
 import ContactDetail from "./ContactDetail";
 import BookedStamp from "./BookedStamp";
@@ -51,6 +51,10 @@ function todayKey(): string {
 export default function Contacts({ contacts, loading, error, tasks, onAddContactTask, onToggleTask, onDeleteTask, onUpdateContact, initialSearch }: ContactsProps) {
   const [search, setSearch] = useState(initialSearch || "");
   const [sort, setSort] = useState<SortKey>("recent");
+  // Disposition-grouped view — per Jack: a place to see where every lead
+  // stands (contacted, how many times, meeting booked/not interested/etc.)
+  // at a glance. Filters on top of search/sort rather than replacing them.
+  const [dispositionFilter, setDispositionFilter] = useState<Disposition | "all">("all");
   const [addingForId, setAddingForId] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   // Apollo enrichment — per Jack, explicit and selection-driven only ("as
@@ -115,7 +119,7 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
     setAddingForId(null);
   }
 
-  const filtered = useMemo(() => {
+  const searched = useMemo(() => {
     const list = searchContacts(contacts, search);
     const sorted = [...list];
     if (sort === "recent") sorted.sort((a, b) => new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime());
@@ -124,6 +128,32 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
     else if (sort === "timesSeen") sorted.sort((a, b) => b.timesSeen - a.timesSeen);
     return sorted;
   }, [contacts, search, sort]);
+
+  // Counts reflect the current search (so a typed filter narrows these
+  // too), but never the disposition filter itself — every bucket's count
+  // needs to stay visible regardless of which one is currently selected.
+  const dispositionCounts = useMemo(() => {
+    const counts: Record<Disposition, number> = { none: 0, "meeting-booked": 0, "not-interested": 0, "no-contact": 0, other: 0 };
+    searched.forEach((c) => { counts[c.disposition || "none"]++; });
+    return counts;
+  }, [searched]);
+
+  const filtered = useMemo(() => {
+    if (dispositionFilter === "all") return searched;
+    return searched.filter((c) => (c.disposition || "none") === dispositionFilter);
+  }, [searched, dispositionFilter]);
+
+  // Aggregate outreach summary for whichever bucket is currently selected
+  // — per Jack: "know where a lead stands, how many times they've been
+  // contacted." Only shown once a specific disposition is picked, since
+  // "All" summed together isn't a meaningful number on its own.
+  const bucketSummary = useMemo(() => {
+    if (dispositionFilter === "all") return null;
+    return filtered.reduce(
+      (acc, c) => ({ calls: acc.calls + (c.callCount || 0), emails: acc.emails + (c.emailCount || 0) }),
+      { calls: 0, emails: 0 }
+    );
+  }, [filtered, dispositionFilter]);
 
   if (loading) return <div style={{ color: "var(--muted)", fontSize: 13 }}>Loading contacts…</div>;
   if (error) return <div style={{ color: "#B5443B", fontSize: 13 }}>{error}</div>;
@@ -183,12 +213,60 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
         )}
       </div>
 
+      {contacts.length > 0 && (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
+          <button
+            onClick={() => setDispositionFilter("all")}
+            style={{
+              border: "1px solid var(--border)",
+              borderRadius: 999,
+              padding: "6px 14px",
+              fontSize: 12.5,
+              fontWeight: 700,
+              cursor: "pointer",
+              background: dispositionFilter === "all" ? "var(--ink)" : "var(--surface)",
+              color: dispositionFilter === "all" ? "#fff" : "var(--ink)",
+            }}
+          >
+            All ({searched.length})
+          </button>
+          {DISPOSITION_ORDER.map((d) => (
+            <button
+              key={d}
+              onClick={() => setDispositionFilter(d)}
+              style={{
+                border: `1px solid ${dispositionFilter === d ? DISPOSITION_META[d].color : "var(--border)"}`,
+                borderRadius: 999,
+                padding: "6px 14px",
+                fontSize: 12.5,
+                fontWeight: 700,
+                cursor: "pointer",
+                background: dispositionFilter === d ? DISPOSITION_META[d].bg : "var(--surface)",
+                color: dispositionFilter === d ? DISPOSITION_META[d].color : "var(--muted)",
+              }}
+            >
+              {DISPOSITION_META[d].label} ({dispositionCounts[d]})
+            </button>
+          ))}
+        </div>
+      )}
+
+      {bucketSummary && (
+        <div style={{ display: "flex", gap: 18, alignItems: "center", background: "var(--surface-sunken)", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 12.5 }}>
+          <span style={{ fontWeight: 700 }}>{filtered.length} contact{filtered.length === 1 ? "" : "s"}</span>
+          <span style={{ color: "var(--muted)" }}>{bucketSummary.calls} total calls made</span>
+          <span style={{ color: "var(--muted)" }}>{bucketSummary.emails} total emails sent</span>
+        </div>
+      )}
+
       {contacts.length === 0 ? (
         <div style={{ fontSize: 13, color: "var(--muted)", padding: "24px 0" }}>
           No contacts yet — every CSV you upload through the Scanner or file directly into a Lead Library folder adds its rows here automatically.
         </div>
       ) : filtered.length === 0 ? (
-        <div style={{ fontSize: 13, color: "var(--muted)", padding: "24px 0" }}>No contacts match "{search}".</div>
+        <div style={{ fontSize: 13, color: "var(--muted)", padding: "24px 0" }}>
+          No contacts match{search ? ` "${search}"` : ""}{dispositionFilter !== "all" ? ` with disposition "${DISPOSITION_META[dispositionFilter].label}"` : ""}.
+        </div>
       ) : (
         <>
         {selected.size > 0 && (

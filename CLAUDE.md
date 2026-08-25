@@ -1432,6 +1432,42 @@ dialogs — built to the proposed default below.
   derive" hint instead of guessing a wrong website, then manually saved a
   website for that contact and confirmed it persisted as a link.
 
+### Disposition-grouped view (app/ only, Contacts)
+
+Per Jack: "create a place where all selected disposition leads are
+stored also//this will be important for knowing where a lead stands how
+many times they've been contacted and so forth//will eventually tally
+how many outbound call attempts have been made there." Proposed via
+AskUserQuestion; the question went unanswered while Jack moved on to
+other requests, so built to the proposed default per his later "run
+through all these proposed updates" instruction, same as the company
+website field above.
+
+- **Filter bar on `Contacts.tsx`**, above the table: "All" plus one
+  button per `DISPOSITION_ORDER` value (No disposition/Meeting booked/
+  Not interested/No contact made/Other), each showing a live count. Reads
+  `Contact.disposition` (already persistent/sticky per the earlier
+  sticky-state feature — this is filtering on existing data, not adding a
+  new field) — no new store, no new persistence path.
+- Counts and the filter itself apply on top of the existing search box
+  (a typed search narrows the counts too) but are independent of table
+  sort — `searched` (search+sort applied) feeds both `dispositionCounts`
+  and the further disposition-filtered `filtered` list, so switching
+  disposition buckets never resets whatever's typed in search.
+- **Aggregate summary strip** — appears only once a specific disposition
+  is selected (not on "All," where a cross-bucket sum isn't a meaningful
+  number): contact count in that bucket, plus total calls made and total
+  emails sent summed across it — a first cut at Jack's "tally how many
+  outbound call attempts have been made" ask, using the `callCount`/
+  `emailCount` fields Contacts' outreach tracking already had.
+- Verified live: uploaded 3 contacts, set one to Meeting booked (3 calls/
+  2 emails via the detail modal's counters), confirmed the filter bar
+  showed correct live counts (All 3 / No disposition 2 / Meeting booked 1
+  / others 0), clicking "Meeting booked" narrowed the table to that one
+  contact and showed a summary strip reading "1 contact · 3 total calls
+  made · 2 total emails sent," and clicking back to "All" restored all 3
+  rows.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool
