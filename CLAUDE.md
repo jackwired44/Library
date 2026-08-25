@@ -956,6 +956,52 @@ untouched either way.
 - The Library files themselves are never touched by any of this — only
   History entries and their `__historyEntryId` back-link are affected.
 
+## Scanner: layout condensing + Lead Library file picker (app/ only)
+
+Per Jack: reorganize Scanner's UI for readability without changing any
+function/feature, plus a new way to pull a file already sitting in the
+Lead Library back into Scanner without leaving the screen first. Proposed
+and approved before building (per the standing proposal rule) — including
+confirming the existing app-wide password gate (locked until unlocked,
+per-browser, always locked on a fresh browser/artifact URL — `lib/auth.ts`)
+already covers "Scanner should always need a password," no change needed
+there.
+
+- **Layout only, zero behavior change**: the landing screen's "Save to
+  Lead Library" checkbox/month picker now sits in its own bordered card
+  instead of a floating centered row; Recent uploads and the High Priority
+  panel got the same card treatment. On the results screen, the tier tabs,
+  Duplicates/Priority toggles, product-line filter buttons, and the
+  Google→Microsoft/Business Central/Sales-CRM "View:" sub-tabs — previously
+  four separate loosely-spaced rows — are now visually grouped inside one
+  bordered container. Every button/toggle/filter keeps its exact prior
+  behavior; only spacing and grouping changed. Scanner's card backgrounds/
+  borders/muted text now pull from the same `--surface`/`--border`/
+  `--muted`/`--accent` tokens the rest of the app (Home, sidebar,
+  AccountPanel) already uses, instead of one-off hex values, for visual
+  consistency with the density pass documented above.
+- **New: "Or load from the Lead Library" picker**, next to the New Upload
+  card on Scanner's landing screen — a Folder dropdown (`libraryGroups`,
+  already a Scanner prop) followed by a File dropdown scoped to that
+  folder's files (`getFolderEntries`, `lib/library.ts` — each of the
+  up-to-3 files a folder can hold, plus an "All files (combined)" option
+  via `getCombinedFolderExport` when a folder has more than one). "Load"
+  re-parses the selected file's stored `rawText` (`parseCSVText`) and runs
+  it through the exact same path `handleFiles` already uses for a fresh
+  upload — `scanParsedFiles` → `setResults`/`setUploadedFiles` →
+  `onRecordHistory` — so it behaves identically to a brand-new scan of
+  that CSV: current rule overrides apply, a new History entry is created,
+  and (as with Library's own pre-existing "Load into Scanner" button) it
+  does NOT re-file into the Lead Library, since the file loaded is already
+  filed. This is a second entry point onto behavior that already existed
+  (Library.tsx's own `handleLoad`/`onLoadIntoScanner`), not a new data
+  path — no new IndexedDB store, no new persisted state.
+- Verified live: uploaded a CSV with Save-to-Lead-Library checked, filed
+  successfully, started over, then used the new picker (August 2026 →
+  Dynamics 365) to pull the same lead back into a fresh Scanner session —
+  confirmed the row reappears with its original detection/tier/category
+  intact and the consolidated filter bar/landing cards render correctly.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

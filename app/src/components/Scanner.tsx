@@ -19,11 +19,13 @@ import {
   type Tier,
   type BucketKey,
 } from "../lib/detection";
-import { downloadCSV, parseCSVFile } from "../lib/csv";
+import { downloadCSV, parseCSVFile, parseCSVText } from "../lib/csv";
 import {
   getMonthOptionsForFiling,
   getOrCreateGroupByName,
   fileSignalRowsIntoGroup,
+  getFolderEntries,
+  getCombinedFolderExport,
   persistLibraryEntries,
   persistGroup,
   monthKeyFromDate,
@@ -129,6 +131,14 @@ export default function Scanner({
   // Dynamics 365. A lead can match both (e.g. "ERP and CRM" together) and
   // show up under both specific tabs; "Everything else" means neither.
   const [dynamicsSubView, setDynamicsSubView] = useState<"all" | "businessCentral" | "salesCrm" | "other">("all");
+  // Pull a file already sitting in the Lead Library back into Scanner for a
+  // rescan/closer look, without leaving this screen first — per Jack's
+  // explicit ask. Reuses the exact same load path Library.tsx's own "Load
+  // into Scanner" button already goes through (parse the stored rawText
+  // fresh, re-run detection, record as a new History entry); this is just a
+  // second entry point onto that same behavior, not a new one.
+  const [pickerFolderId, setPickerFolderId] = useState("");
+  const [pickerFileKey, setPickerFileKey] = useState("");
 
   async function handleFiles(fileListLike: FileList | null) {
     const all = Array.from(fileListLike || []).filter((f) => /\.csv$/i.test(f.name));
@@ -199,6 +209,45 @@ export default function Scanner({
     setUploadMonthKey(monthKeyFromDate(new Date()));
     setFiledNotice(null);
     setDedupeNotice(null);
+    setPickerFolderId("");
+    setPickerFileKey("");
+  }
+
+  const folderOptions = useMemo(() => [...libraryGroups].sort((a, b) => a.name.localeCompare(b.name)), [libraryGroups]);
+  const folderFileOptions = useMemo(() => {
+    if (!pickerFolderId) return [];
+    return getFolderEntries(libraryEntries, pickerFolderId).filter((e) => e.rowCount > 0);
+  }, [libraryEntries, pickerFolderId]);
+
+  // Same pipeline handleFiles above uses once it has a ParsedFile — scan,
+  // show results, and record a fresh History entry — just starting from a
+  // Library file's already-stored rawText instead of a browser File. Never
+  // re-files into the Library on load (same as Library.tsx's own "Load
+  // into Scanner" — that would just re-save what's already saved).
+  function loadFromLibraryPicker() {
+    if (!pickerFolderId || !pickerFileKey) return;
+    let fileName: string;
+    let rawText: string;
+    if (pickerFileKey === "__combined__") {
+      const folder = libraryGroups.find((g) => g.id === pickerFolderId);
+      const combined = getCombinedFolderExport(libraryEntries, pickerFolderId);
+      fileName = `${folder?.name || "Lead Library"} — All files.csv`;
+      rawText = combined.rawText;
+    } else {
+      const entry = libraryEntries.find((e) => e.id === pickerFileKey);
+      if (!entry) return;
+      fileName = entry.fileName;
+      rawText = entry.rawText;
+    }
+    const parsed = parseCSVText(fileName, rawText);
+    const { results: scanned } = scanParsedFiles([parsed], ruleOverrides);
+    setResults(scanned);
+    setUploadedFiles([{ name: parsed.name, rows: parsed.data.length }]);
+    setPage(1);
+    setSelected(new Set());
+    onRecordHistory([parsed], scanned);
+    setPickerFolderId("");
+    setPickerFileKey("");
   }
 
   const filtered = useMemo(() => {
@@ -416,32 +465,84 @@ export default function Scanner({
   if (!results) {
     return (
       <div>
-        <div style={{ display: "flex", justifyContent: "center", gap: 10, marginBottom: 12, alignItems: "center" }}>
-          <label style={{ display: "flex", alignItems: "center", gap: 8, background: "#fff", border: "1px solid #D5D9E0", borderRadius: 9, padding: "8px 13px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-            <input type="checkbox" checked={saveToLibrary} onChange={(e) => setSaveToLibrary(e.target.checked)} />
-            Save this batch's Strong Signal leads to the Lead Library
-          </label>
-          <select
-            value={uploadMonthKey}
-            disabled={!saveToLibrary}
-            onChange={(e) => setUploadMonthKey(e.target.value)}
-            style={{ border: "1px solid #D5D9E0", borderRadius: 9, padding: "8px 12px", fontWeight: 700, background: saveToLibrary ? "#fff" : "#F4F6F7", color: saveToLibrary ? "#081E22" : "#B7BEC4" }}
-          >
-            {getMonthOptionsForFiling().map((o) => (
-              <option key={o.key} value={o.key}>{o.label}</option>
-            ))}
-          </select>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12, marginBottom: 16 }}>
+          <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "14px 16px" }}>
+            <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", marginBottom: 10 }}>New upload</div>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", marginBottom: 8 }}>
+              <input type="checkbox" checked={saveToLibrary} onChange={(e) => setSaveToLibrary(e.target.checked)} />
+              Save this batch's Strong Signal leads to the Lead Library
+            </label>
+            <select
+              value={uploadMonthKey}
+              disabled={!saveToLibrary}
+              onChange={(e) => setUploadMonthKey(e.target.value)}
+              style={{ width: "100%", border: "1px solid var(--border)", borderRadius: 8, padding: "7px 10px", fontWeight: 700, background: saveToLibrary ? "var(--surface)" : "var(--surface-sunken)", color: saveToLibrary ? "var(--ink)" : "#B7BEC4" }}
+            >
+              {getMonthOptionsForFiling().map((o) => (
+                <option key={o.key} value={o.key}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "14px 16px" }}>
+            <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", marginBottom: 10 }}>Or load from the Lead Library</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <select
+                value={pickerFolderId}
+                onChange={(e) => { setPickerFolderId(e.target.value); setPickerFileKey(""); }}
+                style={{ flex: "1 1 130px", border: "1px solid var(--border)", borderRadius: 8, padding: "7px 8px", fontSize: 12.5 }}
+              >
+                <option value="">Folder…</option>
+                {folderOptions.map((g) => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+              </select>
+              <select
+                value={pickerFileKey}
+                onChange={(e) => setPickerFileKey(e.target.value)}
+                disabled={!pickerFolderId}
+                style={{ flex: "1 1 130px", border: "1px solid var(--border)", borderRadius: 8, padding: "7px 8px", fontSize: 12.5, background: pickerFolderId ? "var(--surface)" : "var(--surface-sunken)" }}
+              >
+                <option value="">File…</option>
+                {folderFileOptions.length > 1 && <option value="__combined__">All files (combined)</option>}
+                {folderFileOptions.map((e) => (
+                  <option key={e.id} value={e.id}>{BUCKET_META[e.bucketKey].label} ({e.rowCount})</option>
+                ))}
+              </select>
+              <button
+                onClick={loadFromLibraryPicker}
+                disabled={!pickerFolderId || !pickerFileKey}
+                style={{
+                  border: "none",
+                  borderRadius: 8,
+                  padding: "7px 14px",
+                  fontWeight: 700,
+                  fontSize: 12.5,
+                  whiteSpace: "nowrap",
+                  background: pickerFolderId && pickerFileKey ? "var(--accent)" : "var(--surface-sunken)",
+                  color: pickerFolderId && pickerFileKey ? "#081E22" : "#B7BEC4",
+                  cursor: pickerFolderId && pickerFileKey ? "pointer" : "not-allowed",
+                }}
+              >
+                Load
+              </button>
+            </div>
+            {folderOptions.length === 0 && (
+              <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 6 }}>No Lead Library folders yet.</div>
+            )}
+          </div>
         </div>
+
         <div
           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}
           onDrop={(e) => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer.files); }}
           onClick={() => fileInputRef.current?.click()}
           style={{
-            border: `2px dashed ${dragOver ? "#2CC295" : "#D8DCE2"}`,
-            background: dragOver ? "#EDF4EF" : "#fff",
+            border: `2px dashed ${dragOver ? "var(--accent)" : "var(--border)"}`,
+            background: dragOver ? "#EDF4EF" : "var(--surface)",
             borderRadius: 16,
-            padding: "58px 24px",
+            padding: "48px 24px",
             textAlign: "center",
             cursor: "pointer",
           }}
@@ -455,13 +556,13 @@ export default function Scanner({
             onChange={(e) => handleFiles(e.target.files)}
           />
           <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 7 }}>Drop up to {MAX_FILES} lead CSVs here</div>
-          <div style={{ color: "#8B93A0", fontSize: 13.5 }}>or click to browse — scanned for licensing AND platform signals in one pass.</div>
+          <div style={{ color: "var(--muted)", fontSize: 13.5 }}>or click to browse — scanned for licensing AND platform signals in one pass.</div>
         </div>
         {error && <div style={{ marginTop: 16, color: "#9A5B22" }}>{error}</div>}
 
         {recentUploads.length > 0 && (
-          <div style={{ marginTop: 28 }}>
-            <div style={{ fontSize: 11.5, color: "#8b93a0", fontWeight: 700, textTransform: "uppercase", marginBottom: 10 }}>Recent uploads</div>
+          <div style={{ marginTop: 24, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "14px 16px" }}>
+            <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", marginBottom: 10 }}>Recent uploads</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {recentUploads.map((h) => {
                 const signalCount = h.results.filter((r) => r.tier === "signal").length;
@@ -469,10 +570,10 @@ export default function Scanner({
                   <button
                     key={h.id}
                     onClick={() => onOpenRecentUpload(h.id)}
-                    style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, textAlign: "left", background: "#fff", border: "1px solid #E4E7EC", borderRadius: 11, padding: "10px 14px", cursor: "pointer" }}
+                    style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, textAlign: "left", background: "var(--surface-sunken)", border: "1px solid var(--border)", borderRadius: 10, padding: "9px 12px", cursor: "pointer" }}
                   >
                     <span style={{ fontWeight: 600, fontSize: 13 }}>{h.fileName}</span>
-                    <span style={{ fontSize: 11.5, color: "#9aa1ac", whiteSpace: "nowrap" }}>
+                    <span style={{ fontSize: 11.5, color: "var(--muted)", whiteSpace: "nowrap" }}>
                       {new Date(h.importedAt).toLocaleString()} · {h.rowsScanned} rows · {signalCount} Strong Signal
                     </span>
                   </button>
@@ -483,14 +584,14 @@ export default function Scanner({
         )}
 
         {priorityLeads.length > 0 && (
-          <div style={{ marginTop: 28 }}>
+          <div style={{ marginTop: 20, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "14px 16px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
-              <div style={{ fontSize: 11.5, color: "#8b93a0", fontWeight: 700, textTransform: "uppercase" }}>⭐ High Priority Leads ({filteredPriorityLeads.length})</div>
+              <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase" }}>⭐ High Priority Leads ({filteredPriorityLeads.length})</div>
               {priorityFileOptions.length > 1 && (
                 <select
                   value={priorityFileFilter}
                   onChange={(e) => setPriorityFileFilter(e.target.value)}
-                  style={{ border: "1px solid #D5D9E0", borderRadius: 9, padding: "6px 10px", fontSize: 12 }}
+                  style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "6px 10px", fontSize: 12 }}
                 >
                   <option value="all">All upload files</option>
                   {priorityFileOptions.map((f) => (
@@ -505,13 +606,13 @@ export default function Scanner({
                 return (
                   <div
                     key={`${entry.id}::${row.id}`}
-                    style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", background: "#FFF7E5", border: "1px solid #F5DFA0", borderRadius: 11, padding: "10px 14px" }}
+                    style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", background: "#FFF7E5", border: "1px solid #F5DFA0", borderRadius: 10, padding: "9px 12px" }}
                   >
                     <div>
                       <div style={{ fontWeight: 700, fontSize: 13 }}>
                         {f.company || "—"} <span style={{ fontWeight: 500, color: "#4c6167" }}>· {getFullName(f) || f.email || "—"}</span>
                       </div>
-                      <div style={{ fontSize: 11.5, color: "#9aa1ac" }}>{row.sourceFile} · {CATEGORY_META[row.category].label}</div>
+                      <div style={{ fontSize: 11.5, color: "var(--muted)" }}>{row.sourceFile} · {CATEGORY_META[row.category].label}</div>
                     </div>
                     <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                       <input
@@ -523,7 +624,7 @@ export default function Scanner({
                       <button
                         onClick={() => onSyncToHistory({ ...row, priority: false })}
                         title="Unmark High Priority"
-                        style={{ border: "1px solid #F0D6D6", background: "#fff", color: "#B5443B", borderRadius: 6, padding: "4px 8px", fontSize: 11.5, whiteSpace: "nowrap" }}
+                        style={{ border: "1px solid #F0D6D6", background: "var(--surface)", color: "#B5443B", borderRadius: 6, padding: "4px 8px", fontSize: 11.5, whiteSpace: "nowrap" }}
                       >
                         Unmark
                       </button>
@@ -607,7 +708,8 @@ export default function Scanner({
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
+      <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 13, padding: "14px 16px 16px", marginBottom: 18 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
         {(["signal", "mention", "dq", "all"] as const).map((t) => (
           <button
             key={t}
@@ -737,6 +839,7 @@ export default function Scanner({
           ))}
         </div>
       )}
+      </div>
 
       {selected.size > 0 && (
         <div style={{ display: "flex", gap: 10, alignItems: "center", background: "#EEF2FF", border: "1px solid #D6DEFA", borderRadius: 11, padding: "10px 17px", marginBottom: 14, flexWrap: "wrap" }}>
