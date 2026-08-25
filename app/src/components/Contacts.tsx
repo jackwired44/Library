@@ -1,14 +1,22 @@
 // Contacts — a searchable, permanent directory of every person ever seen
 // in a CSV upload, deduplicated across uploads (see lib/contacts.ts for the
-// dedup rules). Read-only for the contact's own fields — no per-contact
-// editing here, that still lives on the lead itself in Scanner/Library —
-// but a contact CAN be turned into a dated, prioritized follow-up task
-// (see CLAUDE.md "Contact tasks"), so sales reps know which contacts
-// matter most. First pass per Jack: "start somewhere then fine tune."
+// dedup rules). The CSV-sourced fields (name/title/company/email/phone)
+// stay read-only here — that data still lives on the lead itself in
+// Scanner/Library — but a contact CAN be turned into a dated, prioritized
+// follow-up task (see CLAUDE.md "Contact tasks"), and clicking a contact's
+// name opens ContactDetail.tsx, where LinkedIn and outreach tracking
+// (calls/emails/status) ARE directly editable (see CLAUDE.md "Contacts:
+// detail view, LinkedIn, and outreach tracking"). Selecting contacts here
+// and clicking "Enrich via Apollo" runs a live, viewer-driven Apollo
+// people-match pass (see lib/apolloEnrich.ts) — never automatic.
 import { Fragment, useMemo, useState } from "react";
-import { type Contact, searchContacts } from "../lib/contacts";
+import { OUTREACH_STATUS_META, type Contact, searchContacts } from "../lib/contacts";
 import { CATEGORY_META, DISPOSITION_META } from "../lib/detection";
+import { checkApolloAvailability, enrichContactsViaApollo, type EnrichOutcome } from "../lib/apolloEnrich";
+import ContactDetail from "./ContactDetail";
 import type { Task, TaskPriority } from "../lib/tasks";
+
+const MAX_ENRICH_BATCH = 10;
 
 interface ContactsProps {
   contacts: Contact[];
@@ -18,6 +26,7 @@ interface ContactsProps {
   onAddContactTask: (contactId: string, date: string, priority: TaskPriority, text: string) => void;
   onToggleTask: (id: string) => void;
   onDeleteTask: (id: string) => void;
+  onUpdateContact: (id: string, patch: Partial<Contact>) => void;
   // Seeds the search box on mount — set when arriving here from the header
   // search (see App.tsx/HeaderSearch.tsx). This component remounts fresh
   // each time Engage's Contacts tab is selected, so an initial-only state
@@ -38,10 +47,56 @@ function todayKey(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-export default function Contacts({ contacts, loading, error, tasks, onAddContactTask, onToggleTask, onDeleteTask, initialSearch }: ContactsProps) {
+export default function Contacts({ contacts, loading, error, tasks, onAddContactTask, onToggleTask, onDeleteTask, onUpdateContact, initialSearch }: ContactsProps) {
   const [search, setSearch] = useState(initialSearch || "");
   const [sort, setSort] = useState<SortKey>("recent");
   const [addingForId, setAddingForId] = useState<string | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
+  // Apollo enrichment — per Jack, explicit and selection-driven only ("as
+  // i select i dont want to have too much going on in the background yet
+  // i cant see"): nothing runs until contacts are checked here and the
+  // button is clicked, and every contact's outcome is shown individually
+  // below, not collapsed into one spinner.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [enriching, setEnriching] = useState(false);
+  const [enrichOutcomes, setEnrichOutcomes] = useState<EnrichOutcome[] | null>(null);
+  const [enrichError, setEnrichError] = useState<string | null>(null);
+
+  function toggleSelected(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  async function runEnrichment() {
+    const targets = contacts.filter((c) => selected.has(c.id));
+    if (targets.length === 0 || targets.length > MAX_ENRICH_BATCH) return;
+    setEnriching(true);
+    setEnrichError(null);
+    setEnrichOutcomes(null);
+    try {
+      const availability = await checkApolloAvailability();
+      if (availability !== "available") {
+        setEnrichError(
+          availability === "not-connected"
+            ? "Apollo isn't connected — add it in claude.ai Settings → Connectors, then try again."
+            : "Apollo enrichment isn't available in this view."
+        );
+        return;
+      }
+      const outcomes = await enrichContactsViaApollo(targets);
+      outcomes.forEach((o) => {
+        if (o.status === "matched") onUpdateContact(o.contactId, { linkedinUrl: o.linkedinUrl });
+      });
+      setEnrichOutcomes(outcomes);
+    } catch (err) {
+      setEnrichError(err instanceof Error ? err.message : "Apollo enrichment failed.");
+    } finally {
+      setEnriching(false);
+    }
+  }
 
   const contactById = useMemo(() => new Map(contacts.map((c) => [c.id, c])), [contacts]);
   const contactTasks = useMemo(
@@ -134,10 +189,43 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
       ) : filtered.length === 0 ? (
         <div style={{ fontSize: 13, color: "var(--muted)", padding: "24px 0" }}>No contacts match "{search}".</div>
       ) : (
+        <>
+        {selected.size > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#EAF3FC", border: "1px solid #CFE3F7", borderRadius: 11, padding: "10px 14px", marginBottom: 12, flexWrap: "wrap" }}>
+            <span style={{ fontWeight: 700, color: "#0A4A85" }}>{selected.size} selected</span>
+            <button
+              onClick={runEnrichment}
+              disabled={enriching || selected.size > MAX_ENRICH_BATCH}
+              title={selected.size > MAX_ENRICH_BATCH ? `Select ${MAX_ENRICH_BATCH} or fewer to enrich at once` : undefined}
+              style={{ border: "none", borderRadius: 8, padding: "7px 14px", fontWeight: 700, fontSize: 12.5, background: enriching || selected.size > MAX_ENRICH_BATCH ? "#CFE3F7" : "#0A66C2", color: "#fff", cursor: enriching || selected.size > MAX_ENRICH_BATCH ? "not-allowed" : "pointer" }}
+            >
+              {enriching ? "Enriching…" : "Enrich via Apollo"}
+            </button>
+            {selected.size > MAX_ENRICH_BATCH && <span style={{ fontSize: 11.5, color: "#8A5A00" }}>Select {MAX_ENRICH_BATCH} or fewer at once.</span>}
+            <button onClick={() => setSelected(new Set())} style={{ background: "none", border: "none", textDecoration: "underline", fontSize: 12 }}>Clear selection</button>
+          </div>
+        )}
+        {enrichError && <div style={{ marginBottom: 12, color: "#B5443B", fontSize: 12.5 }}>{enrichError}</div>}
+        {enrichOutcomes && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 12 }}>
+            {enrichOutcomes.map((o) => {
+              const c = contactById.get(o.contactId);
+              return (
+                <div key={o.contactId} style={{ fontSize: 12, display: "flex", gap: 8, alignItems: "center" }}>
+                  <span style={{ fontWeight: 600, minWidth: 160 }}>{c?.fullName || c?.company || o.contactId}</span>
+                  {o.status === "matched" && <span style={{ color: "#2CC295", fontWeight: 700 }}>✓ Matched — LinkedIn saved</span>}
+                  {o.status === "no-match" && <span style={{ color: "var(--muted)" }}>No confident match</span>}
+                  {o.status === "error" && <span style={{ color: "#B5443B" }}>Error — {o.errorMessage}</span>}
+                </div>
+              );
+            })}
+          </div>
+        )}
         <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 12 }}>
           <table>
             <thead>
               <tr style={{ background: "var(--bg)", textAlign: "left" }}>
+                <th style={{ width: 30 }}></th>
                 <th style={{ padding: "9px 12px" }}>Contact</th>
                 <th style={{ padding: "9px 12px" }}>Company</th>
                 <th style={{ padding: "9px 12px" }}>Title</th>
@@ -146,6 +234,7 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
                 <th style={{ padding: "9px 12px" }}>Product line</th>
                 <th style={{ padding: "9px 12px" }}>Disposition</th>
                 <th style={{ padding: "9px 12px" }}>Matched snippet</th>
+                <th style={{ padding: "9px 12px" }}>Outreach</th>
                 <th style={{ padding: "9px 12px" }}>Seen</th>
                 <th style={{ padding: "9px 12px" }}>Sources</th>
                 <th style={{ padding: "9px 12px" }}></th>
@@ -155,7 +244,14 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
               {filtered.map((c) => (
                 <Fragment key={c.id}>
                   <tr style={{ borderTop: "1px solid var(--border)" }}>
-                    <td style={{ padding: "9px 12px", fontWeight: 600 }}>{c.fullName || "—"}</td>
+                    <td style={{ textAlign: "center" }}>
+                      <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggleSelected(c.id)} />
+                    </td>
+                    <td style={{ padding: "9px 12px", fontWeight: 600 }}>
+                      <button onClick={() => setDetailId(c.id)} style={{ border: "none", background: "none", padding: 0, font: "inherit", fontWeight: 600, color: "var(--ink)", textDecoration: "underline", cursor: "pointer" }}>
+                        {c.fullName || "—"}
+                      </button>
+                    </td>
                     <td style={{ padding: "9px 12px" }}>{c.company || "—"}</td>
                     <td style={{ padding: "9px 12px", color: "var(--muted)" }}>{c.title || "—"}</td>
                     <td style={{ padding: "9px 12px" }}>{c.email || "—"}</td>
@@ -188,6 +284,14 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
                         "—"
                       )}
                     </td>
+                    <td style={{ padding: "9px 12px" }}>
+                      <span style={{ fontSize: 10.5, fontWeight: 700, color: OUTREACH_STATUS_META[c.outreachStatus || "not-contacted"].color, background: OUTREACH_STATUS_META[c.outreachStatus || "not-contacted"].bg, borderRadius: 999, padding: "2px 9px", whiteSpace: "nowrap" }}>
+                        {OUTREACH_STATUS_META[c.outreachStatus || "not-contacted"].label}
+                      </span>
+                      {((c.callCount || 0) > 0 || (c.emailCount || 0) > 0) && (
+                        <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 3 }}>{c.callCount || 0} calls · {c.emailCount || 0} emails</div>
+                      )}
+                    </td>
                     <td style={{ padding: "9px 12px", whiteSpace: "nowrap" }} title={new Date(c.lastSeenAt).toLocaleString()}>
                       {c.timesSeen}× · {new Date(c.lastSeenAt).toLocaleDateString()}
                     </td>
@@ -205,7 +309,7 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
                   </tr>
                   {addingForId === c.id && (
                     <tr style={{ background: "var(--bg)" }}>
-                      <td colSpan={11} style={{ padding: "10px 12px" }}>
+                      <td colSpan={13} style={{ padding: "10px 12px" }}>
                         <AddContactTaskForm contact={c} onSubmit={(date, priority, note) => submitContactTask(c, date, priority, note)} onCancel={() => setAddingForId(null)} />
                       </td>
                     </tr>
@@ -215,6 +319,15 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
             </tbody>
           </table>
         </div>
+        </>
+      )}
+
+      {detailId && contactById.get(detailId) && (
+        <ContactDetail
+          contact={contactById.get(detailId)!}
+          onClose={() => setDetailId(null)}
+          onUpdate={(patch) => onUpdateContact(detailId, patch)}
+        />
       )}
     </div>
   );

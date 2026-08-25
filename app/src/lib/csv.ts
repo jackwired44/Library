@@ -1,25 +1,9 @@
 import Papa from "papaparse";
 import type { ExportLabel } from "./detection";
+import type { ClaudeDownloadsNamespace } from "./claudeRuntime";
 
 export function toCSV(rows: Record<string, unknown>[], columns: readonly string[]): string {
   return Papa.unparse({ fields: columns as string[], data: rows.map((r) => columns.map((c) => r[c] ?? "")) });
-}
-
-// `window.claude` only exists when this app is running inside a
-// claude.ai Artifact viewer that declared the `downloads` capability
-// (see the Artifact publish call) — a real deployed build or `npm run
-// dev` never has it. Typed narrowly and locally rather than pulling the
-// platform's own capability contract into this app's source tree, since
-// the app has to keep working standalone too.
-interface ClaudeDownloadsNamespace {
-  save(request: { filename: string; data: string }): Promise<{ status: "saved" }>;
-}
-declare global {
-  interface Window {
-    claude?: {
-      use(name: "downloads"): Promise<ClaudeDownloadsNamespace | null>;
-    };
-  }
 }
 
 function swapExtension(fileName: string, ext: string): string {

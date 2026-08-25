@@ -1002,6 +1002,115 @@ there.
   confirmed the row reappears with its original detection/tier/category
   intact and the consolidated filter bar/landing cards render correctly.
 
+## Contacts: detail view, LinkedIn, and outreach tracking (app/ only)
+
+Per Jack: click a contact to see more info, a LinkedIn link, and a way to
+track calls/emails/status per contact — plus, for Companies, a real "card"
+view and the same call/email/status editing. Proposed and approved before
+building (per the standing proposal rule), including a follow-up
+clarification on how live Apollo enrichment could actually work (see
+below) and Jack's explicit "as I select I don't want to have too much
+going on in the background yet I can't see."
+
+- **`ContactDetail.tsx`** (new) is a modal opened by clicking a contact's
+  name in `Contacts.tsx` or inside a company's expanded row in
+  `Companies.tsx` — same shared component, same `onUpdate(patch)` callback
+  wired to `App.tsx`'s new `updateContact(id, patch)`. Shows every field
+  Contacts already had (including the scan-derived category/disposition/
+  matched-snippet from the feature above) plus two things editable ONLY
+  here.
+- **LinkedIn — no automatic profile match.** Jack's original ask was a
+  hyperlink derived from "first and last name with their company and
+  title having to match" — there is no deterministic way to do that;
+  LinkedIn profile URLs are arbitrary slugs, not derivable from a name/
+  company/title rule, and this app has no LinkedIn API access regardless.
+  What's built instead: a "Search LinkedIn ↗" link that opens LinkedIn's
+  own people-search prefilled with name + company (always available, no
+  network call from this app at all), plus a manual `linkedinUrl` field
+  (`Contact.linkedinUrl`, `lib/contacts.ts`) to save the real profile URL
+  once you find it. See Apollo enrichment below for the closest thing to
+  an automatic match this app actually has.
+- **Outreach tracking — a new, separate concept from scan-derived
+  `disposition`.** `Contact` gained `callCount`, `emailCount`,
+  `outreachStatus` (`"not-contacted" | "contacted" | "contacted-
+  successfully" | "not-interested" | "meeting-booked"` —
+  `OUTREACH_STATUS_META`/`OUTREACH_STATUS_ORDER`, `lib/contacts.ts`).
+  Deliberately kept separate from the existing `disposition`/
+  `dispositionNote` fields documented above: those are a read-only
+  snapshot of the Scanner's own lead-qualification status (synced via
+  `onSyncToHistory`), while this is a directly-editable outreach-activity
+  tracker with its own state set and two counters that have no Scanner
+  equivalent at all. Edited via `ContactDetail`'s stepper counters and a
+  status dropdown; shown as a badge + counts in `Contacts.tsx`'s new
+  "Outreach" column and in `Companies.tsx`'s contact rows.
+- **Companies as a "card."** Per Jack, a company's expanded row in
+  `Companies.tsx` now opens with a stat strip (Calls made, Emails sent,
+  Contacted N/total, Meetings booked — `Company.totalCalls`/`totalEmails`/
+  `contactedCount`/`meetingBookedCount`, computed by
+  `groupContactsByCompany` in `lib/companies.ts`) before listing contacts.
+  Read-only there, per Jack's own call: outreach is tracked per person,
+  Companies only sums it up. Each contact in the list is now clickable,
+  opening the same `ContactDetail` modal.
+
+### Apollo enrichment — a real, viewer-gated network dependency
+
+Per Jack's explicit approval, after a clarifying round on the only way
+this can actually work: Contacts data lives in the VIEWER's own browser
+(their local IndexedDB, once they open the published Artifact) — it never
+reaches a Claude Code session, so there's no way to run a one-time
+enrichment pass from outside the app. The only real option is a live
+in-app button that calls Apollo using the viewer's OWN connected Apollo
+account via the Artifact `mcp` runtime capability — this IS a new network
+dependency shipped in the product, flagged per this file's own
+Working-style rule on that specifically, and gated entirely behind
+whether the viewer (Jack) has Apollo connected in his claude.ai account.
+Nothing here uses a credential this app holds itself — there isn't one.
+
+- **Explicit and selection-driven only** — per Jack: "this should be as i
+  select i dont want to have too much going on in the background yet i
+  cant see." Nothing runs automatically, ever. `Contacts.tsx` gained row
+  checkboxes and an "Enrich via Apollo" button that only appears once at
+  least one contact is selected (capped at 10 per click — Apollo's own
+  bulk-match limit — the button disables past that with a message rather
+  than silently chunking into multiple background calls). Every contact's
+  outcome (matched/no-match/error) is listed individually right below the
+  button, never collapsed into one spinner or banner.
+- **`lib/apolloEnrich.ts`** (new) calls the viewer's Apollo connector via
+  `window.claude.use("mcp")` (see the artifact-capabilities skill/
+  `claude.d.ts`/`mcp.d.ts`) — `checkApolloAvailability()` and
+  `enrichContactsViaApollo(contacts)`, the latter calling Apollo's
+  people-bulk-match tool with name/company/email per contact and reading
+  back `linkedin_url` when Apollo returns a confident match (silently
+  `"no-match"` otherwise — normal, not an error). A matched result writes
+  straight to `Contact.linkedinUrl` via the same `onUpdateContact` path
+  the detail modal uses.
+- **Connector name isn't knowable from a build session** — Apollo tools
+  were rehearsed directly (not guessed) via this session's own
+  `mcp__Apollo_io__apollo_people_match`/`apollo_people_bulk_match` calls
+  against synthetic test data, to learn the real request/response shape
+  (a single match returns `{person: {...}}`; bulk returns `{matches:
+  [...]}`, parallel to the input array, `null` for no match — confirmed
+  live, 0 credits consumed on a non-match). But the exact CONNECTOR
+  DISPLAY NAME Jack's own claude.ai account uses for Apollo can't be
+  observed from here. `findApolloServer()` in `apolloEnrich.ts` resolves
+  it defensively at call time — `listTools()` and match any connector
+  whose name contains "apollo" (case-insensitive) among what's actually
+  available to the viewer, rather than a hardcoded guess. The Artifact
+  publish's `capabilities.mcp.servers` manifest (see the next "CRM"
+  publish) needs to list Jack's actual connector display name as a
+  candidate `server` entry for `listTools()` to ever surface it at all —
+  if the button reports "Apollo isn't connected" despite Apollo being
+  connected in his claude.ai account, the fix is adding the exact display
+  name shown there to that manifest, not a code change.
+- **Not yet verified against a real Apollo call from inside the deployed
+  app** — everything up to the `window.claude.use("mcp")` boundary was
+  verified live in this session's own Playwright browser (detail modal,
+  LinkedIn manual field, outreach counters/status, selection UI, Companies
+  rollup); the actual live Apollo round-trip only exists inside the real
+  claude.ai Artifact viewer with Jack's own connected account, which this
+  build/test environment cannot reach. First real test happens when Jack
+  uses the button after the next publish.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

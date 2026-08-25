@@ -174,6 +174,19 @@ export default function App() {
     });
   }
 
+  // Contact detail view's edits (LinkedIn URL, outreach call/email counts
+  // and status) and the Apollo enrichment result both land here — a plain
+  // per-contact patch, no dedup/merge logic needed since these are direct
+  // edits to one already-identified Contact, not a new CSV/manual input.
+  function updateContact(id: string, patch: Partial<Contact>) {
+    setContacts((prev) => {
+      const next = prev.map((c) => (c.id === id ? { ...c, ...patch } : c));
+      const updated = next.find((c) => c.id === id);
+      if (updated) persistContact(updated);
+      return next;
+    });
+  }
+
   function updateRuleOverrides(next: RuleOverrides) {
     setRuleOverrides(next);
     persistRuleOverrides(next);
@@ -419,6 +432,7 @@ export default function App() {
               contactsError={contactsError}
               onAddContactTask={addContactTask}
               onAddContact={addManualContact}
+              onUpdateContact={updateContact}
               initialTab={engageEntry.tab}
               initialContactsSearch={engageEntry.contactsQuery}
             />

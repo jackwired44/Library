@@ -28,6 +28,7 @@ interface EngageProps {
   contactsError: string | null;
   onAddContactTask: (contactId: string, date: string, priority: TaskPriority, text: string) => void;
   onAddContact: (input: ManualContactInput) => void;
+  onUpdateContact: (id: string, patch: Partial<Contact>) => void;
 
   // Set when navigating here from the header search (see App.tsx/
   // HeaderSearch.tsx) so Engage lands straight on the right tab/result
@@ -58,6 +59,7 @@ export default function Engage({
   contactsError,
   onAddContactTask,
   onAddContact,
+  onUpdateContact,
   initialTab,
   initialContactsSearch,
 }: EngageProps) {
@@ -99,10 +101,11 @@ export default function Engage({
           onAddContactTask={onAddContactTask}
           onToggleTask={onToggleTask}
           onDeleteTask={onDeleteTask}
+          onUpdateContact={onUpdateContact}
           initialSearch={initialContactsSearch}
         />
       )}
-      {tab === "companies" && <CompaniesView contacts={contacts} onAddContact={onAddContact} />}
+      {tab === "companies" && <CompaniesView contacts={contacts} onAddContact={onAddContact} onUpdateContact={onUpdateContact} />}
     </div>
   );
 }

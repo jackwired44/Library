@@ -1,27 +1,35 @@
 // Companies — a company-level roll-up of Contacts (see lib/companies.ts).
-// Mostly read-only — no company fields of its own yet — but a company can
-// have a contact manually added to it (see CLAUDE.md "Companies: manual
-// add contact"). First pass per Jack: "we will slowly build this out with
-// more data fields (estimated employees, industry, website) and closer to
-// an actual Apollo down the road" — a future LinkedIn integration and
-// richer company profiles are direction, not built yet.
+// No company-level fields of its own yet — but a company can have a
+// contact manually added to it (see CLAUDE.md "Companies: manual add
+// contact"), and its expanded row is a "card" (per Jack) showing a rolled-
+// up calls/emails/contacted/meetings-booked strip plus each contact —
+// clicking a contact opens ContactDetail.tsx, the same detail/edit modal
+// Contacts.tsx uses, for LinkedIn and outreach-tracking edits. First pass
+// per Jack: "we will slowly build this out with more data fields
+// (estimated employees, industry, website) and closer to an actual Apollo
+// down the road" — a future LinkedIn integration and richer company
+// profiles beyond this roll-up are direction, not built yet.
 import { Fragment, useMemo, useState } from "react";
 import { groupContactsByCompany, searchCompanies } from "../lib/companies";
-import type { Contact, ManualContactInput } from "../lib/contacts";
+import { OUTREACH_STATUS_META, type Contact, type ManualContactInput } from "../lib/contacts";
 import { CATEGORY_META, DISPOSITION_META } from "../lib/detection";
+import ContactDetail from "./ContactDetail";
 
 interface CompaniesProps {
   contacts: Contact[];
   onAddContact: (input: ManualContactInput) => void;
+  onUpdateContact: (id: string, patch: Partial<Contact>) => void;
 }
 
 type SortKey = "recent" | "name" | "contactCount";
 
-export default function Companies({ contacts, onAddContact }: CompaniesProps) {
+export default function Companies({ contacts, onAddContact, onUpdateContact }: CompaniesProps) {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("recent");
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const [addingForKey, setAddingForKey] = useState<string | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const contactById = useMemo(() => new Map(contacts.map((c) => [c.id, c])), [contacts]);
 
   const companies = useMemo(() => groupContactsByCompany(contacts), [contacts]);
   const filtered = useMemo(() => {
@@ -96,12 +104,25 @@ export default function Companies({ contacts, onAddContact }: CompaniesProps) {
                       <tr style={{ background: "var(--bg)" }}>
                         <td></td>
                         <td colSpan={5} style={{ padding: "6px 12px 12px" }}>
+                          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 14px", marginBottom: 10 }}>
+                            <CompanyStat label="Calls made" value={co.totalCalls} />
+                            <CompanyStat label="Emails sent" value={co.totalEmails} />
+                            <CompanyStat label="Contacted" value={`${co.contactedCount} / ${co.contactCount}`} />
+                            <CompanyStat label="Meetings booked" value={co.meetingBookedCount} />
+                          </div>
                           <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
                             {co.contacts.map((p) => (
                               <div key={p.id} style={{ display: "flex", gap: 10, fontSize: 12.5, alignItems: "center", flexWrap: "wrap" }}>
-                                <span style={{ fontWeight: 600, minWidth: 160 }}>{p.fullName || "—"}</span>
+                                <button onClick={() => setDetailId(p.id)} style={{ border: "none", background: "none", padding: 0, font: "inherit", fontWeight: 600, minWidth: 160, textAlign: "left", color: "var(--ink)", textDecoration: "underline", cursor: "pointer" }}>
+                                  {p.fullName || "—"}
+                                </button>
                                 <span style={{ color: "var(--muted)", minWidth: 140 }}>{p.title || "—"}</span>
                                 <span style={{ color: "var(--muted)", minWidth: 160 }}>{p.email || p.workPhone || p.mobilePhone || "—"}</span>
+                                {(p.outreachStatus && p.outreachStatus !== "not-contacted") && (
+                                  <span style={{ fontSize: 10, fontWeight: 700, color: OUTREACH_STATUS_META[p.outreachStatus].color, background: OUTREACH_STATUS_META[p.outreachStatus].bg, borderRadius: 999, padding: "2px 8px", whiteSpace: "nowrap" }}>
+                                    {OUTREACH_STATUS_META[p.outreachStatus].label}
+                                  </span>
+                                )}
                                 {p.category && (
                                   <span style={{ fontSize: 10, fontWeight: 700, color: CATEGORY_META[p.category].color, background: CATEGORY_META[p.category].bg, borderRadius: 999, padding: "2px 8px", whiteSpace: "nowrap" }}>
                                     {CATEGORY_META[p.category].label}
@@ -145,6 +166,23 @@ export default function Companies({ contacts, onAddContact }: CompaniesProps) {
           </table>
         </div>
       )}
+
+      {detailId && contactById.get(detailId) && (
+        <ContactDetail
+          contact={contactById.get(detailId)!}
+          onClose={() => setDetailId(null)}
+          onUpdate={(patch) => onUpdateContact(detailId, patch)}
+        />
+      )}
+    </div>
+  );
+}
+
+function CompanyStat({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div>
+      <div style={{ fontSize: 10, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase" }}>{label}</div>
+      <div style={{ fontSize: 16, fontWeight: 700 }}>{value}</div>
     </div>
   );
 }

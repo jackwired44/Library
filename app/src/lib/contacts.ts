@@ -47,7 +47,34 @@ export interface Contact {
   matchedSnippet?: string;
   disposition?: Disposition;
   dispositionNote?: string;
+  // Manual outreach tracking — per Jack: "how many calls have been made to
+  // the client and how many emails as well as the dispositions so we know
+  // if they have been contacted, contacted successfully, not interested or
+  // meeting booked." Deliberately separate from `disposition` above:
+  // that field is a read-only snapshot of the Scanner's own lead-
+  // qualification status, this is a directly-editable outreach-activity
+  // tracker lived on Contacts/Companies, with its own state set (including
+  // call/email counts that have no Scanner equivalent at all). Edited from
+  // the contact detail view — see components/ContactDetail.tsx.
+  callCount?: number;
+  emailCount?: number;
+  outreachStatus?: OutreachStatus;
+  // Manually pasted in once found — see components/ContactDetail.tsx's
+  // "Search LinkedIn" link, which opens a LinkedIn people-search prefilled
+  // with name+company (no automatic verified match — see CLAUDE.md
+  // "Contacts: LinkedIn" for why a deterministic hyperlink isn't possible).
+  linkedinUrl?: string;
 }
+
+export type OutreachStatus = "not-contacted" | "contacted" | "contacted-successfully" | "not-interested" | "meeting-booked";
+export const OUTREACH_STATUS_ORDER: OutreachStatus[] = ["not-contacted", "contacted", "contacted-successfully", "not-interested", "meeting-booked"];
+export const OUTREACH_STATUS_META: Record<OutreachStatus, { label: string; color: string; bg: string }> = {
+  "not-contacted": { label: "Not contacted", color: "#5b6b72", bg: "#F4F6F7" },
+  contacted: { label: "Contacted", color: "#3A4B8C", bg: "#EEF2FF" },
+  "contacted-successfully": { label: "Contacted successfully", color: "#2CC295", bg: "#E7F1EA" },
+  "not-interested": { label: "Not interested", color: "#B5443B", bg: "#FBEAE8" },
+  "meeting-booked": { label: "Meeting booked", color: "#8A5A00", bg: "#FFF7E5" },
+};
 
 function newId() {
   return `contact-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

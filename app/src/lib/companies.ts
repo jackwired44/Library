@@ -16,6 +16,13 @@ export interface Company {
   lastSeenAt: string;
   sourceFiles: string[];
   contacts: Contact[];
+  // Rolled up from each contact's own outreach tracking (lib/contacts.ts)
+  // — read-only here, per Jack's call: calls/emails/status are tracked on
+  // the person, Companies just sums/counts them for an at-a-glance view.
+  totalCalls: number;
+  totalEmails: number;
+  contactedCount: number; // outreachStatus set to anything but "not-contacted"/unset
+  meetingBookedCount: number;
 }
 
 function normalizeCompanyKey(name: string): string {
@@ -31,6 +38,8 @@ export function groupContactsByCompany(contacts: Contact[]): Company[] {
     const name = c.company.trim();
     if (!name) return; // a contact with no company isn't grouped anywhere yet
     const key = normalizeCompanyKey(name);
+    const contacted = Boolean(c.outreachStatus && c.outreachStatus !== "not-contacted");
+    const meetingBooked = c.outreachStatus === "meeting-booked";
     const existing = byKey.get(key);
     if (existing) {
       existing.contactCount += 1;
@@ -39,6 +48,10 @@ export function groupContactsByCompany(contacts: Contact[]): Company[] {
       if (new Date(c.firstSeenAt).getTime() < new Date(existing.firstSeenAt).getTime()) existing.firstSeenAt = c.firstSeenAt;
       c.sourceFiles.forEach((f) => { if (!existing.sourceFiles.includes(f)) existing.sourceFiles.push(f); });
       existing.contacts.push(c);
+      existing.totalCalls += c.callCount || 0;
+      existing.totalEmails += c.emailCount || 0;
+      if (contacted) existing.contactedCount += 1;
+      if (meetingBooked) existing.meetingBookedCount += 1;
     } else {
       byKey.set(key, {
         name,
@@ -49,6 +62,10 @@ export function groupContactsByCompany(contacts: Contact[]): Company[] {
         lastSeenAt: c.lastSeenAt,
         sourceFiles: [...c.sourceFiles],
         contacts: [c],
+        totalCalls: c.callCount || 0,
+        totalEmails: c.emailCount || 0,
+        contactedCount: contacted ? 1 : 0,
+        meetingBookedCount: meetingBooked ? 1 : 0,
       });
     }
   });
