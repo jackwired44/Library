@@ -750,7 +750,58 @@ company-level data" item, deliberately starting minimal.
 - No company-level tasks yet (Contacts' "+ Task" stays contact-only) —
   scoped out of this pass, flag if wanted next.
 
-## History: Clear/delete with a Library-linked override (app/ only)
+## Shell — denser, product-grade visual pass + account panel (app/ only)
+
+Per Jack: "less AI // more like a hubspot or apollo // keep functions etc
+change none of that // back the backdrop less white space // include like a
+bottom left account settings internal platform notes section." Confirmed
+two open questions before building (per the standing proposal rule): the
+account block is a **static identity block only** (this is a single-
+password tool with no real user accounts — see Access & ownership — so
+there's nothing to actually manage yet); its settings icon opens the
+existing Cheat Sheet, since that's where rule tuning already lives, rather
+than a new empty settings page. Platform Notes is a **persistent
+scratchpad**, not a changelog.
+
+- **Visual pass** (`styles.css`, `App.tsx`, `Home.tsx`) is styling/spacing
+  only — no component's behavior, props, or data flow changed. `--bg` moved
+  from a pastel mint to a cooler flat gray (`#eef0f2`), a new
+  `--surface-sunken` token was added for filled chips/stat-pills, and
+  paddings/radii were tightened across the header, sidebar nav items, and
+  Home (header bar, module tiles) to read as a denser SaaS product rather
+  than an airy AI-generated landing page. The brand hues (`--ink`,
+  `--accent`) are deliberately unchanged — those are the actual Wired CIO
+  brand, not part of what Jack asked to change. **Home's hero** went from a
+  large full-bleed gradient marketing card to a flat bordered header strip
+  with a short greeting/mission line plus a compact stat-pill row (Lead
+  Library/Contacts/Open tasks/Uploads counts) — the same live counts it
+  already had, just laid out like a dashboard summary bar instead of a
+  hero banner. Module tiles are the same tiles, just smaller (tighter
+  padding/gaps, no separate "Open →" line — the whole tile is already the
+  click target). Every other view (Scanner/Lead Library/History/Engage/
+  Contacts/Companies/Cheat Sheet) inherits the new tokens automatically
+  through the shared CSS variables and wasn't touched component-by-
+  component this pass — expect a follow-up density pass on their own
+  table paddings if more tightening is wanted, per the usual "start
+  somewhere then fine tune."
+- **`AccountPanel`** (`app/src/components/AccountPanel.tsx`) is pinned to
+  the bottom of the sidebar via a flex-column `<aside>` in `App.tsx`
+  (`nav` now scrolls independently in its own flex item — the existing
+  "scroll option" behavior from the Shell's original build is unchanged —
+  while `AccountPanel` sits below it via `margin-top: auto`, always in
+  view). Shows a static "Jack · Wired CIO Sales" identity block with a
+  settings gear that calls the same `setShowCheatSheet(true)` the floating
+  Cheat Sheet button already uses — no new settings surface.
+- **Platform Notes** (`app/src/lib/platformNotes.ts`) is a single free-text
+  scratchpad — one record, one string — for internal notes about the
+  platform/build itself, explicitly separate from the per-lead
+  `dispositionNote`/Library notes that already exist. A "📝 Platform
+  notes" button under the account block opens a small popover (bottom-
+  left, near its trigger) with a `<textarea>` that autosaves 500ms after
+  the last keystroke — no explicit save button, matching the low-friction
+  feel of a real scratchpad. New IndexedDB store (`STORE_PLATFORM_NOTES`,
+  `lib/db.ts`, `DB_VERSION` bumped 5→6) — same one-store-per-concern
+  pattern as every other store here.
 
 Per Jack: a way to clear History wholesale or delete individual imports,
 but "if there's a file saved in the library" tied to that entry, deleting

@@ -7,6 +7,7 @@ import BackupRestore from "./components/BackupRestore";
 import CheatSheet from "./components/CheatSheet";
 import Home from "./components/Home";
 import Engage from "./components/Engage";
+import AccountPanel from "./components/AccountPanel";
 import type { ParsedFile, ResultRow, RuleOverrides } from "./lib/detection";
 import { scanParsedFiles, DEFAULT_RULE_OVERRIDES } from "./lib/detection";
 import { loadLibraryFromDB, ensureMonthFoldersExist, persistGroup, type LibraryEntry, type LibraryGroup } from "./lib/library";
@@ -263,13 +264,13 @@ export default function App() {
   if (!unlocked) return <LockScreen onUnlock={() => setUnlockedState(true)} />;
 
   return (
-    <div style={{ maxWidth: 1320, margin: "0 auto", padding: "0 28px 60px" }}>
+    <div style={{ maxWidth: 1320, margin: "0 auto", padding: "0 24px 40px" }}>
       <header className="app-header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div className="app-mark" aria-hidden="true">W</div>
           <div>
-            <h1 style={{ fontSize: 18, margin: 0, lineHeight: 1.2 }}>Wired CIO</h1>
-            <div style={{ fontSize: 11.5, color: "#8b93a0", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Lead Scanner</div>
+            <h1 style={{ fontSize: 17, margin: 0, lineHeight: 1.2 }}>Wired CIO</h1>
+            <div style={{ fontSize: 11, color: "#8b93a0", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Lead Scanner</div>
           </div>
         </div>
         <button
@@ -282,19 +283,19 @@ export default function App() {
         </button>
       </header>
 
-      <div style={{ display: "flex", gap: 26, alignItems: "flex-start" }}>
+      <div style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
         <aside
           style={{
-            width: 190,
+            width: 178,
             flexShrink: 0,
             position: "sticky",
-            top: 88,
-            maxHeight: "calc(100vh - 108px)",
-            overflowY: "auto",
-            paddingBottom: 12,
+            top: 76,
+            height: "calc(100vh - 92px)",
+            display: "flex",
+            flexDirection: "column",
           }}
         >
-          <nav style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <nav style={{ display: "flex", flexDirection: "column", gap: 2, overflowY: "auto", minHeight: 0 }}>
             {NAV_ITEMS.map((item) => (
               <button key={item.key} onClick={() => setView(item.key)} className={`side-nav-btn${view === item.key ? " active" : ""}`}>
                 <span aria-hidden="true">{item.icon}</span>
@@ -305,10 +306,13 @@ export default function App() {
               </button>
             ))}
           </nav>
+          <div style={{ marginTop: "auto" }}>
+            <AccountPanel onOpenSettings={() => setShowCheatSheet(true)} />
+          </div>
         </aside>
 
         <main style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ marginBottom: 20 }}>
+          <div style={{ marginBottom: 16 }}>
             <BackupRestore
               libraryEntries={libraryEntries}
               libraryGroups={libraryGroups}

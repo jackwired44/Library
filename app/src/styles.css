@@ -1,13 +1,18 @@
 /* Light-only, deliberately: matches the legacy app and the wiredcio.com
    brand this was designed against (see legacy/README.md "Rebrand pass") —
-   there's no dark variant of that brand to honor, so this doesn't invent one. */
+   there's no dark variant of that brand to honor, so this doesn't invent one.
+   Density pass (see CLAUDE.md "Shell — denser, product-grade pass"): the
+   brand hues (--ink, --accent) are unchanged on purpose, only the canvas
+   got cooler/flatter and paddings tighter, closer to a real SaaS product
+   (HubSpot/Apollo) than the original airy, pastel first draft. */
 :root {
   color-scheme: light;
   --ink: #081e22;
-  --muted: #4c6167;
-  --bg: #f6fafa;
+  --muted: #5b6b72;
+  --bg: #eef0f2;
   --surface: #ffffff;
-  --border: #e4e7ec;
+  --surface-sunken: #f5f6f8;
+  --border: #dde1e6;
   --accent: #2cc295;
 }
 
@@ -64,8 +69,8 @@ button:disabled {
   z-index: 30;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-  margin: 0 -28px 24px;
-  padding: 16px 28px;
+  margin: 0 -24px 18px;
+  padding: 12px 24px;
 }
 
 .app-mark {
@@ -104,19 +109,19 @@ button:disabled {
 .side-nav-btn {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
   width: 100%;
   border: 1px solid transparent;
-  border-radius: 10px;
-  padding: 10px 12px;
+  border-radius: 7px;
+  padding: 7px 10px;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 12.5px;
   text-align: left;
   background: transparent;
   color: var(--muted);
 }
 .side-nav-btn:hover {
-  background: var(--surface);
+  background: var(--surface-sunken);
   border-color: var(--border);
 }
 .side-nav-btn.active {
@@ -124,8 +129,131 @@ button:disabled {
   color: #fff;
 }
 .side-nav-btn span:first-child {
-  font-size: 15px;
+  font-size: 14px;
   flex-shrink: 0;
+}
+
+/* Bottom-of-sidebar account block + Platform Notes — see
+   components/AccountPanel.tsx and CLAUDE.md. */
+.account-panel {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.account-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+}
+.account-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: linear-gradient(135deg, var(--ink), #16414a);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Fraunces", Georgia, serif;
+  font-weight: 700;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.account-info {
+  flex: 1;
+  min-width: 0;
+}
+.account-name {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.2;
+}
+.account-org {
+  font-size: 10.5px;
+  color: var(--muted);
+  line-height: 1.2;
+}
+.account-gear {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 14px;
+  padding: 4px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+.account-gear:hover {
+  background: var(--surface-sunken);
+}
+.notes-trigger {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px dashed var(--border);
+  border-radius: 7px;
+  padding: 6px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+}
+.notes-trigger:hover {
+  background: var(--surface-sunken);
+  border-color: var(--muted);
+}
+.notes-popover-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 30, 34, 0.35);
+  display: flex;
+  align-items: flex-end;
+  z-index: 55;
+  padding: 20px;
+}
+.notes-popover {
+  background: var(--surface);
+  border-radius: 12px;
+  width: 340px;
+  max-width: 100%;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.notes-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+}
+.notes-popover-close {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 15px;
+  padding: 0;
+}
+.notes-textarea {
+  width: 100%;
+  min-height: 160px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  font-family: inherit;
+  line-height: 1.5;
+}
+.notes-popover-footer {
+  font-size: 10.5px;
+  color: var(--muted);
 }
 
 @media (prefers-reduced-motion: reduce) {

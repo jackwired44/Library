@@ -3,13 +3,14 @@
 // used. No server, no shared backend (see CLAUDE.md, Access & ownership).
 
 export const DB_NAME = "wiredCioUnifiedLeadScannerLibrary_v1";
-export const DB_VERSION = 5;
+export const DB_VERSION = 6;
 export const STORE_LIBRARY = "files";
 export const STORE_GROUPS = "groups";
 export const STORE_HISTORY = "history";
 export const STORE_RULE_OVERRIDES = "ruleOverrides";
 export const STORE_TASKS = "tasks";
 export const STORE_CONTACTS = "contacts";
+export const STORE_PLATFORM_NOTES = "platformNotes";
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -26,6 +27,7 @@ function openDB(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE_RULE_OVERRIDES)) db.createObjectStore(STORE_RULE_OVERRIDES, { keyPath: "id" });
       if (!db.objectStoreNames.contains(STORE_TASKS)) db.createObjectStore(STORE_TASKS, { keyPath: "id" });
       if (!db.objectStoreNames.contains(STORE_CONTACTS)) db.createObjectStore(STORE_CONTACTS, { keyPath: "id" });
+      if (!db.objectStoreNames.contains(STORE_PLATFORM_NOTES)) db.createObjectStore(STORE_PLATFORM_NOTES, { keyPath: "id" });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error || new Error("Could not open local file storage."));
