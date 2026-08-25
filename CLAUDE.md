@@ -1369,3 +1369,23 @@ above — that tradeoff needs Jack's explicit sign-off when the time comes).
   "don't ask permission for routine implementation choices" rule above
   still governs judgment calls made *while building* an already-approved
   proposal.
+- When Jack says **"checkpoint"** on its own: push a new branch named
+  `checkpoint-N` (next sequential number — check existing `checkpoint-*`
+  branches on origin first rather than trusting memory of the last one
+  used) pointing at the current tip of `claude/epic-faraday-zbehnu`, then
+  confirm the branch name, the commit it points at, and a one-line summary
+  of what's included since the prior checkpoint. This is a **branch**, not
+  a git tag — this session's push credentials can create/push branches but
+  get a 403 on tag refs, discovered when checkpoint 1 was created. To "go
+  back to checkpoint N": reset/checkout `claude/epic-faraday-zbehnu` to
+  that branch's commit (ask Jack to confirm before actually rewriting the
+  working branch's history — this is exactly the kind of destructive/
+  hard-to-reverse action Access & ownership and the system prompt's own
+  git-safety rules call out). To "redo an update" after going back: the
+  commits between the checkpoint and where the branch was before are still
+  reachable by their SHAs (`git log --all`/`git reflog`) — cherry-pick or
+  merge them back in as needed rather than re-doing the work from scratch.
+  **Checkpoint 1** = branch `checkpoint-1`, commit `8069116` ("Make
+  crossed-out and disposition sticky per-person across uploads") — the
+  most recent commit at the time Jack asked for this, covering everything
+  built up through the sticky-crossed-out/disposition feature.
