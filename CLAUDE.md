@@ -1111,6 +1111,44 @@ Nothing here uses a credential this app holds itself — there isn't one.
   build/test environment cannot reach. First real test happens when Jack
   uses the button after the next publish.
 
+### Company enrichment — paused mid-design (app/ only, not built)
+
+Per Jack: enrich company-level data too (location, industry, employee
+count, corporate phone if available, an overview — the same "About"
+section data Apollo shows on a company profile), using the org data
+already nested in a person-enrichment response when present. A design was
+proposed and approved (new `CompanyProfile`/`STORE_COMPANY_PROFILES`
+store, `groupContactsByCompany` merging it onto the existing rollup,
+fillBlank-style merge on re-enrichment) and the organization-enrich
+response shape was rehearsed live against Apollo's own public domain
+(`apollo.io` — 1 credit, approved by Jack first, since that endpoint is
+NOT free like the person-match tools already shipped: `industry`,
+`estimated_num_employees`, `raw_address`/`city`/`state`/`country`,
+`short_description`, `website_url`, `logo_url` all came back populated; no
+`phone` field was present on that particular response — Apollo's org data
+doesn't always carry one, consistent with Jack's own "if able").
+
+**Then paused before any UI/store code was written**: Jack's explicit
+follow-up — "I want to select on which contacts I am going to enrich data
+with I want to slowly be sure this doesn't break anything or dump too
+much data at once" — ruled out the auto-populate-on-person-enrichment
+path from the original design (silently saving company data as a side
+effect of enriching a contact). Whenever this resumes, company enrichment
+needs to be its OWN explicit, selective action — same pattern as the
+already-shipped Contacts "Enrich via Apollo" (pick specific companies,
+click a button, see the per-company cost and outcome) — not a background
+side effect of anything else. The one inert schema change made while
+exploring this (`STORE_COMPANY_PROFILES` in `lib/db.ts`) was reverted;
+nothing related to this feature exists in the codebase yet.
+
+**Direction for later, per Jack**: the real point of enriching company
+(and contact) data isn't the data for its own sake — it's to eventually
+filter/narrow down or remove leads based on it, feeding into a future
+qualification pass the same way the Scanner's own detection engine
+already qualifies a lead into Strong Signal/Needs Review/Bad Leads today.
+Not scoped or designed yet; captured here so it isn't lost, same as the
+rest of this Roadmap section.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool
