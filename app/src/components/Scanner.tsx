@@ -34,6 +34,7 @@ import {
   type LibraryGroup,
 } from "../lib/library";
 import type { HistoryEntry } from "../lib/history";
+import { applyStickyState, type Contact } from "../lib/contacts";
 import type { UploadedFile } from "../App";
 
 const MAX_FILES = 5;
@@ -70,6 +71,13 @@ interface ScannerProps {
   // out of "recent."
   allHistory: HistoryEntry[];
   ruleOverrides: RuleOverrides;
+  // Read-only here — used only to carry a person's sticky crossedOut/
+  // disposition forward onto their freshly scanned row (see
+  // lib/contacts.ts's applyStickyState and CLAUDE.md "Sticky crossed-out/
+  // disposition state"). Never written to directly from Scanner; the
+  // actual Contact write-back still goes through onRecordHistory/
+  // onSyncToHistory, same as before.
+  contacts: Contact[];
 }
 
 export default function Scanner({
@@ -88,6 +96,7 @@ export default function Scanner({
   onOpenRecentUpload,
   allHistory,
   ruleOverrides,
+  contacts,
 }: ScannerProps) {
   // Per-bucket download file name — editable, defaults to the standard
   // wired-cio-<bucket>-leads.csv name until Jack renames it. Reset on
@@ -155,6 +164,7 @@ export default function Scanner({
     try {
       const parsedFiles = await Promise.all(files.map(parseCSVFile));
       const { results: scanned, duplicatesRemoved } = scanParsedFiles(parsedFiles, ruleOverrides);
+      applyStickyState(scanned, contacts);
       setResults(scanned);
       setUploadedFiles(parsedFiles.map((pf) => ({ name: pf.name, rows: pf.data.length })));
       setPage(1);
@@ -241,6 +251,7 @@ export default function Scanner({
     }
     const parsed = parseCSVText(fileName, rawText);
     const { results: scanned } = scanParsedFiles([parsed], ruleOverrides);
+    applyStickyState(scanned, contacts);
     setResults(scanned);
     setUploadedFiles([{ name: parsed.name, rows: parsed.data.length }]);
     setPage(1);

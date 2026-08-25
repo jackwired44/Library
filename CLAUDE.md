@@ -1257,6 +1257,54 @@ already-saved note (migrated into a dated entry, not discarded).
   directions without losing it, closed and reopened cleanly; Home's own
   Cheat Sheet module tile still opens the same shared panel correctly.
 
+## Sticky crossed-out/disposition state (app/ only)
+
+Per Jack: "if a contact ever becomes crossed out it should stay crossed
+out until that command is undone manually even with new uploads/scan
+history, especially with dispositions for the lead or contact." Proposed
+and approved before building (per the standing proposal rule) — this
+changes core Scanner semantics (what crossing a row out and setting its
+disposition actually mean across uploads), not a cosmetic tweak.
+
+- **The gap**: `scanParsedFiles` always builds a brand-new `ResultRow` per
+  row with `crossedOut: false`/`disposition: "none"` hardcoded, regardless
+  of anything set on that same person in a prior upload. Since Contacts
+  already tracks the same real person across every upload (email-first/
+  name+company dedup), a re-upload — a fresh CSV export, or the same file
+  scanned again — silently reset both fields to blank every time.
+- **`Contact` gained `crossedOut`** (`lib/contacts.ts`), alongside the
+  existing scan-derived `disposition`/`dispositionNote`. Unlike
+  `category`/`matchedSnippet` (a pure per-scan snapshot), `crossedOut` and
+  `disposition` on Contact are now the PERSISTENT source of truth for that
+  person, not a snapshot of the latest scan.
+- **`applyStickyState(rows, contacts)`** (new, `lib/contacts.ts`) runs
+  immediately after every fresh `scanParsedFiles()` call — Scanner.tsx's
+  `handleFiles` (drag/drop upload) and `loadFromLibraryPicker` (the
+  Folder→File picker), and `App.tsx`'s `loadParsedFilesIntoScanner` (the
+  Library's own "Load into Scanner") — and BEFORE those rows are ever
+  shown or recorded. For each row, it looks up the matching Contact (same
+  `buildContactIndex`/`lookupContact` helpers `attachScanResultsToContacts`
+  already used, now shared rather than duplicated) and, if that Contact
+  already has `crossedOut: true` and/or a real (non-"none") `disposition`,
+  carries it onto the fresh row before anything else touches it.
+- **The only way out is the manual toggle, same as before.** Crossing a
+  row back out (or in) in Scanner already flows into its Contact via
+  `onSyncToHistory` → `attachScanResultsToContacts` — unchanged, except
+  that function now also writes `crossedOut` (it previously synced
+  category/snippet/disposition only). Since `applyStickyState` runs
+  before that sync path ever sees a fresh row, there's no feedback loop —
+  a freshly-seeded row just round-trips its own already-correct value
+  back onto the Contact untouched until someone actually toggles it.
+- Verified live: crossed out and dispositioned a lead in one upload;
+  uploaded a second, unrelated CSV containing the same person (different
+  file, different wording) and confirmed both the strikethrough styling
+  and the disposition carried forward automatically, with zero manual
+  action; manually un-crossed it on that second upload; uploaded a THIRD
+  time and confirmed the un-cross stuck (no longer crossed out) while the
+  disposition — never touched — still correctly carried forward,
+  confirming the two track independently and each only changes via its
+  own explicit action.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

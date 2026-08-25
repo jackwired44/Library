@@ -13,7 +13,7 @@ import HeaderSearch from "./components/HeaderSearch";
 import type { ParsedFile, ResultRow, RuleOverrides } from "./lib/detection";
 import { scanParsedFiles, DEFAULT_RULE_OVERRIDES } from "./lib/detection";
 import { loadLibraryFromDB, ensureMonthFoldersExist, persistGroup, type LibraryEntry, type LibraryGroup } from "./lib/library";
-import { attachScanResultsToContacts, loadContactsFromDB, mergeContactsFromParsedFiles, mergeManualContact, persistContact, type Contact, type ManualContactInput } from "./lib/contacts";
+import { applyStickyState, attachScanResultsToContacts, loadContactsFromDB, mergeContactsFromParsedFiles, mergeManualContact, persistContact, type Contact, type ManualContactInput } from "./lib/contacts";
 import {
   loadHistoryFromDB,
   persistHistoryEntry,
@@ -269,6 +269,7 @@ export default function App() {
 
   function loadParsedFilesIntoScanner(parsedFiles: ParsedFile[], tag = "Loaded from Lead Library") {
     const { results: scanned } = scanParsedFiles(parsedFiles, ruleOverrides);
+    applyStickyState(scanned, contacts);
     setResults(scanned);
     setUploadedFiles(parsedFiles.map((pf) => ({ name: pf.name, rows: pf.data.length })));
     setView("scanner");
@@ -420,6 +421,7 @@ export default function App() {
               onOpenRecentUpload={(id) => loadHistoryIntoScanner([id])}
               allHistory={historyEntries}
               ruleOverrides={ruleOverrides}
+              contacts={contacts}
             />
           )}
           {view === "engage" && (

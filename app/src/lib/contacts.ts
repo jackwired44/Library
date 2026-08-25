@@ -47,6 +47,16 @@ export interface Contact {
   matchedSnippet?: string;
   disposition?: Disposition;
   dispositionNote?: string;
+  // Sticky, per-person state — per Jack: "if a contact ever becomes
+  // crossed out it should stay crossed out... even with new uploads,"
+  // same for disposition. Unlike category/matchedSnippet above (a pure
+  // scan-time snapshot), crossedOut and disposition here are the
+  // PERSISTENT source of truth: every fresh upload carries them forward
+  // onto that person's new row (see applyStickyState below) instead of
+  // resetting to false/"none", and the only way to change them is an
+  // explicit manual edit in Scanner (which writes back here the same way
+  // it always has).
+  crossedOut?: boolean;
   // Manual outreach tracking — per Jack: "how many calls have been made to
   // the client and how many emails as well as the dispositions so we know
   // if they have been contacted, contacted successfully, not interested or
@@ -101,6 +111,28 @@ function nameCompanyKeyOf(fullName: unknown, company: unknown): string | null {
 
 function fillBlank(oldVal: string, newVal: unknown): string {
   return oldVal || String(newVal || "").trim();
+}
+
+// Shared lookup — email first, name+company fallback — used everywhere a
+// caller needs to find an EXISTING contact for a resolved name/company/
+// email triple without folding new data into it (attachScanResultsToContacts,
+// applyStickyState). mergeContactInputs below keeps its own index since it
+// mutates/re-registers entries as it folds a batch in.
+function buildContactIndex(contacts: Contact[]): { byEmail: Map<string, Contact>; byNameCompany: Map<string, Contact> } {
+  const byEmail = new Map<string, Contact>();
+  const byNameCompany = new Map<string, Contact>();
+  contacts.forEach((c) => {
+    const ek = emailKeyOf(c.email);
+    if (ek) byEmail.set(ek, c);
+    const nk = nameCompanyKeyOf(c.fullName, c.company);
+    if (nk) byNameCompany.set(nk, c);
+  });
+  return { byEmail, byNameCompany };
+}
+function lookupContact(index: { byEmail: Map<string, Contact>; byNameCompany: Map<string, Contact> }, fullName: string, company: string, email: string): Contact | undefined {
+  const emailKey = emailKeyOf(email);
+  const nameCompanyKey = nameCompanyKeyOf(fullName, company);
+  return (emailKey && index.byEmail.get(emailKey)) || (nameCompanyKey && index.byNameCompany.get(nameCompanyKey)) || undefined;
 }
 
 export async function loadContactsFromDB(): Promise<Contact[]> {
@@ -244,24 +276,12 @@ export function mergeContactsFromParsedFiles(existing: Contact[], parsedFiles: P
 // expected, not a gap.
 export function attachScanResultsToContacts(existing: Contact[], resultRows: ResultRow[]): { contacts: Contact[]; touched: Contact[] } {
   const byId = new Map<string, Contact>(existing.map((c) => [c.id, c]));
-  const byEmail = new Map<string, Contact>();
-  const byNameCompany = new Map<string, Contact>();
-  existing.forEach((c) => {
-    const ek = emailKeyOf(c.email);
-    if (ek) byEmail.set(ek, c);
-    const nk = nameCompanyKeyOf(c.fullName, c.company);
-    if (nk) byNameCompany.set(nk, c);
-  });
+  const index = buildContactIndex(existing);
 
   const touchedIds = new Set<string>();
   resultRows.forEach((r) => {
     const f = r.row.__f;
-    const fullName = getFullName(f);
-    const company = String(f.company || "").trim();
-    const email = String(f.email || "").trim();
-    const emailKey = emailKeyOf(email);
-    const nameCompanyKey = nameCompanyKeyOf(fullName, company);
-    const match = (emailKey && byEmail.get(emailKey)) || (nameCompanyKey && byNameCompany.get(nameCompanyKey)) || undefined;
+    const match = lookupContact(index, getFullName(f), String(f.company || "").trim(), String(f.email || "").trim());
     if (!match) return;
 
     const updated: Contact = {
@@ -270,6 +290,7 @@ export function attachScanResultsToContacts(existing: Contact[], resultRows: Res
       matchedSnippet: r.notesSummary || "",
       disposition: r.disposition,
       dispositionNote: r.dispositionNote || "",
+      crossedOut: r.crossedOut,
     };
     byId.set(updated.id, updated);
     touchedIds.add(updated.id);
@@ -278,6 +299,32 @@ export function attachScanResultsToContacts(existing: Contact[], resultRows: Res
   const contacts = Array.from(byId.values());
   const touched = contacts.filter((c) => touchedIds.has(c.id));
   return { contacts, touched };
+}
+
+// Carries a person's sticky crossedOut/disposition FORWARD onto a freshly
+// scanned row, before that row is ever shown or recorded — per Jack: "if a
+// contact ever becomes crossed out it should stay crossed out until that
+// command is undone manually even with new uploads." Every fresh scan
+// otherwise starts a row at crossedOut:false/disposition:"none" (see
+// scanParsedFiles); this seeds it from the matching Contact's already-
+// sticky state instead, so the only way to actually clear it is the
+// explicit manual toggle in Scanner (which flows back through
+// attachScanResultsToContacts above, same as always). Mutates rows in
+// place — called by every fresh-scan call site (Scanner.tsx's handleFiles/
+// loadFromLibraryPicker, App.tsx's loadParsedFilesIntoScanner) immediately
+// after scanParsedFiles, before setResults/recordHistory.
+export function applyStickyState(rows: ResultRow[], contacts: Contact[]): void {
+  const index = buildContactIndex(contacts);
+  rows.forEach((r) => {
+    const f = r.row.__f;
+    const match = lookupContact(index, getFullName(f), String(f.company || "").trim(), String(f.email || "").trim());
+    if (!match) return;
+    if (match.crossedOut) r.crossedOut = true;
+    if (match.disposition && match.disposition !== "none") {
+      r.disposition = match.disposition;
+      r.dispositionNote = match.dispositionNote || "";
+    }
+  });
 }
 
 // Manual "+ Add contact" entry point — per Jack, added from the Companies
