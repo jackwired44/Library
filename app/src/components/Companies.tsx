@@ -8,6 +8,7 @@
 import { Fragment, useMemo, useState } from "react";
 import { groupContactsByCompany, searchCompanies } from "../lib/companies";
 import type { Contact, ManualContactInput } from "../lib/contacts";
+import { CATEGORY_META, DISPOSITION_META } from "../lib/detection";
 
 interface CompaniesProps {
   contacts: Contact[];
@@ -97,10 +98,23 @@ export default function Companies({ contacts, onAddContact }: CompaniesProps) {
                         <td colSpan={5} style={{ padding: "6px 12px 12px" }}>
                           <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
                             {co.contacts.map((p) => (
-                              <div key={p.id} style={{ display: "flex", gap: 10, fontSize: 12.5 }}>
+                              <div key={p.id} style={{ display: "flex", gap: 10, fontSize: 12.5, alignItems: "center", flexWrap: "wrap" }}>
                                 <span style={{ fontWeight: 600, minWidth: 160 }}>{p.fullName || "—"}</span>
                                 <span style={{ color: "var(--muted)", minWidth: 140 }}>{p.title || "—"}</span>
-                                <span style={{ color: "var(--muted)" }}>{p.email || p.workPhone || p.mobilePhone || "—"}</span>
+                                <span style={{ color: "var(--muted)", minWidth: 160 }}>{p.email || p.workPhone || p.mobilePhone || "—"}</span>
+                                {p.category && (
+                                  <span style={{ fontSize: 10, fontWeight: 700, color: CATEGORY_META[p.category].color, background: CATEGORY_META[p.category].bg, borderRadius: 999, padding: "2px 8px", whiteSpace: "nowrap" }}>
+                                    {CATEGORY_META[p.category].label}
+                                  </span>
+                                )}
+                                {p.disposition && p.disposition !== "none" && (
+                                  <span
+                                    title={p.dispositionNote || undefined}
+                                    style={{ fontSize: 10, fontWeight: 700, color: DISPOSITION_META[p.disposition].color, background: DISPOSITION_META[p.disposition].bg, borderRadius: 999, padding: "2px 8px", whiteSpace: "nowrap" }}
+                                  >
+                                    {DISPOSITION_META[p.disposition].label}
+                                  </span>
+                                )}
                               </div>
                             ))}
                           </div>

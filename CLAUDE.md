@@ -688,6 +688,52 @@ Library.tsx so History is recorded first. Caught because the new History
 "Library-linked" override guard below depends on this field being correct;
 verified with a live upload that the badge/override now actually fires.
 
+### Contacts: scan-derived fields at a glance (app/ only)
+
+Per Jack: "find the contacts matched snippet/summarized note post scan and
+it being uploaded then stored in the platform same with the product line
+and disposition from a glance." Proposed and approved before building (per
+the standing proposal rule). `Contact` (`lib/contacts.ts`) gained four
+optional fields — `category`, `matchedSnippet` (the same `notesSummary`
+text Scanner already computes per row), `disposition`, `dispositionNote` —
+populated from `ResultRow`, not the raw CSV row, since only a row that
+clears detection has any of these to begin with. Most contacts (no
+detection hit) simply read blank across all four; that's expected, not a
+gap, same reasoning as the rest of Contacts' capture-scope design.
+
+- `attachScanResultsToContacts(contacts, resultRows)` matches each
+  `ResultRow` to an existing Contact via the exact same email-first/
+  name+company-fallback key the CSV-merge path already uses, then
+  overwrites (not `fillBlank`-merges) those four fields — this is meant to
+  reflect the most recent scan's read of that lead, not accumulate stale
+  values across multiple scans.
+- Runs in two places: once inside `App.tsx`'s `recordHistory` (right after
+  `mergeContacts`, using the freshly-scanned `ResultRow[]`) so category and
+  matched snippet are populated the moment a lead is first scanned, and
+  again inside `syncToHistory` for every subsequent Scanner-side edit
+  (disposition, category reassignment, tier/cross-out — anything that
+  already flows through `Scanner.tsx`'s `mutateResults`/`onSyncToHistory`).
+- The second hook is not optional polish — it's why disposition works at
+  all. A lead's disposition is always `"none"` at the moment it's first
+  scanned and only ever set afterward (meeting booked / not interested /
+  no contact yet / other, from the Scanner's per-row dropdown); a pure
+  "snapshot at initial scan" would mean the Disposition column in Contacts
+  could never show anything but blank, defeating the point of surfacing it
+  at all. Reusing `onSyncToHistory` — already firing on every Scanner edit
+  for the History-sync feature — costs nothing extra and keeps
+  category/snippet/disposition in Contacts live-accurate to Scanner without
+  a new plumbing path. (I'd originally scoped "live sync" to Jack as the
+  more expensive option before realizing this hook already existed and is
+  reused as-is — flagged here so the choice reads as fixed, not silently
+  reversed.) Library's own separate per-lead editor (`StoredRow`, not
+  `ResultRow`) is NOT wired to this — same deliberate scope line as the
+  existing "Scanner edits don't auto-sync into filed Library rows" rule.
+- `Contacts.tsx`'s table gained three columns: a Product line badge, a
+  Disposition badge (note on hover), and a truncated Matched snippet (full
+  text on hover). `Companies.tsx`'s expanded contact rows show the same two
+  badges inline next to each contact. Both render a plain "—" when the
+  field is unset.
+
 ## Nav restructure: Lead Library rename + Engage tab (app/ only)
 
 Per Jack's explicit ask, proposed and approved before building (per the new

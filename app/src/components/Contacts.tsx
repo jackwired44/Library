@@ -7,6 +7,7 @@
 // matter most. First pass per Jack: "start somewhere then fine tune."
 import { Fragment, useMemo, useState } from "react";
 import { type Contact, searchContacts } from "../lib/contacts";
+import { CATEGORY_META, DISPOSITION_META } from "../lib/detection";
 import type { Task, TaskPriority } from "../lib/tasks";
 
 interface ContactsProps {
@@ -142,6 +143,9 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
                 <th style={{ padding: "9px 12px" }}>Title</th>
                 <th style={{ padding: "9px 12px" }}>Email</th>
                 <th style={{ padding: "9px 12px" }}>Phone</th>
+                <th style={{ padding: "9px 12px" }}>Product line</th>
+                <th style={{ padding: "9px 12px" }}>Disposition</th>
+                <th style={{ padding: "9px 12px" }}>Matched snippet</th>
                 <th style={{ padding: "9px 12px" }}>Seen</th>
                 <th style={{ padding: "9px 12px" }}>Sources</th>
                 <th style={{ padding: "9px 12px" }}></th>
@@ -156,6 +160,34 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
                     <td style={{ padding: "9px 12px", color: "var(--muted)" }}>{c.title || "—"}</td>
                     <td style={{ padding: "9px 12px" }}>{c.email || "—"}</td>
                     <td style={{ padding: "9px 12px" }}>{c.workPhone || c.mobilePhone || "—"}</td>
+                    <td style={{ padding: "9px 12px" }}>
+                      {c.category ? (
+                        <span style={{ fontSize: 10.5, fontWeight: 700, color: CATEGORY_META[c.category].color, background: CATEGORY_META[c.category].bg, borderRadius: 999, padding: "2px 9px", whiteSpace: "nowrap" }}>
+                          {CATEGORY_META[c.category].label}
+                        </span>
+                      ) : (
+                        <span style={{ color: "var(--muted)" }}>—</span>
+                      )}
+                    </td>
+                    <td style={{ padding: "9px 12px" }}>
+                      {c.disposition && c.disposition !== "none" ? (
+                        <span
+                          title={c.dispositionNote || undefined}
+                          style={{ fontSize: 10.5, fontWeight: 700, color: DISPOSITION_META[c.disposition].color, background: DISPOSITION_META[c.disposition].bg, borderRadius: 999, padding: "2px 9px", whiteSpace: "nowrap" }}
+                        >
+                          {DISPOSITION_META[c.disposition].label}
+                        </span>
+                      ) : (
+                        <span style={{ color: "var(--muted)" }}>—</span>
+                      )}
+                    </td>
+                    <td style={{ padding: "9px 12px", maxWidth: 220, color: "var(--muted)", fontSize: 12 }} title={c.matchedSnippet || undefined}>
+                      {c.matchedSnippet ? (
+                        <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.matchedSnippet}</span>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                     <td style={{ padding: "9px 12px", whiteSpace: "nowrap" }} title={new Date(c.lastSeenAt).toLocaleString()}>
                       {c.timesSeen}× · {new Date(c.lastSeenAt).toLocaleDateString()}
                     </td>
@@ -173,7 +205,7 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
                   </tr>
                   {addingForId === c.id && (
                     <tr style={{ background: "var(--bg)" }}>
-                      <td colSpan={8} style={{ padding: "10px 12px" }}>
+                      <td colSpan={11} style={{ padding: "10px 12px" }}>
                         <AddContactTaskForm contact={c} onSubmit={(date, priority, note) => submitContactTask(c, date, priority, note)} onCancel={() => setAddingForId(null)} />
                       </td>
                     </tr>

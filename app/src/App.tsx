@@ -12,7 +12,7 @@ import HeaderSearch from "./components/HeaderSearch";
 import type { ParsedFile, ResultRow, RuleOverrides } from "./lib/detection";
 import { scanParsedFiles, DEFAULT_RULE_OVERRIDES } from "./lib/detection";
 import { loadLibraryFromDB, ensureMonthFoldersExist, persistGroup, type LibraryEntry, type LibraryGroup } from "./lib/library";
-import { loadContactsFromDB, mergeContactsFromParsedFiles, mergeManualContact, persistContact, type Contact, type ManualContactInput } from "./lib/contacts";
+import { attachScanResultsToContacts, loadContactsFromDB, mergeContactsFromParsedFiles, mergeManualContact, persistContact, type Contact, type ManualContactInput } from "./lib/contacts";
 import {
   loadHistoryFromDB,
   persistHistoryEntry,
@@ -200,19 +200,25 @@ export default function App() {
     });
     setHistoryEntries((prev) => [entry, ...prev]);
     persistHistoryEntry(entry);
-    mergeContacts(parsedFiles);
+    mergeContacts(parsedFiles, scanned);
     return entry;
   }
 
   // Every fresh CSV upload becomes a History entry (see recordHistory
   // above) — the same choke point folds EVERY raw row (not just the ones
   // that cleared detection into `scanned`) into the permanent Contacts
-  // directory — see CLAUDE.md "Contacts."
-  function mergeContacts(parsedFiles: ParsedFile[]) {
+  // directory — see CLAUDE.md "Contacts." The second pass layers the
+  // product line/matched snippet/disposition from `scanned` (ResultRow[])
+  // onto whichever of those same contacts cleared detection — a snapshot
+  // of THIS scan, not a live sync of later edits (see CLAUDE.md "Contacts:
+  // scan-derived fields").
+  function mergeContacts(parsedFiles: ParsedFile[], scanned: ResultRow[]) {
     setContacts((prev) => {
-      const { contacts: next, touched } = mergeContactsFromParsedFiles(prev, parsedFiles);
-      touched.forEach((c) => persistContact(c));
-      return next;
+      const { contacts: afterCsv, touched: t1 } = mergeContactsFromParsedFiles(prev, parsedFiles);
+      const { contacts: afterScan, touched: t2 } = attachScanResultsToContacts(afterCsv, scanned);
+      const touchedIds = new Set([...t1, ...t2].map((c) => c.id));
+      afterScan.filter((c) => touchedIds.has(c.id)).forEach((c) => persistContact(c));
+      return afterScan;
     });
   }
 
@@ -227,6 +233,19 @@ export default function App() {
         const updated = next.find((h) => h.id === row.__sourceEntryId);
         if (updated) persistHistoryEntry(updated);
       }
+      return next;
+    });
+    // Every Scanner-side edit (disposition, category reassignment, tier/
+    // cross-out) already flows through here (see Scanner.tsx's
+    // mutateResults) — reused as the refresh point for Contacts' own
+    // scan-derived fields too. Necessary specifically for disposition:
+    // it's always "none" at the moment a row is first scanned and only
+    // ever set afterward, so without this hook Contacts' Disposition
+    // column could never show anything but blank — a pure "snapshot at
+    // initial scan" would defeat the point of surfacing it at all.
+    setContacts((prev) => {
+      const { contacts: next, touched } = attachScanResultsToContacts(prev, [row]);
+      touched.forEach((c) => persistContact(c));
       return next;
     });
   }

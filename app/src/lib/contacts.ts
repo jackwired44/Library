@@ -17,7 +17,7 @@
 // has no email. A row with neither still gets a Contact record, it's just
 // never matched as a duplicate of anything else.
 import { dbGetAll, dbPut, STORE_CONTACTS } from "./db";
-import { computeFileFieldMapping, getFullName, resolveRowFields, type ParsedFile, type ResolvedFields } from "./detection";
+import { computeFileFieldMapping, getFullName, resolveRowFields, type CategoryKey, type Disposition, type ParsedFile, type ResolvedFields, type ResultRow } from "./detection";
 
 export interface Contact {
   id: string;
@@ -35,6 +35,18 @@ export interface Contact {
   firstSeenAt: string;
   lastSeenAt: string;
   timesSeen: number;
+  // Scan-derived, at-a-glance fields — per Jack: "find the contacts matched
+  // snippet/summarized note post scan... same with the product line and
+  // disposition from a glance." Optional because most contacts never clear
+  // detection (see the module comment above) — those just read blank.
+  // Deliberately a SNAPSHOT of the most recent scan that touched this
+  // contact, not a live sync of later Scanner/Library edits — same
+  // no-auto-sync precedent as filed Library rows (see CLAUDE.md). A
+  // re-upload/re-scan of the same person is what refreshes these.
+  category?: CategoryKey;
+  matchedSnippet?: string;
+  disposition?: Disposition;
+  dispositionNote?: string;
 }
 
 function newId() {
@@ -190,6 +202,55 @@ function mergeContactInputs(existing: Contact[], inputs: ContactInput[]): { cont
 
 export function mergeContactsFromParsedFiles(existing: Contact[], parsedFiles: ParsedFile[]): { contacts: Contact[]; touched: Contact[]; added: number; updated: number } {
   return mergeContactInputs(existing, contactInputsFromParsedFiles(parsedFiles));
+}
+
+// Layers scan-derived fields (product line/matched snippet/disposition)
+// onto EXISTING Contact records — never creates a new one, since every row
+// a ResultRow could come from already became a Contact via
+// mergeContactsFromParsedFiles at the same upload (see App.tsx's
+// recordHistory, which runs both in the same pass). Matched the same way
+// every other contact lookup is: email first, name+company fallback.
+// Overwrites rather than fillBlank-merges — this is meant to reflect the
+// CURRENT scan, not accumulate stale values from earlier ones. Rows with
+// zero detection signal never became a ResultRow at all (scanRowUnified's
+// early return), so most contacts simply keep no scan-derived fields —
+// expected, not a gap.
+export function attachScanResultsToContacts(existing: Contact[], resultRows: ResultRow[]): { contacts: Contact[]; touched: Contact[] } {
+  const byId = new Map<string, Contact>(existing.map((c) => [c.id, c]));
+  const byEmail = new Map<string, Contact>();
+  const byNameCompany = new Map<string, Contact>();
+  existing.forEach((c) => {
+    const ek = emailKeyOf(c.email);
+    if (ek) byEmail.set(ek, c);
+    const nk = nameCompanyKeyOf(c.fullName, c.company);
+    if (nk) byNameCompany.set(nk, c);
+  });
+
+  const touchedIds = new Set<string>();
+  resultRows.forEach((r) => {
+    const f = r.row.__f;
+    const fullName = getFullName(f);
+    const company = String(f.company || "").trim();
+    const email = String(f.email || "").trim();
+    const emailKey = emailKeyOf(email);
+    const nameCompanyKey = nameCompanyKeyOf(fullName, company);
+    const match = (emailKey && byEmail.get(emailKey)) || (nameCompanyKey && byNameCompany.get(nameCompanyKey)) || undefined;
+    if (!match) return;
+
+    const updated: Contact = {
+      ...match,
+      category: r.category,
+      matchedSnippet: r.notesSummary || "",
+      disposition: r.disposition,
+      dispositionNote: r.dispositionNote || "",
+    };
+    byId.set(updated.id, updated);
+    touchedIds.add(updated.id);
+  });
+
+  const contacts = Array.from(byId.values());
+  const touched = contacts.filter((c) => touchedIds.has(c.id));
+  return { contacts, touched };
 }
 
 // Manual "+ Add contact" entry point — per Jack, added from the Companies
