@@ -243,12 +243,25 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
             <tbody>
               {filtered.map((c) => (
                 <Fragment key={c.id}>
-                  <tr style={{ borderTop: "1px solid var(--border)" }}>
+                  <tr
+                    style={{
+                      borderTop: "1px solid var(--border)",
+                      background:
+                        c.disposition === "meeting-booked"
+                          ? DISPOSITION_META["meeting-booked"].bg
+                          : c.disposition === "not-interested"
+                            ? DISPOSITION_META["not-interested"].bg
+                            : undefined,
+                    }}
+                  >
                     <td style={{ textAlign: "center" }}>
                       <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggleSelected(c.id)} />
                     </td>
                     <td style={{ padding: "9px 12px", fontWeight: 600 }}>
-                      <button onClick={() => setDetailId(c.id)} style={{ border: "none", background: "none", padding: 0, font: "inherit", fontWeight: 600, color: "var(--ink)", textDecoration: "underline", cursor: "pointer" }}>
+                      <button
+                        onClick={() => setDetailId(c.id)}
+                        style={{ border: "none", background: "none", padding: 0, font: "inherit", fontWeight: 600, color: "var(--ink)", textDecoration: c.crossedOut ? "line-through" : "underline", cursor: "pointer" }}
+                      >
                         {c.fullName || "—"}
                       </button>
                     </td>

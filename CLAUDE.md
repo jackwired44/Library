@@ -1315,6 +1315,52 @@ disposition actually mean across uploads), not a cosmetic tweak.
   confirming the two track independently and each only changes via its
   own explicit action.
 
+### Disposition row-color + auto-cross-out on "Not interested" (app/ only)
+
+Per Jack: "when a disposition is logged the contact row should change
+with appropriate color — blue being meeting booked, red being not
+interested, for now" — plus a follow-up in the same breath: "if not
+interested is selected, cross their name out also automatically, for
+now." Both are direct, concrete asks building on already-shipped
+mechanics (the existing disposition badges, the sticky-crossed-out
+feature above), so built directly without a separate proposal round.
+
+- **Meeting booked recolored to blue** (`DISPOSITION_META["meeting-
+  booked"]`, `lib/detection.ts`) — was green (`#2CC295`, the same green
+  used for "Strong Signal" elsewhere, which is why it's changing); now
+  `#0A66C2`/`#EAF3FC`, reusing the exact blue already established by the
+  "Search LinkedIn" button rather than inventing a new one. Not-interested
+  stays the red it already was (`#B5443B`/`#FBEAE8`).
+- **Row-level tinting, not just the badge.** The whole row now takes the
+  disposition's `bg` color when it's "meeting-booked" or "not-interested"
+  — Scanner's results table (`Scanner.tsx`, alongside the existing
+  duplicate-row tint, which still takes priority since it's rarer and
+  already-established), Contacts.tsx's table, and each contact line
+  inside a Companies.tsx expanded card. Every other disposition (none,
+  no-contact, other) is unstyled — "for now," per Jack's own qualifier;
+  more colors for the rest is a natural follow-up, not scoped yet.
+- **Auto-cross-out is a one-way trigger, not a toggle-sync.** Setting a
+  row's disposition to "Not interested" (`setDisposition`, and the bulk
+  `setDispositionForSelected`, both `Scanner.tsx`) also sets
+  `crossedOut: true` on that same row — which immediately shows as
+  strikethrough (Scanner already draws that from `crossedOut`) and, via
+  the sticky-state feature above, persists into that person's Contact
+  record and every future upload of them, exactly like a manual cross-out
+  would. Deliberately does NOT auto-uncross if the disposition later
+  changes away from "Not interested" — `crossedOut` stays exactly what
+  the sticky-state feature already established: manual-undo-only.
+- **Contacts.tsx and Companies.tsx now also render `crossedOut` visually**
+  (strikethrough on the contact's name) — this data existed on `Contact`
+  since the sticky-state feature but was never actually displayed there
+  before; now that a disposition change can set it automatically, it
+  needed to be visible in both places disposition already shows.
+- Verified live: set a lead to "Meeting booked" in Scanner, confirmed the
+  row background matched the new blue exactly (`rgb(234, 243, 252)`);
+  changed it to "Not interested," confirmed the row turned the existing
+  red, the company/contact cells struck through with zero additional
+  clicks, and both the red tint and strikethrough carried into the
+  Contacts table for the same person.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

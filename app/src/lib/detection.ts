@@ -853,7 +853,11 @@ export function getFullName(f: ResolvedFields): string {
 export type Disposition = "none" | "meeting-booked" | "not-interested" | "no-contact" | "other";
 export const DISPOSITION_META: Record<Disposition, { label: string; color: string; bg: string }> = {
   none: { label: "No disposition", color: "#9aa1ac", bg: "#F4F6F7" },
-  "meeting-booked": { label: "Meeting booked", color: "#2CC295", bg: "#E7F1EA" },
+  // Blue for meeting booked, red for not interested — per Jack, "for now"
+  // (the other dispositions may get their own row-tint colors later).
+  // Reuses the same blue already established elsewhere in the app (the
+  // "Search LinkedIn" button) rather than inventing a new one.
+  "meeting-booked": { label: "Meeting booked", color: "#0A66C2", bg: "#EAF3FC" },
   "not-interested": { label: "Not interested", color: "#B5443B", bg: "#FBEAE8" },
   "no-contact": { label: "No contact made", color: "#8A5A00", bg: "#FBF3E7" },
   other: { label: "Other", color: "#3A4B8C", bg: "#EEF2FF" },

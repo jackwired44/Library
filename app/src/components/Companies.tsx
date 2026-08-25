@@ -112,8 +112,28 @@ export default function Companies({ contacts, onAddContact, onUpdateContact }: C
                           </div>
                           <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
                             {co.contacts.map((p) => (
-                              <div key={p.id} style={{ display: "flex", gap: 10, fontSize: 12.5, alignItems: "center", flexWrap: "wrap" }}>
-                                <button onClick={() => setDetailId(p.id)} style={{ border: "none", background: "none", padding: 0, font: "inherit", fontWeight: 600, minWidth: 160, textAlign: "left", color: "var(--ink)", textDecoration: "underline", cursor: "pointer" }}>
+                              <div
+                                key={p.id}
+                                style={{
+                                  display: "flex",
+                                  gap: 10,
+                                  fontSize: 12.5,
+                                  alignItems: "center",
+                                  flexWrap: "wrap",
+                                  padding: "3px 6px",
+                                  borderRadius: 6,
+                                  background:
+                                    p.disposition === "meeting-booked"
+                                      ? DISPOSITION_META["meeting-booked"].bg
+                                      : p.disposition === "not-interested"
+                                        ? DISPOSITION_META["not-interested"].bg
+                                        : undefined,
+                                }}
+                              >
+                                <button
+                                  onClick={() => setDetailId(p.id)}
+                                  style={{ border: "none", background: "none", padding: 0, font: "inherit", fontWeight: 600, minWidth: 160, textAlign: "left", color: "var(--ink)", textDecoration: p.crossedOut ? "line-through" : "underline", cursor: "pointer" }}
+                                >
                                   {p.fullName || "—"}
                                 </button>
                                 <span style={{ color: "var(--muted)", minWidth: 140 }}>{p.title || "—"}</span>

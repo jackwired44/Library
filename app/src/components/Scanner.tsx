@@ -399,6 +399,11 @@ export default function Scanner({
       const row = list.find((r) => r.id === id);
       if (!row) return [];
       row.disposition = disposition;
+      // Per Jack: "if not interested is selected, cross their name out
+      // also automatically, for now." One-way trigger — going back to a
+      // different disposition later does NOT auto-uncross; crossedOut
+      // stays manual-undo-only otherwise (see the sticky-state feature).
+      if (disposition === "not-interested") row.crossedOut = true;
       return [row];
     });
   }
@@ -450,7 +455,15 @@ export default function Scanner({
   }
   function setDispositionForSelected(disposition: Disposition) {
     if (!selected.size) return;
-    mutateResults((list) => list.filter((r) => selected.has(r.id)).map((r) => { r.disposition = disposition; return r; }));
+    mutateResults((list) =>
+      list
+        .filter((r) => selected.has(r.id))
+        .map((r) => {
+          r.disposition = disposition;
+          if (disposition === "not-interested") r.crossedOut = true;
+          return r;
+        })
+    );
   }
   function setPriorityForSelected(value: boolean) {
     if (!selected.size) return;
@@ -910,7 +923,19 @@ export default function Scanner({
                 const tierLabel = r.tier === "signal" ? "Strong Signal" : r.tier === "dq" ? "Bad lead" : "Needs review";
                 const strike = r.crossedOut ? { textDecoration: "line-through", color: "#9AA6A5" } : {};
                 return (
-                  <tr key={r.id} style={{ borderBottom: "1px solid #F0F1F4", background: r.isDuplicate ? "#FFFBF2" : undefined }}>
+                  <tr
+                    key={r.id}
+                    style={{
+                      borderBottom: "1px solid #F0F1F4",
+                      background: r.isDuplicate
+                        ? "#FFFBF2"
+                        : r.disposition === "meeting-booked"
+                          ? DISPOSITION_META["meeting-booked"].bg
+                          : r.disposition === "not-interested"
+                            ? DISPOSITION_META["not-interested"].bg
+                            : undefined,
+                    }}
+                  >
                     <td style={{ textAlign: "center" }}>
                       <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleSelectRow(r.id)} />
                     </td>
