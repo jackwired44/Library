@@ -702,13 +702,15 @@ variable name are untouched — renaming those would be pure internal churn
 with real regression risk for zero user-facing benefit.
 
 **Board and Contacts are no longer their own top-level nav items** — both
-now live as two sub-tabs ("Tasks" / "Contacts") inside a new **Engage**
-view (`app/src/components/Engage.tsx`), sitting between Lead Library and
-History in the sidebar. This is purely a navigation regroup, same as the
-Google→Microsoft/Business Central View-tab pattern elsewhere in the app but
-one level up (nav-level, not row-level): `Engage.tsx` renders `TaskBoard`
-and `ContactsView` completely unchanged, same props, same data — it only
-owns a small tab strip and an `activeTab` state. `App.tsx`'s `View` type
+now live as sub-tabs ("Tasks" / "Contacts," later joined by "Companies" —
+see below) inside a new **Engage** view (`app/src/components/Engage.tsx`),
+sitting between Lead Library and History in the sidebar. This is purely a
+navigation regroup, same as the Google→Microsoft/Business Central View-tab
+pattern elsewhere in the app but one level up (nav-level, not row-level):
+`Engage.tsx` renders `TaskBoard` and `ContactsView` completely unchanged,
+same props, same data — it only owns the tab switcher and its own `tab`
+state (originally a button strip, since replaced by a dropdown — see
+below). `App.tsx`'s `View` type
 lost `"board"`/`"contacts"` and gained `"engage"`; the two separate render
 blocks collapsed into one `<Engage ... />` that forwards every prop both
 children need (`tasks`, `contacts`, and all their existing handlers).
@@ -717,6 +719,36 @@ one "Engage" tile showing a combined stat (`N contacts · M open tasks`).
 Contact tasks (the feature directly above) keep working exactly the same
 inside Engage's Contacts sub-tab — verified live that adding a task there
 shows up immediately in Engage's Tasks sub-tab.
+
+### Companies + Engage's dropdown switcher (app/ only)
+
+Per Jack: Engage should switch between Contacts/Companies/Tasks via "a drop
+down feature ... on the main screen," not the button tab strip above —
+`Engage.tsx`'s tab strip is now a single `<select>` (`EngageTab = "contacts"
+| "companies" | "tasks"`, in that order per Jack's stated ordering; default
+selection stays `"tasks"` for continuity with the pre-dropdown behavior).
+
+**Companies** (`app/src/components/Companies.tsx`, `app/src/lib/
+companies.ts`) is a brand-new third Engage tab — a company-level roll-up
+computed from the existing Contacts array, not a new data source: no new
+IndexedDB store, no new upload path, nothing filed differently. Per Jack:
+"we will slowly build this out with more data fields and closer to an
+actual Apollo down the road" — this is the seed of the Roadmap's "richer
+company-level data" item, deliberately starting minimal.
+- `groupContactsByCompany` groups by the exact-match normalized company
+  name (case/whitespace-insensitive, no fuzzy matching — same convention
+  Contacts' own dedup fallback uses), rolling up contact count, combined
+  `timesSeen`, earliest/latest `firstSeenAt`/`lastSeenAt`, and the union of
+  `sourceFiles` across every contact in that company. A contact with no
+  company isn't grouped anywhere (not even an "Unknown" bucket) — deferred,
+  not an oversight.
+- Companies.tsx is read-only, same posture as Contacts: search (company or
+  contact name) and a sort dropdown (most recent/name/most contacts), no
+  editing. Clicking a company row expands it in place to list its
+  contacts (name/title/email or phone) — the only interaction beyond
+  search/sort for now.
+- No company-level tasks yet (Contacts' "+ Task" stays contact-only) —
+  scoped out of this pass, flag if wanted next.
 
 ## History: Clear/delete with a Library-linked override (app/ only)
 
