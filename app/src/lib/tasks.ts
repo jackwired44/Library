@@ -1,7 +1,19 @@
 // Weekly task board — a simple day-by-day checklist (Mon-Sun, real dates),
 // persisted the same way as everything else (IndexedDB, no server). Not
 // tied to leads/scanning at all — see CLAUDE.md.
+//
+// contactId/priority (below) are an additive extension, per Jack: "so sales
+// reps know which contacts are the most important" — a task can optionally
+// point at a Contact and carry an urgency level, created from the Contacts
+// page (see lib/contacts.ts, components/Contacts.tsx). Both fields are
+// optional so every existing plain Board task (created via createTask, with
+// neither field) keeps working exactly as before — the Board itself renders
+// a contact-linked task exactly like any other, since its readable `text`
+// already has the contact's name baked in at creation time (see
+// createContactTask below); nothing about Board's own rendering changed.
 import { dbGetAll, dbPut, dbDelete, STORE_TASKS } from "./db";
+
+export type TaskPriority = "high" | "medium" | "low";
 
 export interface Task {
   id: string;
@@ -9,6 +21,11 @@ export interface Task {
   text: string;
   done: boolean;
   createdAt: string;
+  // Set only for a task created from the Contacts page — which specific
+  // Contact this follow-up is about, and how urgent it is. Absent/null on
+  // every ordinary Board task.
+  contactId?: string | null;
+  priority?: TaskPriority | null;
 }
 
 function newId() {
@@ -29,6 +46,12 @@ export function createTask(date: string, text: string): Task | null {
   const trimmed = text.trim();
   if (!trimmed) return null;
   return { id: newId(), date, text: trimmed, done: false, createdAt: new Date().toISOString() };
+}
+
+export function createContactTask(date: string, text: string, contactId: string, priority: TaskPriority): Task | null {
+  const base = createTask(date, text);
+  if (!base) return null;
+  return { ...base, contactId, priority };
 }
 
 function dateKey(d: Date): string {

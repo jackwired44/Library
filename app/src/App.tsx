@@ -22,7 +22,7 @@ import {
 } from "./lib/history";
 import { loadRuleOverrides, persistRuleOverrides } from "./lib/ruleOverrides";
 import TaskBoard from "./components/TaskBoard";
-import { loadTasksFromDB, persistTask, deleteTaskFromDB, createTask, type Task } from "./lib/tasks";
+import { loadTasksFromDB, persistTask, deleteTaskFromDB, createTask, createContactTask, type Task, type TaskPriority } from "./lib/tasks";
 import { isUnlocked, setUnlocked } from "./lib/auth";
 
 type View = "home" | "scanner" | "history" | "library" | "board" | "contacts";
@@ -150,6 +150,16 @@ export default function App() {
     deleteTaskFromDB(id);
   }
 
+  // Contacts page's "+ Task" action — same task store as the Board, just
+  // pre-linked to a specific Contact and carrying a priority so sales reps
+  // can see which contacts matter most (see CLAUDE.md "Contact tasks").
+  function addContactTask(contactId: string, date: string, priority: TaskPriority, text: string) {
+    const task = createContactTask(date, text, contactId, priority);
+    if (!task) return;
+    setTasks((prev) => [...prev, task]);
+    persistTask(task);
+  }
+
   function updateRuleOverrides(next: RuleOverrides) {
     setRuleOverrides(next);
     persistRuleOverrides(next);
@@ -231,6 +241,16 @@ export default function App() {
   async function deleteHistoryEntry(id: string) {
     setHistoryEntries((prev) => prev.filter((h) => h.id !== id));
     await deleteHistoryEntryFromDB(id);
+  }
+
+  // "Clear History" — per Jack's explicit ask. The override-typing guard
+  // for an entry a Library file still points back to lives in History.tsx
+  // (it needs to check per-entry before calling this or deleteHistoryEntry
+  // above); this just does the actual bulk delete once that's cleared.
+  async function clearHistory() {
+    const ids = historyEntries.map((h) => h.id);
+    setHistoryEntries([]);
+    await Promise.all(ids.map((id) => deleteHistoryEntryFromDB(id)));
   }
 
   function updateHistoryEntry(id: string, patch: Partial<Pick<HistoryEntry, "tag" | "notes">>) {
@@ -333,7 +353,17 @@ export default function App() {
               ruleOverrides={ruleOverrides}
             />
           )}
-          {view === "contacts" && <ContactsView contacts={contacts} loading={contactsLoading} error={contactsError} />}
+          {view === "contacts" && (
+            <ContactsView
+              contacts={contacts}
+              loading={contactsLoading}
+              error={contactsError}
+              tasks={tasks}
+              onAddContactTask={addContactTask}
+              onToggleTask={toggleTask}
+              onDeleteTask={deleteTask}
+            />
+          )}
           {view === "history" && (
             <HistoryView
               history={historyEntries}
@@ -343,6 +373,8 @@ export default function App() {
               onLoadIntoScanner={loadHistoryIntoScanner}
               onDeleteEntry={deleteHistoryEntry}
               onUpdateEntry={updateHistoryEntry}
+              onClearHistory={clearHistory}
+              libraryEntries={libraryEntries}
             />
           )}
           {view === "library" && (

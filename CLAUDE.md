@@ -636,14 +636,80 @@ Jack before building (cross-checked per his explicit ask, not guessed):
   sparser upload never blanks a field a prior upload already filled in
   (`fillBlank`), and `sourceFiles`/`timesSeen`/`lastSeenAt` accumulate
   across every upload a contact appears in.
-- **Contacts.tsx is read-only** — search (name/company/title/email/phone)
-  and a sort dropdown (most recent/name/company/times seen), no per-
-  contact editing here. Editing still lives on the lead itself in Scanner/
-  Library, deliberately, to avoid a second edit surface for the same
-  person's data.
+- **Contacts.tsx's own fields are read-only** — search (name/company/title/
+  email/phone) and a sort dropdown (most recent/name/company/times seen),
+  no per-contact field editing here. Editing a contact's own data still
+  lives on the lead itself in Scanner/Library, deliberately, to avoid a
+  second edit surface for the same person's data. A contact CAN be turned
+  into a dated, prioritized follow-up task, though — see "Contact tasks"
+  below; that's additive scheduling, not editing the contact's fields.
 - Persistence is its own IndexedDB store (`STORE_CONTACTS`, `lib/db.ts`,
   `DB_VERSION` bumped 4→5) — same one-store-per-concern pattern as Library/
   History/Tasks, not folded into an existing store.
+
+### Contact tasks (app/ only)
+
+Per Jack: "add in a tasks section so contacts can be added as tasks for
+given dates and priorities so sales reps know which contacts are the most
+important." Reuses the existing Board task store rather than building a
+parallel one — `lib/tasks.ts`'s `Task` gained two optional fields,
+`contactId`/`priority` (`"high" | "medium" | "low"`, a new, separate concept
+from the boolean lead-priority ⭐ elsewhere in the app), set only on a task
+created from the Contacts page via the new `createContactTask`. Both are
+optional so every ordinary Board task (created via the original
+`createTask`, neither field set) is completely unaffected — per Jack's
+explicit "change no functions" ask, **Board's own component was not
+touched at all**. That's possible because a contact task's `text` has the
+contact's name/company baked in at creation time (`"Follow up with {name}
+({company}) — {note}"`), so it reads fine on the Board exactly like any
+other task without Board needing to know contacts exist.
+- Contacts.tsx: a "+ Task" button per contact row opens an inline form
+  (date, priority, optional note) that calls `onAddContactTask`. A "Tasks"
+  panel above the contacts table lists every task with a `contactId`
+  matching a currently-loaded contact, sorted by priority (High first) then
+  date — the "which contacts matter most, at a glance" view Jack asked for.
+  Done/delete on a contact task go through the same `onToggleTask`/
+  `onDeleteTask` App.tsx already had for the Board.
+- `App.tsx`'s new `addContactTask(contactId, date, priority, text)` mirrors
+  the existing `addTask`, just building the task via `createContactTask`.
+
+**Bug found and fixed while wiring this up (predates this feature).**
+`fileSignalRowsIntoGroup`'s `historyEntryId` argument — meant to stamp each
+filed `StoredRow.__historyEntryId` with the History entry it came from, so
+Library files can be traced back — was being passed a throwaway
+`` `${Date.now()}` `` in both Scanner.tsx's direct-upload flow and
+Library.tsx's upload-into-folder flow, never the real `HistoryEntry.id`.
+That made every `__historyEntryId` on every filed Library row wrong,
+silently, since the feature shipped — nothing before this session ever
+read that field, so it went unnoticed. Fixed by having `onRecordHistory`
+(the prop both components already call) return the created `HistoryEntry`,
+and using its real `.id` for the Library filing call — reordered in
+Library.tsx so History is recorded first. Caught because the new History
+"Library-linked" override guard below depends on this field being correct;
+verified with a live upload that the badge/override now actually fires.
+
+## History: Clear/delete with a Library-linked override (app/ only)
+
+Per Jack: a way to clear History wholesale or delete individual imports,
+but "if there's a file saved in the library" tied to that entry, deleting
+it needs a typed **"override"** confirmation first — not a plain browser
+confirm — since it would sever the Library's sync-back link to that entry's
+original scan (see Library architecture above on `__historyEntryId`/
+`onSyncToHistory`), even though the filed Library copy's own data is
+untouched either way.
+- `History.tsx` computes `linkedHistoryIds` from the `libraryEntries` prop
+  (now passed in from `App.tsx`) — every `StoredRow.__historyEntryId` across
+  every Library file. A History card whose id is in that set shows a small
+  "📚 Library-linked" badge and, on delete, opens `OverrideModal` (typed
+  "override," case-insensitive, required before the button enables) instead
+  of deleting. An unlinked entry still gets a plain `window.confirm` (not
+  silent — this is also new, there was no confirmation of any kind before).
+- **Clear History** (new toolbar button) applies the same rule at the batch
+  level: if ANY currently-loaded History entry is Library-linked, clearing
+  requires the same override modal; otherwise a plain confirm. `App.tsx`'s
+  new `clearHistory()` deletes every entry from state and IndexedDB.
+- The Library files themselves are never touched by any of this — only
+  History entries and their `__historyEntryId` back-link are affected.
 
 ## Roadmap — long-term direction, not a build queue
 
@@ -692,3 +758,17 @@ above — that tradeoff needs Jack's explicit sign-off when the time comes).
   rebuild if there are uncommitted changes since the last publish, then
   republish/refresh the claude.ai Artifact and hand him the link. Treat it
   the same as "open the platform"/"drop the platform link," just shorter.
+- **Before implementing any change/add-on/feedback that edits the platform,
+  rewrite the request as a short solution-design proposal and get Jack's
+  explicit approve/tweak/disapprove first** — per his own standing
+  instruction. The proposal states: what will actually change (files/
+  components/data model), what won't, and any product decision it implies
+  (new duplicate/dedup rule, new nav/IA change, renaming something already
+  shipped, anything that could conflict with a feature already in place).
+  Skip this only for a true one-liner with no ambiguity (a typo fix, a copy
+  tweak) — anything that adds a data field, a new view, a new IndexedDB
+  store, or touches more than one component goes through the proposal step.
+  This replaces jumping straight to implementation for those cases; the
+  "don't ask permission for routine implementation choices" rule above
+  still governs judgment calls made *while building* an already-approved
+  proposal.

@@ -15,6 +15,7 @@ import {
   type RuleOverrides,
 } from "../lib/detection";
 import { parseCSVFile, parseCSVText, downloadBlob } from "../lib/csv";
+import type { HistoryEntry } from "../lib/history";
 import {
   createGroup,
   renameGroup,
@@ -61,7 +62,7 @@ interface LibraryProps {
   // Scanner uses) and files its Strong Signal rows into THIS folder's
   // category files — every scan gets recorded to History too, same as a
   // Scanner upload, via the same callback Scanner itself uses.
-  onRecordHistory: (parsedFiles: ParsedFile[], scanned: ResultRow[], tag?: string) => void;
+  onRecordHistory: (parsedFiles: ParsedFile[], scanned: ResultRow[], tag?: string) => HistoryEntry;
   ruleOverrides: RuleOverrides;
 }
 
@@ -155,12 +156,14 @@ export default function LibraryView({ entries, setEntries, groups, setGroups, lo
       const parsedFiles = await Promise.all(csvFiles.map(parseCSVFile));
       const { results: scanned, duplicatesRemoved } = scanParsedFiles(parsedFiles, ruleOverrides);
       const signalRows = scanned.filter((r) => r.tier === "signal" && !r.isDuplicate);
-      const { entries: nextEntries, touchedIds } = fileSignalRowsIntoGroup(entries, groups, groupId, signalRows, `${Date.now()}`);
+      const folderName = groups.find((g) => g.id === groupId)?.name || "this folder";
+      // Record History FIRST so the Library filing below can stamp its rows
+      // with the real History entry id, not a throwaway one.
+      const historyEntry = onRecordHistory(parsedFiles, scanned, `Uploaded into ${folderName}`);
+      const { entries: nextEntries, touchedIds } = fileSignalRowsIntoGroup(entries, groups, groupId, signalRows, historyEntry.id);
       setEntries(nextEntries);
       const touchedEntries = nextEntries.filter((e) => touchedIds.includes(e.id));
       await persistLibraryEntries(touchedEntries);
-      const folderName = groups.find((g) => g.id === groupId)?.name || "this folder";
-      onRecordHistory(parsedFiles, scanned, `Uploaded into ${folderName}`);
       const filedMessage =
         signalRows.length > 0
           ? `Filed ${signalRows.length} Strong Signal lead${signalRows.length === 1 ? "" : "s"} into ${folderName}.`

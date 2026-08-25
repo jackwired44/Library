@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { ACTIVE_BUCKET_KEYS, BUCKET_META, EXPORT_LABELS, exportRowsForBucket, getFullName, type BucketKey } from "../lib/detection";
 import { downloadCSV, toCSV, downloadBlob } from "../lib/csv";
 import { getWeeks, getDays, getFilteredHistory, buildAuditTrailRows, AUDIT_TRAIL_COLUMNS, type HistoryEntry } from "../lib/history";
+import type { LibraryEntry } from "../lib/library";
 
 type GroupBy = "week" | "day";
 
@@ -13,13 +14,65 @@ interface HistoryProps {
   onLoadIntoScanner: (entryIds: string[]) => void;
   onDeleteEntry: (id: string) => void;
   onUpdateEntry: (id: string, patch: Partial<Pick<HistoryEntry, "tag" | "notes">>) => void;
+  onClearHistory: () => void;
+  libraryEntries: LibraryEntry[];
 }
 
-export default function HistoryView({ history, loading, error, onLoadIntoScanner, onDeleteEntry, onUpdateEntry }: HistoryProps) {
+// A History entry a Library file still points back to (via
+// StoredRow.__historyEntryId, set at filing time) can't be deleted quietly
+// — per Jack, deleting it (singly or via Clear History) requires typing
+// "override" first, since it would sever the Library's sync-back link to
+// that entry's original scan even though the filed Library copy itself is
+// untouched.
+type PendingDelete = { kind: "single"; id: string; fileName: string } | { kind: "clear" };
+
+export default function HistoryView({ history, loading, error, onLoadIntoScanner, onDeleteEntry, onUpdateEntry, onClearHistory, libraryEntries }: HistoryProps) {
   const [search, setSearch] = useState("");
   const [groupBy, setGroupBy] = useState<GroupBy>("day");
   const [activeGroupKey, setActiveGroupKey] = useState<string | "all">("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
+
+  const linkedHistoryIds = useMemo(() => {
+    const ids = new Set<string>();
+    libraryEntries.forEach((e) => e.rows.forEach((r) => ids.add(r.__historyEntryId)));
+    return ids;
+  }, [libraryEntries]);
+
+  function requestDeleteEntry(entry: HistoryEntry) {
+    if (linkedHistoryIds.has(entry.id)) {
+      setPendingDelete({ kind: "single", id: entry.id, fileName: entry.fileName });
+      return;
+    }
+    if (window.confirm(`Delete "${entry.fileName}" from History? This can't be undone.`)) {
+      onDeleteEntry(entry.id);
+      setSelected((prev) => { const next = new Set(prev); next.delete(entry.id); return next; });
+    }
+  }
+
+  function requestClearHistory() {
+    if (history.length === 0) return;
+    if (history.some((h) => linkedHistoryIds.has(h.id))) {
+      setPendingDelete({ kind: "clear" });
+      return;
+    }
+    if (window.confirm(`Clear all ${history.length} import${history.length === 1 ? "" : "s"} from History? This can't be undone.`)) {
+      onClearHistory();
+      setSelected(new Set());
+    }
+  }
+
+  function confirmPendingDelete() {
+    if (!pendingDelete) return;
+    if (pendingDelete.kind === "single") {
+      onDeleteEntry(pendingDelete.id);
+      setSelected((prev) => { const next = new Set(prev); next.delete(pendingDelete.id); return next; });
+    } else {
+      onClearHistory();
+      setSelected(new Set());
+    }
+    setPendingDelete(null);
+  }
 
   const filtered = useMemo(() => getFilteredHistory(history, search), [history, search]);
   const weeks = useMemo(() => getWeeks(filtered), [filtered]);
@@ -77,6 +130,13 @@ export default function HistoryView({ history, loading, error, onLoadIntoScanner
         >
           ⬇ Export audit trail
         </button>
+        <button
+          onClick={requestClearHistory}
+          title="Delete every import from History"
+          style={{ border: "1px solid #F0D6D6", background: "#fff", borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 700, color: "#B5443B", whiteSpace: "nowrap" }}
+        >
+          Clear History
+        </button>
       </div>
 
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
@@ -133,9 +193,10 @@ export default function HistoryView({ history, loading, error, onLoadIntoScanner
               key={h.id}
               entry={h}
               selected={selected.has(h.id)}
+              linkedToLibrary={linkedHistoryIds.has(h.id)}
               onToggleSelect={() => toggleSelect(h.id)}
               onView={() => onLoadIntoScanner([h.id])}
-              onDelete={() => { onDeleteEntry(h.id); setSelected((prev) => { const next = new Set(prev); next.delete(h.id); return next; }); }}
+              onDelete={() => requestDeleteEntry(h)}
               onDownloadBucket={(bk) => downloadBucket(h, bk)}
               onUpdateTag={(v) => onUpdateEntry(h.id, { tag: v })}
               onUpdateNotes={(v) => onUpdateEntry(h.id, { notes: v })}
@@ -143,6 +204,50 @@ export default function HistoryView({ history, loading, error, onLoadIntoScanner
           ))}
         </div>
       )}
+
+      {pendingDelete && (
+        <OverrideModal
+          message={
+            pendingDelete.kind === "single"
+              ? `"${pendingDelete.fileName}" has a lead filed in the Library that syncs back to this History entry. Deleting it will break that link — the Library file itself is untouched, but its edits will stop syncing back here.`
+              : `Clearing History will delete ${history.length} import${history.length === 1 ? "" : "s"}, including at least one with a lead filed in the Library that syncs back to it. The Library files themselves are untouched, but their edits will stop syncing back here.`
+          }
+          onConfirm={confirmPendingDelete}
+          onCancel={() => setPendingDelete(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function OverrideModal({ message, onConfirm, onCancel }: { message: string; onConfirm: () => void; onCancel: () => void }) {
+  const [text, setText] = useState("");
+  const ready = text.trim().toLowerCase() === "override";
+  return (
+    <div onClick={onCancel} style={{ position: "fixed", inset: 0, background: "rgba(8,30,34,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, zIndex: 60 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 14, maxWidth: 460, width: "100%", padding: "22px 24px", boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}>
+        <h3 style={{ margin: "0 0 10px", fontSize: 16 }}>This needs an override</h3>
+        <p style={{ margin: "0 0 14px", fontSize: 13, color: "#4c6167", lineHeight: 1.5 }}>{message}</p>
+        <p style={{ margin: "0 0 8px", fontSize: 12.5, fontWeight: 700 }}>Type "override" to confirm:</p>
+        <input
+          autoFocus
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && ready && onConfirm()}
+          placeholder="override"
+          style={{ width: "100%", border: "1px solid #D5D9E0", borderRadius: 8, padding: "8px 12px", fontSize: 13, marginBottom: 16 }}
+        />
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <button onClick={onCancel} style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 8, padding: "8px 14px", fontWeight: 600 }}>Cancel</button>
+          <button
+            onClick={onConfirm}
+            disabled={!ready}
+            style={{ border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, background: ready ? "#B5443B" : "#E9C6C2", color: "#fff", cursor: ready ? "pointer" : "not-allowed" }}
+          >
+            Delete anyway
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -150,6 +255,7 @@ export default function HistoryView({ history, loading, error, onLoadIntoScanner
 function HistoryCard({
   entry,
   selected,
+  linkedToLibrary,
   onToggleSelect,
   onView,
   onDelete,
@@ -159,6 +265,7 @@ function HistoryCard({
 }: {
   entry: HistoryEntry;
   selected: boolean;
+  linkedToLibrary: boolean;
   onToggleSelect: () => void;
   onView: () => void;
   onDelete: () => void;
@@ -179,7 +286,17 @@ function HistoryCard({
         <div style={{ display: "flex", gap: 10 }}>
           <input type="checkbox" checked={selected} onChange={onToggleSelect} style={{ marginTop: 4 }} />
           <div>
-            <div style={{ fontWeight: 700 }}>{entry.fileName}</div>
+            <div style={{ fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }}>
+              {entry.fileName}
+              {linkedToLibrary && (
+                <span
+                  title="A lead from this import is filed in the Library — deleting this entry needs an override"
+                  style={{ fontSize: 10, fontWeight: 700, color: "#7A5B00", background: "#FCEFC7", border: "1px solid #F0DE9E", borderRadius: 999, padding: "1px 8px" }}
+                >
+                  📚 Library-linked
+                </span>
+              )}
+            </div>
             <div style={{ fontSize: 11.5, color: "#9aa1ac", marginTop: 2 }}>
               {new Date(entry.importedAt).toLocaleString()} · {entry.rowsScanned} rows · {signalCount} Strong Signal{dupCount ? ` · ${dupCount} duplicate${dupCount === 1 ? "" : "s"}` : ""}
             </div>
@@ -193,7 +310,13 @@ function HistoryCard({
               ⬇ {BUCKET_META[bk].label}
             </button>
           ))}
-          <button onClick={onDelete} title="Remove this import from History" style={{ border: "1px solid #F0D6D6", background: "#fff", borderRadius: 7, padding: "6px 8px", color: "#B5443B" }}>✕</button>
+          <button
+            onClick={onDelete}
+            title={linkedToLibrary ? "Filed in the Library — deleting needs an override" : "Remove this import from History"}
+            style={{ border: "1px solid #F0D6D6", background: "#fff", borderRadius: 7, padding: "6px 8px", color: "#B5443B" }}
+          >
+            ✕
+          </button>
         </div>
       </div>
       <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>

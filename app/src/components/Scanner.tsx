@@ -49,8 +49,11 @@ interface ScannerProps {
   libraryGroups: LibraryGroup[];
   setLibraryGroups: React.Dispatch<React.SetStateAction<LibraryGroup[]>>;
   // Every fresh scan/import is recorded to History automatically (unlike
-  // the Library, which is opt-in) — see CLAUDE.md "History".
-  onRecordHistory: (parsedFiles: ParsedFile[], scanned: ResultRow[]) => void;
+  // the Library, which is opt-in) — see CLAUDE.md "History". Returns the
+  // created entry so a Library-save right after can stamp its rows with
+  // the REAL History entry id (see handleFiles below) instead of a
+  // throwaway one.
+  onRecordHistory: (parsedFiles: ParsedFile[], scanned: ResultRow[]) => HistoryEntry;
   // Edits made to a row loaded FROM History (tagged with __sourceEntryId —
   // see lib/history.ts) get written back to the History entry it came from.
   // A no-op for an ordinary fresh-scan row.
@@ -146,7 +149,7 @@ export default function Scanner({
       setUploadedFiles(parsedFiles.map((pf) => ({ name: pf.name, rows: pf.data.length })));
       setPage(1);
       setSelected(new Set());
-      onRecordHistory(parsedFiles, scanned);
+      const historyEntry = onRecordHistory(parsedFiles, scanned);
       // Per Jack: no duplicate (exact name+company match within this same
       // upload) should ever make it into the uploaded leads at all — the
       // first-seen row is kept, every repeat was already dropped inside
@@ -165,7 +168,7 @@ export default function Scanner({
         // duplicate group still files normally, only the repeat(s) don't.
         const signalRows = scanned.filter((r) => r.tier === "signal" && !r.isDuplicate);
         const isNewGroup = groupsWithMonth !== libraryGroups;
-        const { entries: nextEntries, touchedIds } = fileSignalRowsIntoGroup(libraryEntries, groupsWithMonth, group.id, signalRows, `${Date.now()}`);
+        const { entries: nextEntries, touchedIds } = fileSignalRowsIntoGroup(libraryEntries, groupsWithMonth, group.id, signalRows, historyEntry.id);
         setLibraryGroups(groupsWithMonth);
         setLibraryEntries(nextEntries);
         const touchedEntries = nextEntries.filter((e) => touchedIds.includes(e.id));
