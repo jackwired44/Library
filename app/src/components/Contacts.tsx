@@ -17,6 +17,11 @@ interface ContactsProps {
   onAddContactTask: (contactId: string, date: string, priority: TaskPriority, text: string) => void;
   onToggleTask: (id: string) => void;
   onDeleteTask: (id: string) => void;
+  // Seeds the search box on mount — set when arriving here from the header
+  // search (see App.tsx/HeaderSearch.tsx). This component remounts fresh
+  // each time Engage's Contacts tab is selected, so an initial-only state
+  // seed is enough; no need to react to later prop changes.
+  initialSearch?: string;
 }
 
 type SortKey = "recent" | "name" | "company" | "timesSeen";
@@ -32,8 +37,8 @@ function todayKey(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-export default function Contacts({ contacts, loading, error, tasks, onAddContactTask, onToggleTask, onDeleteTask }: ContactsProps) {
-  const [search, setSearch] = useState("");
+export default function Contacts({ contacts, loading, error, tasks, onAddContactTask, onToggleTask, onDeleteTask, initialSearch }: ContactsProps) {
+  const [search, setSearch] = useState(initialSearch || "");
   const [sort, setSort] = useState<SortKey>("recent");
   const [addingForId, setAddingForId] = useState<string | null>(null);
 

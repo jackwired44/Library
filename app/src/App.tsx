@@ -6,8 +6,9 @@ import LockScreen from "./components/LockScreen";
 import BackupRestore from "./components/BackupRestore";
 import CheatSheet from "./components/CheatSheet";
 import Home from "./components/Home";
-import Engage from "./components/Engage";
+import Engage, { type EngageTab } from "./components/Engage";
 import AccountPanel from "./components/AccountPanel";
+import HeaderSearch from "./components/HeaderSearch";
 import type { ParsedFile, ResultRow, RuleOverrides } from "./lib/detection";
 import { scanParsedFiles, DEFAULT_RULE_OVERRIDES } from "./lib/detection";
 import { loadLibraryFromDB, ensureMonthFoldersExist, persistGroup, type LibraryEntry, type LibraryGroup } from "./lib/library";
@@ -50,6 +51,10 @@ export interface UploadedFile {
 export default function App() {
   const [unlocked, setUnlockedState] = useState(isUnlocked());
   const [view, setView] = useState<View>("home");
+  // Seeds Engage's initial tab/search when navigating there from the
+  // header search (see HeaderSearch.tsx) — reset when Engage is opened
+  // any other way (sidebar click) so a stale search doesn't linger.
+  const [engageEntry, setEngageEntry] = useState<{ tab?: EngageTab; contactsQuery?: string }>({});
   const [showCheatSheet, setShowCheatSheet] = useState(false);
   const [results, setResults] = useState<ResultRow[] | null>(null);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
@@ -273,14 +278,23 @@ export default function App() {
             <div style={{ fontSize: 11, color: "#8b93a0", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Lead Scanner</div>
           </div>
         </div>
-        <button
-          onClick={() => { setUnlocked(false); setUnlockedState(false); }}
-          title="Lock this page again"
-          className="nav-btn"
-          style={{ textTransform: "none", letterSpacing: "normal" }}
-        >
-          Lock
-        </button>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+          <button
+            onClick={() => { setUnlocked(false); setUnlockedState(false); }}
+            title="Lock this page again"
+            className="nav-btn"
+            style={{ textTransform: "none", letterSpacing: "normal" }}
+          >
+            Lock
+          </button>
+          <HeaderSearch
+            contacts={contacts}
+            onJumpToContacts={(query) => {
+              setEngageEntry({ tab: "contacts", contactsQuery: query });
+              setView("engage");
+            }}
+          />
+        </div>
       </header>
 
       <div style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
@@ -297,7 +311,14 @@ export default function App() {
         >
           <nav style={{ display: "flex", flexDirection: "column", gap: 2, overflowY: "auto", minHeight: 0 }}>
             {NAV_ITEMS.map((item) => (
-              <button key={item.key} onClick={() => setView(item.key)} className={`side-nav-btn${view === item.key ? " active" : ""}`}>
+              <button
+                key={item.key}
+                onClick={() => {
+                  setView(item.key);
+                  if (item.key === "engage") setEngageEntry({});
+                }}
+                className={`side-nav-btn${view === item.key ? " active" : ""}`}
+              >
                 <span aria-hidden="true">{item.icon}</span>
                 <span>
                   {item.label}
@@ -368,6 +389,8 @@ export default function App() {
               contactsLoading={contactsLoading}
               contactsError={contactsError}
               onAddContactTask={addContactTask}
+              initialTab={engageEntry.tab}
+              initialContactsSearch={engageEntry.contactsQuery}
             />
           )}
           {view === "history" && (

@@ -1,11 +1,14 @@
-// Bottom-of-sidebar account block + Platform Notes scratchpad. Per Jack:
-// a static identity block (this tool has no real user accounts — one
-// shared password gate, see CLAUDE.md Access & ownership) whose settings
-// icon opens the existing Cheat Sheet, where rule tuning already lives;
-// plus a persistent notes scratchpad for internal platform notes, separate
-// from per-lead notes.
+// Bottom-of-sidebar account block + Platform Notes scratchpad + Profile &
+// Access. Per Jack, confirmed before building: the identity block reflects
+// a real (locally-saved) profile now, editable via clicking it — but this
+// is still a single-user tool with one shared password gate (see CLAUDE.md
+// Access & ownership), so the settings gear still opens the existing Cheat
+// Sheet, and Profile & Access's Team section is scaffolding, not a working
+// invite flow.
 import { useEffect, useRef, useState } from "react";
 import { loadPlatformNotes, savePlatformNotes } from "../lib/platformNotes";
+import { loadProfile, saveProfile, type Profile } from "../lib/profile";
+import ProfileAccess from "./ProfileAccess";
 
 interface AccountPanelProps {
   onOpenSettings: () => void;
@@ -17,11 +20,15 @@ export default function AccountPanel({ onOpenSettings }: AccountPanelProps) {
   const [notesLoaded, setNotesLoaded] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profileOpen, setProfileOpen] = useState(false);
+
   useEffect(() => {
     loadPlatformNotes().then((text) => {
       setNotes(text);
       setNotesLoaded(true);
     });
+    loadProfile().then(setProfile);
   }, []);
 
   function handleNotesChange(value: string) {
@@ -30,18 +37,25 @@ export default function AccountPanel({ onOpenSettings }: AccountPanelProps) {
     saveTimer.current = setTimeout(() => savePlatformNotes(value), 500);
   }
 
+  function handleSaveProfile(patch: Pick<Profile, "name" | "role" | "org">) {
+    if (!profile) return;
+    const next: Profile = { ...profile, ...patch, updatedAt: new Date().toISOString() };
+    setProfile(next);
+    saveProfile(next);
+  }
+
   return (
     <div className="account-panel">
-      <div className="account-row">
-        <div className="account-avatar" aria-hidden="true">J</div>
+      <button className="account-row account-row-btn" onClick={() => setProfileOpen(true)} title="Profile & access">
+        <div className="account-avatar" aria-hidden="true">{(profile?.name?.[0] || "J").toUpperCase()}</div>
         <div className="account-info">
-          <div className="account-name">Jack</div>
-          <div className="account-org">Wired CIO Sales</div>
+          <div className="account-name">{profile?.name || "Jack"}</div>
+          <div className="account-org">{[profile?.role, profile?.org].filter(Boolean).join(" · ") || "Wired CIO"}</div>
         </div>
-        <button onClick={onOpenSettings} title="Settings — rule tuning, thresholds, Cheat Sheet" className="account-gear">
-          ⚙
-        </button>
-      </div>
+      </button>
+      <button onClick={onOpenSettings} title="Settings — rule tuning, thresholds, Cheat Sheet" className="account-gear account-gear-standalone">
+        ⚙ Settings
+      </button>
       <button onClick={() => setNotesOpen(true)} className="notes-trigger">
         📝 Platform notes
       </button>
@@ -63,6 +77,8 @@ export default function AccountPanel({ onOpenSettings }: AccountPanelProps) {
           </div>
         </div>
       )}
+
+      {profileOpen && profile && <ProfileAccess profile={profile} onSave={handleSaveProfile} onClose={() => setProfileOpen(false)} />}
     </div>
   );
 }

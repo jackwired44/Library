@@ -73,6 +73,74 @@ button:disabled {
   padding: 12px 24px;
 }
 
+/* Global header search — see components/HeaderSearch.tsx. */
+.header-search {
+  position: relative;
+  width: 240px;
+}
+.header-search-input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 6px 10px;
+  font-size: 12px;
+  background: var(--surface-sunken);
+}
+.header-search-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 280px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(8, 30, 34, 0.18);
+  padding: 6px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.header-search-empty {
+  padding: 10px 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.header-search-result {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  border: none;
+  background: none;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: 7px;
+}
+.header-search-result:hover {
+  background: var(--surface-sunken);
+}
+.header-search-result-name {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.header-search-result-meta {
+  font-size: 11px;
+  color: var(--muted);
+}
+.header-search-viewall {
+  border: none;
+  border-top: 1px solid var(--border);
+  background: none;
+  text-align: left;
+  padding: 7px 8px 4px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #1a8f6f;
+  margin-top: 2px;
+}
+
 .app-mark {
   width: 34px;
   height: 34px;
@@ -149,6 +217,16 @@ button:disabled {
   gap: 8px;
   padding: 4px 2px;
 }
+.account-row-btn {
+  width: 100%;
+  border: none;
+  background: none;
+  text-align: left;
+  border-radius: 7px;
+}
+.account-row-btn:hover {
+  background: var(--surface-sunken);
+}
 .account-avatar {
   width: 26px;
   height: 26px;
@@ -189,6 +267,17 @@ button:disabled {
 }
 .account-gear:hover {
   background: var(--surface-sunken);
+}
+.account-gear-standalone {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 5px 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+  border-radius: 7px;
 }
 .notes-trigger {
   display: flex;
@@ -254,6 +343,79 @@ button:disabled {
 .notes-popover-footer {
   font-size: 10.5px;
   color: var(--muted);
+}
+
+/* Profile & Access modal — see components/ProfileAccess.tsx. Reuses the
+   notes-popover-backdrop/header/close classes above. */
+.profile-modal {
+  background: var(--surface);
+  border-radius: 14px;
+  width: 380px;
+  max-width: 100%;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  padding: 16px 18px 18px;
+}
+.profile-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.profile-field input {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 7px 10px;
+  font-size: 13px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--ink);
+}
+.profile-save-btn {
+  margin-top: 10px;
+  border: none;
+  background: var(--ink);
+  color: #fff;
+  border-radius: 7px;
+  padding: 7px 14px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.profile-team-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 8px 10px;
+  background: var(--surface-sunken);
+}
+.profile-role-badge {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+.profile-invite-btn {
+  width: 100%;
+  margin-top: 8px;
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 7px;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: not-allowed;
 }
 
 @media (prefers-reduced-motion: reduce) {

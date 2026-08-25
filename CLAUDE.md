@@ -789,9 +789,10 @@ scratchpad**, not a changelog.
   (`nav` now scrolls independently in its own flex item — the existing
   "scroll option" behavior from the Shell's original build is unchanged —
   while `AccountPanel` sits below it via `margin-top: auto`, always in
-  view). Shows a static "Jack · Wired CIO Sales" identity block with a
-  settings gear that calls the same `setShowCheatSheet(true)` the floating
-  Cheat Sheet button already uses — no new settings surface.
+  view). Originally a static "Jack · Wired CIO Sales" identity block — see
+  "Profile & Access" below for how it became a real, editable one. A
+  separate settings button calls the same `setShowCheatSheet(true)` the
+  floating Cheat Sheet button already uses — no new settings surface.
 - **Platform Notes** (`app/src/lib/platformNotes.ts`) is a single free-text
   scratchpad — one record, one string — for internal notes about the
   platform/build itself, explicitly separate from the per-lead
@@ -802,6 +803,60 @@ scratchpad**, not a changelog.
   feel of a real scratchpad. New IndexedDB store (`STORE_PLATFORM_NOTES`,
   `lib/db.ts`, `DB_VERSION` bumped 5→6) — same one-store-per-concern
   pattern as every other store here.
+
+## Global header search (app/ only)
+
+Per Jack: "add in a search bar the top right a bit below lock so i can
+search by contatcs companies or phone number etc." `HeaderSearch.tsx` sits
+in the header's right column, stacked under the Lock button (`App.tsx`
+turned that corner into a `flex-direction: column` group). Searches the
+existing Contacts directory only — no new data source, since a Contact
+already carries company and phone (see lib/contacts.ts's `searchContacts`,
+reused as-is). As-you-type dropdown shows up to 6 matching contacts
+(name/company/phone); clicking one, or hitting Enter, navigates to
+Engage's Contacts tab with that search already applied.
+- `Engage.tsx` gained optional `initialTab`/`initialContactsSearch` props,
+  and `Contacts.tsx` gained `initialSearch` — both seed-only (read once on
+  mount via `useState(initial || ...)`), which works because `App.tsx`
+  only ever renders `<Engage>` when `view === "engage"`, so it fully
+  unmounts/remounts on every navigation into the tab. `App.tsx` holds a
+  small `engageEntry` state (`{ tab?, contactsQuery? }`) that
+  `HeaderSearch`'s `onJumpToContacts` sets before switching `view` to
+  `"engage"`. The sidebar's own Engage nav button explicitly resets
+  `engageEntry` to `{}` on click, so navigating there normally (not via
+  search) always lands back on the Tasks tab instead of replaying a stale
+  search.
+
+## Profile & Access (app/ only)
+
+Per Jack: "add in a section for account and profile so i can build out
+others being allowed access and then start building around user policies
+etc." Confirmed scope before building (per the standing proposal rule,
+and because this is the single largest guardrail in this file): **UI
+scaffolding only, one real local user, no backend change** — this app has
+no shared database, so a second person "invited" here still couldn't see
+Jack's data no matter what UI exists. Real multi-user access is a separate,
+much larger effort (a hosted backend + database) that hasn't been started.
+- `lib/profile.ts` replaces the account block's hardcoded "Jack · Wired
+  CIO Sales" with a real, editable, locally-persisted record (name/role/
+  org) — new IndexedDB store (`STORE_PROFILE`, `DB_VERSION` bumped 6→7).
+  Same one-user-only posture as everything else in Access & ownership,
+  just no longer hardcoded in JSX.
+- Clicking the account row (now a button, `AccountPanel.tsx`) opens
+  `ProfileAccess.tsx` — a modal with two sections: **Your profile** (the
+  editable name/role/org form above) and **Team & access**, which lists
+  the one real user ("you," tagged "Owner") plus a deliberately **disabled**
+  "+ Invite teammate" button with an explanatory note underneath about why
+  (no shared backend yet) — chosen over a working-looking invite that
+  would silently do nothing, which would be actively misleading. This is
+  the seed for the Roadmap's "user accounts/login policies" item; role-
+  based policies (Owner/Admin/Rep) are named in the copy as direction, not
+  implemented.
+- The settings gear (previously inline in the account row) is now its own
+  full-width button below it, since the row itself is the profile-modal
+  trigger — still opens the same Cheat Sheet, nothing else changed there.
+
+## History: Clear/delete with a Library-linked override (app/ only)
 
 Per Jack: a way to clear History wholesale or delete individual imports,
 but "if there's a file saved in the library" tied to that entry, deleting

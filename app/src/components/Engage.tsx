@@ -27,9 +27,17 @@ interface EngageProps {
   contactsLoading: boolean;
   contactsError: string | null;
   onAddContactTask: (contactId: string, date: string, priority: TaskPriority, text: string) => void;
+
+  // Set when navigating here from the header search (see App.tsx/
+  // HeaderSearch.tsx) so Engage lands straight on the right tab/result
+  // instead of always defaulting to Tasks. Engage unmounts whenever the
+  // sidebar navigates away (App.tsx conditionally renders it), so these
+  // only need to seed initial state, not stay in sync afterward.
+  initialTab?: EngageTab;
+  initialContactsSearch?: string;
 }
 
-type EngageTab = "contacts" | "companies" | "tasks";
+export type EngageTab = "contacts" | "companies" | "tasks";
 const TAB_OPTIONS: { key: EngageTab; label: string }[] = [
   { key: "contacts", label: "Contacts" },
   { key: "companies", label: "Companies" },
@@ -48,8 +56,10 @@ export default function Engage({
   contactsLoading,
   contactsError,
   onAddContactTask,
+  initialTab,
+  initialContactsSearch,
 }: EngageProps) {
-  const [tab, setTab] = useState<EngageTab>("tasks");
+  const [tab, setTab] = useState<EngageTab>(initialTab || "tasks");
 
   return (
     <div>
@@ -87,6 +97,7 @@ export default function Engage({
           onAddContactTask={onAddContactTask}
           onToggleTask={onToggleTask}
           onDeleteTask={onDeleteTask}
+          initialSearch={initialContactsSearch}
         />
       )}
       {tab === "companies" && <CompaniesView contacts={contacts} />}
