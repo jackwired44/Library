@@ -29,8 +29,8 @@ type View = "home" | "scanner" | "history" | "library" | "engage";
 const NAV_ITEMS: { key: View; label: string; icon: string }[] = [
   { key: "home", label: "Home", icon: "🏠" },
   { key: "scanner", label: "Scanner", icon: "🔎" },
-  { key: "library", label: "Lead Library", icon: "📚" },
   { key: "engage", label: "Engage", icon: "🤝" },
+  { key: "library", label: "Lead Library", icon: "📚" },
   { key: "history", label: "History", icon: "🕘" },
 ];
 
