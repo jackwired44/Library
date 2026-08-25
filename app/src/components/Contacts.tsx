@@ -123,7 +123,7 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
 
       {contacts.length === 0 ? (
         <div style={{ fontSize: 13, color: "var(--muted)", padding: "24px 0" }}>
-          No contacts yet — every CSV you upload through the Scanner or file directly into a Library folder adds its rows here automatically.
+          No contacts yet — every CSV you upload through the Scanner or file directly into a Lead Library folder adds its rows here automatically.
         </div>
       ) : filtered.length === 0 ? (
         <div style={{ fontSize: 13, color: "var(--muted)", padding: "24px 0" }}>No contacts match "{search}".</div>

@@ -688,6 +688,36 @@ Library.tsx so History is recorded first. Caught because the new History
 "Library-linked" override guard below depends on this field being correct;
 verified with a live upload that the badge/override now actually fires.
 
+## Nav restructure: Lead Library rename + Engage tab (app/ only)
+
+Per Jack's explicit ask, proposed and approved before building (per the new
+standing rule below): "Library" is renamed **"Lead Library"** everywhere a
+person sees it — sidebar label, Home tile, the Home banner's "single source
+of truth" line, History's Library-linked badge/override copy, the Scanner's
+"Save to the Lead Library" checkbox, the Lead Library's own empty-folder
+hint, Contacts' empty state, and the Backup/Restore tooltips. Nothing else
+changed: the component file stays `Library.tsx`, `lib/library.ts`,
+`LibraryEntry`/`LibraryGroup`, and every `libraryEntries`/`libraryGroups`
+variable name are untouched — renaming those would be pure internal churn
+with real regression risk for zero user-facing benefit.
+
+**Board and Contacts are no longer their own top-level nav items** — both
+now live as two sub-tabs ("Tasks" / "Contacts") inside a new **Engage**
+view (`app/src/components/Engage.tsx`), sitting between Lead Library and
+History in the sidebar. This is purely a navigation regroup, same as the
+Google→Microsoft/Business Central View-tab pattern elsewhere in the app but
+one level up (nav-level, not row-level): `Engage.tsx` renders `TaskBoard`
+and `ContactsView` completely unchanged, same props, same data — it only
+owns a small tab strip and an `activeTab` state. `App.tsx`'s `View` type
+lost `"board"`/`"contacts"` and gained `"engage"`; the two separate render
+blocks collapsed into one `<Engage ... />` that forwards every prop both
+children need (`tasks`, `contacts`, and all their existing handlers).
+Home's module grid collapsed the separate Board and Contacts tiles into
+one "Engage" tile showing a combined stat (`N contacts · M open tasks`).
+Contact tasks (the feature directly above) keep working exactly the same
+inside Engage's Contacts sub-tab — verified live that adding a task there
+shows up immediately in Engage's Tasks sub-tab.
+
 ## History: Clear/delete with a Library-linked override (app/ only)
 
 Per Jack: a way to clear History wholesale or delete individual imports,

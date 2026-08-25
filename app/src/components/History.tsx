@@ -110,7 +110,7 @@ export default function HistoryView({ history, loading, error, onLoadIntoScanner
   return (
     <div>
       <p style={{ color: "#4c6167", maxWidth: 700, marginBottom: 16 }}>
-        Every import is kept here automatically, whether or not it was saved to the Library — an audit trail of exactly which
+        Every import is kept here automatically, whether or not it was saved to the Lead Library — an audit trail of exactly which
         day each file came in. Search across all of it, revisit a past batch, or combine several into one working Scanner
         view — edits made there sync back here.
       </p>
@@ -209,8 +209,8 @@ export default function HistoryView({ history, loading, error, onLoadIntoScanner
         <OverrideModal
           message={
             pendingDelete.kind === "single"
-              ? `"${pendingDelete.fileName}" has a lead filed in the Library that syncs back to this History entry. Deleting it will break that link — the Library file itself is untouched, but its edits will stop syncing back here.`
-              : `Clearing History will delete ${history.length} import${history.length === 1 ? "" : "s"}, including at least one with a lead filed in the Library that syncs back to it. The Library files themselves are untouched, but their edits will stop syncing back here.`
+              ? `"${pendingDelete.fileName}" has a lead filed in the Lead Library that syncs back to this History entry. Deleting it will break that link — the Lead Library file itself is untouched, but its edits will stop syncing back here.`
+              : `Clearing History will delete ${history.length} import${history.length === 1 ? "" : "s"}, including at least one with a lead filed in the Lead Library that syncs back to it. The Lead Library files themselves are untouched, but their edits will stop syncing back here.`
           }
           onConfirm={confirmPendingDelete}
           onCancel={() => setPendingDelete(null)}
@@ -290,10 +290,10 @@ function HistoryCard({
               {entry.fileName}
               {linkedToLibrary && (
                 <span
-                  title="A lead from this import is filed in the Library — deleting this entry needs an override"
+                  title="A lead from this import is filed in the Lead Library — deleting this entry needs an override"
                   style={{ fontSize: 10, fontWeight: 700, color: "#7A5B00", background: "#FCEFC7", border: "1px solid #F0DE9E", borderRadius: 999, padding: "1px 8px" }}
                 >
-                  📚 Library-linked
+                  📚 Lead Library-linked
                 </span>
               )}
             </div>
@@ -312,7 +312,7 @@ function HistoryCard({
           ))}
           <button
             onClick={onDelete}
-            title={linkedToLibrary ? "Filed in the Library — deleting needs an override" : "Remove this import from History"}
+            title={linkedToLibrary ? "Filed in the Lead Library — deleting needs an override" : "Remove this import from History"}
             style={{ border: "1px solid #F0D6D6", background: "#fff", borderRadius: 7, padding: "6px 8px", color: "#B5443B" }}
           >
             ✕

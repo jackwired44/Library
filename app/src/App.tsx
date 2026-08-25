@@ -6,7 +6,7 @@ import LockScreen from "./components/LockScreen";
 import BackupRestore from "./components/BackupRestore";
 import CheatSheet from "./components/CheatSheet";
 import Home from "./components/Home";
-import ContactsView from "./components/Contacts";
+import Engage from "./components/Engage";
 import type { ParsedFile, ResultRow, RuleOverrides } from "./lib/detection";
 import { scanParsedFiles, DEFAULT_RULE_OVERRIDES } from "./lib/detection";
 import { loadLibraryFromDB, ensureMonthFoldersExist, persistGroup, type LibraryEntry, type LibraryGroup } from "./lib/library";
@@ -21,18 +21,16 @@ import {
   type HistoryEntry,
 } from "./lib/history";
 import { loadRuleOverrides, persistRuleOverrides } from "./lib/ruleOverrides";
-import TaskBoard from "./components/TaskBoard";
 import { loadTasksFromDB, persistTask, deleteTaskFromDB, createTask, createContactTask, type Task, type TaskPriority } from "./lib/tasks";
 import { isUnlocked, setUnlocked } from "./lib/auth";
 
-type View = "home" | "scanner" | "history" | "library" | "board" | "contacts";
+type View = "home" | "scanner" | "history" | "library" | "engage";
 const NAV_ITEMS: { key: View; label: string; icon: string }[] = [
   { key: "home", label: "Home", icon: "🏠" },
   { key: "scanner", label: "Scanner", icon: "🔎" },
-  { key: "library", label: "Library", icon: "📚" },
-  { key: "contacts", label: "Contacts", icon: "🪪" },
+  { key: "library", label: "Lead Library", icon: "📚" },
+  { key: "engage", label: "Engage", icon: "🤝" },
   { key: "history", label: "History", icon: "🕘" },
-  { key: "board", label: "Board", icon: "🗓" },
 ];
 
 export interface UploadedFile {
@@ -217,7 +215,7 @@ export default function App() {
     });
   }
 
-  function loadParsedFilesIntoScanner(parsedFiles: ParsedFile[], tag = "Loaded from Library") {
+  function loadParsedFilesIntoScanner(parsedFiles: ParsedFile[], tag = "Loaded from Lead Library") {
     const { results: scanned } = scanParsedFiles(parsedFiles, ruleOverrides);
     setResults(scanned);
     setUploadedFiles(parsedFiles.map((pf) => ({ name: pf.name, rows: pf.data.length })));
@@ -353,15 +351,19 @@ export default function App() {
               ruleOverrides={ruleOverrides}
             />
           )}
-          {view === "contacts" && (
-            <ContactsView
-              contacts={contacts}
-              loading={contactsLoading}
-              error={contactsError}
+          {view === "engage" && (
+            <Engage
               tasks={tasks}
-              onAddContactTask={addContactTask}
+              tasksLoading={tasksLoading}
+              tasksError={tasksError}
+              onAddTask={addTask}
               onToggleTask={toggleTask}
+              onEditTask={editTask}
               onDeleteTask={deleteTask}
+              contacts={contacts}
+              contactsLoading={contactsLoading}
+              contactsError={contactsError}
+              onAddContactTask={addContactTask}
             />
           )}
           {view === "history" && (
@@ -388,17 +390,6 @@ export default function App() {
               onLoadIntoScanner={loadParsedFilesIntoScanner}
               onRecordHistory={recordHistory}
               ruleOverrides={ruleOverrides}
-            />
-          )}
-          {view === "board" && (
-            <TaskBoard
-              tasks={tasks}
-              loading={tasksLoading}
-              error={tasksError}
-              onAddTask={addTask}
-              onToggleTask={toggleTask}
-              onEditTask={editTask}
-              onDeleteTask={deleteTask}
             />
           )}
         </main>

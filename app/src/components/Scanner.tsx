@@ -419,7 +419,7 @@ export default function Scanner({
         <div style={{ display: "flex", justifyContent: "center", gap: 10, marginBottom: 12, alignItems: "center" }}>
           <label style={{ display: "flex", alignItems: "center", gap: 8, background: "#fff", border: "1px solid #D5D9E0", borderRadius: 9, padding: "8px 13px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
             <input type="checkbox" checked={saveToLibrary} onChange={(e) => setSaveToLibrary(e.target.checked)} />
-            Save this batch's Strong Signal leads to the Library
+            Save this batch's Strong Signal leads to the Lead Library
           </label>
           <select
             value={uploadMonthKey}

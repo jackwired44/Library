@@ -461,7 +461,7 @@ function FolderContents({
 
       {folderEntries.length === 0 ? (
         <div style={{ padding: 40, textAlign: "center", color: "#9aa1ac", background: "#fff", border: "1px solid #E4E7EC", borderRadius: 13 }}>
-          Nothing filed into {folder.name} yet. Check "Save this batch's Strong Signal leads to the Library" on the Scanner's upload screen and pick this month to get started.
+          Nothing filed into {folder.name} yet. Check "Save this batch's Strong Signal leads to the Lead Library" on the Scanner's upload screen and pick this month to get started.
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>

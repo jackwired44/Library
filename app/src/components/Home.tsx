@@ -2,7 +2,7 @@
 // module of its own. First pass per Jack: "need to start somewhere then fine
 // tune." Doesn't read or write any app state beyond the counts it's handed;
 // every module it links to is untouched.
-type NavView = "scanner" | "history" | "library" | "board" | "contacts";
+type NavView = "scanner" | "history" | "library" | "engage";
 
 interface HomeProps {
   onNavigate: (view: NavView) => void;
@@ -34,18 +34,18 @@ export default function Home({ onNavigate, onOpenCheatSheet, libraryCount, histo
     {
       key: "library",
       icon: "📚",
-      title: "Library",
+      title: "Lead Library",
       description: "The source of truth. Every Strong Signal lead, filed by month and category — the one place all of it lives.",
       action: () => onNavigate("library"),
       stat: `${libraryCount} file${libraryCount === 1 ? "" : "s"}`,
     },
     {
-      key: "contacts",
-      icon: "🪪",
-      title: "Contacts",
-      description: "Every person seen in any CSV upload, deduplicated by email/name+company — searchable across every batch you've ever run.",
-      action: () => onNavigate("contacts"),
-      stat: `${contactsCount} contact${contactsCount === 1 ? "" : "s"}`,
+      key: "engage",
+      icon: "🤝",
+      title: "Engage",
+      description: "Contacts (every person from any upload, deduplicated) and a day-by-day task board — schedule and prioritize outbound follow-ups.",
+      action: () => onNavigate("engage"),
+      stat: `${contactsCount} contact${contactsCount === 1 ? "" : "s"}${tasksOpenCount > 0 ? ` · ${tasksOpenCount} open task${tasksOpenCount === 1 ? "" : "s"}` : ""}`,
     },
     {
       key: "history",
@@ -54,14 +54,6 @@ export default function Home({ onNavigate, onOpenCheatSheet, libraryCount, histo
       description: "Every past upload, searchable and reloadable back into the Scanner.",
       action: () => onNavigate("history"),
       stat: `${historyCount} upload${historyCount === 1 ? "" : "s"}`,
-    },
-    {
-      key: "board",
-      icon: "🗓",
-      title: "Board",
-      description: "A day-by-day task board for outbound follow-ups.",
-      action: () => onNavigate("board"),
-      stat: tasksOpenCount > 0 ? `${tasksOpenCount} open` : undefined,
     },
     {
       key: "cheatsheet",
@@ -89,7 +81,7 @@ export default function Home({ onNavigate, onOpenCheatSheet, libraryCount, histo
         <h1 style={{ margin: "0 0 12px", fontSize: 28, color: "#fff" }}>Welcome back.</h1>
         <p style={{ margin: 0, maxWidth: 640, fontSize: 14.5, lineHeight: 1.6, color: "#d7e6e3" }}>
           This is the lead command center — a Scanner that triages raw exports into qualified opportunities, and a{" "}
-          <strong style={{ color: "#fff" }}>Library that's the single source of truth</strong> for every one of them. It's the first
+          <strong style={{ color: "#fff" }}>Lead Library that's the single source of truth</strong> for every one of them. It's the first
           step toward a lighter-weight, self-hosted CRM built solely for outbound sales — calling, emailing, and sequencing — not a
           general sales platform. Start somewhere, then fine-tune.
         </p>
