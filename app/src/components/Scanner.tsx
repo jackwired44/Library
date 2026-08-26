@@ -413,6 +413,23 @@ export default function Scanner({
       return [row];
     });
   }
+  // Per Jack: "when I select the disposition made I can undo it in case I
+  // mistakenly put one down." Reverts disposition + its note back to
+  // "none," and — since a "Not interested" pick auto-crosses the row out
+  // (see setDisposition above) — also un-crosses it when THAT'S the
+  // disposition being undone, so a mistaken click is fully reversed in one
+  // action rather than needing a separate trip to the cross-out toggle.
+  function undoDisposition(id: string) {
+    mutateResults((list) => {
+      const row = list.find((r) => r.id === id);
+      if (!row) return [];
+      const wasNotInterested = row.disposition === "not-interested";
+      row.disposition = "none";
+      row.dispositionNote = "";
+      if (wasNotInterested && row.crossedOut) row.crossedOut = false;
+      return [row];
+    });
+  }
   function setDispositionNote(id: string, note: string) {
     mutateResults((list) => {
       const row = list.find((r) => r.id === id);
@@ -467,6 +484,20 @@ export default function Scanner({
         .map((r) => {
           r.disposition = disposition;
           if (disposition === "not-interested") r.crossedOut = true;
+          return r;
+        })
+    );
+  }
+  function undoDispositionForSelected() {
+    if (!selected.size) return;
+    mutateResults((list) =>
+      list
+        .filter((r) => selected.has(r.id))
+        .map((r) => {
+          const wasNotInterested = r.disposition === "not-interested";
+          r.disposition = "none";
+          r.dispositionNote = "";
+          if (wasNotInterested && r.crossedOut) r.crossedOut = false;
           return r;
         })
     );
@@ -894,6 +925,7 @@ export default function Scanner({
             ))}
           </select>
           <button onClick={() => setDispositionForSelected(bulkDisposition)} style={{ background: "#2CC295", color: "#081E22", border: "none", borderRadius: 8, padding: "7px 14px", fontWeight: 700 }}>Apply</button>
+          <button onClick={undoDispositionForSelected} title="Undo disposition on selected rows" style={{ background: "#fff", border: "1px solid #D5D9E0", borderRadius: 8, padding: "7px 12px" }}>↺ Undo disposition</button>
           <button onClick={() => setPriorityForSelected(true)} style={{ background: "#FFF7E5", color: "#8A5A00", border: "1px solid #F5DFA0", borderRadius: 8, padding: "7px 12px", fontWeight: 700 }}>⭐ Mark Priority</button>
           <button onClick={() => setPriorityForSelected(false)} style={{ background: "#fff", border: "1px solid #D5D9E0", borderRadius: 8, padding: "7px 12px" }}>Unmark Priority</button>
           <input type="month" value={bulkPriorityMonth} onChange={(e) => setBulkPriorityMonth(e.target.value)} style={{ border: "1px solid #D5D9E0", borderRadius: 8, padding: "6px 8px" }} />
@@ -985,15 +1017,26 @@ export default function Scanner({
                     </td>
                     <td style={{ padding: "10px 14px" }}>
                       <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 150 }}>
-                        <select
-                          value={r.disposition}
-                          onChange={(e) => setDisposition(r.id, e.target.value as Disposition)}
-                          style={{ background: DISPOSITION_META[r.disposition].bg, color: DISPOSITION_META[r.disposition].color, fontWeight: 600, border: "1px solid #D8DBE1", borderRadius: 7, padding: "5px 7px", fontSize: 12 }}
-                        >
-                          {DISPOSITION_ORDER.map((d) => (
-                            <option key={d} value={d}>{DISPOSITION_META[d].label}</option>
-                          ))}
-                        </select>
+                        <div style={{ display: "flex", gap: 4 }}>
+                          <select
+                            value={r.disposition}
+                            onChange={(e) => setDisposition(r.id, e.target.value as Disposition)}
+                            style={{ flex: 1, background: DISPOSITION_META[r.disposition].bg, color: DISPOSITION_META[r.disposition].color, fontWeight: 600, border: "1px solid #D8DBE1", borderRadius: 7, padding: "5px 7px", fontSize: 12 }}
+                          >
+                            {DISPOSITION_ORDER.map((d) => (
+                              <option key={d} value={d}>{DISPOSITION_META[d].label}</option>
+                            ))}
+                          </select>
+                          {r.disposition !== "none" && (
+                            <button
+                              onClick={() => undoDisposition(r.id)}
+                              title="Undo disposition (mistakenly selected)"
+                              style={{ border: "1px solid #D8DBE1", background: "#fff", borderRadius: 7, padding: "0 7px", fontSize: 13, cursor: "pointer" }}
+                            >
+                              ↺
+                            </button>
+                          )}
+                        </div>
                         {r.disposition !== "none" && (
                           <input
                             defaultValue={r.dispositionNote}

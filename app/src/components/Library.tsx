@@ -649,15 +649,26 @@ function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownl
                         </td>
                         <td style={{ padding: "4px 6px", minWidth: 150 }}>
                           <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                            <select
-                              value={disposition}
-                              onChange={(ev) => onRowStatus(rowKey, { __disposition: ev.target.value as Disposition })}
-                              style={{ background: DISPOSITION_META[disposition].bg, color: DISPOSITION_META[disposition].color, fontWeight: 600, border: "1px solid #D8DBE1", borderRadius: 6, padding: "4px 6px", fontSize: 11.5 }}
-                            >
-                              {DISPOSITION_ORDER.map((d) => (
-                                <option key={d} value={d}>{DISPOSITION_META[d].label}</option>
-                              ))}
-                            </select>
+                            <div style={{ display: "flex", gap: 3 }}>
+                              <select
+                                value={disposition}
+                                onChange={(ev) => onRowStatus(rowKey, { __disposition: ev.target.value as Disposition })}
+                                style={{ flex: 1, background: DISPOSITION_META[disposition].bg, color: DISPOSITION_META[disposition].color, fontWeight: 600, border: "1px solid #D8DBE1", borderRadius: 6, padding: "4px 6px", fontSize: 11.5 }}
+                              >
+                                {DISPOSITION_ORDER.map((d) => (
+                                  <option key={d} value={d}>{DISPOSITION_META[d].label}</option>
+                                ))}
+                              </select>
+                              {disposition !== "none" && (
+                                <button
+                                  onClick={() => onRowStatus(rowKey, { __disposition: "none", __dispositionNote: "" })}
+                                  title="Undo disposition (mistakenly selected)"
+                                  style={{ border: "1px solid #D8DBE1", background: "#fff", borderRadius: 6, padding: "0 6px", fontSize: 12, cursor: "pointer" }}
+                                >
+                                  ↺
+                                </button>
+                              )}
+                            </div>
                             {disposition !== "none" && (
                               <input
                                 defaultValue={row.__dispositionNote || ""}

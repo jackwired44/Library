@@ -1564,6 +1564,38 @@ parallel bucket. Two-word phrase, per Jack's explicit ask for one:
   "not interested") stays a flat Bad Leads with both reasons listed, no
   carve-out.
 
+### Undo disposition (app/ only)
+
+Per Jack: "add in a function also for when i select the dispostion made i
+can undo it in case i mistakenly put one down." Concrete UI convenience
+building directly on already-shipped mechanics, so built directly.
+
+- **`undoDisposition(id)`** (`Scanner.tsx`) resets `disposition` to
+  `"none"` and clears `dispositionNote`. Since selecting "Not interested"
+  auto-crosses a row out (see "Disposition row-color + auto-cross-out"
+  above), undoing THAT specific disposition also un-crosses the row — a
+  mistaken "Not interested" click is fully reversed in one action instead
+  of needing a separate trip to the cross-out toggle. Undoing any other
+  disposition leaves `crossedOut` alone, same manual-undo-only contract
+  as before — this only reverses the auto-effect of the exact disposition
+  being undone, never a cross-out set independently.
+- A small "↺" button appears next to the disposition dropdown — in
+  Scanner's results table (per-row) and in the bulk-action bar (a
+  "↺ Undo disposition" button, `undoDispositionForSelected`, same
+  per-row logic applied to every selected row) — visible only when
+  there's something to undo (`disposition !== "none"`).
+- Same "↺" control added to the Lead Library's per-lead editor
+  (`Library.tsx`, `CategoryFileCard`) — resets `__disposition`/
+  `__dispositionNote` the same way. `StoredRow` has no `crossedOut`
+  concept at all (that's a Scanner/Contact-only field), so the Library
+  version is just the disposition/note reset, nothing else to reverse.
+- Verified live: selected "Not interested" on a lead (confirmed auto-
+  cross-out fired), clicked Undo, confirmed disposition reverted to "No
+  disposition" AND the row un-crossed and un-tinted in one click; confirmed
+  a row manually crossed out with no disposition set shows no Undo button
+  (nothing to undo); confirmed the same round-trip works through the bulk
+  toolbar on two rows at once.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool
