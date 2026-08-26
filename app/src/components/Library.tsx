@@ -6,6 +6,7 @@ import {
   DISPOSITION_META,
   DISPOSITION_ORDER,
   EXPORT_LABELS,
+  PERSONAL_PROSPECT_LABEL,
   scanParsedFiles,
   type BucketKey,
   type Disposition,
@@ -640,6 +641,11 @@ function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownl
                               <option key={bk} value={bk}>{BUCKET_META[bk].label}</option>
                             ))}
                           </select>
+                          {row.__isPersonalProspect && (
+                            <div title="Personal/free email domain, but the row's own content already cleared Strong Signal." style={{ fontSize: 9.5, background: "#DFF3F1", color: "#0F7A72", padding: "1px 6px", borderRadius: 20, fontWeight: 700, marginTop: 3, display: "inline-block" }}>
+                              {PERSONAL_PROSPECT_LABEL}
+                            </div>
+                          )}
                         </td>
                         <td style={{ padding: "4px 6px", minWidth: 150 }}>
                           <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>

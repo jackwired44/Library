@@ -17,7 +17,7 @@
 // has no email. A row with neither still gets a Contact record, it's just
 // never matched as a duplicate of anything else.
 import { dbGetAll, dbPut, STORE_CONTACTS } from "./db";
-import { computeFileFieldMapping, getFullName, resolveRowFields, type CategoryKey, type Disposition, type ParsedFile, type ResolvedFields, type ResultRow } from "./detection";
+import { computeFileFieldMapping, getEmailDomain, getFullName, isFreeEmailDomain, resolveRowFields, type CategoryKey, type Disposition, type ParsedFile, type ResolvedFields, type ResultRow } from "./detection";
 
 export interface Contact {
   id: string;
@@ -88,27 +88,18 @@ export interface Contact {
   onCrm?: boolean;
 }
 
-// Free/personal email providers a company website should never be guessed
-// from — someone using a gmail/outlook/etc. address tells us nothing about
-// their employer's domain. Not exhaustive, just the common ones a B2B lead
-// list actually turns up.
-const FREE_EMAIL_DOMAINS = new Set([
-  "gmail.com", "googlemail.com", "yahoo.com", "ymail.com", "outlook.com",
-  "hotmail.com", "live.com", "msn.com", "icloud.com", "me.com", "mac.com",
-  "aol.com", "protonmail.com", "proton.me", "mail.com", "gmx.com",
-  "yandex.com", "zoho.com", "comcast.net", "verizon.net", "att.net",
-]);
-
 // Per Jack: "set a rule to use the email domain to figure that out and map
-// it properly." Returns null for a missing/free-provider/malformed email —
-// callers treat null as "leave companyWebsite untouched," never as
-// clearing an existing value.
+// it properly." Uses the SAME free/personal-provider list detection.ts's
+// Auto-DQ rule checks (getEmailDomain/isFreeEmailDomain, see
+// detection.ts's FREE_EMAIL_DOMAINS comment) — a gmail/outlook/etc.
+// address should never be used to guess a company website, same reasoning
+// as why it never exempts a lead from the personal-email DQ rule either.
+// Returns null for a missing/free-provider/malformed email — callers
+// treat null as "leave companyWebsite untouched," never as clearing an
+// already-set value.
 export function deriveCompanyWebsite(email: unknown): string | null {
-  const e = normalizeText(email);
-  const at = e.lastIndexOf("@");
-  if (at < 0) return null;
-  const domain = e.slice(at + 1).trim();
-  if (!domain || !domain.includes(".") || FREE_EMAIL_DOMAINS.has(domain)) return null;
+  const domain = getEmailDomain(email);
+  if (!domain || isFreeEmailDomain(domain)) return null;
   return `https://${domain}`;
 }
 

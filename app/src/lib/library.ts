@@ -76,6 +76,12 @@ export type StoredRow = ExportRow & {
   __isGoogleToMicrosoft?: boolean;
   __isBusinessCentral?: boolean;
   __isSalesCrm?: boolean;
+  // Personal Prospect carve-out (see detection.ts's PERSONAL_PROSPECT_LABEL/
+  // scanRowUnified) — a personal-email lead whose own content already
+  // cleared Strong Signal, filed into its normal category same as any
+  // other Strong Signal row, just visibly tagged. Optional for the same
+  // pre-existing-row reason as the flags above.
+  __isPersonalProspect?: boolean;
   __disposition: Disposition;
   __dispositionNote: string;
   __priority: boolean;
@@ -245,6 +251,7 @@ export function fileSignalRowsIntoGroup(
       __isGoogleToMicrosoft: r.isGoogleToMicrosoft,
       __isBusinessCentral: r.isBusinessCentral,
       __isSalesCrm: r.isSalesCrm,
+      __isPersonalProspect: r.isPersonalProspect,
       __disposition: r.disposition,
       __dispositionNote: r.dispositionNote,
       __priority: r.priority,

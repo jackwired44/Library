@@ -638,6 +638,33 @@ export function scanRowPlatform(
   return { categories, tier, snippet: bestHit.snippet, notesSummary, hits, dynamicsSeatCount, dynamicsModuleTier, isGoogleToMicrosoft, isBusinessCentral, isSalesCrm };
 }
 
+// Free/personal email providers — shared source of truth for both the
+// "Personal email domain" Auto-DQ rule below and lib/contacts.ts's
+// deriveCompanyWebsite (a gmail/outlook/etc. address should never DQ-
+// exempt a lead OR be used to guess a company website). Single list, two
+// consumers, so the two never drift apart — see CLAUDE.md "Double check
+// websites are pulled through cross checking the contacts email."
+export const FREE_EMAIL_DOMAINS = new Set([
+  "gmail.com", "googlemail.com", "yahoo.com", "ymail.com", "outlook.com",
+  "hotmail.com", "live.com", "msn.com", "icloud.com", "me.com", "mac.com",
+  "aol.com", "protonmail.com", "proton.me", "mail.com", "gmx.com",
+  "yandex.com", "zoho.com", "comcast.net", "verizon.net", "att.net",
+]);
+export function getEmailDomain(email: unknown): string | null {
+  const e = String(email || "").trim().toLowerCase();
+  const at = e.lastIndexOf("@");
+  if (at < 0) return null;
+  const domain = e.slice(at + 1).trim();
+  return domain && domain.includes(".") ? domain : null;
+}
+export function isFreeEmailDomain(domain: string): boolean {
+  return FREE_EMAIL_DOMAINS.has(domain);
+}
+// Two-word carve-out label — per Jack's explicit ask to "make a two word
+// phrase for this." See the Auto-DQ rule and scanRowUnified's carve-out
+// logic below for what it means and when it fires.
+export const PERSONAL_PROSPECT_LABEL = "Personal Prospect";
+
 /* ------------------------------------------------------------------ */
 /* Auto-DQ ("Bad Leads") — cross-cutting, always wins over category/tier */
 /* ------------------------------------------------------------------ */
@@ -687,6 +714,14 @@ export const DQ_RULES: { label: string; pattern: RegExp }[] = [
   },
 ];
 const PLACEHOLDER_EMAIL_RE = /^(?:test|noemail|none|na|asdf|example|foo|bar|sample|placeholder|xxx+)@|@(?:test|example)\.(?:com|org|net)$/i;
+// Per Jack: "we always make emails with personals like @gmail or @aol etc
+// a bad lead" — cross-cutting Auto-DQ like every other DQ_RULES entry,
+// EXCEPT scanRowUnified below carves it out into PERSONAL_PROSPECT_LABEL
+// instead of a flat DQ when the row's own content already cleared Strong
+// Signal on its own merits. A personal-email row that DIDN'T already
+// clear Strong Signal (or that trips another DQ rule too) is still a
+// plain Bad Lead, same as before.
+export const PERSONAL_EMAIL_DQ_LABEL = "Personal email domain";
 
 export interface ResolvedFields {
   firstName?: string;
@@ -708,6 +743,8 @@ function getDQReasons(combinedText: string, resolved: ResolvedFields, licensing:
   if (licensing && licensing.status === "dq") reasons.push(`Low seat count (under ${qualifyThreshold})`);
   if (!resolved.company || !String(resolved.company).trim()) reasons.push("Missing company name");
   if (resolved.email && PLACEHOLDER_EMAIL_RE.test(String(resolved.email).trim())) reasons.push("Placeholder/invalid email");
+  const emailDomain = getEmailDomain(resolved.email);
+  if (emailDomain && isFreeEmailDomain(emailDomain)) reasons.push(PERSONAL_EMAIL_DQ_LABEL);
   return reasons;
 }
 
@@ -745,6 +782,14 @@ export interface ScanResult {
   // True for a "Sales"/"CRM" Dynamics 365 lead — drives the Scanner's
   // separate Sales / CRM tab, same pattern as isBusinessCentral.
   isSalesCrm: boolean;
+  // True when this row's email is on a free/personal provider (gmail,
+  // aol, etc.) but its OWN content already cleared Strong Signal — see
+  // PERSONAL_EMAIL_DQ_LABEL/PERSONAL_PROSPECT_LABEL above. Carved out of
+  // Auto-DQ instead of being a flat Bad Lead: stays in its normal
+  // category/tier, just visibly tagged. Never true for a row that DIDN'T
+  // clear Strong Signal on its own, or that trips another DQ rule too —
+  // those stay plain Bad Leads.
+  isPersonalProspect: boolean;
 }
 
 export function scanRowUnified(row: Record<string, unknown>, columns: string[], resolved: ResolvedFields, overrides: RuleOverrides = DEFAULT_RULE_OVERRIDES): ScanResult | null {
@@ -781,7 +826,18 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
   }
 
   const combinedForDQ = columns.map((c) => String(row[c] ?? "")).join("   ");
-  const dqReasons = getDQReasons(combinedForDQ, resolved, licensing, overrides.qualifyThreshold);
+  let dqReasons = getDQReasons(combinedForDQ, resolved, licensing, overrides.qualifyThreshold);
+  // Personal-email carve-out: if the ONLY DQ reason is a free/personal
+  // email domain AND the row already cleared Strong Signal on its own
+  // content, don't DQ it — tag it PERSONAL_PROSPECT_LABEL and let it
+  // stay in its normal category/tier instead. Any other DQ reason present
+  // (alone or alongside the personal-email one) still DQs the row as
+  // usual — cross-cutting Auto-DQ always wins, same as every other rule.
+  let isPersonalProspect = false;
+  if (dqReasons.length === 1 && dqReasons[0] === PERSONAL_EMAIL_DQ_LABEL && tier === "signal") {
+    isPersonalProspect = true;
+    dqReasons = [];
+  }
   if (dqReasons.length > 0) tier = "dq";
 
   return {
@@ -798,6 +854,7 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
     isGoogleToMicrosoft: platform ? platform.isGoogleToMicrosoft : false,
     isBusinessCentral: platform ? platform.isBusinessCentral : false,
     isSalesCrm: platform ? platform.isSalesCrm : false,
+    isPersonalProspect,
   };
 }
 
@@ -886,6 +943,7 @@ export interface ResultRow {
   isGoogleToMicrosoft: boolean;
   isBusinessCentral: boolean;
   isSalesCrm: boolean;
+  isPersonalProspect: boolean;
   // Manual status tracking (see DISPOSITION_META above) — never set by the
   // scan itself, always "none"/false/null until someone sets it by hand.
   disposition: Disposition;

@@ -1507,6 +1507,63 @@ which mean "on file elsewhere."
   card, and Scanner's results table (with zero direct interaction in
   Scanner itself, confirming the read-only reflect works).
 
+### Personal-email Auto-DQ + "Personal Prospect" carve-out (app/ only)
+
+Per Jack: "we always make emails with personals like @gmail or @aol etc a
+bad lead//but if the notes indicate a strong lead signal we move to a new
+sub category labeled personal email decent opp." Proposed via
+AskUserQuestion before building (a new Auto-DQ rule plus a new
+classification is exactly the kind of product decision the standing
+proposal rule calls out) — confirmed: new Auto-DQ rule with a carve-out
+tag (not a toggle-able exception), and the carve-out stays inside its
+already-qualified category/downloads rather than becoming a third
+parallel bucket. Two-word phrase, per Jack's explicit ask for one:
+**"Personal Prospect"**.
+
+- **Shared free-email-domain list, single-sourced.** Jack's message also
+  asked to "double check websites are pulled through cross checking the
+  contacts email" — auditing the existing company-website auto-derivation
+  (`lib/contacts.ts`) surfaced no bug (31/31 unit cases + a full merge-path
+  check all passed), but it did have its OWN separate copy of the
+  free-provider domain list. Consolidated into one source of truth —
+  `FREE_EMAIL_DOMAINS`/`getEmailDomain`/`isFreeEmailDomain` now live in
+  `lib/detection.ts` (exported), and `lib/contacts.ts`'s
+  `deriveCompanyWebsite` imports and reuses them instead of keeping its
+  own copy — so the "is this a personal email" question is answered
+  identically everywhere it's asked, not just coincidentally the same.
+- **`PERSONAL_EMAIL_DQ_LABEL` = "Personal email domain"** — a new
+  `getDQReasons` check (`lib/detection.ts`), same free-domain list as
+  above, checked against the resolved email field directly (same pattern
+  as the existing `PLACEHOLDER_EMAIL_RE` check right above it). Cross-
+  cutting like every other DQ rule — fires regardless of category/tier.
+- **The carve-out, in `scanRowUnified`:** computed tier and DQ reasons
+  both run as normal first. Only if the personal-email rule is the ONLY
+  DQ reason present AND the row's tier was already `"signal"` before DQ
+  is applied does the carve-out fire — `dqReasons` is cleared, tier stays
+  `"signal"`, and the new `isPersonalProspect: boolean` flag (`ScanResult`/
+  `ResultRow`/`StoredRow.__isPersonalProspect`) is set. Any OTHER DQ
+  reason present — alone or alongside the personal-email one — still DQs
+  the row as a flat Bad Lead, same as every existing DQ rule; the carve-
+  out never overrides a genuine disqualifier. A personal-email row that
+  never cleared Strong Signal on its own content also stays a plain Bad
+  Lead — the carve-out only fires for OTHERWISE-qualifying leads.
+- **Visible, not a new bucket.** A teal "Personal Prospect" badge (chosen
+  to stand apart from category/disposition/DQ colors) shows next to the
+  category badge wherever a tagged row appears: Scanner's results table
+  and the Lead Library's per-lead editor (`Library.tsx`). The row still
+  files into its normal category (Dynamics 365 or M365/Azure) and is
+  still included in that category's normal CSV download — no new download
+  file, no new View-tab, per the confirmed scope.
+- Verified via a scripted audit (`scanParsedFiles` exercised directly,
+  five scenarios) plus a live Playwright pass: a personal-email lead with
+  genuine Strong Signal content stays Strong Signal, tagged, and download-
+  eligible; the identical content on a real work email behaves exactly as
+  before (no tag); a personal-email lead with only weak/mention-level
+  content still lands in Bad Leads with "Personal email domain" as the
+  reason; a personal-email lead that ALSO trips an unrelated DQ rule (e.g.
+  "not interested") stays a flat Bad Leads with both reasons listed, no
+  carve-out.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

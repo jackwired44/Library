@@ -9,6 +9,7 @@ import {
   EXPORT_LABELS,
   exportRowsForBucket,
   getFullName,
+  PERSONAL_PROSPECT_LABEL,
   scanParsedFiles,
   sortByDynamicsSeatCount,
   type CategoryKey,
@@ -961,6 +962,11 @@ export default function Scanner({
                             {CATEGORY_META[ck].label}{ck === "dynamics365" && r.dynamicsSeatCount != null ? ` · ${r.dynamicsSeatCount}` : ""}
                           </span>
                         ))}
+                        {r.isPersonalProspect && (
+                          <span title="Personal/free email domain, but the row's own content already cleared Strong Signal — carved out of Auto-DQ instead of being a flat Bad Lead." style={{ fontSize: 10.5, background: "#DFF3F1", color: "#0F7A72", padding: "2px 7px", borderRadius: 20, fontWeight: 700 }}>
+                            {PERSONAL_PROSPECT_LABEL}
+                          </span>
+                        )}
                         {r.tier === "dq" && r.dqReasons.map((reason) => (
                           <span key={reason} style={{ fontSize: 10.5, background: "#FBEAE8", color: "#B5443B", padding: "2px 7px", borderRadius: 20 }}>{reason}</span>
                         ))}
