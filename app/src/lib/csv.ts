@@ -68,12 +68,41 @@ export async function downloadCSV(fileName: string, rows: Record<ExportLabel, st
   await downloadBlob(toCSV(rows, columns), fileName);
 }
 
+// Some CRM exports (confirmed live on a real Wired CIO export) build each
+// cell by concatenating several source fields together and stringifying an
+// empty one as the literal text "NULL" — with NO separator, so it lands
+// glued directly onto real content: "Dynamics 365 Business Central - 25
+// usersNULL" or "NULLFrontline Mobile Response is developing...". That
+// glued "NULL" eats the word boundary every count/keyword regex in
+// detection.ts relies on (`\busers?\b` doesn't match inside "usersNULL"),
+// so a lead with a real, explicit stated seat count silently missed
+// Strong Signal promotion and landed in Needs Review instead — confirmed
+// on a real batch where Jack had to manually re-promote 12 leads because
+// of exactly this. Stripped once, here, right after parsing — the single
+// choke point every consumer (detection, Contacts, CSV re-export) reads
+// through — rather than patching every regex to tolerate it. A cell that's
+// ONLY the literal text "NULL" (a genuinely empty source field, not a
+// glued-artifact) is treated as blank the same way.
+function stripGluedNull(v: unknown): unknown {
+  if (typeof v !== "string") return v;
+  const trimmed = v.trim();
+  if (trimmed.toUpperCase() === "NULL") return "";
+  return v.replace(/\bNULL(?=[A-Za-z])/g, "").replace(/(?<=[A-Za-z0-9])NULL\b/g, "");
+}
+function cleanParsedRows(data: Record<string, unknown>[]): Record<string, unknown>[] {
+  return data.map((row) => {
+    const cleaned: Record<string, unknown> = {};
+    for (const key of Object.keys(row)) cleaned[key] = stripGluedNull(row[key]);
+    return cleaned;
+  });
+}
+
 export function parseCSVFile(file: File): Promise<{ name: string; fields: string[]; data: Record<string, unknown>[] }> {
   return new Promise((resolve, reject) => {
     Papa.parse<Record<string, unknown>>(file, {
       header: true,
       skipEmptyLines: true,
-      complete: (parsed) => resolve({ name: file.name, fields: parsed.meta.fields || [], data: parsed.data }),
+      complete: (parsed) => resolve({ name: file.name, fields: parsed.meta.fields || [], data: cleanParsedRows(parsed.data) }),
       error: (err) => reject(new Error(`${file.name}: ${err.message || "could not be parsed"}`)),
     });
   });
@@ -81,5 +110,5 @@ export function parseCSVFile(file: File): Promise<{ name: string; fields: string
 
 export function parseCSVText(fileName: string, text: string): { name: string; fields: string[]; data: Record<string, unknown>[] } {
   const parsed = Papa.parse<Record<string, unknown>>(text, { header: true, skipEmptyLines: true });
-  return { name: fileName, fields: parsed.meta.fields || [], data: parsed.data };
+  return { name: fileName, fields: parsed.meta.fields || [], data: cleanParsedRows(parsed.data) };
 }

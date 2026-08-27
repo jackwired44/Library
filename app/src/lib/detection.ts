@@ -892,7 +892,16 @@ export const FIELD_DEFS: FieldDef[] = [
   },
   { key: "mobilePhone", label: "Mobile Phone", candidates: ["mobilephone", "cellphone", "cellnumber", "mobilenumber", "mobile", "cell"] },
   { key: "employees", label: "Number of Employees", candidates: ["numberofemployees", "employees", "headcount", "companysize", "numemployees"] },
-  { key: "productArea", label: "Product Area", candidates: ["mspsolutionareaname", "productarea", "solutionarea"] },
+  {
+    key: "productArea",
+    label: "Product Area",
+    // "primaryproductcodename" added after a real Wired CIO export
+    // (msp_PrimaryProductCodeName) came through unrecognized — its content
+    // still got caught by the general column scan, but skipped the more
+    // lenient "hit in the Product Area column is automatically Strong
+    // Signal" path (scanRowPlatform's productAreaValue branch) entirely.
+    candidates: ["mspsolutionareaname", "productarea", "solutionarea", "primaryproductcodename"],
+  },
   { key: "comments", label: "Notes", candidates: ["notes", "comments", "notessummary", "description", "callnotes", "background", "details", "summary", "message", "about", "bio"] },
 ];
 export const PHONE_LIKE_RE = /phone|mobile|\bcell\b|\btel\b|direct\s*dial/i;

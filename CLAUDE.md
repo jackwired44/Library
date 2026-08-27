@@ -1596,6 +1596,67 @@ building directly on already-shipped mechanics, so built directly.
   (nothing to undo); confirmed the same round-trip works through the bulk
   toolbar on two rows at once.
 
+### Bug fixed: glued "NULL" in CRM exports was suppressing Strong Signal (app/ only)
+
+Per Jack: uploaded a real batch, 12 Business Central leads landed in Needs
+Review instead of Strong Signal and had to be manually re-promoted one by
+one. Root-caused against his actual export file (a Dynamics/CRM-sourced
+CSV) rather than guessed at.
+
+- **Root cause**: this specific CRM export builds each cell by
+  concatenating several source fields together and stringifying an empty
+  one as the literal text `NULL` — with no separator, so it lands glued
+  directly onto real content: `"...Business Central- 25 usersNULL"` or
+  `"NULLFrontline Mobile Response is developing..."`. That glued `NULL`
+  eats the word boundary every count/keyword regex in `detection.ts`
+  relies on — `\busers?\b` doesn't match inside `"usersNULL"` — so a row
+  with a real, explicit stated seat count silently failed
+  `LICENSE_COUNT_RE`/`DYNAMICS_ESTIMATED_COUNT_RE` and never cleared
+  `hasTrigger`, landing at `"mention"` (Needs Review) instead of
+  `"signal"`. Confirmed on the real file: 105 of 500 rows (21%) carried
+  this glued-`NULL` pattern — not a one-off, a systemic export-formatting
+  issue worth fixing at the root rather than one regex at a time.
+- **Fix, in `lib/csv.ts`**: a new `stripGluedNull()` runs once, right
+  after Papa Parse, inside both `parseCSVFile`/`parseCSVText` — the single
+  choke point every consumer (detection, Contacts, CSV re-export) reads
+  through. Strips `NULL` glued to either side of a real word
+  (`/\bNULL(?=[A-Za-z])/g` and `/(?<=[A-Za-z0-9])NULL\b/g`), and treats a
+  cell that's ONLY the literal text `NULL` as blank. Fixing it here, once,
+  beats patching every regex in `detection.ts` to tolerate the noise.
+- **Second, related bug found in the same file**: Jack's actual export's
+  Product Area column is named `msp_primaryproductcodename`, which
+  `FIELD_DEFS`'s `productArea` candidates (`mspsolutionareaname`/
+  `productarea`/`solutionarea`) didn't recognize — its content still got
+  caught by the general column scan, but skipped the more lenient
+  "a hit in the Product Area column is automatically Strong Signal" path
+  (`scanRowPlatform`'s `productAreaValue` branch) entirely. Added
+  `"primaryproductcodename"` to the candidate list.
+- **Verified against the real file** (500 rows, not synthetic): Strong
+  Signal count went from 34 → 64 rows after both fixes — Business Central
+  specifically went from 15 of 23 rows stuck below Strong Signal down to
+  3, and those 3 are correctly excluded for unrelated reasons (existing-
+  CRM-opportunity-notes DQ, single-seat DQ, and a `"no budget"` DQ hit on
+  a row that also happens to state real interest — flagged separately
+  below, not silently changed). The exact 12 companies Jack manually
+  re-promoted — Servbank, CTA Manufacturing, Conrey Electric, RepScrubs,
+  Quantum Signal AI, TrueLink Capital, Metarom USA, American Society for
+  Quality, 11:11 Systems, inSeption Group, CalcWorks, and Battleship NC
+  Memorial — all now land as Strong Signal automatically, confirmed by
+  diffing the exact same file against the code before and after the fix.
+  Also confirmed live in the browser against a real two-row slice of the
+  file: both leads land as Strong Signal with clean matched snippets (no
+  stray "NULL" text) and correctly extracted seat counts.
+- **Flagged, not changed**: one of the three still-excluded Business
+  Central rows (Acne Industries) trips the "Small one-off project / free
+  consultancy request" DQ rule on the phrase "there is no budget amount
+  **but discuss further with agent**" — nuanced, open-to-discussion
+  language, not a flat rejection — while the same row separately states a
+  real product need with a count ("looking to get Dynamics 365 Business
+  Central for up to 5 users"). Whether "no budget yet, open to discussing"
+  should trip the same DQ rule as a flat "no budget" is a real judgment
+  call about false-positive tolerance, not obviously a bug — left alone
+  pending Jack's read on it rather than loosening a DQ rule unilaterally.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool
