@@ -1610,6 +1610,16 @@ decision in its own right (several would also require a real backend and
 break the "local-only, no shared backend" constraint in Access & ownership
 above — that tradeoff needs Jack's explicit sign-off when the time comes).
 
+**Status checklist**: ["End State Blueprint"](https://claude.ai/code/artifact/2c005df6-75cd-4422-8b94-9ca2c247311d)
+(published artifact) — a nine-pillar checkpoint of what's shipped vs. still
+ahead (Detection Engine/Scanner/Lead Library/History/Engage all shipped;
+Access & Identity and Enrichment partially shipped by design; the Outbound
+Engine researched but not built; two rebuild-parity gaps — the legacy
+Playwright suite never run against `app/`, and the Chrome extension/
+standalone-offline build outputs never reproduced from it — still open).
+Re-generate/update this doc when a full status check is asked for again,
+rather than trusting memory of it.
+
 - Pull Apollo.io company/contact data into the app directly (API tie-in),
   instead of only ever importing a CSV export of it.
 - Detect Teams meetings booked and auto-label/cross out the matching lead as
