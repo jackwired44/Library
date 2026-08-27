@@ -1619,7 +1619,16 @@ above — that tradeoff needs Jack's explicit sign-off when the time comes).
 - A power dialer, eventually a 2x parallel dialer, hooked up to VOIP or
   Teams phone numbers.
 - Sequenced outbound task management — calling/emailing/outreach cadences
-  per lead, Apollo-style.
+  per lead, Apollo-style. Research doc: ["Sequence UX Teardown"](https://claude.ai/code/artifact/b6dec613-1643-4f5a-a8d1-8d04872558c5)
+  (published artifact) — a HubSpot-vs-Apollo comparison of their Sequences/
+  Engage UI and underlying data model (step types, wait-time/schedule
+  config, enrollment + auto-pause rules, dialer mechanics, reporting),
+  including real sequence/task shapes pulled live from Apollo's own API,
+  plus a phased build plan (Phase 1: task/call-only sequencing reusing
+  existing Task/Contact data, no email step; Phase 2: email steps once
+  SendGrid lands; Phase 3: power dialer). Read this before scoping the
+  item below for real — it already answers most of the "how would this
+  actually work" questions.
 - User accounts/login policies as a real precursor to any of the above
   (today's single shared password gate, per Access & ownership, isn't that).
 - SendGrid tie-in for sending + monitoring outbound email, and a view of
