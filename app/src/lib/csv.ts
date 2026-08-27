@@ -87,7 +87,12 @@ function stripGluedNull(v: unknown): unknown {
   if (typeof v !== "string") return v;
   const trimmed = v.trim();
   if (trimmed.toUpperCase() === "NULL") return "";
-  return v.replace(/\bNULL(?=[A-Za-z])/g, "").replace(/(?<=[A-Za-z0-9])NULL\b/g, "");
+  // Trailing glue isn't always onto a word — plenty of real rows end a full
+  // sentence with punctuation right before the glued NULL ("...their
+  // workload.NULL"), not just a bare word ("usersNULL"). `(?<=\S)` catches
+  // both instead of only `[A-Za-z0-9]`; found because those rows still
+  // rendered a literal "NULL." as their entire matched-snippet/notes text.
+  return v.replace(/\bNULL(?=[A-Za-z])/g, "").replace(/(?<=\S)NULL\b/g, "");
 }
 function cleanParsedRows(data: Record<string, unknown>[]): Record<string, unknown>[] {
   return data.map((row) => {

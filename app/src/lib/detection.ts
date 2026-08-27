@@ -67,7 +67,7 @@ export const SKU_CATALOGUE: { label: string; pattern: RegExp }[] = [
   { label: "Power BI Pro / Premium", pattern: /\bpower\s*bi\s*(pro|premium)?\b/i },
   { label: "Microsoft 365 Copilot", pattern: /\b(m(?:icrosoft)?\s*365\s*copilot|copilot\s*licens\w*|copilot\s*seats?)\b/i },
   { label: "Defender for Business / Office 365 / Endpoint", pattern: /\bdefender\s*for\s*(business|office\s*365|endpoint)\b/i },
-  { label: "Entra ID P1 / P2", pattern: /\bentra\s*id\s*p[12]\b/i },
+  { label: "Entra ID P1 / P2", pattern: /\bentra\s*id\s*(?:p[12]\b|plan\s*[12]\b)/i },
   { label: "Teams Phone", pattern: /\bteams\s*phone\b/i },
   { label: "Teams Calling Plan", pattern: /\bteams\s*calling\s*plan\b/i },
   { label: "Intune", pattern: /\bintune\b/i },

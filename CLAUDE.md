@@ -1657,6 +1657,94 @@ CSV) rather than guessed at.
   call about false-positive tolerance, not obviously a bug — left alone
   pending Jack's read on it rather than loosening a DQ rule unilaterally.
 
+### Full Strong Signal audit against the real 500-row file (app/ only)
+
+Per Jack: re-check the same real file (`Book82626.csv`) category by
+category — Dynamics (Business Central/ERP, Sales/CRM, everything else —
+F&O, Supply Chain/SCM, Customer Insights, HR, etc.) and M365/Azure (Azure
+Document Intelligence/app builds, Google→Microsoft, Azure migrations,
+ongoing/full partner support, licensing/billing) — and fix what's found.
+Confirmed final count: **64 Strong Signal** (30 Dynamics 365, 34 M365/
+Azure), unchanged in total from the prior glued-NULL fix pass — today's
+two shipped fixes were snippet-quality and visibility, not tier-flipping.
+
+- **Dynamics breakdown, all verified correct**: 21 Business Central/ERP/
+  F&O/SCM (tier 0), 4 Sales/CRM/Customer Engagement/Insights (tier 1), 5
+  "everything else" (tier 2). Two tier-2 rows (1st care Palliative and
+  Hospice, D'Amico Hospitality) have near-empty Comments ("F1 / Company
+  Tenant Partner") but are legitimately Strong Signal via a real
+  `msp_primaryproductcodename = "Dynamics 365"` hit — confirmed by reading
+  the raw column value directly, not a fluke of the earlier Product Area
+  fix. One nuance flagged, not changed: "50 Eggs" contains "D365 Sales
+  Pro" but landed in tier 2 instead of tier 1 — its Dynamics-category
+  match came from a different part of a long comment blob than that
+  phrase, outside the ±70-char signal window used for module-tier
+  classification. Affects which View-tab it shows under, not Strong
+  Signal correctness — the row is still correctly Dynamics 365/Strong
+  Signal either way.
+- **M365/Azure breakdown, checked against each pattern Jack named**:
+  Document Intelligence (1, ACT Education Corp — snippet now clean after
+  the fix below), Google→Microsoft (3 explicit mentions, 10 total via
+  `isGoogleToMicrosoft`, which also covers Azure on-prem migrations per
+  its existing widened definition), Azure migrations (4), ongoing/full
+  partner support (1 explicit + more via the M365 Tenant Strong Signal
+  boost), licensing/billing (4 explicit, plus everything the separate
+  licensing engine catches). No app-build-specific examples existed in
+  this particular file. Every "matched pattern but not Strong Signal" row
+  checked by hand: 4 Azure-migration rows and several billing rows are
+  correctly excluded as internal CRM/Opportunity-tracking notes (the
+  existing DQ rule working as intended, not a bug); 2 ongoing-partner
+  rows correctly DQ'd on a genuinely confirmed sub-15 count; "Ohio Valley
+  Bank"/"Arium Networks" correctly stayed at Needs Review — internal
+  booking/scheduling notes with no real qualifying signal (Arium's own
+  text explicitly says Dynamics questions are "handled in a separate
+  future consultation," i.e. out of scope).
+- **Fixed: trailing glued-`NULL` only handled a word before it, not
+  punctuation.** The original glued-NULL fix (`stripGluedNull`,
+  `lib/csv.ts`) used `(?<=[A-Za-z0-9])NULL\b` for the trailing case — but
+  plenty of real rows end a full sentence with punctuation right before
+  the glue ("...their workload.NULL"), which that lookbehind didn't
+  catch. These rows were still correctly Strong Signal (Document
+  Intelligence/Azure Migration hits don't need a trigger-word check, see
+  the original fix), but their matched-snippet/notes text rendered as a
+  literal "NULL." instead of the real, relevant sentence — a real
+  cosmetic bug, not a classification one. Widened the lookbehind to
+  `(?<=\S)` (any non-whitespace, not just alphanumeric) so punctuation-
+  terminated sentences get cleaned too. Verified: ACT Education Corp,
+  Data Infocom, TYNET USA INC, and Alpine Adventures all now show their
+  real Document Intelligence/Azure Migration/MCA-E language instead of
+  "NULL."
+- **Fixed: Entra ID licensing pattern only matched the abbreviated form.**
+  `SKU_CATALOGUE`'s Entra ID pattern (`\bentra\s*id\s*p[12]\b`) matched
+  "Entra ID P2" but not "Entra ID Plan 2," which is how Newton County's
+  real row phrased it — that row had zero detection hits at all before
+  this fix (not even Needs Review), despite mentioning a real, named
+  Microsoft licensing product. Widened to
+  `\bentra\s*id\s*(?:p[12]\b|plan\s*[12]\b)`. Doesn't flip Newton County
+  to Strong Signal on its own (no confirmed seat count in that row), but
+  it's no longer invisible to the tool.
+- **Found, NOT shipped: seat-count extraction misses counts separated
+  from their unit word by a product name.** LUNA COUNTY's real row states
+  "348 Microsoft 365 G3 licenses" — a genuine, large, qualifying count —
+  but `COUNT_PATTERNS`' first pattern requires the number to sit
+  *directly* next to "users/seats/licenses," so "Microsoft 365 G3"
+  sitting in between breaks the match entirely; a much smaller, unrelated
+  number nearby (extracted as 3) won instead, DQ'ing a real 348-seat
+  renewal as "Low seat count." A widened pattern that tolerates a short
+  product-name gap was tested against the full real file before shipping
+  anything — it fixed LUNA COUNTY (348) and 3 other genuine cases, but
+  **also produced 5 false positives that all extracted the exact same
+  wrong number, `365`** — matching the literal "365" in "Microsoft 365"
+  itself as if it were a seat count, on leads with no real stated count
+  at all (52nd Operations Group, The Hillary Group, Kimmel Cyber
+  Security, Assort Health, Lithium Americas). That's a worse trade than
+  the bug it fixes, so it was reverted rather than shipped. Left as a
+  known limitation — a real fix here needs to specifically exclude
+  digits that are part of a recognized product name (365, the SKU
+  numbers themselves) from being read as a count, not just widen the
+  adjacency gap; flagged for a dedicated pass rather than a rushed
+  regex change.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool
