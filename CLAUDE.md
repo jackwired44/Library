@@ -1745,6 +1745,93 @@ two shipped fixes were snippet-quality and visibility, not tier-flipping.
   adjacency gap; flagged for a dedicated pass rather than a rushed
   regex change.
 
+### "Rows scanned" accounting fix + full breakdown in Scanner and History (app/ only)
+
+Per Jack: ran 4 real files (~3000 leads total, lots of duplicates) and the
+UI reported "955 rows scanned, 193 dupes removed" — a real discrepancy he
+caught by eyeballing the totals. Follow-up asks in the same thread: don't
+word duplicate removal as data loss ("recognize them... i know its being
+mapped properly"), call out a lead that appeared many times in one file
+specifically (his example: "6 rows of the same lead, this happens"), and
+extend the same full accounting (rows read, duplicates, tier breakdown,
+product-line breakdown) into History so a past upload can be audited the
+same way.
+
+- **Root cause of the wrong number.** `scanParsedFiles` (`lib/
+  detection.ts`) already computed the correct raw `rowsScanned` — summed
+  from every file's row count BEFORE detection drops no-signal rows or
+  duplicates are removed — and returned it alongside `results`/
+  `duplicatesRemoved`. But every UI call site discarded it: `Scanner.tsx`'s
+  stat card read `results.length` (the post-filter, post-dedup count) for
+  its "Rows scanned" tile, and `App.tsx`'s `recordHistory` computed its own
+  `rowsScanned: scanned.length` instead of using the real per-file sum —
+  so both the live Scanner view and every History entry understated the
+  true upload size, worse the more duplicates/no-signal rows a batch had
+  (which is exactly why a big 4-file, high-duplicate batch showed the
+  starkest gap). Per-file counts shown next to each filename were already
+  correct throughout — this was isolated to the two aggregate stats.
+- **Fix — thread the real numbers through, don't recompute them.**
+  `Scanner.tsx` now keeps `lastScanStats` (`rowsScanned`/
+  `duplicatesRemoved`/`largestDuplicateGroup`, the last computed from the
+  max surviving `duplicateGroupSize` across `results` — see CLAUDE.md
+  "Duplicate detection," which already retains each survivor's true group
+  size after removal for exactly this purpose) and its stat card now
+  reads `lastScanStats.rowsScanned` instead of `results.length`.
+  `onRecordHistory`'s signature grew an optional 4th `duplicatesRemoved`
+  parameter, threaded from both of Scanner's call sites and Library's
+  upload-into-folder call site (all three already had the value in scope
+  locally, just weren't passing it on). `App.tsx`'s `recordHistory`
+  computes `rowsScanned` from `parsedFiles` directly (never
+  `scanned.length`) and derives `largestDuplicateGroup` from `scanned`
+  itself before calling `buildHistoryEntry`.
+- **Reworded, not just relabeled.** The duplicate-removal notice
+  (Scanner's transient banner and its persistent accounting line) now
+  reads "N duplicate rows **recognized and merged into their matching
+  contact**" instead of language implying rows were discarded — accurate,
+  since a repeated lead is never actually lost, just consolidated to its
+  first-seen row (see "Duplicates are removed outright" above). Any group
+  bigger than 2 gets its own callout: "(one lead appeared N times)" —
+  directly answering Jack's "6 rows of the same lead, this happens"
+  example.
+- **New persistent accounting banner (Scanner).** Below the transient
+  dedupe notice, a small always-visible line shows the full pipeline for
+  the current upload: rows read → duplicates recognized/merged (with the
+  large-group callout) → rows with zero Dynamics/M365/licensing signal
+  (invisible everywhere else in the app, per `scanRowUnified`'s early
+  return — surfaced here for the first time as an explicit, named count
+  rather than an implicit gap) → rows actually processed below. Every
+  number in that chain is now internally consistent:
+  rowsScanned = duplicatesRemoved + noSignalCount + results.length.
+- **History gets the same breakdown per entry, not just a total.**
+  `HistoryEntry` (`lib/history.ts`) gained optional `duplicatesRemoved`/
+  `largestDuplicateGroup` fields (optional so an entry recorded before
+  this change still loads fine, reading as 0 everywhere shown — no
+  migration needed), set by `buildHistoryEntry` from the same values
+  Scanner/Library already compute. `History.tsx`'s per-entry card now
+  shows two lines instead of one: rows read + the same "recognized and
+  merged" duplicate wording (fixing a second, related dead-code bug in
+  the same pass — `dupCount` was reading
+  `entry.results.filter(r => r.isDuplicate).length`, which is ALWAYS zero
+  since duplicates are hard-removed from `entry.results` before it's ever
+  persisted; now reads `entry.duplicatesRemoved` instead, the only place
+  that number still exists), and a second line breaking Strong Signal
+  down by product line (Dynamics 365 / M365 Azure counts, existing
+  `ACTIVE_CATEGORY_KEYS`/`CATEGORY_META`) alongside Needs Review and Bad
+  Leads totals — exactly the "break it down by needs review, strong
+  signal and further with the product lines" breakdown Jack asked for.
+- Verified live end-to-end: uploaded a 10-row test file with one lead
+  repeated 6 times, two rows with zero product/licensing language, one
+  Dynamics 365 Strong Signal row, one M365/Azure Strong Signal row, and
+  one Needs Review row. Scanner's stat card correctly showed "Rows
+  scanned: 10" (not 3, the old bug's post-filter count); the accounting
+  banner read "10 rows read · 5 recognized as duplicates and merged into
+  their matching contact (one lead appeared 6 times) · 2 had no
+  signal... · 3 processed below"; History's entry for the same upload
+  showed the identical rows-read/duplicate numbers plus "2 Strong Signal
+  (1 Dynamics 365 · 1 M365 / Azure) · 1 Needs Review · 0 Bad Leads" — both
+  views agree, and the arithmetic (10 = 5 duplicates + 2 no-signal + 3
+  processed) checks out exactly.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

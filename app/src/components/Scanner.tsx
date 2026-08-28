@@ -59,7 +59,7 @@ interface ScannerProps {
   // created entry so a Library-save right after can stamp its rows with
   // the REAL History entry id (see handleFiles below) instead of a
   // throwaway one.
-  onRecordHistory: (parsedFiles: ParsedFile[], scanned: ResultRow[]) => HistoryEntry;
+  onRecordHistory: (parsedFiles: ParsedFile[], scanned: ResultRow[], tag?: string, duplicatesRemoved?: number) => HistoryEntry;
   // Edits made to a row loaded FROM History (tagged with __sourceEntryId —
   // see lib/history.ts) get written back to the History entry it came from.
   // A no-op for an ordinary fresh-scan row.
@@ -109,6 +109,14 @@ export default function Scanner({
   const [uploadMonthKey, setUploadMonthKey] = useState(() => monthKeyFromDate(new Date()));
   const [filedNotice, setFiledNotice] = useState<string | null>(null);
   const [dedupeNotice, setDedupeNotice] = useState<string | null>(null);
+  // Per Jack: "I want it to recognize [duplicates] for input reasons so I
+  // know it's being mapped properly scanned and processed" — the raw row
+  // count read from the uploaded file(s), straight from scanParsedFiles,
+  // so the stat row can show a full accounting instead of only the subset
+  // that cleared detection. Kept as its own state (not derived from
+  // uploadedFiles) since scanParsedFiles is the one source of truth for
+  // both numbers together.
+  const [lastScanStats, setLastScanStats] = useState<{ rowsScanned: number; duplicatesRemoved: number; largestDuplicateGroup: number } | null>(null);
   const [tierFilter, setTierFilter] = useState<Tier | "all">("signal");
   const [categoryFilter, setCategoryFilter] = useState<CategoryKey | "all">("all");
   const [duplicatesOnly, setDuplicatesOnly] = useState(false);
@@ -166,19 +174,25 @@ export default function Scanner({
     setDedupeNotice(null);
     try {
       const parsedFiles = await Promise.all(files.map(parseCSVFile));
-      const { results: scanned, duplicatesRemoved } = scanParsedFiles(parsedFiles, ruleOverrides);
+      const { results: scanned, rowsScanned, duplicatesRemoved } = scanParsedFiles(parsedFiles, ruleOverrides);
       applyStickyState(scanned, contacts);
       setResults(scanned);
       setUploadedFiles(parsedFiles.map((pf) => ({ name: pf.name, rows: pf.data.length })));
+      const largestDuplicateGroup = Math.max(0, ...scanned.map((r) => r.duplicateGroupSize || 0));
+      setLastScanStats({ rowsScanned, duplicatesRemoved, largestDuplicateGroup });
       setPage(1);
       setSelected(new Set());
-      const historyEntry = onRecordHistory(parsedFiles, scanned);
+      const historyEntry = onRecordHistory(parsedFiles, scanned, "", duplicatesRemoved);
       // Per Jack: no duplicate (exact name+company match within this same
       // upload) should ever make it into the uploaded leads at all — the
-      // first-seen row is kept, every repeat was already dropped inside
-      // scanParsedFiles. Surfaced here so the removal isn't silent.
+      // first-seen row is kept, every repeat was already merged into it
+      // inside scanParsedFiles. Surfaced here so it isn't silent — worded
+      // as "recognized and merged" rather than "removed," since nothing is
+      // actually lost (a lead that appeared, say, 6 times in the file
+      // still ends up as one contact, not zero).
       if (duplicatesRemoved > 0) {
-        setDedupeNotice(`Removed ${duplicatesRemoved} duplicate lead${duplicatesRemoved === 1 ? "" : "s"} (exact name + company match already seen in this upload).`);
+        const groupNote = largestDuplicateGroup > 2 ? ` (one lead appeared ${largestDuplicateGroup} times in this file)` : "";
+        setDedupeNotice(`${duplicatesRemoved} duplicate row${duplicatesRemoved === 1 ? "" : "s"} recognized and merged into ${duplicatesRemoved === 1 ? "its" : "their"} matching contact${groupNote} — exact name + company match already seen in this upload.`);
       }
 
       // Opt-in, off by default (see CLAUDE.md "Library architecture") — a
@@ -206,6 +220,7 @@ export default function Scanner({
   function reset() {
     onReset();
     setBucketFileNames({ m365Tenant: "", dynamics: "", dataPlatform: "" });
+    setLastScanStats(null);
     setError(null);
     setSearch("");
     setCategoryFilter("all");
@@ -253,13 +268,15 @@ export default function Scanner({
       rawText = entry.rawText;
     }
     const parsed = parseCSVText(fileName, rawText);
-    const { results: scanned } = scanParsedFiles([parsed], ruleOverrides);
+    const { results: scanned, rowsScanned, duplicatesRemoved } = scanParsedFiles([parsed], ruleOverrides);
     applyStickyState(scanned, contacts);
     setResults(scanned);
     setUploadedFiles([{ name: parsed.name, rows: parsed.data.length }]);
+    const largestDuplicateGroup = Math.max(0, ...scanned.map((r) => r.duplicateGroupSize || 0));
+    setLastScanStats({ rowsScanned, duplicatesRemoved, largestDuplicateGroup });
     setPage(1);
     setSelected(new Set());
-    onRecordHistory([parsed], scanned);
+    onRecordHistory([parsed], scanned, "", duplicatesRemoved);
     setPickerFolderId("");
     setPickerFileKey("");
   }
@@ -719,9 +736,38 @@ export default function Scanner({
       {filedNotice && <div style={{ marginBottom: 16, color: "#2CC295", fontWeight: 600 }}>{filedNotice}</div>}
       {dedupeNotice && <div style={{ marginBottom: 16, color: "#8A5A00", fontWeight: 600 }}>{dedupeNotice}</div>}
 
+      {/* Per Jack: "I want it to recognize [duplicates] for input reasons
+          so I know it's being mapped properly scanned and processed" — a
+          full accounting of every uploaded row's fate, not just the subset
+          that cleared detection. Only shown when lastScanStats is known
+          (a direct upload or Lead Library load within this session) —
+          falls back to the old, narrower "Rows scanned" reading below when
+          a row came in some other way (e.g. History's "Load into Scanner",
+          which sets `results` directly rather than through this
+          component's own scan calls). */}
+      {lastScanStats && (
+        <div style={{ marginBottom: 16, fontSize: 12.5, color: "#5B6B72", background: "#F4F6F7", border: "1px solid #E4E7EC", borderRadius: 10, padding: "8px 14px" }}>
+          <strong style={{ color: "#1B2430" }}>{lastScanStats.rowsScanned.toLocaleString()}</strong> rows read
+          {lastScanStats.duplicatesRemoved > 0 && (
+            <>
+              {" · "}
+              <strong style={{ color: "#1B2430" }}>{lastScanStats.duplicatesRemoved.toLocaleString()}</strong> recognized as
+              duplicates and merged into their matching contact
+              {lastScanStats.largestDuplicateGroup > 2 && ` (one lead appeared ${lastScanStats.largestDuplicateGroup} times)`}
+            </>
+          )}
+          {" · "}
+          <strong style={{ color: "#1B2430" }}>
+            {Math.max(0, lastScanStats.rowsScanned - lastScanStats.duplicatesRemoved - results.length).toLocaleString()}
+          </strong>{" "}
+          had no Dynamics 365/M365/Azure/licensing signal (not shown below) ·{" "}
+          <strong style={{ color: "#1B2430" }}>{results.length.toLocaleString()}</strong> processed below
+        </div>
+      )}
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 18 }}>
         {[
-          { label: "Rows scanned", value: results.length, color: "#1B2430" },
+          { label: "Rows scanned", value: lastScanStats?.rowsScanned ?? results.length, color: "#1B2430" },
           { label: "Strong Signal", value: tierCounts.signal, color: "#2CC295" },
           { label: "Needs review", value: tierCounts.mention, color: "#9A5B22" },
           { label: "Bad leads", value: tierCounts.dq, color: "#B5443B" },

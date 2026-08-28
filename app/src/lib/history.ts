@@ -12,6 +12,16 @@ export interface HistoryEntry {
   files: { name: string; rows: number }[];
   importedAt: string;
   rowsScanned: number;
+  // How many rows this import recognized as duplicates (exact name+company
+  // match already seen earlier in the same batch) and merged into their
+  // matching contact rather than filing separately — see CLAUDE.md
+  // "Duplicate detection." Optional so an entry recorded before this field
+  // existed still loads fine (reads as 0/undefined everywhere it's shown).
+  duplicatesRemoved?: number;
+  // Size of the largest duplicate group in this import (e.g. 6 if one
+  // lead appeared 6 times) — surfaced so a big merge reads as "recognized
+  // and consolidated," not as data quietly vanishing.
+  largestDuplicateGroup?: number;
   results: ResultRow[];
   tag: string;
   notes: string;
@@ -24,7 +34,7 @@ function newId() {
 
 export function buildHistoryEntry(
   parsedFiles: ParsedFile[],
-  scan: { results: ResultRow[]; rowsScanned: number },
+  scan: { results: ResultRow[]; rowsScanned: number; duplicatesRemoved?: number; largestDuplicateGroup?: number },
   opts: { tag?: string; libraryEntryIds?: string[] } = {}
 ): HistoryEntry {
   return {
@@ -33,6 +43,8 @@ export function buildHistoryEntry(
     files: parsedFiles.map((pf) => ({ name: pf.name, rows: pf.data.length })),
     importedAt: new Date().toISOString(),
     rowsScanned: scan.rowsScanned,
+    duplicatesRemoved: scan.duplicatesRemoved || 0,
+    largestDuplicateGroup: scan.largestDuplicateGroup || 0,
     results: scan.results,
     tag: opts.tag || "",
     notes: "",

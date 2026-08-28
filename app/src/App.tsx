@@ -209,8 +209,17 @@ export default function App() {
   // IndexedDB when the batch was reopened FROM History (viewingHistoryId)
   // — a fresh scan's later edits stayed in memory only. Tagging every
   // fresh scan the same way closes that gap rather than reproducing it.
-  function recordHistory(parsedFiles: ParsedFile[], scanned: ResultRow[], tag = "") {
-    const entry = buildHistoryEntry(parsedFiles, { results: scanned, rowsScanned: scanned.length }, { tag });
+  function recordHistory(parsedFiles: ParsedFile[], scanned: ResultRow[], tag = "", duplicatesRemoved = 0) {
+    // The true row count read from the file(s), not just the subset that
+    // cleared detection — see Scanner.tsx's lastScanStats for the same fix
+    // on the live "Rows scanned" stat. A History entry's own rowsScanned
+    // was silently using scanned.length (post-filter) here too.
+    const rowsScanned = parsedFiles.reduce((sum, pf) => sum + pf.data.length, 0);
+    // Surviving (first-seen) rows still carry their group's true size even
+    // though duplicates themselves were already dropped before `scanned`
+    // — see markDuplicateLeads — so this doesn't need to be passed in.
+    const largestDuplicateGroup = Math.max(0, ...scanned.map((r) => r.duplicateGroupSize || 0));
+    const entry = buildHistoryEntry(parsedFiles, { results: scanned, rowsScanned, duplicatesRemoved, largestDuplicateGroup }, { tag });
     scanned.forEach((r) => {
       r.__sourceEntryId = entry.id;
       r.__sourceRowId = r.id;
@@ -268,12 +277,12 @@ export default function App() {
   }
 
   function loadParsedFilesIntoScanner(parsedFiles: ParsedFile[], tag = "Loaded from Lead Library") {
-    const { results: scanned } = scanParsedFiles(parsedFiles, ruleOverrides);
+    const { results: scanned, duplicatesRemoved } = scanParsedFiles(parsedFiles, ruleOverrides);
     applyStickyState(scanned, contacts);
     setResults(scanned);
     setUploadedFiles(parsedFiles.map((pf) => ({ name: pf.name, rows: pf.data.length })));
     setView("scanner");
-    recordHistory(parsedFiles, scanned, tag);
+    recordHistory(parsedFiles, scanned, tag, duplicatesRemoved);
     return scanned;
   }
 

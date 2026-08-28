@@ -63,7 +63,7 @@ interface LibraryProps {
   // Scanner uses) and files its Strong Signal rows into THIS folder's
   // category files — every scan gets recorded to History too, same as a
   // Scanner upload, via the same callback Scanner itself uses.
-  onRecordHistory: (parsedFiles: ParsedFile[], scanned: ResultRow[], tag?: string) => HistoryEntry;
+  onRecordHistory: (parsedFiles: ParsedFile[], scanned: ResultRow[], tag?: string, duplicatesRemoved?: number) => HistoryEntry;
   ruleOverrides: RuleOverrides;
 }
 
@@ -160,7 +160,7 @@ export default function LibraryView({ entries, setEntries, groups, setGroups, lo
       const folderName = groups.find((g) => g.id === groupId)?.name || "this folder";
       // Record History FIRST so the Library filing below can stamp its rows
       // with the real History entry id, not a throwaway one.
-      const historyEntry = onRecordHistory(parsedFiles, scanned, `Uploaded into ${folderName}`);
+      const historyEntry = onRecordHistory(parsedFiles, scanned, `Uploaded into ${folderName}`, duplicatesRemoved);
       const { entries: nextEntries, touchedIds } = fileSignalRowsIntoGroup(entries, groups, groupId, signalRows, historyEntry.id);
       setEntries(nextEntries);
       const touchedEntries = nextEntries.filter((e) => touchedIds.includes(e.id));

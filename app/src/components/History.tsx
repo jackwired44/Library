@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ACTIVE_BUCKET_KEYS, BUCKET_META, EXPORT_LABELS, exportRowsForBucket, getFullName, type BucketKey } from "../lib/detection";
+import { ACTIVE_BUCKET_KEYS, ACTIVE_CATEGORY_KEYS, BUCKET_META, CATEGORY_META, EXPORT_LABELS, exportRowsForBucket, getFullName, type BucketKey } from "../lib/detection";
 import { downloadCSV, toCSV, downloadBlob } from "../lib/csv";
 import { getWeeks, getDays, getFilteredHistory, buildAuditTrailRows, AUDIT_TRAIL_COLUMNS, type HistoryEntry } from "../lib/history";
 import type { LibraryEntry } from "../lib/library";
@@ -274,7 +274,21 @@ function HistoryCard({
   onUpdateNotes: (v: string) => void;
 }) {
   const signalCount = entry.results.filter((r) => r.tier === "signal").length;
-  const dupCount = entry.results.filter((r) => r.isDuplicate).length;
+  const mentionCount = entry.results.filter((r) => r.tier === "mention").length;
+  const dqCount = entry.results.filter((r) => r.tier === "dq").length;
+  // entry.results has already had every duplicate hard-removed (see
+  // CLAUDE.md "Duplicates are removed outright") — r.isDuplicate is always
+  // false here, so the real count/largest-group live on the entry itself,
+  // recorded at scan time (buildHistoryEntry).
+  const dupCount = entry.duplicatesRemoved || 0;
+  const largestDupGroup = entry.largestDuplicateGroup || 0;
+  // Per Jack: "break it down by needs review, strong signal and further
+  // with the product lines etc" — a full tier + category accounting per
+  // import, not just the total Strong Signal count History already had.
+  const signalByCategory = ACTIVE_CATEGORY_KEYS.map((ck) => ({
+    label: CATEGORY_META[ck].label,
+    count: entry.results.filter((r) => r.tier === "signal" && r.category === ck).length,
+  })).filter((c) => c.count > 0);
   const topCompanies = entry.results
     .slice(0, 3)
     .map((r) => r.row.__f.company || getFullName(r.row.__f))
@@ -298,7 +312,19 @@ function HistoryCard({
               )}
             </div>
             <div style={{ fontSize: 11.5, color: "#9aa1ac", marginTop: 2 }}>
-              {new Date(entry.importedAt).toLocaleString()} · {entry.rowsScanned} rows · {signalCount} Strong Signal{dupCount ? ` · ${dupCount} duplicate${dupCount === 1 ? "" : "s"}` : ""}
+              {new Date(entry.importedAt).toLocaleString()} · {entry.rowsScanned.toLocaleString()} rows read
+              {dupCount > 0 &&
+                ` · ${dupCount.toLocaleString()} duplicate${dupCount === 1 ? "" : "s"} recognized and merged into ${
+                  dupCount === 1 ? "its" : "their"
+                } matching contact${largestDupGroup > 2 ? ` (one lead appeared ${largestDupGroup} times)` : ""}`}
+            </div>
+            <div style={{ fontSize: 11.5, color: "#9aa1ac", marginTop: 2 }}>
+              <strong style={{ color: "#2CC295" }}>{signalCount.toLocaleString()} Strong Signal</strong>
+              {signalByCategory.length > 0 && ` (${signalByCategory.map((c) => `${c.count} ${c.label}`).join(" · ")})`}
+              {" · "}
+              <strong style={{ color: "#9A5B22" }}>{mentionCount.toLocaleString()} Needs Review</strong>
+              {" · "}
+              <strong style={{ color: "#B5443B" }}>{dqCount.toLocaleString()} Bad Leads</strong>
             </div>
             {topCompanies.length > 0 && <div style={{ fontSize: 11.5, color: "#9aa1ac", marginTop: 2 }}>{topCompanies.join(", ")}{entry.results.length > 3 ? "…" : ""}</div>}
           </div>
