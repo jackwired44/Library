@@ -402,11 +402,11 @@
     foundations: { label: "Foundations", color: "var(--track-foundations)" },
     dynamics: { label: "Dynamics 365", color: "var(--track-dynamics)" },
     managedit: { label: "Managed IT", color: "var(--track-managedit)" },
-    customdev: { label: "Custom Development", color: "var(--track-customdev)" },
-    azure: { label: "Azure & Licensing", color: "var(--track-azure)" },
+    azure: { label: "Azure Partner & Custom Development", color: "var(--track-azure)" },
+    licensing: { label: "Licensing & CSP", color: "var(--track-customdev)" },
   };
 
-  const TRACK_ORDER = ["foundations", "dynamics", "managedit", "customdev", "azure"];
+  const TRACK_ORDER = ["foundations", "dynamics", "managedit", "azure", "licensing"];
 
   const SECTIONS = [
     {
@@ -759,7 +759,7 @@
       crossSell: { text: "Security, backup/DR, and cloud are the most common co-managed add-on scopes &mdash; lead with whichever gap the internal team named." },
     },
     {
-      key: "custom-app-dev", track: "customdev", kicker: "CUSTOM DEVELOPMENT",
+      key: "custom-app-dev", track: "azure", kicker: "CUSTOM DEVELOPMENT",
       title: "Custom Application Development",
       subtitle: "Power Platform, custom Azure-hosted apps, and Dynamics/M365 integrations.",
       overview: [
@@ -790,6 +790,37 @@
         ],
       },
       crossSell: { text: "Azure hosting, Document Intelligence for anything document-heavy, and Dynamics/Power Platform integration are the natural next questions." },
+    },
+    {
+      key: "document-intelligence", track: "azure", kicker: "CUSTOM DEVELOPMENT",
+      title: "Azure Document Intelligence",
+      subtitle: "AI-powered document extraction &mdash; always pitched as part of a custom app, not standalone.",
+      overview: [
+        "Azure Document Intelligence is an AI service that extracts structured data from documents &mdash; invoices, forms, contracts, ID documents, claims paperwork. Wired CIO builds it into custom applications and workflows; we don&rsquo;t sell it as a standalone product.",
+      ],
+      wiredAngle: {
+        heading: "Wired CIO&rsquo;s Angle",
+        items: [
+          "Always frame this as part of a custom app development conversation &mdash; the real question is “who&rsquo;s going to build the app that uses this,” not “do you want this Azure service.” Lead with custom app dev, mention Document Intelligence as the engine underneath.",
+        ],
+      },
+      questions: {
+        heading: "Discovery Questions &mdash; Ask On the Call",
+        items: [
+          "What documents are being processed manually today, and by how many people/how many hours a week?",
+          "What system would the extracted data need to flow into &mdash; an ERP, a CRM, a database, a spreadsheet today?",
+          "Roughly what volume are we talking about &mdash; documents per day or per month?",
+          "Is there already an app or workflow in mind, or is this purely the manual-processing pain point so far?",
+        ],
+      },
+      signalsGood: {
+        heading: "Buying Signals &mdash; Listen For This Language",
+        items: [
+          "“Document Intelligence” mentioned by name.",
+          "Any document-heavy manual process (invoice processing, forms, claims, contracts) combined with wanting a custom app or automation.",
+        ],
+      },
+      crossSell: { text: "Business Central/ERP (invoice processing is the most common use case), custom app dev (the delivery vehicle), and Azure hosting/billing." },
     },
     {
       key: "azure-billing", track: "azure", kicker: "AZURE / CLOUD",
@@ -829,7 +860,7 @@
       crossSell: { text: "A strong opener for a broader MSP, security, or Dynamics conversation once trust is established on billing." },
     },
     {
-      key: "licensing-csp", track: "azure", kicker: "LICENSING",
+      key: "licensing-csp", track: "licensing", kicker: "LICENSING",
       title: "Microsoft Licensing Support / CSP",
       subtitle: "M365, security, and specialty SKUs &mdash; the easiest entry point into every other conversation.",
       overview: [
@@ -860,37 +891,6 @@
         ],
       },
       crossSell: { text: "Licensing is the easiest entry point into every other conversation &mdash; MSP, security, Copilot, Dynamics. Always ask what&rsquo;s NOT currently licensed, that&rsquo;s usually the real opening." },
-    },
-    {
-      key: "document-intelligence", track: "customdev", kicker: "CUSTOM DEVELOPMENT",
-      title: "Azure Document Intelligence",
-      subtitle: "AI-powered document extraction &mdash; always pitched as part of a custom app, not standalone.",
-      overview: [
-        "Azure Document Intelligence is an AI service that extracts structured data from documents &mdash; invoices, forms, contracts, ID documents, claims paperwork. Wired CIO builds it into custom applications and workflows; we don&rsquo;t sell it as a standalone product.",
-      ],
-      wiredAngle: {
-        heading: "Wired CIO&rsquo;s Angle",
-        items: [
-          "Always frame this as part of a custom app development conversation &mdash; the real question is “who&rsquo;s going to build the app that uses this,” not “do you want this Azure service.” Lead with custom app dev, mention Document Intelligence as the engine underneath.",
-        ],
-      },
-      questions: {
-        heading: "Discovery Questions &mdash; Ask On the Call",
-        items: [
-          "What documents are being processed manually today, and by how many people/how many hours a week?",
-          "What system would the extracted data need to flow into &mdash; an ERP, a CRM, a database, a spreadsheet today?",
-          "Roughly what volume are we talking about &mdash; documents per day or per month?",
-          "Is there already an app or workflow in mind, or is this purely the manual-processing pain point so far?",
-        ],
-      },
-      signalsGood: {
-        heading: "Buying Signals &mdash; Listen For This Language",
-        items: [
-          "“Document Intelligence” mentioned by name.",
-          "Any document-heavy manual process (invoice processing, forms, claims, contracts) combined with wanting a custom app or automation.",
-        ],
-      },
-      crossSell: { text: "Business Central/ERP (invoice processing is the most common use case), custom app dev (the delivery vehicle), and Azure hosting/billing." },
     },
   ];
 
