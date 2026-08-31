@@ -197,16 +197,20 @@ export function getFilteredHistory(history: HistoryEntry[], search: string): His
 // have a row id like "0-0" (ids are only ever scoped to one import at a
 // time), so a plain merge risks one row's edit landing on a different
 // import's row that happens to share the same id.
-export function combineHistoryEntries(entries: HistoryEntry[]): { results: ResultRow[]; rowsScanned: number } {
+export function combineHistoryEntries(entries: HistoryEntry[]): { results: ResultRow[]; rowsScanned: number; duplicatesRemoved: number; largestDuplicateGroup: number } {
   const results: ResultRow[] = [];
   let rowsScanned = 0;
+  let duplicatesRemoved = 0;
+  let largestDuplicateGroup = 0;
   entries.forEach((h) => {
     h.results.forEach((r) => {
       results.push({ ...r, id: `${h.id}::${r.id}`, __sourceEntryId: h.id, __sourceRowId: r.id });
     });
     rowsScanned += h.rowsScanned;
+    duplicatesRemoved += h.duplicatesRemoved || 0;
+    largestDuplicateGroup = Math.max(largestDuplicateGroup, h.largestDuplicateGroup || 0);
   });
-  return { results, rowsScanned };
+  return { results, rowsScanned, duplicatesRemoved, largestDuplicateGroup };
 }
 
 // Writes a category/tier/cross-out/disposition/priority edit made on a row

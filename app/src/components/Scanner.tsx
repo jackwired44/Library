@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ACTIVE_CATEGORY_KEYS,
   ACTIVE_BUCKET_KEYS,
@@ -81,6 +81,13 @@ interface ScannerProps {
   // actual Contact write-back still goes through onRecordHistory/
   // onSyncToHistory, same as before.
   contacts: Contact[];
+  // Set only when results were just loaded in from History (a single
+  // reopened entry, or "Combine into Scanner" across several) — Scanner's
+  // own lastScanStats below only ever gets set from its OWN upload paths
+  // (handleFiles/loadFromLibraryPicker), so without this the stat card and
+  // accounting banner silently fell back to the post-filter results.length
+  // whenever a batch was reopened from History instead of freshly uploaded.
+  loadedScanStats: { rowsScanned: number; duplicatesRemoved: number; largestDuplicateGroup: number } | null;
 }
 
 export default function Scanner({
@@ -100,6 +107,7 @@ export default function Scanner({
   allHistory,
   ruleOverrides,
   contacts,
+  loadedScanStats,
 }: ScannerProps) {
   // Per-bucket download file name — editable, defaults to the standard
   // wired-cio-<bucket>-leads.csv name until Jack renames it. Reset on
@@ -117,6 +125,14 @@ export default function Scanner({
   // uploadedFiles) since scanParsedFiles is the one source of truth for
   // both numbers together.
   const [lastScanStats, setLastScanStats] = useState<{ rowsScanned: number; duplicatesRemoved: number; largestDuplicateGroup: number } | null>(null);
+  // Adopts App.tsx's loadedScanStats whenever it changes (a fresh reopen/
+  // combine from History) — a plain upload sets lastScanStats directly via
+  // handleFiles/loadFromLibraryPicker instead, so this only ever fires for
+  // the History-load path. See CLAUDE.md "Rows scanned accounting" for the
+  // bug this closes (Jack: "rows scanned... might not be accurate").
+  useEffect(() => {
+    if (loadedScanStats) setLastScanStats(loadedScanStats);
+  }, [loadedScanStats]);
   const [tierFilter, setTierFilter] = useState<Tier | "all">("signal");
   const [categoryFilter, setCategoryFilter] = useState<CategoryKey | "all">("all");
   const [duplicatesOnly, setDuplicatesOnly] = useState(false);

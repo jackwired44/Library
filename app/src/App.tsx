@@ -62,6 +62,10 @@ export default function App() {
   const [notesPanelTab, setNotesPanelTab] = useState<"notes" | "cheatsheet" | null>(null);
   const [results, setResults] = useState<ResultRow[] | null>(null);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  // Set only when results are loaded in from History (see
+  // loadHistoryIntoScanner below) — Scanner adopts this once, into its own
+  // local lastScanStats, since a fresh upload computes its own instead.
+  const [loadedScanStats, setLoadedScanStats] = useState<{ rowsScanned: number; duplicatesRemoved: number; largestDuplicateGroup: number } | null>(null);
 
   const [libraryEntries, setLibraryEntries] = useState<LibraryEntry[]>([]);
   const [libraryGroups, setLibraryGroups] = useState<LibraryGroup[]>([]);
@@ -289,12 +293,23 @@ export default function App() {
   // "View/edit" a single History entry, or "Combine into Scanner" several —
   // both go through the same shallow-copy tagging (__sourceEntryId/
   // __sourceRowId) so edits sync back the same way either way.
+  //
+  // Scanner's own "Rows scanned" accounting (lastScanStats) is local state
+  // it only sets from its OWN handleFiles/loadFromLibraryPicker — loading
+  // in from History bypasses both, so without this it silently fell back
+  // to the old undercounted results.length (Jack caught this: "rows
+  // scanned... might not be accurate" when reopening/combining History
+  // entries — Strong Signal counts were fine since those read straight off
+  // results). loadedScanStats feeds Scanner the real combined numbers
+  // (summed from each entry's own already-correct rowsScanned/
+  // duplicatesRemoved) for exactly this path.
   function loadHistoryIntoScanner(entryIds: string[]) {
     const entries = historyEntries.filter((h) => entryIds.includes(h.id));
     if (!entries.length) return;
-    const { results: combined } = combineHistoryEntries(entries);
+    const { results: combined, rowsScanned, duplicatesRemoved, largestDuplicateGroup } = combineHistoryEntries(entries);
     setResults(combined);
     setUploadedFiles(entries.flatMap((h) => h.files));
+    setLoadedScanStats({ rowsScanned, duplicatesRemoved, largestDuplicateGroup });
     setView("scanner");
   }
 
@@ -419,6 +434,7 @@ export default function App() {
               onReset={() => {
                 setResults(null);
                 setUploadedFiles([]);
+                setLoadedScanStats(null);
               }}
               libraryEntries={libraryEntries}
               setLibraryEntries={setLibraryEntries}
@@ -431,6 +447,7 @@ export default function App() {
               allHistory={historyEntries}
               ruleOverrides={ruleOverrides}
               contacts={contacts}
+              loadedScanStats={loadedScanStats}
             />
           )}
           {view === "engage" && (
