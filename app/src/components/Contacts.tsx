@@ -134,7 +134,7 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
   // too), but never the disposition filter itself — every bucket's count
   // needs to stay visible regardless of which one is currently selected.
   const dispositionCounts = useMemo(() => {
-    const counts: Record<Disposition, number> = { none: 0, "meeting-booked": 0, "not-interested": 0, "no-contact": 0, other: 0 };
+    const counts: Record<Disposition, number> = { none: 0, "meeting-booked": 0, "no-answer": 0, "not-interested": 0, "no-contact": 0, other: 0 };
     searched.forEach((c) => { counts[c.disposition || "none"]++; });
     return counts;
   }, [searched]);

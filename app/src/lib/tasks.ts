@@ -26,6 +26,14 @@ export interface Task {
   // every ordinary Board task.
   contactId?: string | null;
   priority?: TaskPriority | null;
+  // The outbound channel this task is — call or email — so it can be
+  // worked from its own dedicated queue (Engage's Calls/Emails tabs) as
+  // well as the general Board. Absent/null = an ordinary task, same as
+  // every task before this field existed. First native slice of "start
+  // building out sequence and actual tasks slowly" (see CLAUDE.md) —
+  // deliberately reuses this same Task store rather than a new one, same
+  // as contactId/priority above.
+  channel?: "call" | "email" | null;
 }
 
 function newId() {
@@ -48,10 +56,10 @@ export function createTask(date: string, text: string): Task | null {
   return { id: newId(), date, text: trimmed, done: false, createdAt: new Date().toISOString() };
 }
 
-export function createContactTask(date: string, text: string, contactId: string, priority: TaskPriority): Task | null {
+export function createContactTask(date: string, text: string, contactId: string, priority: TaskPriority, channel?: "call" | "email"): Task | null {
   const base = createTask(date, text);
   if (!base) return null;
-  return { ...base, contactId, priority };
+  return { ...base, contactId, priority, channel: channel ?? null };
 }
 
 function dateKey(d: Date): string {

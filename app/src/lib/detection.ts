@@ -916,7 +916,7 @@ export function getFullName(f: ResolvedFields): string {
 
 // Manual, per-lead status tracking — entirely separate from the detection
 // engine above (nothing here is auto-set). See CLAUDE.md "Lead status".
-export type Disposition = "none" | "meeting-booked" | "not-interested" | "no-contact" | "other";
+export type Disposition = "none" | "meeting-booked" | "no-answer" | "not-interested" | "no-contact" | "other";
 export const DISPOSITION_META: Record<Disposition, { label: string; color: string; bg: string }> = {
   none: { label: "No disposition", color: "#9aa1ac", bg: "#F4F6F7" },
   // Blue for meeting booked, red for not interested — per Jack, "for now"
@@ -924,11 +924,17 @@ export const DISPOSITION_META: Record<Disposition, { label: string; color: strin
   // Reuses the same blue already established elsewhere in the app (the
   // "Search LinkedIn" button) rather than inventing a new one.
   "meeting-booked": { label: "Meeting booked", color: "#0A66C2", bg: "#EAF3FC" },
+  // Added alongside the native Calls tab — a real, distinct call outcome
+  // (not the same as "No contact made" below, which means no attempt was
+  // logged at all) and the same value Apollo's own call outcomes use, so
+  // a future pull-in of Apollo call data maps straight onto this field
+  // instead of needing its own parallel taxonomy.
+  "no-answer": { label: "No answer", color: "#8A5A00", bg: "#FBF3E7" },
   "not-interested": { label: "Not interested", color: "#B5443B", bg: "#FBEAE8" },
   "no-contact": { label: "No contact made", color: "#8A5A00", bg: "#FBF3E7" },
   other: { label: "Other", color: "#3A4B8C", bg: "#EEF2FF" },
 };
-export const DISPOSITION_ORDER: Disposition[] = ["none", "meeting-booked", "not-interested", "no-contact", "other"];
+export const DISPOSITION_ORDER: Disposition[] = ["none", "meeting-booked", "no-answer", "not-interested", "no-contact", "other"];
 
 export interface ResultRow {
   id: string;

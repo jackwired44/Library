@@ -11,6 +11,7 @@ import { useState } from "react";
 import TaskBoard from "./TaskBoard";
 import ContactsView from "./Contacts";
 import CompaniesView from "./Companies";
+import ChannelTasks from "./ChannelTasks";
 import type { Task, TaskPriority } from "../lib/tasks";
 import type { Contact, ManualContactInput } from "../lib/contacts";
 
@@ -26,7 +27,7 @@ interface EngageProps {
   contacts: Contact[];
   contactsLoading: boolean;
   contactsError: string | null;
-  onAddContactTask: (contactId: string, date: string, priority: TaskPriority, text: string) => void;
+  onAddContactTask: (contactId: string, date: string, priority: TaskPriority, text: string, channel?: "call" | "email") => void;
   onAddContact: (input: ManualContactInput) => void;
   onUpdateContact: (id: string, patch: Partial<Contact>) => void;
 
@@ -39,11 +40,13 @@ interface EngageProps {
   initialContactsSearch?: string;
 }
 
-export type EngageTab = "contacts" | "companies" | "tasks";
+export type EngageTab = "contacts" | "companies" | "tasks" | "calls" | "emails";
 const TAB_OPTIONS: { key: EngageTab; label: string }[] = [
   { key: "contacts", label: "Contacts" },
   { key: "companies", label: "Companies" },
   { key: "tasks", label: "Tasks" },
+  { key: "calls", label: "Calls" },
+  { key: "emails", label: "Emails" },
 ];
 
 export default function Engage({
@@ -106,6 +109,12 @@ export default function Engage({
         />
       )}
       {tab === "companies" && <CompaniesView contacts={contacts} onAddContact={onAddContact} onUpdateContact={onUpdateContact} />}
+      {tab === "calls" && (
+        <ChannelTasks channel="call" contacts={contacts} tasks={tasks} onAddContactTask={onAddContactTask} onToggleTask={onToggleTask} onDeleteTask={onDeleteTask} />
+      )}
+      {tab === "emails" && (
+        <ChannelTasks channel="email" contacts={contacts} tasks={tasks} onAddContactTask={onAddContactTask} onToggleTask={onToggleTask} onDeleteTask={onDeleteTask} />
+      )}
     </div>
   );
 }

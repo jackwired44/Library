@@ -1927,6 +1927,123 @@ approved before building, per the standing proposal rule.
   empty state shown) — all against the real IndexedDB-backed flow, not a
   mock.
 
+## Apollo sequences investigation (app/ only, not built — pure recon)
+
+Per Jack: pull his live Apollo sequences into the app in a "chart style"
+view so he can work through them and mark who's been contacted, "basically
+a dual screen to Apollo." Explicitly told not to ship anything yet — this
+is scoping only, rehearsed live against his real Apollo account (never
+synthetic data) per the artifact-capabilities skill's "never guess a
+connector's shape" rule.
+
+- **Real data confirmed, not hypothetical.** `apollo_emailer_campaigns_search`
+  returned 21 real, live sequences with per-sequence stats already
+  attached (open/reply/bounce rates, contacts scheduled/delivered/replied/
+  demoed, `overdue_manual_tasks_count`, multi-channel steps — call/
+  auto_email/linkedin_step_*). Several sequence names already mirror this
+  app's own product-line categories (Dynamics Sequence, M365//Licensing
+  Opps). `apollo_tasks_search` (filterable by `emailer_campaign_id` +
+  `task_status`: scheduled/completed/skipped) confirmed real per-contact,
+  per-step task records — that status IS the "have I touched them yet"
+  signal Jack wants. Neither of these calls consumed Apollo credits.
+- **Scope narrowed to 5 sequences for now, mainly call tasks**: Carly Main
+  Sequence, Carly Outbound (M365//Dynamics//Licensing//Ongoing Support),
+  Carly (Azure, Fabric + Power Bi), Dynamics Sequence, General Leads.
+  Investigation into call-outcome/disposition values (no-answer, meeting-
+  booked, "plus others") is still open — blocked mid-session when the
+  Apollo connector's token expired; needs Jack to reauthorize it from his
+  claude.ai connector settings before this resumes. My working read (not
+  yet confirmed live): "no answer" is very likely a **phone call outcome**
+  (`apollo_phone_calls_search` / the `phone_call_outcome_id` analytics
+  dimension), while "meeting booked" may come from Apollo's separate
+  meetings/calendar-event data rather than a call outcome at all — needs a
+  real sample of both before building a mapping, not a guessed one.
+- **Open, unresolved design decision, flagged rather than picked
+  unilaterally**: whether an eventual "mark contacted" action in this app
+  should (a) only write to this app's own Contact record (a read-only
+  mirror of Apollo), or (b) actually call Apollo's own task-complete API
+  and write back into the live sequence (`apollo_tasks_complete`/
+  `apollo_tasks_skip` exist and were confirmed available, not yet called).
+  (b) is a materially bigger step than anything Apollo-related shipped so
+  far — every existing Apollo touchpoint (people-match enrichment) only
+  ever reads Apollo and writes to this app's own data, never the reverse.
+  Needs Jack's explicit call once the disposition-mapping piece above is
+  resolved, per the standing rule on new network dependencies/write access
+  to live external systems.
+
+## Calls & Emails tabs (app/ only)
+
+Per Jack, while the Apollo sequences pull is still blocked on
+reauthorizing the connector (see above): "create a call tab here also
+emails so we can start building out sequence and actual tasks slowly" —
+the first NATIVE slice of the Outbound Engine, deliberately independent of
+Apollo so it doesn't have to wait on that connector. Confirmed scope
+before building (per the standing proposal rule — this adds a data field
+and two new views): reuse the existing Task store rather than a new one,
+keep it additive.
+
+- **`Task` gained one new optional field, `channel?: "call" | "email"`**
+  (`lib/tasks.ts`) — `undefined`/`null` = an ordinary task, so every
+  existing Board/Contact task is completely unaffected, same pattern as
+  `contactId`/`priority` before it. `createContactTask` grew an optional
+  5th `channel` param.
+- **Two new Engage sub-tabs, "Calls" and "Emails"** (`EngageTab` gained
+  `"calls"`/`"emails"`, `Engage.tsx`), both rendered by one new shared
+  component, `components/ChannelTasks.tsx`, parameterized by channel
+  rather than two near-duplicate components. Each tab is a worklist of
+  every task with that channel across every contact (same
+  priority-then-date sort Contacts' own Tasks panel already uses), with a
+  "Hide completed" toggle and a "+ Call"/"+ Email" quick-add form (pick
+  any contact via a searchable dropdown, date, priority, optional note —
+  same shape as Contacts' existing "+ Task" flow, just channel-tagged and
+  not required to start from an already-expanded contact row).
+- **Added a real "No answer" disposition** (`Disposition` in
+  `lib/detection.ts`, between "Meeting booked" and "Not interested") —
+  distinct from the existing "No contact made" (which means no attempt was
+  logged at all) since a logged, no-answer call attempt is a real, common
+  outcome that deserves its own value. Chosen deliberately to match the
+  value Apollo's own call outcomes use, so a future pull-in of real Apollo
+  call data (see the investigation above) maps straight onto this same
+  field instead of needing a second, parallel taxonomy. Purely additive —
+  every place that iterates `DISPOSITION_ORDER`/`DISPOSITION_META`
+  (Scanner, Library, Contacts, Companies, ContactDetail) picked it up
+  automatically; the one hardcoded `Record<Disposition, number>` literal
+  (`Contacts.tsx`'s per-bucket count initializer) was updated to include
+  it explicitly.
+- **Deliberately did NOT touch the existing Contact-editing boundary.**
+  `Contact.disposition` stays exactly what it's always been — a read-only,
+  Scanner-synced snapshot, not directly editable from Contacts/Engage (see
+  "Contacts: scan-derived fields at a glance"). A Calls-tab task has no
+  outcome-capture field of its own yet; per Jack's own restated "this
+  becomes the source of truth for all outbound opps" framing, letting a
+  completed call task set a Contact's disposition directly is a real,
+  separate product decision (crossing that documented boundary) — flagged
+  here rather than decided unilaterally alongside this build.
+- Verified live: uploaded a CSV to seed Contacts, added a call task from
+  the new Calls tab with a note ("Left voicemail"), confirmed it shows
+  there with the right contact/company/priority/date; confirmed it does
+  NOT appear on the Emails tab (channel-scoped correctly); confirmed it
+  DOES appear on the plain Tasks/Board tab too (same shared store, by
+  design — matches how contact tasks already behaved before this
+  change); confirmed "No answer" now shows as a disposition filter button
+  on Contacts.
+
+## Product thesis, restated (app/ only, not a build item)
+
+Per Jack, worth capturing verbatim since it reframes where build effort
+should go: **"The scanner will only be used by me and will slowly be used
+less once all the data is uploaded and stored properly — the biggest use
+case will be attacking outbound leads and processing where they stand."**
+Scanner is the on-ramp (CSV in, triaged, filed), not the place Jack expects
+to spend ongoing time once historical data is fully loaded — Contacts/
+Companies/Lists/Engage (Tasks/Calls/Emails) are where the real, recurring
+work happens: working an already-qualified pipeline, not re-processing
+CSVs. Directly reinforces why the Calls & Emails tabs above and the
+Apollo-sequences work are the right next investments over further Scanner
+polish, and matches the Roadmap's "single source of truth for every
+qualified lead" framing already captured below — this is that same
+thesis, restated with an explicit usage-pattern prediction attached.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool
