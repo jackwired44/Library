@@ -182,46 +182,113 @@
   .chip.active .swatch { background: var(--chip-color, var(--accent)); }
 
   .card-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(258px, 1fr));
-    gap: 14px;
-    padding: 20px clamp(18px, 4vw, 44px) 70px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 16px clamp(18px, 4vw, 44px) 60px;
   }
 
   .card {
     text-align: left;
-    display: flex; flex-direction: column; gap: 10px;
+    display: flex; align-items: center; gap: 12px;
     background: var(--surface);
     border: 1px solid var(--border);
     border-left: 3px solid var(--track-color, var(--accent));
-    border-radius: 11px;
-    padding: 16px 17px;
+    border-radius: 8px;
+    padding: 9px 13px;
     cursor: pointer;
     font: inherit; color: var(--ink);
-    box-shadow: var(--shadow);
-    transition: transform 0.12s ease, border-color 0.12s ease;
+    min-width: 0;
   }
-  .card:hover { transform: translateY(-1px); border-left-color: var(--track-color, var(--accent)); }
+  .card:hover { background: var(--surface-sunken); border-left-color: var(--track-color, var(--accent)); }
   .card:hover .card-title { color: var(--track-color, var(--accent)); }
 
-  .card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .card-top .eyebrow { color: var(--track-color, var(--accent)); }
-  .card-idx { font-family: "IBM Plex Mono", monospace; font-size: 10.5px; color: var(--muted); }
+  .card-idx { font-family: "IBM Plex Mono", monospace; font-size: 10px; color: var(--muted); flex-shrink: 0; width: 16px; }
 
   .card-title {
     font-family: "Archivo", sans-serif;
-    font-weight: 700; font-size: 17px; line-height: 1.25;
+    font-weight: 700; font-size: 14px; line-height: 1.2; flex-shrink: 0;
+    white-space: nowrap;
   }
-  .card-sub { font-size: 12.5px; color: var(--muted); line-height: 1.5; flex: 1; }
+  .card-kicker { color: var(--track-color, var(--accent)); flex-shrink: 0; }
+  .card-sub {
+    font-size: 12.5px; color: var(--muted); flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
 
   .card-meta {
-    display: flex; gap: 12px; flex-wrap: wrap;
-    font-family: "IBM Plex Mono", monospace; font-size: 10.5px; color: var(--muted);
-    padding-top: 8px; border-top: 1px solid var(--border);
+    display: flex; gap: 10px; flex-shrink: 0;
+    font-family: "IBM Plex Mono", monospace; font-size: 10px; color: var(--muted);
   }
-  .card-meta b { color: var(--ink); font-weight: 600; }
 
   .empty-state { padding: 60px clamp(18px, 4vw, 44px); color: var(--muted); font-size: 14px; }
+
+  @media (max-width: 720px) {
+    .card-kicker, .card-sub { display: none; }
+  }
+
+  /* ---------------- ask view ---------------- */
+
+  .ask-content { max-width: 700px; margin: 0 auto; padding: 30px clamp(18px, 4vw, 44px) 30px; display: flex; flex-direction: column; gap: 18px; }
+  .ask-intro { color: var(--muted); font-size: 13.5px; line-height: 1.55; }
+  .ask-intro b { color: var(--ink); }
+
+  .ask-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .ask-chip {
+    font: inherit; font-size: 12px; text-align: left;
+    padding: 7px 12px; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--surface);
+    color: var(--muted); cursor: pointer;
+  }
+  .ask-chip:hover { border-color: var(--accent); color: var(--accent); }
+
+  .ask-thread { display: flex; flex-direction: column; gap: 14px; }
+
+  .ask-q {
+    align-self: flex-end; max-width: 80%;
+    background: var(--accent); color: var(--accent-ink);
+    padding: 9px 14px; border-radius: 12px 12px 2px 12px;
+    font-size: 14px; line-height: 1.5;
+  }
+
+  .ask-a {
+    align-self: flex-start; max-width: 92%;
+    background: var(--surface); border: 1px solid var(--border);
+    border-left: 3px solid var(--track-color, var(--accent));
+    border-radius: 2px 12px 12px 12px;
+    padding: 13px 15px;
+  }
+  .ask-a .ask-a-kicker { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+  .ask-a .ask-a-kicker .eyebrow { color: var(--track-color, var(--accent)); }
+  .ask-a .ask-a-type { font-family: "IBM Plex Mono", monospace; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .ask-a .ask-a-snippet { font-size: 14.5px; line-height: 1.55; margin-bottom: 10px; }
+  .ask-a .ask-a-snippet b { color: var(--ink); }
+  .ask-a-open {
+    font: inherit; font-size: 12.5px; font-weight: 600;
+    background: none; border: none; color: var(--track-color, var(--accent)); cursor: pointer;
+    padding: 0; display: inline-flex; align-items: center; gap: 4px;
+  }
+  .ask-a-related { margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 7px; }
+  .ask-a-related-label { font-size: 11px; color: var(--muted); margin-right: 2px; }
+  .ask-a-related button {
+    font: inherit; font-size: 11.5px; background: var(--surface-sunken); border: 1px solid var(--border);
+    border-radius: 999px; padding: 4px 10px; cursor: pointer; color: var(--muted);
+  }
+  .ask-a-related button:hover { color: var(--ink); border-color: var(--muted); }
+
+  .ask-form { display: flex; gap: 8px; position: sticky; bottom: 16px; }
+  .ask-input {
+    flex: 1; font: inherit; font-size: 14px;
+    padding: 11px 14px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--ink);
+    box-shadow: var(--shadow);
+  }
+  .ask-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .ask-send {
+    font: inherit; font-size: 13.5px; font-weight: 600;
+    padding: 0 18px; border-radius: 10px; border: 1px solid var(--accent);
+    background: var(--accent); color: var(--accent-ink); cursor: pointer;
+  }
 
   /* ---------------- detail view ---------------- */
 
@@ -362,6 +429,7 @@
     <svg class="search-icon" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5.2" stroke="currentColor" stroke-width="1.4"/><path d="M11 11L14.2 14.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
     <input class="search-input" id="navSearch" type="text" placeholder="Find a section…" autocomplete="off">
   </div>
+  <button class="btn" id="askBtn">&#128172; Ask</button>
   <button class="btn" id="printBtn">Print</button>
 </header>
 
@@ -374,7 +442,7 @@
   <div class="index-hero">
     <span class="eyebrow" style="color:var(--accent)">Internal &middot; Outbound Sales</span>
     <h1>The Outbound Cheat Library</h1>
-    <p class="tagline">&ldquo;When your technology works, so do your people.&rdquo; Twelve pages, one per topic — pick the one that matches the lead in front of you.</p>
+    <p class="tagline">&ldquo;When your technology works, so do your people.&rdquo; One page per topic — pick the one that matches the lead in front of you, or ask below.</p>
   </div>
   <div class="track-filters" id="trackFilters"></div>
   <div class="card-grid" id="cardGrid"></div>
@@ -390,6 +458,23 @@
     </div>
   </div>
   <div class="detail-content" id="detailContent"></div>
+</div>
+
+<div class="detail-view" id="askView" hidden>
+  <div class="detail-bar">
+    <button class="back-link" id="askBackLink">&larr; All sections</button>
+    <div class="detail-meta"><span class="eyebrow" style="color:var(--accent)">ASK THE PLAYBOOK</span></div>
+    <div class="pager"></div>
+  </div>
+  <div class="ask-content">
+    <p class="ask-intro">Type a question the way you&rsquo;d actually ask it on a call. This searches every page&rsquo;s discovery questions, buying signals, red flags, and objection responses for the closest match &mdash; <b>it&rsquo;s a keyword search over this playbook, not a live AI model</b> (that upgrade comes once this is wired into the real platform/website/extension).</p>
+    <div class="ask-chips" id="askChips"></div>
+    <div class="ask-thread" id="askThread"></div>
+    <form class="ask-form" id="askForm">
+      <input class="ask-input" id="askInput" type="text" placeholder="e.g. what do I say if they already have an ERP?" autocomplete="off">
+      <button class="ask-send" type="submit">Ask</button>
+    </form>
+  </div>
 </div>
 
 <div id="printAll" hidden></div>
@@ -1037,10 +1122,11 @@
       card.style.setProperty("--track-color", t.color);
       const meta = countMeta(s);
       card.innerHTML =
-        `<div class="card-top"><span class="eyebrow">${s.kicker}</span><span class="card-idx mono">${String(idx).padStart(2, "0")}</span></div>` +
-        `<div class="card-title">${s.title}</div>` +
-        `<div class="card-sub">${s.subtitle}</div>` +
-        `<div class="card-meta">${meta.map((m) => `<span><b>${m.split(" ")[0]}</b> ${m.split(" ").slice(1).join(" ")}</span>`).join("")}</div>`;
+        `<span class="card-idx mono">${String(idx).padStart(2, "0")}</span>` +
+        `<span class="card-title">${s.title}</span>` +
+        `<span class="eyebrow card-kicker">${s.kicker}</span>` +
+        `<span class="card-sub">${s.subtitle}</span>` +
+        `<span class="card-meta">${meta.join(" · ")}</span>`;
       card.addEventListener("click", () => { location.hash = s.key; });
       cardGrid.appendChild(card);
     });
@@ -1059,6 +1145,7 @@
   // ---------------------------------------------------------------------
   const indexView = document.getElementById("indexView");
   const detailView = document.getElementById("detailView");
+  const askView = document.getElementById("askView");
   const detailContent = document.getElementById("detailContent");
   const detailKicker = document.getElementById("detailKicker");
   const detailIdx = document.getElementById("detailIdx");
@@ -1071,14 +1158,19 @@
     return `<button class="foot-nav-btn ${dir}" data-goto="${key}"><span class="dir">${dir === "next" ? "Next" : "Previous"}</span><span>${s.title}</span></button>`;
   }
 
+  function setView(which) {
+    indexView.hidden = which !== "index";
+    detailView.hidden = which !== "detail";
+    askView.hidden = which !== "ask";
+  }
+
   function showDetail(key) {
     const section = byKey[key];
     if (!section) { showIndex(); return; }
     const idx = section.order;
     const t = TRACKS[section.track];
 
-    indexView.hidden = true;
-    detailView.hidden = false;
+    setView("detail");
     detailView.style.setProperty("--track-color", t.color);
     detailKicker.textContent = section.kicker;
     detailKicker.style.color = t.color;
@@ -1106,20 +1198,157 @@
   }
 
   function showIndex() {
-    detailView.hidden = true;
-    indexView.hidden = false;
+    setView("index");
+  }
+
+  function showAsk() {
+    setView("ask");
+    if (!askThread.children.length) askInput.focus();
   }
 
   function routeFromHash() {
-    const key = location.hash.replace(/^#/, "");
-    if (key && byKey[key]) showDetail(key);
-    else showIndex();
+    const raw = location.hash.replace(/^#/, "");
+    if (raw === "ask") { showAsk(); return; }
+    if (raw && byKey[raw]) { showDetail(raw); return; }
+    showIndex();
   }
 
   window.addEventListener("hashchange", routeFromHash);
   document.getElementById("backLink").addEventListener("click", () => { location.hash = ""; });
+  document.getElementById("askBackLink").addEventListener("click", () => { location.hash = ""; });
   document.getElementById("brandHome").addEventListener("click", () => { location.hash = ""; });
+  document.getElementById("askBtn").addEventListener("click", () => { location.hash = "ask"; });
   routeFromHash();
+
+  // ---------------------------------------------------------------------
+  // Ask the Playbook (local keyword search — not a live AI model)
+  // ---------------------------------------------------------------------
+  const askThread = document.getElementById("askThread");
+  const askForm = document.getElementById("askForm");
+  const askInput = document.getElementById("askInput");
+  const askChips = document.getElementById("askChips");
+
+  const STOPWORDS = new Set(["a", "an", "the", "is", "are", "do", "does", "did", "to", "on", "we", "i", "my", "of", "for", "in", "and", "or", "how", "what", "when", "should", "say", "if", "they", "them", "their", "with", "about", "can", "it", "this", "that", "me", "you", "your", "us", "our"]);
+
+  function stripTags(html) {
+    const d = document.createElement("div");
+    d.innerHTML = html;
+    return d.textContent || "";
+  }
+
+  function tokenize(text) {
+    return text.toLowerCase().match(/[a-z0-9]+/g) || [];
+  }
+
+  const SEARCH_INDEX = SECTIONS.map((s) => {
+    const chunks = [];
+    const push = (type, heading, text, weight) => chunks.push({ type, heading, text: stripTags(text), weight, tokens: tokenize(stripTags(text)) });
+    push("overview", null, s.overview.join(" "), 1);
+    if (s.wiredAngle) s.wiredAngle.items.forEach((i) => push("angle", s.wiredAngle.heading, i, 1.5));
+    if (s.snapshot) s.snapshot.rows.forEach((r) => push("snapshot", s.snapshot.heading, `${r[0]}: ${r[1]}`, 1));
+    if (s.facts) s.facts.items.forEach((i) => push("fact", s.facts.heading, i, 1.5));
+    if (s.icp) s.icp.items.forEach((i) => push("icp", s.icp.heading, i, 1.5));
+    if (s.questions) s.questions.items.forEach((i) => push("question", s.questions.heading, i, 2));
+    if (s.signalsGood) s.signalsGood.items.forEach((i) => push("signal-good", s.signalsGood.heading, i, 2));
+    if (s.signalsBad) s.signalsBad.items.forEach((i) => push("signal-bad", s.signalsBad.heading, i, 2));
+    if (s.objections) s.objections.rows.forEach((r) => push("objection", s.objections.heading, `${r[0]} — ${r[1]}`, 3));
+    if (s.crossSell) push("crosssell", s.crossSell.heading, s.crossSell.text, 1);
+    return { section: s, chunks, titleTokens: tokenize(s.title), kickerTokens: tokenize(s.kicker) };
+  });
+
+  function scoreChunk(chunk, queryTokens, rawQuery) {
+    let score = 0;
+    queryTokens.forEach((qt) => {
+      if (chunk.tokens.includes(qt)) score += 1;
+      else if (chunk.tokens.some((t) => t.length > 3 && (t.includes(qt) || qt.includes(t)))) score += 0.5;
+    });
+    if (rawQuery.length > 3 && chunk.text.toLowerCase().includes(rawQuery)) score += 3;
+    return score * chunk.weight;
+  }
+
+  function search(query) {
+    const rawQuery = query.trim().toLowerCase();
+    const queryTokens = tokenize(rawQuery).filter((t) => !STOPWORDS.has(t) && t.length > 1);
+    if (!queryTokens.length) return [];
+
+    const results = SEARCH_INDEX.map((entry) => {
+      let titleBonus = 0;
+      queryTokens.forEach((qt) => {
+        if (entry.titleTokens.includes(qt)) titleBonus += 4;
+        if (entry.kickerTokens.includes(qt)) titleBonus += 2;
+      });
+      let best = null;
+      let total = titleBonus;
+      entry.chunks.forEach((chunk) => {
+        const s = scoreChunk(chunk, queryTokens, rawQuery);
+        total += s;
+        if (s > 0 && (!best || s > best.score)) best = { ...chunk, score: s };
+      });
+      return { section: entry.section, total, best };
+    }).filter((r) => r.total > 0);
+
+    results.sort((a, b) => b.total - a.total);
+    return results.slice(0, 4);
+  }
+
+  const CHUNK_LABEL = {
+    overview: "Overview", angle: "Positioning", snapshot: "Snapshot", fact: "Key fact",
+    icp: "Ideal customer profile", question: "Discovery question", "signal-good": "Buying signal",
+    "signal-bad": "Red flag", objection: "Objection response", crosssell: "Cross-sell",
+  };
+
+  function renderAskAnswer(question, results) {
+    if (!results.length) {
+      return `<div class="ask-a"><div class="ask-a-snippet">No direct match in the playbook for that. Try different wording, or <button class="ask-a-open" data-goto="">browse all sections →</button></div></div>`;
+    }
+    const top = results[0];
+    const t = TRACKS[top.section.track];
+    const snippet = top.best ? top.best.text : top.section.subtitle;
+    const label = top.best ? CHUNK_LABEL[top.best.type] || "Match" : "Overview";
+    const related = results.slice(1);
+    return `<div class="ask-a" style="--track-color:${t.color}">
+      <div class="ask-a-kicker"><span class="eyebrow">${top.section.kicker}</span><span class="ask-a-type">${label} &middot; ${top.section.title}</span></div>
+      <div class="ask-a-snippet">${snippet}</div>
+      <button class="ask-a-open" data-goto="${top.section.key}">Open full page &rarr;</button>
+      ${related.length ? `<div class="ask-a-related"><span class="ask-a-related-label">Also see:</span>${related.map((r) => `<button data-goto="${r.section.key}">${r.section.title}</button>`).join("")}</div>` : ""}
+    </div>`;
+  }
+
+  function askQuestion(question) {
+    const q = question.trim();
+    if (!q) return;
+    const results = search(q);
+    const wrap = document.createElement("div");
+    wrap.innerHTML = `<div class="ask-q">${q.replace(/</g, "&lt;")}</div>${renderAskAnswer(q, results)}`;
+    Array.from(wrap.children).forEach((el) => askThread.appendChild(el));
+    askInput.value = "";
+    askThread.scrollIntoView({ block: "end", behavior: "smooth" });
+  }
+
+  askThread.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-goto]");
+    if (!btn) return;
+    location.hash = btn.dataset.goto || "";
+  });
+
+  askForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    askQuestion(askInput.value);
+  });
+
+  const ASK_STARTERS = [
+    "What do I say if they already have an ERP?",
+    "How many employees should I be targeting?",
+    "What counts as a red flag for MSP?",
+    "How do I answer “how much does this cost”?",
+  ];
+  ASK_STARTERS.forEach((q) => {
+    const chip = document.createElement("button");
+    chip.className = "ask-chip";
+    chip.textContent = q;
+    chip.addEventListener("click", () => askQuestion(q));
+    askChips.appendChild(chip);
+  });
 
   // ---------------------------------------------------------------------
   // Print
@@ -1137,7 +1366,7 @@
   buildPrintAll();
 
   document.getElementById("printBtn").addEventListener("click", () => {
-    if (detailView.hidden) {
+    if (!indexView.hidden) {
       document.body.classList.add("print-all-mode");
       printAllEl.hidden = false;
     }
