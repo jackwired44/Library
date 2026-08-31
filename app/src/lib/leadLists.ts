@@ -69,7 +69,13 @@ function dedupeKeyOf(r: ResultRow): string | null {
 export function addRowsToList(lists: LeadList[], listId: string, rows: ResultRow[]): { lists: LeadList[]; added: number } {
   const list = lists.find((l) => l.id === listId);
   if (!list) return { lists, added: 0 };
-  const existingKeys = new Set(list.rows.map((r) => r.__rowKey).filter((k) => k && !k.startsWith("row-")));
+  // Every existing __rowKey, no prefix filtering — a random `row-...`
+  // fallback key (used only when a lead has no name or no company to key
+  // off of) can never collide with a real `name::company` dedupeKey below,
+  // so there's nothing to gain from excluding it, and excluding by prefix
+  // wrongly dropped a legitimate dedupe key that happened to start with
+  // "row-" (e.g. a lead literally named "Row").
+  const existingKeys = new Set(list.rows.map((r) => r.__rowKey));
   const toAdd: ListedLeadRow[] = [];
   rows.forEach((r) => {
     const dedupeKey = dedupeKeyOf(r);

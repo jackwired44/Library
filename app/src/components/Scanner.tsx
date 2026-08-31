@@ -266,6 +266,13 @@ export default function Scanner({
     setDedupeNotice(null);
     setPickerFolderId("");
     setPickerFileKey("");
+    // A previously-selected list (or "New list…" name) must never carry
+    // over into the next, unrelated upload — otherwise selecting rows in
+    // a fresh batch and clicking "Add" without first touching the dropdown
+    // would silently file them into whatever list was chosen last time.
+    setListPickerValue("");
+    setNewListName("");
+    setListNotice(null);
   }
 
   const folderOptions = useMemo(() => [...libraryGroups].sort((a, b) => a.name.localeCompare(b.name)), [libraryGroups]);
