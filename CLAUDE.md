@@ -1915,6 +1915,20 @@ rather than trusting memory of it.
   rebuild if there are uncommitted changes since the last publish, then
   republish/refresh the claude.ai Artifact and hand him the link. Treat it
   the same as "open the platform"/"drop the platform link," just shorter.
+  **Every republish must pass the FULL capabilities object, every time** —
+  `capabilities` is a full-set declaration; whatever isn't restated is
+  silently revoked. This app currently needs both `downloads: true` (CSV
+  exports — Scanner's Final Downloads, Library's per-file downloads,
+  History's per-entry downloads, the audit trail export — all route
+  through `saveViaClaudeDownloads` in `lib/csv.ts`, which is a total no-op
+  without this capability) and `mcp: {servers: [{server: "Apollo.io",
+  tools: ["apollo_people_match", "apollo_people_bulk_match"]}]}` (Contacts'
+  "Enrich via Apollo"). **Bug that already happened once**: a republish
+  that only passed `{mcp: {...}}}` (adding/confirming the Apollo grant)
+  silently dropped `downloads`, breaking every CSV download in the
+  deployed Artifact with no error shown anywhere — Jack had to report it
+  as "download function broke." Before every publish call, restate BOTH
+  capabilities together; don't add one without carrying the other forward.
 - **Before implementing any change/add-on/feedback that edits the platform,
   rewrite the request as a short solution-design proposal and get Jack's
   explicit approve/tweak/disapprove first** — per his own standing
