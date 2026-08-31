@@ -1,0 +1,1163 @@
+<!doctype html>
+<title>Wired CIO Playbook</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f3f5f9;
+    --surface: #ffffff;
+    --surface-sunken: #e9edf4;
+    --ink: #17202e;
+    --muted: #5b6b7d;
+    --border: #dce2ea;
+    --accent: #0a66c2;
+    --accent-ink: #ffffff;
+    --accent-soft: #e8f1fb;
+    --good: #1e7b4d;
+    --good-soft: #e6f4ec;
+    --bad: #b5443b;
+    --bad-soft: #fbeae8;
+    --shadow: 0 1px 2px rgba(23, 32, 46, 0.06), 0 8px 24px -12px rgba(23, 32, 46, 0.18);
+    --serif-fallback: Georgia, serif;
+    color-scheme: light;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #10151d;
+      --surface: #171d27;
+      --surface-sunken: #1e2531;
+      --ink: #e7ecf3;
+      --muted: #93a1b3;
+      --border: #2a3342;
+      --accent: #4d9eea;
+      --accent-ink: #0b1622;
+      --accent-soft: #1b2a3c;
+      --good: #45b083;
+      --good-soft: #163526;
+      --bad: #e2766a;
+      --bad-soft: #3a1f1d;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 28px -14px rgba(0, 0, 0, 0.6);
+      color-scheme: dark;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #10151d;
+    --surface: #171d27;
+    --surface-sunken: #1e2531;
+    --ink: #e7ecf3;
+    --muted: #93a1b3;
+    --border: #2a3342;
+    --accent: #4d9eea;
+    --accent-ink: #0b1622;
+    --accent-soft: #1b2a3c;
+    --good: #45b083;
+    --good-soft: #163526;
+    --bad: #e2766a;
+    --bad-soft: #3a1f1d;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 28px -14px rgba(0, 0, 0, 0.6);
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection { background: var(--accent-soft); color: var(--ink); }
+
+  .mono {
+    font-family: "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
+  }
+
+  .eyebrow {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  a { color: var(--accent); }
+
+  h1, h2, h3 { text-wrap: balance; }
+
+  /* ---------- shell ---------- */
+
+  .shell {
+    display: grid;
+    grid-template-columns: 288px minmax(0, 1fr);
+    min-height: 100vh;
+  }
+
+  .topbar {
+    display: none;
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .topbar-title { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; }
+  .topbar-mark { width: 22px; height: 22px; border-radius: 5px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-family: "IBM Plex Mono", monospace; font-size: 11px; font-weight: 700; }
+
+  .nav-toggle {
+    font: inherit;
+    background: var(--surface-sunken);
+    border: 1px solid var(--border);
+    color: var(--ink);
+    border-radius: 8px;
+    padding: 7px 12px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  /* ---------- sidebar ---------- */
+
+  .sidebar {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    border-right: 1px solid var(--border);
+    background: var(--surface);
+    padding: 22px 18px 40px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 2px 4px 6px;
+  }
+
+  .brand-mark {
+    width: 30px;
+    height: 30px;
+    border-radius: 7px;
+    background: var(--accent);
+    color: var(--accent-ink);
+    display: grid;
+    place-items: center;
+    font-family: "IBM Plex Mono", monospace;
+    font-weight: 700;
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+
+  .brand-name { font-weight: 700; font-size: 14.5px; line-height: 1.15; }
+  .brand-sub { font-size: 11px; color: var(--muted); font-family: "IBM Plex Mono", monospace; letter-spacing: 0.03em; }
+
+  .search-wrap { position: relative; }
+
+  .search-input {
+    width: 100%;
+    font: inherit;
+    font-size: 13px;
+    padding: 9px 12px 9px 30px;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    background: var(--surface-sunken);
+    color: var(--ink);
+  }
+  .search-input::placeholder { color: var(--muted); }
+  .search-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  .search-icon {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 13px;
+    height: 13px;
+    color: var(--muted);
+    pointer-events: none;
+  }
+
+  .nav-groups { display: flex; flex-direction: column; gap: 16px; overflow-y: auto; }
+
+  .nav-group-label {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 0 10px;
+    margin-bottom: 6px;
+  }
+
+  .nav-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+
+  .nav-link {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    text-decoration: none;
+    color: var(--muted);
+    font-size: 13px;
+    padding: 7px 10px;
+    border-radius: 7px;
+    line-height: 1.3;
+  }
+  .nav-link:hover { background: var(--surface-sunken); color: var(--ink); }
+  .nav-link.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .nav-num { font-family: "IBM Plex Mono", monospace; font-size: 10.5px; opacity: 0.65; flex-shrink: 0; width: 15px; }
+
+  .legend {
+    margin-top: auto;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .legend-title { font-family: "IBM Plex Mono", monospace; font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+  .legend-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+  /* ---------- main ---------- */
+
+  main { min-width: 0; }
+
+  .hero {
+    padding: 56px clamp(24px, 5vw, 64px) 38px;
+    border-bottom: 1px solid var(--border);
+    background:
+      radial-gradient(640px 220px at 82% -40px, var(--accent-soft), transparent 70%),
+      var(--bg);
+  }
+
+  .hero-kicker { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+  .hero-kicker .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+
+  .hero h1 {
+    margin: 0 0 12px;
+    font-size: clamp(28px, 3.4vw, 40px);
+    line-height: 1.08;
+    letter-spacing: -0.01em;
+    font-weight: 700;
+  }
+
+  .hero .tagline {
+    margin: 0 0 20px;
+    font-style: italic;
+    color: var(--muted);
+    font-size: 16px;
+    max-width: 60ch;
+  }
+
+  .hero-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+
+  .btn {
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: 9px;
+    padding: 9px 15px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--ink);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    text-decoration: none;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .btn.primary:hover { filter: brightness(1.06); color: var(--accent-ink); }
+
+  .content { padding: 8px clamp(24px, 5vw, 64px) 100px; max-width: 880px; }
+
+  section.doc {
+    padding: 46px 0 40px;
+    border-bottom: 1px solid var(--border);
+    scroll-margin-top: 20px;
+  }
+  section.doc:last-child { border-bottom: none; }
+
+  .doc-kicker { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .doc-index { font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--muted); }
+
+  .doc h2 {
+    margin: 0 0 8px;
+    font-size: clamp(22px, 2.6vw, 28px);
+    font-weight: 700;
+    letter-spacing: -0.005em;
+  }
+
+  .doc .subtitle { margin: 0 0 28px; color: var(--muted); font-size: 15px; max-width: 68ch; line-height: 1.5; }
+
+  .block { margin-bottom: 28px; }
+  .block:last-child { margin-bottom: 0; }
+
+  .block-heading {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ink);
+    margin: 0 0 12px;
+  }
+  .block-heading::before { content: ""; width: 3px; height: 14px; border-radius: 2px; background: var(--accent); flex-shrink: 0; }
+
+  .prose p { margin: 0 0 12px; line-height: 1.65; font-size: 15px; max-width: 68ch; color: var(--ink); }
+  .prose p:last-child { margin-bottom: 0; }
+  .prose b { font-weight: 600; }
+
+  .fact-list, .plain-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+  .fact-list li, .plain-list li {
+    position: relative;
+    padding-left: 18px;
+    font-size: 14.5px;
+    line-height: 1.55;
+    max-width: 66ch;
+  }
+  .fact-list li::before, .plain-list li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 9px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--muted);
+  }
+  .fact-list li i, .plain-list li i { color: var(--muted); }
+
+  .q-list { list-style: none; margin: 0; padding: 0; counter-reset: q; display: flex; flex-direction: column; gap: 12px; }
+  .q-list li {
+    counter-increment: q;
+    display: grid;
+    grid-template-columns: 26px 1fr;
+    gap: 10px;
+    font-size: 14.5px;
+    line-height: 1.55;
+    max-width: 66ch;
+  }
+  .q-list li::before {
+    content: counter(q);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    background: var(--accent-soft);
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    display: grid;
+    place-items: center;
+  }
+
+  .signal-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+  .signal-list li {
+    display: grid;
+    grid-template-columns: 20px 1fr;
+    gap: 10px;
+    align-items: baseline;
+    font-size: 14px;
+    line-height: 1.55;
+    max-width: 66ch;
+  }
+  .signal-list .mark {
+    width: 20px;
+    height: 20px;
+    border-radius: 6px;
+    display: grid;
+    place-items: center;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    font-weight: 700;
+    align-self: start;
+    margin-top: 1px;
+  }
+  .signal-list.good .mark { background: var(--good-soft); color: var(--good); }
+  .signal-list.bad .mark { background: var(--bad-soft); color: var(--bad); }
+  .signal-list.good li { color: var(--ink); }
+  .signal-list.bad li { color: var(--ink); }
+
+  .obj-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .obj-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; }
+  .obj-table th {
+    text-align: left;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+    background: var(--accent);
+    padding: 10px 14px;
+  }
+  .obj-table td {
+    padding: 12px 14px;
+    border-top: 1px solid var(--border);
+    vertical-align: top;
+    line-height: 1.5;
+  }
+  .obj-table tr:nth-child(even) td { background: var(--surface-sunken); }
+  .obj-table td:first-child { font-weight: 600; white-space: nowrap; color: var(--ink); }
+  .obj-table td:last-child { color: var(--muted); }
+
+  .cross {
+    background: var(--surface-sunken);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: var(--muted);
+    max-width: 68ch;
+  }
+  .cross b { color: var(--ink); }
+
+  footer.end {
+    padding: 40px clamp(24px, 5vw, 64px) 70px;
+    color: var(--muted);
+    font-size: 12.5px;
+    line-height: 1.7;
+    max-width: 68ch;
+  }
+  footer.end b { color: var(--ink); }
+
+  [hidden] { display: none !important; }
+
+  @media print {
+    .sidebar, .topbar, .hero-actions, .nav-toggle { display: none !important; }
+    .shell { display: block; }
+    section.doc { break-inside: avoid; }
+  }
+
+  @media (max-width: 880px) {
+    .shell { grid-template-columns: 1fr; }
+    .topbar { display: flex; }
+    .sidebar {
+      position: fixed;
+      inset: 0;
+      z-index: 40;
+      width: 84vw;
+      max-width: 320px;
+      transform: translateX(-100%);
+      transition: transform 0.22s ease;
+      box-shadow: var(--shadow);
+    }
+    .sidebar.open { transform: translateX(0); }
+    .scrim {
+      position: fixed;
+      inset: 0;
+      background: rgba(10, 14, 20, 0.45);
+      z-index: 35;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.22s ease;
+    }
+    .scrim.show { opacity: 1; pointer-events: auto; }
+  }
+</style>
+
+<div class="shell">
+  <div class="scrim" id="scrim"></div>
+
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-mark">WC</div>
+      <div>
+        <div class="brand-name">Wired CIO</div>
+        <div class="brand-sub">SDR PLAYBOOK</div>
+      </div>
+    </div>
+
+    <div class="search-wrap">
+      <svg class="search-icon" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5.2" stroke="currentColor" stroke-width="1.4"/><path d="M11 11L14.2 14.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      <input class="search-input" id="navSearch" type="text" placeholder="Filter sections…" autocomplete="off">
+    </div>
+
+    <nav class="nav-groups" id="navGroups"></nav>
+
+    <div class="legend">
+      <div class="legend-title">Tier legend</div>
+      <div class="legend-row"><span class="legend-dot" style="background:var(--good)"></span>Buying signal — listen for this</div>
+      <div class="legend-row"><span class="legend-dot" style="background:var(--bad)"></span>Red flag — disqualify</div>
+    </div>
+  </aside>
+
+  <main>
+    <div class="topbar">
+      <button class="nav-toggle" id="navToggle" aria-label="Open sections menu">☰ Sections</button>
+      <div class="topbar-title"><span class="topbar-mark">WC</span>SDR Playbook</div>
+      <button class="nav-toggle" onclick="window.print()">Print</button>
+    </div>
+
+    <div class="hero">
+      <div class="hero-kicker"><span class="dot"></span><span class="eyebrow">Internal &middot; Outbound Sales</span></div>
+      <h1>The Outbound Cheat Library</h1>
+      <p class="tagline">&ldquo;When your technology works, so do your people.&rdquo; — what every SDR studies before the first dial, and keeps open during it.</p>
+      <div class="hero-actions">
+        <a class="btn primary" href="#who-is-wired-cio">Start with Who We Are →</a>
+        <a class="btn" href="#outbound-execution">Jump to Call Flow</a>
+        <button class="btn" onclick="window.print()">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 6V2h8v4M4 12h8v3H4v-3ZM2.5 6h11a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1H12v-3H4v3H2.5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.2"/></svg>
+          Print / Save as PDF
+        </button>
+      </div>
+    </div>
+
+    <div class="content" id="content"></div>
+
+    <footer class="end">
+      <b>Status: v1, living document.</b> Company-identity content (tagline, mission, founder story, pricing model, engagement structure) is grounded in verified wiredcio.com copy. Service-line buying-signal and red-flag language mirrors the Lead Scanner's own detection rules, so this playbook and the tool stay consistent. Expect this to be refined over the coming days — flag anything that reads off.
+    </footer>
+  </main>
+</div>
+
+<script>
+  // ---------------------------------------------------------------------
+  // Content
+  // ---------------------------------------------------------------------
+  const GROUPS = [
+    { label: "Foundations", keys: ["who-is-wired-cio", "outbound-execution"] },
+    { label: "Dynamics 365", keys: ["dynamics-overview", "business-central-erp", "sales-crm", "project-operations"] },
+    { label: "Managed IT", keys: ["msp", "co-managed-fully-managed"] },
+    { label: "Custom Development", keys: ["custom-app-dev", "document-intelligence"] },
+    { label: "Azure & Licensing", keys: ["azure-billing", "licensing-csp"] },
+  ];
+
+  const SECTIONS = [
+    {
+      key: "who-is-wired-cio", kicker: "COMPANY PRIMER",
+      title: "Who Is Wired CIO",
+      subtitle: "“When your technology works, so do your people.” — what every SDR needs to know cold before the first dial.",
+      overview: [
+        "Wired CIO builds the IT department of the future: one Microsoft-aligned partner to grow, protect, automate, and align a business. We&rsquo;re an IT partner for growing businesses &mdash; fully managed or co-managed, built on the Microsoft cloud, and accountable for the whole stack, not just the help desk.",
+        "Founded by Russell, a technology leader with 15 years of IT experience and deep Microsoft expertise. The company exists because of a gap he saw firsthand: large enterprises run IT with reporting trees of eighty-plus specialists &mdash; help desk, system administrators, security engineers, and more &mdash; but growing companies need most of those same capabilities and can&rsquo;t field that full roster themselves. That&rsquo;s the gap Wired CIO fills.",
+        "Headquartered in Chicago, also serving the Cincinnati market. Core values: transparency, continuous improvement, and a solution-first mindset &mdash; proactive strategy, not reactionary fixes.",
+      ],
+      wiredAngle: {
+        heading: "Why This Is a Different Pitch Than “We Do IT Support”",
+        items: [
+          "Most traditional IT contracts cover day-to-day tickets and nothing else &mdash; strategy, applications, security, and compliance sit outside the scope, handled ad hoc or not at all. Wired CIO&rsquo;s scope is strategy, operations, security, applications, and compliance from one accountable team.",
+          "A dedicated vCIO owns the technology roadmap so a client&rsquo;s IT evolves with the business instead of reacting to it after something breaks &mdash; this is a strategic relationship, not a vendor relationship.",
+          "Wired CIO is the single point of contact for every technology vendor &mdash; ISPs, SaaS providers, hardware vendors &mdash; and owns their tickets directly, so the client&rsquo;s own team stops chasing support lines.",
+        ],
+      },
+      facts: {
+        heading: "Key Facts &mdash; Know This Cold",
+        items: [
+          "Tagline: <i>“When your technology works, so do your people.”</i>",
+          "Full service line-up: Managed IT Services, Cybersecurity, Cloud Services, IT Consulting &amp; Advisory, Backup &amp; Disaster Recovery, Compliance Services, Vendor Management, and Technical Training &amp; Support &mdash; plus, covered elsewhere in this playbook, Dynamics 365 (ERP/CRM) and Custom Application Development.",
+          "ICP: growing small-to-midsize businesses that need enterprise-grade IT capability without hiring an enterprise-sized internal team. Named industries include Small Business, Manufacturing, and Healthcare (HIPAA/compliance-driven).",
+          "Pricing model: a flat monthly rate per person, which covers their primary device &mdash; shared and additional devices are a small add-on. Simple and predictable; never quote a specific number cold, that comes after Discovery.",
+          "Engagement structure: a rolling 90-day commitment, not a multi-year lock-in &mdash; “we earn your business every quarter.” A strong, disarming answer to the “long contract” objection.",
+          "Sales motion: Discovery (ballpark scope and budget shared early, no signature expected) → Design → fixed-scope pricing, presented two ways side by side &mdash; a straight hourly project, or the same scope amortized monthly with support included.",
+        ],
+      },
+      questions: {
+        heading: "Be Ready to Answer These (Prospects Will Ask)",
+        items: [
+          "“How is this different from just hiring an IT person?” &mdash; Point to the comprehensive scope: strategy, security, applications, and compliance from one accountable team, not just a warm body closing tickets.",
+          "“What&rsquo;s the contract length?” &mdash; A rolling 90-day commitment, not a multi-year lock-in.",
+          "“How much does this cost?” &mdash; Flat monthly rate per person, covering their primary device. Give a real ballpark only after Discovery, never a number cold.",
+          "“Are you a Microsoft shop, or can you work with anything?” &mdash; Microsoft-aligned by design: M365, Azure, and Dynamics 365 are the whole-stack story.",
+          "“We already have IT &mdash; why would we need you?” &mdash; Find out if there&rsquo;s real co-managed potential before assuming this has to be a full replacement conversation.",
+        ],
+      },
+      objections: {
+        heading: "Objection Handling",
+        rows: [
+          ["“That sounds expensive.”", "Reframe around the flat per-person rate and the 90-day commitment — no long-term risk, and pricing gets concrete (two structures, side by side) only after a real Discovery conversation."],
+          ["“We like our current IT person/provider.”", "Ask what&rsquo;s NOT covered today — strategy, security, compliance, applications are the gaps a support-only contract usually leaves open. Co-managed is often the easier entry point."],
+          ["“We don&rsquo;t have time for a call right now.”", "Acknowledge it, then ask for a specific window instead of “send me info” — log a real follow-up date, don&rsquo;t let it go cold."],
+        ],
+      },
+    },
+    {
+      key: "outbound-execution", kicker: "EXECUTION",
+      title: "Outbound Execution Playbook",
+      subtitle: "How an SDR performs and executes an outbound call &mdash; from dial to booked Discovery.",
+      overview: [
+        "An SDR&rsquo;s job on an outbound call is narrow and specific: qualify fit and interest fast, using the language in this playbook, and book a Discovery call. You are selling the next step &mdash; a 20-30 minute Discovery conversation &mdash; not the IT services themselves. Don&rsquo;t over-pitch on the first call.",
+        "Every lead an SDR works has already been triaged by Wired CIO&rsquo;s own detection engine into a tier (Strong Signal / Needs Review / Bad Lead) and a product-line category (Dynamics 365 or M365/Azure) before it ever reaches a dial list. Know which tier and category a lead landed in before you call &mdash; it tells you which service-line sheet in this library to have open.",
+      ],
+      wiredAngle: {
+        heading: "Call Flow",
+        items: [
+          "<b>1. Open on their situation, not our services.</b> Mirror the trigger that got them on the list &mdash; don&rsquo;t lead with a features pitch.",
+          "<b>2. Confirm the trigger.</b> What changed, or what are they actively dealing with right now? This is where you find out if the signal that qualified them is still real.",
+          "<b>3. Run the category-specific discovery questions</b> from the matching service-line section (Dynamics 365, MSP, Custom App Dev, Licensing, etc.).",
+          "<b>4. Qualify against the tier framework below</b> before you ask for the meeting &mdash; don&rsquo;t book a Discovery call on a lead that&rsquo;s really a Bad Lead in disguise.",
+          "<b>5. Book Discovery and set expectations.</b> Wired CIO comes back with a ballpark scope, not a hard sell &mdash; no signature expected at that stage. That&rsquo;s an easy, low-pressure ask.",
+        ],
+      },
+      signalsGood: {
+        heading: "Qualify Like the Scanner Does",
+        items: [
+          "Strong Signal: a real trigger (a stated pain point, timeline, or event) PLUS a real number, timeline, or named decision-maker. Book Discovery now.",
+          "Needs Review: real interest, but missing a number, timeline, or clear owner. Ask one more qualifying question before booking, or log a specific, dated follow-up rather than letting it drift.",
+          "A confirmed seat/user count of 15+ is the internal strong-signal bar for licensing and Dynamics conversations &mdash; smaller confirmed counts still get worked, just at lower priority.",
+        ],
+      },
+      signalsBad: {
+        heading: "Auto-Disqualify Language &mdash; Master List",
+        items: [
+          "Single-seat / freelancer language &mdash; not a real seat-count opportunity.",
+          "A flat rejection: “not interested,” “unsubscribe.”",
+          "“We&rsquo;re happy with our current provider” / locked into an existing contract.",
+          "Personal, non-business use.",
+          "A one-off basic support issue (password reset, locked out) &mdash; a ticket, not a relationship opportunity.",
+          "They want Microsoft&rsquo;s own direct support, not a partner/reseller.",
+          "Internal CRM/Opportunity notes describing a deal someone else already owns &mdash; third-person pipeline language, not a fresh lead&rsquo;s own interest.",
+          "Small one-off project or free-advice language: “pick your brain,” “free consultation,” “no budget,” “not looking to hire/engage/pay.”",
+        ],
+      },
+      objections: {
+        heading: "Objection Framework (Generic &mdash; See Each Section for Specifics)",
+        rows: [
+          ["“How much does this cost?”", "Never quote a number cold. Explain the model (flat monthly rate per person, 90-day rolling commitment) and set up Discovery for a real ballpark."],
+          ["“We already have someone.”", "Find out if it&rsquo;s a full replacement “no,” or a co-managed gap — don&rsquo;t assume. See the Co-Managed vs. Fully Managed section."],
+          ["“Just send me some info.”", "Treat as a soft no. Get one more qualifying answer before agreeing, and lock a specific follow-up date rather than an open-ended “I&rsquo;ll email you.”"],
+          ["“Not the right time.”", "Ask what would need to change, and when their next budget/planning cycle starts. Log a real, dated follow-up — don&rsquo;t just drop it."],
+        ],
+      },
+      crossSell: {
+        heading: "Handoff &mdash; What a Booked Discovery Call Needs",
+        text: "Company name, contact, the product-line category (Dynamics 365 / M365-Azure / MSP / Custom App Dev / etc.), the tier you qualified them at, and the specific trigger language they used on the call. That&rsquo;s what becomes the account team&rsquo;s opening line in Discovery &mdash; don&rsquo;t let it get lost in a generic handoff note.",
+      },
+    },
+    {
+      key: "dynamics-overview", kicker: "DYNAMICS 365",
+      title: "Dynamics 365 — Platform Overview",
+      subtitle: "How to talk about Microsoft&rsquo;s ERP + CRM suite, and how Wired CIO fits in.",
+      overview: [
+        "Dynamics 365 is Microsoft&rsquo;s combined ERP and CRM product family. It covers everything from finance and supply chain (Business Central, Finance and Operations, Supply Chain Management &mdash; the modern successors to AX, NAV, and GP) to sales, service, and marketing (Dynamics 365 Sales, Customer Engagement, Customer Insights, Field Service) to project-based business management (Project Operations).",
+        "Most prospects won&rsquo;t say “Dynamics 365” by name &mdash; they&rsquo;ll describe the pain (an aging ERP, a spreadsheet-based sales process, a system that doesn&rsquo;t talk to their other tools) or name the specific product/module (“Business Central,” “CRM,” “NAV,” “GP”). Learn to recognize both.",
+      ],
+      wiredAngle: {
+        heading: "Wired CIO&rsquo;s Angle",
+        items: [
+          "Wired CIO isn&rsquo;t a pure Dynamics reseller &mdash; we&rsquo;re the partner for the whole Microsoft stack. A Dynamics deal almost always comes bundled with a tenant, licensing, and ongoing support conversation, which is our real differentiator against a Dynamics-only VAR: one partner, one relationship, for the ERP/CRM AND everything it runs on.",
+          "Internally we work Dynamics leads in priority order: Business Central/ERP first, then Sales/CRM, then everything else in the family (Project Operations, HR, Marketing, Field Service, Customer Insights). ERP conversations tend to be the biggest, stickiest engagements &mdash; lead with those when a prospect could go either way.",
+        ],
+      },
+      questions: {
+        heading: "Discovery Questions &mdash; Ask On the Call",
+        items: [
+          "Are you currently on Dynamics 365, an older Dynamics product (CRM, AX, NAV, GP), or a different ERP/CRM platform entirely (Salesforce, NetSuite, SAP, QuickBooks)?",
+          "Roughly how many users/seats would be on the system?",
+          "Is this a brand-new implementation, a migration off an on-prem system, or an upgrade of an existing Dynamics deployment?",
+          "What&rsquo;s driving the timing &mdash; a budget cycle, a specific pain point, an end-of-life deadline, a leadership mandate?",
+          "Who else is involved in this decision &mdash; IT, Finance, Operations, a specific department head?",
+          "Do you already have a tenant/M365 environment set up, or would this be part of a broader Microsoft rollout?",
+        ],
+      },
+      signalsGood: {
+        heading: "Buying Signals &mdash; Listen For This Language",
+        items: [
+          "A named module (Business Central, D365 Sales, CRM, Project Operations, etc.) mentioned alongside a real or estimated user/seat count.",
+          "ERP and CRM mentioned together in the same conversation &mdash; usually a bigger, more strategic project.",
+          "Trigger language: “upgrade,” “budget,” “this year,” a specific timeline.",
+          "Any bare number sitting next to a Dynamics product mention (often a seat count described informally, e.g. “Business Central &mdash; 25 users”).",
+        ],
+      },
+      signalsBad: {
+        heading: "Red Flags &mdash; Not a Fit / Disqualify",
+        items: [
+          "Single-user or freelancer language &mdash; not a real seat-count opportunity.",
+          "Flat rejection: “not interested,” “unsubscribe.”",
+          "“We&rsquo;re happy with our current provider” / locked into an existing contract.",
+          "Personal, non-business use.",
+          "A one-off support issue (password reset, locked out) &mdash; not a system project.",
+          "They want Microsoft&rsquo;s own direct support, not a partner/reseller.",
+          "Internal CRM/Opportunity notes describing a deal someone else already owns (“owner of this opportunity,” “Partner: [name],” “advancing the sales cycle”) &mdash; this is pipeline management language, not a fresh lead&rsquo;s own interest.",
+          "Small one-off project or free-advice language: “pick your brain,” “free consultation,” “no budget,” “not looking to hire/engage/pay.”",
+        ],
+      },
+      objections: {
+        heading: "Objection Handling",
+        rows: [
+          ["“We already have a system.”", "Ask what&rsquo;s not working, or whether it&rsquo;s approaching end-of-life / out of support. Most Dynamics conversations start as a replacement, not a first buy."],
+          ["“That sounds expensive.”", "Ask what they&rsquo;re spending today across licensing, maintenance, and any consultants &mdash; the comparison is rarely apples-to-apples."],
+          ["“Not a priority right now.”", "Ask what would need to be true for it to become one, and when their next budget cycle starts. Log a follow-up, don&rsquo;t just drop it."],
+        ],
+      },
+      crossSell: { text: "Every Dynamics deployment needs a tenant, licensing, and ongoing support &mdash; always ask about their M365/Azure and licensing situation even on a pure Dynamics call." },
+    },
+    {
+      key: "business-central-erp", kicker: "DYNAMICS 365",
+      title: "Business Central / ERP",
+      subtitle: "Cloud ERP for finance, supply chain, and operations &mdash; our highest-priority Dynamics module.",
+      overview: [
+        "Business Central (and its predecessors NAV, GP, and AX, plus Finance and Operations and Supply Chain Management for larger orgs) is Microsoft&rsquo;s cloud ERP line &mdash; general ledger, AP/AR, inventory, supply chain, manufacturing, and project accounting in one system.",
+        "This is the single highest-priority Dynamics conversation for us. ERP replacements are large, multi-year, deeply embedded engagements &mdash; once a company is live on Business Central, it becomes the system of record for the whole business, not just one department.",
+      ],
+      questions: {
+        heading: "Discovery Questions &mdash; Ask On the Call",
+        items: [
+          "What are you running finance and operations on today &mdash; NAV, GP, AX, QuickBooks, another ERP, or spreadsheets?",
+          "Roughly how many users would need licenses?",
+          "Is this just finance, or does it also cover supply chain, inventory, and manufacturing?",
+          "What&rsquo;s forcing the change &mdash; end-of-life support, you&rsquo;ve outgrown the current system, an acquisition, a compliance requirement?",
+          "What&rsquo;s the target go-live window?",
+          "Do you have an internal champion (CFO, Controller, Ops lead) driving this?",
+        ],
+      },
+      signalsGood: {
+        heading: "Buying Signals &mdash; Listen For This Language",
+        items: [
+          "“Business Central,” “ERP,” “NAV,” “GP,” “AX,” “Finance and Operations,” or “Supply Chain Management” mentioned by name.",
+          "A stated or estimated user count alongside any of the above.",
+          "End-of-life / no-longer-supported language about a current system.",
+          "Multi-department scope (finance + supply chain + operations together).",
+        ],
+      },
+      objections: {
+        heading: "Objection Handling",
+        rows: [
+          ["“We already have an ERP.”", "Ask what&rsquo;s not working, or if it&rsquo;s end-of-life / no longer supported by the vendor. That&rsquo;s usually the real trigger."],
+          ["“Too expensive to replace.”", "Ask about the current total cost &mdash; licensing, maintenance, consultants, workarounds &mdash; most legacy ERPs cost more than people realize."],
+          ["“Not now.”", "Ask about their budget cycle and log a follow-up for that window &mdash; ERP decisions are planned well in advance, so timing matters more than urgency."],
+        ],
+      },
+      crossSell: { text: "Business Central customers almost always need Azure hosting/tenant support and M365 licensing alongside the ERP itself &mdash; always ask." },
+    },
+    {
+      key: "sales-crm", kicker: "DYNAMICS 365",
+      title: "Dynamics 365 Sales / CRM",
+      subtitle: "Sales, Customer Engagement, Customer Insights, Field Service, Marketing.",
+      overview: [
+        "Covers Dynamics 365 Sales, Customer Engagement, Customer Insights, Field Service, Marketing, and Contact Center &mdash; the CRM side of the Dynamics family, as opposed to the ERP side (Business Central).",
+        "Note: Business Central/ERP language always takes priority internally &mdash; if a lead mentions both ERP and CRM/Sales language, it&rsquo;s worked as an ERP opportunity, not a CRM one. Don&rsquo;t double-pitch a lead that&rsquo;s really an ERP conversation.",
+      ],
+      questions: {
+        heading: "Discovery Questions &mdash; Ask On the Call",
+        items: [
+          "What are you using for CRM today &mdash; Salesforce, HubSpot, spreadsheets, nothing formal?",
+          "How many sales and/or service users would need licenses?",
+          "Which functions are in scope &mdash; Sales, Customer Service, Marketing, Field Service?",
+          "Does this need to integrate with an ERP or financial system (especially Business Central)?",
+          "What does the current sales/service process look like, and where does it break down?",
+          "Is there a data migration involved &mdash; how much historical data, from what system?",
+        ],
+      },
+      signalsGood: {
+        heading: "Buying Signals &mdash; Listen For This Language",
+        items: [
+          "“Sales,” “CRM,” “Customer Engagement,” “Field Service,” “Marketing,” or “Insights” mentioned by name, with a real or estimated user count.",
+          "Trigger language: “upgrade,” “budget,” “this year.”",
+          "Explicit dissatisfaction with a current CRM or a manual/spreadsheet process.",
+        ],
+      },
+      signalsBad: {
+        heading: "Red Flags",
+        items: [
+          "If Business Central/ERP language also appears in the same lead, treat it as an ERP opportunity &mdash; don&rsquo;t pitch CRM in parallel.",
+        ],
+      },
+      crossSell: { text: "Power BI/reporting on top of CRM data, and Azure for any custom integrations, are natural next conversations." },
+    },
+    {
+      key: "project-operations", kicker: "DYNAMICS 365",
+      title: "Dynamics 365 Project Operations",
+      subtitle: "Project-based business management &mdash; resourcing, time/expense, project accounting.",
+      overview: [
+        "Project Operations is built for project-based businesses &mdash; professional services, engineering, construction, consulting firms &mdash; that need to manage resourcing, time and expense tracking, and project accounting in one system, tied to sales and (ideally) financials.",
+        "It&rsquo;s technically one of the Dynamics 365 Sales/CRM-family modules internally, but it&rsquo;s a distinct enough conversation to prep for separately: the buyer is usually a services-firm operations or finance lead, not a traditional sales director.",
+      ],
+      questions: {
+        heading: "Discovery Questions &mdash; Ask On the Call",
+        items: [
+          "How do you currently track project time, budgets, and resourcing &mdash; spreadsheets, a dedicated PSA (professional services automation) tool, something else?",
+          "Roughly how many billable/project resources are involved?",
+          "Do you need project accounting tied directly to your financials/ERP?",
+          "What&rsquo;s the biggest pain point &mdash; utilization visibility, resource scheduling, billing accuracy, forecasting?",
+          "Are you already on (or planning) Business Central or another Dynamics ERP?",
+        ],
+      },
+      signalsGood: {
+        heading: "Buying Signals &mdash; Listen For This Language",
+        items: [
+          "“Project Operations,” “PSA,” “resource scheduling,” or “project accounting” mentioned, even in otherwise generic phrasing.",
+          "Any project-based services company (consulting, engineering, construction, agencies) describing manual/spreadsheet-based project tracking.",
+        ],
+      },
+      crossSell: { text: "Pairs naturally with Business Central for a full project-to-cash workflow &mdash; always ask about ERP plans in the same conversation." },
+    },
+    {
+      key: "msp", kicker: "MANAGED IT",
+      title: "Managed IT Services (MSP)",
+      subtitle: "Our core recurring offering &mdash; the umbrella every other service line nests under.",
+      overview: [
+        "Fully outsourced IT: help desk, endpoint and network management, patching, monitoring, and vendor management. This is Wired CIO&rsquo;s core, recurring-revenue offering, and it&rsquo;s the umbrella almost every other conversation (security, backup/DR, compliance, licensing, cloud) can nest under.",
+      ],
+      questions: {
+        heading: "Discovery Questions &mdash; Ask On the Call",
+        items: [
+          "Do you have internal IT today, or is it fully outsourced already?",
+          "Roughly how many employees/devices would need support?",
+          "If you have a current provider, what&rsquo;s not working &mdash; response time, expertise, cost, communication?",
+          "Are you looking for full outsourcing, or to supplement an internal team (co-managed)?",
+          "What&rsquo;s driving the change right now &mdash; a bad experience, a security concern, growth, a cost review?",
+          "Do you have any compliance requirements (HIPAA, CMMC, PCI, cyber insurance requirements) driving this?",
+        ],
+      },
+      signalsGood: {
+        heading: "Buying Signals &mdash; Listen For This Language",
+        items: [
+          "“IT support,” “help desk,” managed services / MSP language.",
+          "Growth or overload language: “stretched thin,” “overwhelmed,” “understaffed.”",
+          "Explicit dissatisfaction with a current provider.",
+        ],
+      },
+      signalsBad: {
+        heading: "Red Flags &mdash; Not a Fit / Disqualify",
+        items: [
+          "A single, basic support issue (password reset, locked out) &mdash; that&rsquo;s a one-off ticket, not an MSP relationship opportunity.",
+          "They want Microsoft&rsquo;s own direct support rather than a reseller/MSP partner.",
+        ],
+      },
+      objections: {
+        heading: "Objection Handling",
+        rows: [
+          ["“We already have an IT provider.”", "Ask what&rsquo;s working and what isn&rsquo;t &mdash; response time, proactive vs. reactive, security posture. Most MSP switches come from a specific frustration."],
+          ["“We handle it in-house.”", "Ask about co-managed instead of a full replacement &mdash; augmenting, not replacing, internal IT."],
+        ],
+      },
+      crossSell: { text: "Cybersecurity, Backup/DR, Compliance, and licensing all sell naturally once an MSP relationship is on the table &mdash; MSP is the umbrella." },
+    },
+    {
+      key: "co-managed-fully-managed", kicker: "MANAGED IT",
+      title: "Co-Managed vs. Fully Managed IT",
+      subtitle: "Two shapes of the MSP relationship &mdash; know which one to lead with.",
+      overview: [
+        "Fully Managed: Wired CIO is the entire IT department &mdash; no internal IT staff, or the client wants out of IT entirely.",
+        "Co-Managed: there&rsquo;s an internal IT person or team already, and Wired CIO supplements them &mdash; extra hands, specialized expertise (security, cloud), after-hours coverage, or a second set of eyes on things the internal team doesn&rsquo;t have bandwidth or skill for.",
+      ],
+      wiredAngle: {
+        heading: "Positioning Tip",
+        items: [
+          "Co-managed is often the easier first “yes” when a prospect already has an internal IT hire &mdash; it reduces the perceived threat of “you&rsquo;re replacing my job” and opens the door without a full displacement conversation.",
+        ],
+      },
+      questions: {
+        heading: "Discovery Questions &mdash; Ask On the Call",
+        items: [
+          "Is there an internal IT person or team today?",
+          "What do they handle well, and what falls through the cracks?",
+          "Are you looking to replace internal IT entirely, or augment what you already have?",
+          "Where&rsquo;s the gap &mdash; security expertise, cloud/Azure expertise, after-hours coverage, project capacity?",
+          "How does the internal IT person feel about bringing in outside help &mdash; is this their idea or leadership&rsquo;s?",
+        ],
+      },
+      signalsGood: {
+        heading: "Buying Signals &mdash; Listen For This Language",
+        items: [
+          "An internal IT hire mentioned alongside a specific gap (security, cloud, after-hours, project work).",
+          "“Co-managed,” “supplement,” “extra support,” or similar augmentation language.",
+        ],
+      },
+      crossSell: { text: "Security, backup/DR, and cloud are the most common co-managed add-on scopes &mdash; lead with whichever gap the internal team named." },
+    },
+    {
+      key: "custom-app-dev", kicker: "CUSTOM DEVELOPMENT",
+      title: "Custom Application Development",
+      subtitle: "Power Platform, custom Azure-hosted apps, and Dynamics/M365 integrations.",
+      overview: [
+        "Wired CIO builds custom solutions on the Microsoft platform &mdash; Power Apps and Power Automate, fully custom Azure-hosted applications, and integrations with Dynamics 365 and M365. This is a project-based (not purely recurring) conversation, usually triggered by a specific manual process or gap that no off-the-shelf product solves.",
+      ],
+      questions: {
+        heading: "Discovery Questions &mdash; Ask On the Call",
+        items: [
+          "What manual or paper-based process are you trying to replace or automate?",
+          "Does this need to integrate with an existing system &mdash; Dynamics, M365, a legacy database?",
+          "Is this internal tooling, or a customer-facing application?",
+          "Do you have a rough scope or budget expectation in mind?",
+          "What&rsquo;s driving the timeline &mdash; is there urgency, or is this exploratory?",
+          "Who owns this internally &mdash; IT, an operations lead, a specific department?",
+        ],
+      },
+      signalsGood: {
+        heading: "Buying Signals &mdash; Listen For This Language",
+        items: [
+          "“Custom app,” “app build,” “custom development,” “Power Apps,” or “Power Automate” mentioned specifically.",
+          "A document-heavy manual process combined with wanting automation &mdash; see the Azure Document Intelligence section, this is usually the same conversation.",
+        ],
+      },
+      signalsBad: {
+        heading: "Red Flags &mdash; Not a Fit / Disqualify",
+        items: [
+          "Small one-off project or free-advice language: “just want some advice,” “quick question,” “pick your brain,” “no budget.” We build engagements, not favors.",
+        ],
+      },
+      crossSell: { text: "Azure hosting, Document Intelligence for anything document-heavy, and Dynamics/Power Platform integration are the natural next questions." },
+    },
+    {
+      key: "azure-billing", kicker: "AZURE / CLOUD",
+      title: "Azure Partner / CSP Billing",
+      subtitle: "Consolidated Azure billing, cost management, and support routed through us.",
+      overview: [
+        "Wired CIO can act as the CSP (Cloud Solution Provider) partner of record for a prospect&rsquo;s Azure environment &mdash; consolidating billing, providing cost management, and giving them a real support relationship instead of being on their own with Microsoft direct.",
+      ],
+      wiredAngle: {
+        heading: "Wired CIO&rsquo;s Angle",
+        items: [
+          "This is often the easiest, lowest-friction “yes” in the whole playbook &mdash; same infrastructure, same environment, just better billing and a real partner to call. It&rsquo;s a great foot-in-the-door for a fuller MSP or Dynamics conversation later.",
+        ],
+      },
+      questions: {
+        heading: "Discovery Questions &mdash; Ask On the Call",
+        items: [
+          "Are you on Azure today &mdash; direct with Microsoft, or already through a partner?",
+          "Roughly what&rsquo;s your monthly or annual Azure spend?",
+          "Any pain with current billing or support &mdash; surprise costs, no one to call, confusing invoices?",
+          "Are you planning any migration or expansion that would change your spend (on-prem to cloud, new workloads)?",
+        ],
+      },
+      signalsGood: {
+        heading: "Buying Signals &mdash; Listen For This Language",
+        items: [
+          "Azure billing/cost language, or explicitly looking for a partner/CSP to route billing through.",
+          "On-prem-to-cloud migration or lift-and-shift language paired with Azure.",
+        ],
+      },
+      objections: {
+        heading: "Objection Handling",
+        rows: [
+          ["“We&rsquo;re direct with Microsoft, why switch?”", "Ask about their support experience today &mdash; direct billing usually means no dedicated support contact, just a portal."],
+        ],
+      },
+      crossSell: { text: "A strong opener for a broader MSP, security, or Dynamics conversation once trust is established on billing." },
+    },
+    {
+      key: "licensing-csp", kicker: "LICENSING",
+      title: "Microsoft Licensing Support / CSP",
+      subtitle: "M365, security, and specialty SKUs &mdash; the easiest entry point into every other conversation.",
+      overview: [
+        "Wired CIO sells and supports Microsoft licensing as a CSP: M365 Business Basic/Standard/Premium, O365/M365 E1/E3/E5, F1/F3, EMS, Power BI Pro/Premium, M365 Copilot, Defender variants, Entra ID P1/P2, Teams Phone, and Intune, among others.",
+      ],
+      questions: {
+        heading: "Discovery Questions &mdash; Ask On the Call",
+        items: [
+          "What licenses are you on today, and who manages that &mdash; Microsoft direct, another partner, internal IT?",
+          "Roughly how many seats/users?",
+          "Any known gaps &mdash; no MFA/security licensing, no Copilot, no advanced backup?",
+          "When does your current agreement renew?",
+          "Who owns procurement and budget for this?",
+        ],
+      },
+      signalsGood: {
+        heading: "Buying Signals &mdash; Listen For This Language",
+        items: [
+          "A confirmed seat count of 15 or more is our internal strong-signal threshold &mdash; smaller confirmed counts still get worked, just at lower priority.",
+          "Any of the named SKUs above mentioned by name.",
+        ],
+      },
+      signalsBad: {
+        heading: "Red Flags &mdash; Not a Fit / Disqualify",
+        items: [
+          "Single-seat/freelancer language.",
+          "They want Microsoft&rsquo;s own direct support instead of a partner.",
+        ],
+      },
+      crossSell: { text: "Licensing is the easiest entry point into every other conversation &mdash; MSP, security, Copilot, Dynamics. Always ask what&rsquo;s NOT currently licensed, that&rsquo;s usually the real opening." },
+    },
+    {
+      key: "document-intelligence", kicker: "CUSTOM DEVELOPMENT",
+      title: "Azure Document Intelligence",
+      subtitle: "AI-powered document extraction &mdash; always pitched as part of a custom app, not standalone.",
+      overview: [
+        "Azure Document Intelligence is an AI service that extracts structured data from documents &mdash; invoices, forms, contracts, ID documents, claims paperwork. Wired CIO builds it into custom applications and workflows; we don&rsquo;t sell it as a standalone product.",
+      ],
+      wiredAngle: {
+        heading: "Wired CIO&rsquo;s Angle",
+        items: [
+          "Always frame this as part of a custom app development conversation &mdash; the real question is “who&rsquo;s going to build the app that uses this,” not “do you want this Azure service.” Lead with custom app dev, mention Document Intelligence as the engine underneath.",
+        ],
+      },
+      questions: {
+        heading: "Discovery Questions &mdash; Ask On the Call",
+        items: [
+          "What documents are being processed manually today, and by how many people/how many hours a week?",
+          "What system would the extracted data need to flow into &mdash; an ERP, a CRM, a database, a spreadsheet today?",
+          "Roughly what volume are we talking about &mdash; documents per day or per month?",
+          "Is there already an app or workflow in mind, or is this purely the manual-processing pain point so far?",
+        ],
+      },
+      signalsGood: {
+        heading: "Buying Signals &mdash; Listen For This Language",
+        items: [
+          "“Document Intelligence” mentioned by name.",
+          "Any document-heavy manual process (invoice processing, forms, claims, contracts) combined with wanting a custom app or automation.",
+        ],
+      },
+      crossSell: { text: "Business Central/ERP (invoice processing is the most common use case), custom app dev (the delivery vehicle), and Azure hosting/billing." },
+    },
+  ];
+
+  // ---------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------
+  const byKey = Object.fromEntries(SECTIONS.map((s) => [s.key, s]));
+
+  function esc(s) { return s; } // content is pre-authored HTML-safe
+
+  function blockHTML(section) {
+    let html = "";
+    html += `<div class="prose block"><h2>${section.title}</h2><p class="subtitle">${section.subtitle}</p></div>`;
+
+    html += `<div class="block prose">${section.overview.map((p) => `<p>${p}</p>`).join("")}</div>`;
+
+    if (section.wiredAngle) {
+      html += `<div class="block"><h3 class="block-heading">${section.wiredAngle.heading}</h3><div class="prose">${section.wiredAngle.items.map((p) => `<p>${p}</p>`).join("")}</div></div>`;
+    }
+
+    if (section.facts) {
+      html += `<div class="block"><h3 class="block-heading">${section.facts.heading}</h3><ul class="fact-list">${section.facts.items.map((f) => `<li>${f}</li>`).join("")}</ul></div>`;
+    }
+
+    if (section.questions) {
+      html += `<div class="block"><h3 class="block-heading">${section.questions.heading}</h3><ol class="q-list">${section.questions.items.map((q) => `<li>${q}</li>`).join("")}</ol></div>`;
+    }
+
+    if (section.signalsGood) {
+      html += `<div class="block"><h3 class="block-heading">${section.signalsGood.heading}</h3><ul class="signal-list good">${section.signalsGood.items.map((s) => `<li><span class="mark">+</span>${s}</li>`).join("")}</ul></div>`;
+    }
+
+    if (section.signalsBad) {
+      html += `<div class="block"><h3 class="block-heading">${section.signalsBad.heading}</h3><ul class="signal-list bad">${section.signalsBad.items.map((s) => `<li><span class="mark">&times;</span>${s}</li>`).join("")}</ul></div>`;
+    }
+
+    if (section.objections) {
+      html += `<div class="block"><h3 class="block-heading">${section.objections.heading}</h3><div class="obj-scroll"><table class="obj-table"><thead><tr><th>If they say&hellip;</th><th>Ask / respond with&hellip;</th></tr></thead><tbody>${section.objections.rows.map((r) => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join("")}</tbody></table></div></div>`;
+    }
+
+    if (section.crossSell) {
+      html += `<div class="block cross"><b>${section.crossSell.heading || "Cross-Sell / Related Offerings"}</b><br>${section.crossSell.text}</div>`;
+    }
+
+    return html;
+  }
+
+  const content = document.getElementById("content");
+  const navGroups = document.getElementById("navGroups");
+
+  let counter = 0;
+  const flatOrder = [];
+  GROUPS.forEach((group) => {
+    const groupEl = document.createElement("div");
+    const label = document.createElement("div");
+    label.className = "nav-group-label";
+    label.textContent = group.label;
+    groupEl.appendChild(label);
+
+    const list = document.createElement("ul");
+    list.className = "nav-list";
+
+    group.keys.forEach((key) => {
+      const section = byKey[key];
+      counter++;
+      flatOrder.push(key);
+
+      const item = document.createElement("li");
+      const a = document.createElement("a");
+      a.href = `#${key}`;
+      a.className = "nav-link";
+      a.dataset.key = key;
+      a.dataset.search = (section.title + " " + section.kicker).toLowerCase();
+      a.innerHTML = `<span class="nav-num mono">${String(counter).padStart(2, "0")}</span><span>${section.title}</span>`;
+      item.appendChild(a);
+      list.appendChild(item);
+
+      const doc = document.createElement("section");
+      doc.className = "doc";
+      doc.id = key;
+      doc.innerHTML =
+        `<div class="doc-kicker"><span class="eyebrow">${section.kicker}</span><span class="doc-index mono">${String(counter).padStart(2, "0")} / ${SECTIONS.length}</span></div>` +
+        blockHTML(section);
+      content.appendChild(doc);
+    });
+
+    groupEl.appendChild(list);
+    navGroups.appendChild(groupEl);
+  });
+
+  // ---------------------------------------------------------------------
+  // Scrollspy
+  // ---------------------------------------------------------------------
+  const navLinks = Array.from(document.querySelectorAll(".nav-link"));
+  const docSections = Array.from(document.querySelectorAll("section.doc"));
+
+  function setActive(key) {
+    navLinks.forEach((l) => l.classList.toggle("active", l.dataset.key === key));
+  }
+
+  try {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries.filter((e) => e.isIntersecting);
+        if (visible.length) {
+          visible.sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+          setActive(visible[0].target.id);
+        }
+      },
+      { rootMargin: "-10% 0px -75% 0px", threshold: 0 }
+    );
+    docSections.forEach((s) => observer.observe(s));
+  } catch (e) {
+    setActive(flatOrder[0]);
+  }
+
+  // ---------------------------------------------------------------------
+  // Search / filter
+  // ---------------------------------------------------------------------
+  const navSearch = document.getElementById("navSearch");
+  navSearch.addEventListener("input", () => {
+    const q = navSearch.value.trim().toLowerCase();
+    document.querySelectorAll(".nav-groups > div").forEach((groupEl) => {
+      let anyVisible = false;
+      groupEl.querySelectorAll(".nav-link").forEach((link) => {
+        const match = !q || link.dataset.search.includes(q);
+        link.parentElement.hidden = !match;
+        if (match) anyVisible = true;
+      });
+      groupEl.hidden = !anyVisible;
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // Mobile nav toggle
+  // ---------------------------------------------------------------------
+  const sidebar = document.getElementById("sidebar");
+  const scrim = document.getElementById("scrim");
+  const navToggle = document.getElementById("navToggle");
+
+  function closeNav() {
+    sidebar.classList.remove("open");
+    scrim.classList.remove("show");
+  }
+  navToggle.addEventListener("click", () => {
+    sidebar.classList.add("open");
+    scrim.classList.add("show");
+  });
+  scrim.addEventListener("click", closeNav);
+  navLinks.forEach((l) => l.addEventListener("click", closeNav));
+</script>
