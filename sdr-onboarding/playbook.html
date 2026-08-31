@@ -2,67 +2,81 @@
 <title>Wired CIO Playbook</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #f3f5f9;
+    --bg: #eef1f6;
     --surface: #ffffff;
-    --surface-sunken: #e9edf4;
-    --ink: #17202e;
-    --muted: #5b6b7d;
-    --border: #dce2ea;
+    --surface-sunken: #e4e9f1;
+    --ink: #161b24;
+    --muted: #57687a;
+    --border: #d7dee8;
     --accent: #0a66c2;
     --accent-ink: #ffffff;
-    --accent-soft: #e8f1fb;
+    --accent-soft: #e6f0fb;
     --good: #1e7b4d;
     --good-soft: #e6f4ec;
     --bad: #b5443b;
     --bad-soft: #fbeae8;
-    --shadow: 0 1px 2px rgba(23, 32, 46, 0.06), 0 8px 24px -12px rgba(23, 32, 46, 0.18);
-    --serif-fallback: Georgia, serif;
+    --shadow: 0 1px 2px rgba(22, 27, 36, 0.05), 0 14px 30px -16px rgba(22, 27, 36, 0.22);
+
+    --track-foundations: #0a66c2;
+    --track-dynamics: #5b4fe0;
+    --track-managedit: #0e8f76;
+    --track-customdev: #b5650a;
+    --track-azure: #0e7c9c;
     color-scheme: light;
   }
 
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --bg: #10151d;
+      --bg: #0f131a;
       --surface: #171d27;
       --surface-sunken: #1e2531;
       --ink: #e7ecf3;
-      --muted: #93a1b3;
+      --muted: #93a2b4;
       --border: #2a3342;
-      --accent: #4d9eea;
+      --accent: #5aa4ec;
       --accent-ink: #0b1622;
-      --accent-soft: #1b2a3c;
+      --accent-soft: #1a2a3c;
       --good: #45b083;
       --good-soft: #163526;
       --bad: #e2766a;
       --bad-soft: #3a1f1d;
-      --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 28px -14px rgba(0, 0, 0, 0.6);
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 16px 32px -16px rgba(0, 0, 0, 0.6);
+      --track-foundations: #5aa4ec;
+      --track-dynamics: #a49af0;
+      --track-managedit: #3fc39f;
+      --track-customdev: #e0964a;
+      --track-azure: #52bcd9;
       color-scheme: dark;
     }
   }
 
   :root[data-theme="dark"] {
-    --bg: #10151d;
+    --bg: #0f131a;
     --surface: #171d27;
     --surface-sunken: #1e2531;
     --ink: #e7ecf3;
-    --muted: #93a1b3;
+    --muted: #93a2b4;
     --border: #2a3342;
-    --accent: #4d9eea;
+    --accent: #5aa4ec;
     --accent-ink: #0b1622;
-    --accent-soft: #1b2a3c;
+    --accent-soft: #1a2a3c;
     --good: #45b083;
     --good-soft: #163526;
     --bad: #e2766a;
     --bad-soft: #3a1f1d;
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 28px -14px rgba(0, 0, 0, 0.6);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 16px 32px -16px rgba(0, 0, 0, 0.6);
+    --track-foundations: #5aa4ec;
+    --track-dynamics: #a49af0;
+    --track-managedit: #3fc39f;
+    --track-customdev: #e0964a;
+    --track-azure: #52bcd9;
     color-scheme: dark;
   }
 
   * { box-sizing: border-box; }
-  html { scroll-behavior: smooth; }
 
   body {
     margin: 0;
@@ -73,479 +87,330 @@
   }
 
   ::selection { background: var(--accent-soft); color: var(--ink); }
+  a { color: inherit; }
+  h1, h2, h3 { text-wrap: balance; margin: 0; }
+  [hidden] { display: none !important; }
 
-  .mono {
-    font-family: "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
-  }
+  .mono { font-family: "IBM Plex Mono", ui-monospace, "SF Mono", monospace; }
 
   .eyebrow {
     font-family: "IBM Plex Mono", monospace;
-    font-size: 11px;
+    font-size: 10.5px;
     font-weight: 600;
     letter-spacing: 0.09em;
     text-transform: uppercase;
-    color: var(--accent);
   }
 
-  a { color: var(--accent); }
-
-  h1, h2, h3 { text-wrap: balance; }
-
-  /* ---------- shell ---------- */
-
-  .shell {
-    display: grid;
-    grid-template-columns: 288px minmax(0, 1fr);
-    min-height: 100vh;
-  }
+  /* ---------------- topbar ---------------- */
 
   .topbar {
-    display: none;
     position: sticky;
     top: 0;
-    z-index: 30;
+    z-index: 20;
+    display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 12px 16px;
-    background: var(--surface);
+    gap: 16px;
+    padding: 13px clamp(18px, 4vw, 44px);
+    background: color-mix(in srgb, var(--surface) 92%, transparent);
+    backdrop-filter: blur(10px);
     border-bottom: 1px solid var(--border);
   }
 
-  .topbar-title { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; }
-  .topbar-mark { width: 22px; height: 22px; border-radius: 5px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-family: "IBM Plex Mono", monospace; font-size: 11px; font-weight: 700; }
-
-  .nav-toggle {
-    font: inherit;
-    background: var(--surface-sunken);
-    border: 1px solid var(--border);
-    color: var(--ink);
-    border-radius: 8px;
-    padding: 7px 12px;
-    font-size: 13px;
-    cursor: pointer;
-  }
-
-  /* ---------- sidebar ---------- */
-
-  .sidebar {
-    position: sticky;
-    top: 0;
-    height: 100vh;
-    overflow-y: auto;
-    border-right: 1px solid var(--border);
-    background: var(--surface);
-    padding: 22px 18px 40px;
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
-  }
-
-  .brand {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 2px 4px 6px;
-  }
-
+  .brand { display: flex; align-items: center; gap: 9px; flex-shrink: 0; cursor: pointer; background: none; border: none; padding: 0; }
   .brand-mark {
-    width: 30px;
-    height: 30px;
-    border-radius: 7px;
-    background: var(--accent);
-    color: var(--accent-ink);
-    display: grid;
-    place-items: center;
-    font-family: "IBM Plex Mono", monospace;
-    font-weight: 700;
-    font-size: 13px;
-    flex-shrink: 0;
+    width: 26px; height: 26px; border-radius: 6px;
+    background: var(--accent); color: var(--accent-ink);
+    display: grid; place-items: center;
+    font-family: "IBM Plex Mono", monospace; font-weight: 700; font-size: 11px;
   }
+  .brand-text { display: flex; flex-direction: column; line-height: 1.1; text-align: left; }
+  .brand-name { font-family: "Archivo", sans-serif; font-weight: 700; font-size: 14px; color: var(--ink); }
+  .brand-sub { font-size: 10px; color: var(--muted); font-family: "IBM Plex Mono", monospace; letter-spacing: 0.04em; }
 
-  .brand-name { font-weight: 700; font-size: 14.5px; line-height: 1.15; }
-  .brand-sub { font-size: 11px; color: var(--muted); font-family: "IBM Plex Mono", monospace; letter-spacing: 0.03em; }
+  .topbar-spacer { flex: 1; }
 
-  .search-wrap { position: relative; }
-
+  .search-wrap { position: relative; width: 100%; max-width: 260px; }
   .search-input {
-    width: 100%;
-    font: inherit;
-    font-size: 13px;
-    padding: 9px 12px 9px 30px;
-    border-radius: 9px;
-    border: 1px solid var(--border);
-    background: var(--surface-sunken);
-    color: var(--ink);
+    width: 100%; font: inherit; font-size: 13px;
+    padding: 8px 12px 8px 30px;
+    border-radius: 8px; border: 1px solid var(--border);
+    background: var(--surface-sunken); color: var(--ink);
   }
   .search-input::placeholder { color: var(--muted); }
   .search-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
-
-  .search-icon {
-    position: absolute;
-    left: 10px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 13px;
-    height: 13px;
-    color: var(--muted);
-    pointer-events: none;
-  }
-
-  .nav-groups { display: flex; flex-direction: column; gap: 16px; overflow-y: auto; }
-
-  .nav-group-label {
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
-    color: var(--muted);
-    padding: 0 10px;
-    margin-bottom: 6px;
-  }
-
-  .nav-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
-
-  .nav-link {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    text-decoration: none;
-    color: var(--muted);
-    font-size: 13px;
-    padding: 7px 10px;
-    border-radius: 7px;
-    line-height: 1.3;
-  }
-  .nav-link:hover { background: var(--surface-sunken); color: var(--ink); }
-  .nav-link.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-  .nav-num { font-family: "IBM Plex Mono", monospace; font-size: 10.5px; opacity: 0.65; flex-shrink: 0; width: 15px; }
-
-  .legend {
-    margin-top: auto;
-    padding-top: 16px;
-    border-top: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    gap: 7px;
-  }
-  .legend-title { font-family: "IBM Plex Mono", monospace; font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
-  .legend-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
-  .legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-
-  /* ---------- main ---------- */
-
-  main { min-width: 0; }
-
-  .hero {
-    padding: 56px clamp(24px, 5vw, 64px) 38px;
-    border-bottom: 1px solid var(--border);
-    background:
-      radial-gradient(640px 220px at 82% -40px, var(--accent-soft), transparent 70%),
-      var(--bg);
-  }
-
-  .hero-kicker { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
-  .hero-kicker .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
-
-  .hero h1 {
-    margin: 0 0 12px;
-    font-size: clamp(28px, 3.4vw, 40px);
-    line-height: 1.08;
-    letter-spacing: -0.01em;
-    font-weight: 700;
-  }
-
-  .hero .tagline {
-    margin: 0 0 20px;
-    font-style: italic;
-    color: var(--muted);
-    font-size: 16px;
-    max-width: 60ch;
-  }
-
-  .hero-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+  .search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 13px; height: 13px; color: var(--muted); pointer-events: none; }
 
   .btn {
-    font: inherit;
-    font-size: 13px;
-    font-weight: 600;
-    border-radius: 9px;
-    padding: 9px 15px;
-    border: 1px solid var(--border);
-    background: var(--surface);
-    color: var(--ink);
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    text-decoration: none;
+    font: inherit; font-size: 12.5px; font-weight: 600;
+    border-radius: 8px; padding: 8px 13px;
+    border: 1px solid var(--border); background: var(--surface);
+    color: var(--ink); cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+    white-space: nowrap;
   }
   .btn:hover { border-color: var(--accent); color: var(--accent); }
-  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-  .btn.primary:hover { filter: brightness(1.06); color: var(--accent-ink); }
 
-  .content { padding: 8px clamp(24px, 5vw, 64px) 100px; max-width: 880px; }
+  /* ---------------- index view ---------------- */
 
-  section.doc {
-    padding: 46px 0 40px;
+  .index-hero {
+    padding: 40px clamp(18px, 4vw, 44px) 22px;
     border-bottom: 1px solid var(--border);
-    scroll-margin-top: 20px;
   }
-  section.doc:last-child { border-bottom: none; }
+  .index-hero h1 {
+    font-family: "Archivo", sans-serif;
+    font-size: clamp(26px, 3.2vw, 36px);
+    font-weight: 800;
+    letter-spacing: -0.015em;
+    margin: 10px 0 8px;
+  }
+  .index-hero .tagline { margin: 0; color: var(--muted); font-size: 15px; max-width: 62ch; line-height: 1.5; }
 
-  .doc-kicker { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-  .doc-index { font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--muted); }
+  .track-filters {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    padding: 18px clamp(18px, 4vw, 44px) 0;
+  }
+  .chip {
+    font: inherit; font-family: "IBM Plex Mono", monospace;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
+    padding: 7px 12px; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--surface);
+    color: var(--muted); cursor: pointer;
+    display: inline-flex; align-items: center; gap: 7px;
+  }
+  .chip .swatch { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+  .chip.active { border-color: var(--chip-color, var(--accent)); color: var(--chip-color, var(--accent)); background: color-mix(in srgb, var(--chip-color, var(--accent)) 12%, var(--surface)); }
+  .chip.active .swatch { background: var(--chip-color, var(--accent)); }
 
-  .doc h2 {
-    margin: 0 0 8px;
-    font-size: clamp(22px, 2.6vw, 28px);
-    font-weight: 700;
-    letter-spacing: -0.005em;
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(258px, 1fr));
+    gap: 14px;
+    padding: 20px clamp(18px, 4vw, 44px) 70px;
   }
 
-  .doc .subtitle { margin: 0 0 28px; color: var(--muted); font-size: 15px; max-width: 68ch; line-height: 1.5; }
+  .card {
+    text-align: left;
+    display: flex; flex-direction: column; gap: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--track-color, var(--accent));
+    border-radius: 11px;
+    padding: 16px 17px;
+    cursor: pointer;
+    font: inherit; color: var(--ink);
+    box-shadow: var(--shadow);
+    transition: transform 0.12s ease, border-color 0.12s ease;
+  }
+  .card:hover { transform: translateY(-1px); border-left-color: var(--track-color, var(--accent)); }
+  .card:hover .card-title { color: var(--track-color, var(--accent)); }
+
+  .card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .card-top .eyebrow { color: var(--track-color, var(--accent)); }
+  .card-idx { font-family: "IBM Plex Mono", monospace; font-size: 10.5px; color: var(--muted); }
+
+  .card-title {
+    font-family: "Archivo", sans-serif;
+    font-weight: 700; font-size: 17px; line-height: 1.25;
+  }
+  .card-sub { font-size: 12.5px; color: var(--muted); line-height: 1.5; flex: 1; }
+
+  .card-meta {
+    display: flex; gap: 12px; flex-wrap: wrap;
+    font-family: "IBM Plex Mono", monospace; font-size: 10.5px; color: var(--muted);
+    padding-top: 8px; border-top: 1px solid var(--border);
+  }
+  .card-meta b { color: var(--ink); font-weight: 600; }
+
+  .empty-state { padding: 60px clamp(18px, 4vw, 44px); color: var(--muted); font-size: 14px; }
+
+  /* ---------------- detail view ---------------- */
+
+  .detail-bar {
+    display: flex; align-items: center; gap: 14px;
+    padding: 13px clamp(18px, 4vw, 44px);
+    border-bottom: 1px solid var(--border);
+  }
+  .back-link {
+    font: inherit; font-size: 13px; font-weight: 600;
+    background: none; border: none; color: var(--muted); cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px; padding: 0;
+  }
+  .back-link:hover { color: var(--ink); }
+  .detail-meta { flex: 1; text-align: center; }
+  .detail-meta .eyebrow { color: var(--track-color, var(--accent)); }
+  .detail-meta .idx { color: var(--muted); font-family: "IBM Plex Mono", monospace; font-size: 11px; margin-left: 8px; }
+  .pager { display: flex; gap: 6px; }
+  .pager button {
+    width: 30px; height: 30px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--surface);
+    color: var(--ink); cursor: pointer; display: grid; place-items: center;
+  }
+  .pager button:hover:not(:disabled) { border-color: var(--track-color, var(--accent)); color: var(--track-color, var(--accent)); }
+  .pager button:disabled { opacity: 0.35; cursor: default; }
+
+  .detail-content { max-width: 700px; margin: 0 auto; padding: 40px clamp(18px, 4vw, 44px) 90px; }
+
+  .doc-title { font-family: "Archivo", sans-serif; font-size: clamp(24px, 3vw, 32px); font-weight: 800; letter-spacing: -0.015em; margin-bottom: 8px; }
+  .doc-subtitle { color: var(--muted); font-size: 15px; max-width: 66ch; line-height: 1.55; margin-bottom: 30px; }
 
   .block { margin-bottom: 28px; }
   .block:last-child { margin-bottom: 0; }
 
   .block-heading {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    font-size: 13px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--ink);
-    margin: 0 0 12px;
+    display: flex; align-items: center; gap: 9px;
+    font-size: 12.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--ink); margin: 0 0 12px;
   }
-  .block-heading::before { content: ""; width: 3px; height: 14px; border-radius: 2px; background: var(--accent); flex-shrink: 0; }
+  .block-heading::before { content: ""; width: 3px; height: 13px; border-radius: 2px; background: var(--track-color, var(--accent)); flex-shrink: 0; }
 
-  .prose p { margin: 0 0 12px; line-height: 1.65; font-size: 15px; max-width: 68ch; color: var(--ink); }
+  .prose p { margin: 0 0 12px; line-height: 1.65; font-size: 15px; max-width: 66ch; color: var(--ink); }
   .prose p:last-child { margin-bottom: 0; }
   .prose b { font-weight: 600; }
 
-  .fact-list, .plain-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
-  .fact-list li, .plain-list li {
-    position: relative;
-    padding-left: 18px;
-    font-size: 14.5px;
-    line-height: 1.55;
-    max-width: 66ch;
-  }
-  .fact-list li::before, .plain-list li::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: 9px;
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--muted);
-  }
-  .fact-list li i, .plain-list li i { color: var(--muted); }
+  .fact-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+  .fact-list li { position: relative; padding-left: 18px; font-size: 14.5px; line-height: 1.55; max-width: 64ch; }
+  .fact-list li::before { content: ""; position: absolute; left: 0; top: 9px; width: 6px; height: 6px; border-radius: 50%; background: var(--track-color, var(--muted)); }
 
   .q-list { list-style: none; margin: 0; padding: 0; counter-reset: q; display: flex; flex-direction: column; gap: 12px; }
-  .q-list li {
-    counter-increment: q;
-    display: grid;
-    grid-template-columns: 26px 1fr;
-    gap: 10px;
-    font-size: 14.5px;
-    line-height: 1.55;
-    max-width: 66ch;
-  }
+  .q-list li { counter-increment: q; display: grid; grid-template-columns: 24px 1fr; gap: 10px; font-size: 14.5px; line-height: 1.55; max-width: 64ch; }
   .q-list li::before {
-    content: counter(q);
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--accent);
-    background: var(--accent-soft);
-    width: 22px;
-    height: 22px;
-    border-radius: 6px;
-    display: grid;
-    place-items: center;
+    content: counter(q); font-family: "IBM Plex Mono", monospace; font-size: 11.5px; font-weight: 600;
+    color: var(--track-color, var(--accent));
+    background: color-mix(in srgb, var(--track-color, var(--accent)) 14%, var(--surface));
+    width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center;
   }
 
   .signal-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
-  .signal-list li {
-    display: grid;
-    grid-template-columns: 20px 1fr;
-    gap: 10px;
-    align-items: baseline;
-    font-size: 14px;
-    line-height: 1.55;
-    max-width: 66ch;
-  }
-  .signal-list .mark {
-    width: 20px;
-    height: 20px;
-    border-radius: 6px;
-    display: grid;
-    place-items: center;
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 11px;
-    font-weight: 700;
-    align-self: start;
-    margin-top: 1px;
-  }
+  .signal-list li { display: grid; grid-template-columns: 20px 1fr; gap: 10px; align-items: baseline; font-size: 14px; line-height: 1.55; max-width: 64ch; }
+  .signal-list .mark { width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; font-family: "IBM Plex Mono", monospace; font-size: 11px; font-weight: 700; align-self: start; margin-top: 1px; }
   .signal-list.good .mark { background: var(--good-soft); color: var(--good); }
   .signal-list.bad .mark { background: var(--bad-soft); color: var(--bad); }
-  .signal-list.good li { color: var(--ink); }
-  .signal-list.bad li { color: var(--ink); }
 
-  .obj-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   .obj-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; }
+  .obj-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   .obj-table th {
-    text-align: left;
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 10.5px;
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    color: var(--accent-ink);
-    background: var(--accent);
-    padding: 10px 14px;
+    text-align: left; font-family: "IBM Plex Mono", monospace; font-size: 10px; font-weight: 600;
+    letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent-ink);
+    background: var(--track-color, var(--accent)); padding: 10px 14px;
   }
-  .obj-table td {
-    padding: 12px 14px;
-    border-top: 1px solid var(--border);
-    vertical-align: top;
-    line-height: 1.5;
-  }
+  .obj-table td { padding: 12px 14px; border-top: 1px solid var(--border); vertical-align: top; line-height: 1.5; }
   .obj-table tr:nth-child(even) td { background: var(--surface-sunken); }
   .obj-table td:first-child { font-weight: 600; white-space: nowrap; color: var(--ink); }
   .obj-table td:last-child { color: var(--muted); }
 
   .cross {
-    background: var(--surface-sunken);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 14px 16px;
-    font-size: 13.5px;
-    line-height: 1.55;
-    color: var(--muted);
-    max-width: 68ch;
+    background: var(--surface-sunken); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px; font-size: 13.5px; line-height: 1.55; color: var(--muted); max-width: 66ch;
   }
   .cross b { color: var(--ink); }
 
-  footer.end {
-    padding: 40px clamp(24px, 5vw, 64px) 70px;
-    color: var(--muted);
-    font-size: 12.5px;
-    line-height: 1.7;
-    max-width: 68ch;
+  .doc-footer-nav {
+    display: flex; justify-content: space-between; gap: 12px;
+    margin-top: 44px; padding-top: 22px; border-top: 1px solid var(--border);
   }
-  footer.end b { color: var(--ink); }
+  .foot-nav-btn {
+    font: inherit; text-align: left; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 11px 14px; cursor: pointer; color: var(--ink);
+    max-width: 46%; display: flex; flex-direction: column; gap: 3px;
+  }
+  .foot-nav-btn:hover { border-color: var(--track-color, var(--accent)); }
+  .foot-nav-btn .dir { font-family: "IBM Plex Mono", monospace; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .foot-nav-btn.next { text-align: right; align-items: flex-end; margin-left: auto; }
 
-  [hidden] { display: none !important; }
+  /* ---------------- misc ---------------- */
+
+  .legend-strip {
+    display: flex; gap: 18px; flex-wrap: wrap;
+    padding: 12px clamp(18px, 4vw, 44px);
+    font-size: 12px; color: var(--muted);
+    background: var(--surface-sunken); border-bottom: 1px solid var(--border);
+  }
+  .legend-strip span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend-strip .dot { width: 7px; height: 7px; border-radius: 50%; }
+
+  #printAll { padding: 20px 30px; }
+  #printAll .print-doc { margin-bottom: 40px; padding-bottom: 30px; border-bottom: 1px solid var(--border); }
+  #printAll .print-cover { text-align: center; padding: 60px 0 40px; }
+  #printAll .print-cover h1 { font-family: "Archivo", sans-serif; font-size: 30px; font-weight: 800; }
 
   @media print {
-    .sidebar, .topbar, .hero-actions, .nav-toggle { display: none !important; }
-    .shell { display: block; }
-    section.doc { break-inside: avoid; }
+    .topbar, .legend-strip, .track-filters, .index-hero, .detail-bar, .doc-footer-nav { display: none !important; }
+    body.print-all-mode .index-view, body.print-all-mode .detail-view { display: none !important; }
+    body:not(.print-all-mode) #printAll { display: none !important; }
+    .block { break-inside: avoid; }
+    #printAll .print-doc { break-before: page; }
+    #printAll .print-cover { break-before: avoid; }
   }
 
-  @media (max-width: 880px) {
-    .shell { grid-template-columns: 1fr; }
-    .topbar { display: flex; }
-    .sidebar {
-      position: fixed;
-      inset: 0;
-      z-index: 40;
-      width: 84vw;
-      max-width: 320px;
-      transform: translateX(-100%);
-      transition: transform 0.22s ease;
-      box-shadow: var(--shadow);
-    }
-    .sidebar.open { transform: translateX(0); }
-    .scrim {
-      position: fixed;
-      inset: 0;
-      background: rgba(10, 14, 20, 0.45);
-      z-index: 35;
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 0.22s ease;
-    }
-    .scrim.show { opacity: 1; pointer-events: auto; }
+  @media (max-width: 640px) {
+    .topbar { flex-wrap: wrap; }
+    .search-wrap { order: 3; max-width: 100%; }
+    .detail-meta { display: none; }
   }
 </style>
 
-<div class="shell">
-  <div class="scrim" id="scrim"></div>
-
-  <aside class="sidebar" id="sidebar">
-    <div class="brand">
-      <div class="brand-mark">WC</div>
-      <div>
-        <div class="brand-name">Wired CIO</div>
-        <div class="brand-sub">SDR PLAYBOOK</div>
-      </div>
+<header class="topbar">
+  <button class="brand" id="brandHome">
+    <div class="brand-mark">WC</div>
+    <div class="brand-text">
+      <div class="brand-name">Wired CIO</div>
+      <div class="brand-sub">SDR PLAYBOOK</div>
     </div>
+  </button>
+  <div class="topbar-spacer"></div>
+  <div class="search-wrap" id="searchWrap">
+    <svg class="search-icon" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5.2" stroke="currentColor" stroke-width="1.4"/><path d="M11 11L14.2 14.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+    <input class="search-input" id="navSearch" type="text" placeholder="Find a section…" autocomplete="off">
+  </div>
+  <button class="btn" id="printBtn">Print</button>
+</header>
 
-    <div class="search-wrap">
-      <svg class="search-icon" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5.2" stroke="currentColor" stroke-width="1.4"/><path d="M11 11L14.2 14.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-      <input class="search-input" id="navSearch" type="text" placeholder="Filter sections…" autocomplete="off">
-    </div>
-
-    <nav class="nav-groups" id="navGroups"></nav>
-
-    <div class="legend">
-      <div class="legend-title">Tier legend</div>
-      <div class="legend-row"><span class="legend-dot" style="background:var(--good)"></span>Buying signal — listen for this</div>
-      <div class="legend-row"><span class="legend-dot" style="background:var(--bad)"></span>Red flag — disqualify</div>
-    </div>
-  </aside>
-
-  <main>
-    <div class="topbar">
-      <button class="nav-toggle" id="navToggle" aria-label="Open sections menu">☰ Sections</button>
-      <div class="topbar-title"><span class="topbar-mark">WC</span>SDR Playbook</div>
-      <button class="nav-toggle" onclick="window.print()">Print</button>
-    </div>
-
-    <div class="hero">
-      <div class="hero-kicker"><span class="dot"></span><span class="eyebrow">Internal &middot; Outbound Sales</span></div>
-      <h1>The Outbound Cheat Library</h1>
-      <p class="tagline">&ldquo;When your technology works, so do your people.&rdquo; — what every SDR studies before the first dial, and keeps open during it.</p>
-      <div class="hero-actions">
-        <a class="btn primary" href="#who-is-wired-cio">Start with Who We Are →</a>
-        <a class="btn" href="#outbound-execution">Jump to Call Flow</a>
-        <button class="btn" onclick="window.print()">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 6V2h8v4M4 12h8v3H4v-3ZM2.5 6h11a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1H12v-3H4v3H2.5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.2"/></svg>
-          Print / Save as PDF
-        </button>
-      </div>
-    </div>
-
-    <div class="content" id="content"></div>
-
-    <footer class="end">
-      <b>Status: v1, living document.</b> Company-identity content (tagline, mission, founder story, pricing model, engagement structure) is grounded in verified wiredcio.com copy. Service-line buying-signal and red-flag language mirrors the Lead Scanner's own detection rules, so this playbook and the tool stay consistent. Expect this to be refined over the coming days — flag anything that reads off.
-    </footer>
-  </main>
+<div class="legend-strip">
+  <span><span class="dot" style="background:var(--good)"></span>Buying signal — listen for this</span>
+  <span><span class="dot" style="background:var(--bad)"></span>Red flag — disqualify</span>
 </div>
+
+<div class="index-view" id="indexView">
+  <div class="index-hero">
+    <span class="eyebrow" style="color:var(--accent)">Internal &middot; Outbound Sales</span>
+    <h1>The Outbound Cheat Library</h1>
+    <p class="tagline">&ldquo;When your technology works, so do your people.&rdquo; Twelve pages, one per topic — pick the one that matches the lead in front of you.</p>
+  </div>
+  <div class="track-filters" id="trackFilters"></div>
+  <div class="card-grid" id="cardGrid"></div>
+</div>
+
+<div class="detail-view" id="detailView" hidden>
+  <div class="detail-bar">
+    <button class="back-link" id="backLink">&larr; All sections</button>
+    <div class="detail-meta"><span class="eyebrow" id="detailKicker"></span><span class="idx" id="detailIdx"></span></div>
+    <div class="pager">
+      <button id="prevBtn" aria-label="Previous section">&larr;</button>
+      <button id="nextBtn" aria-label="Next section">&rarr;</button>
+    </div>
+  </div>
+  <div class="detail-content" id="detailContent"></div>
+</div>
+
+<div id="printAll" hidden></div>
 
 <script>
   // ---------------------------------------------------------------------
   // Content
   // ---------------------------------------------------------------------
-  const GROUPS = [
-    { label: "Foundations", keys: ["who-is-wired-cio", "outbound-execution"] },
-    { label: "Dynamics 365", keys: ["dynamics-overview", "business-central-erp", "sales-crm", "project-operations"] },
-    { label: "Managed IT", keys: ["msp", "co-managed-fully-managed"] },
-    { label: "Custom Development", keys: ["custom-app-dev", "document-intelligence"] },
-    { label: "Azure & Licensing", keys: ["azure-billing", "licensing-csp"] },
-  ];
+  const TRACKS = {
+    foundations: { label: "Foundations", color: "var(--track-foundations)" },
+    dynamics: { label: "Dynamics 365", color: "var(--track-dynamics)" },
+    managedit: { label: "Managed IT", color: "var(--track-managedit)" },
+    customdev: { label: "Custom Development", color: "var(--track-customdev)" },
+    azure: { label: "Azure & Licensing", color: "var(--track-azure)" },
+  };
+
+  const TRACK_ORDER = ["foundations", "dynamics", "managedit", "customdev", "azure"];
 
   const SECTIONS = [
     {
-      key: "who-is-wired-cio", kicker: "COMPANY PRIMER",
+      key: "who-is-wired-cio", track: "foundations", kicker: "COMPANY PRIMER",
       title: "Who Is Wired CIO",
       subtitle: "“When your technology works, so do your people.” — what every SDR needs to know cold before the first dial.",
       overview: [
@@ -566,10 +431,18 @@
         items: [
           "Tagline: <i>“When your technology works, so do your people.”</i>",
           "Full service line-up: Managed IT Services, Cybersecurity, Cloud Services, IT Consulting &amp; Advisory, Backup &amp; Disaster Recovery, Compliance Services, Vendor Management, and Technical Training &amp; Support &mdash; plus, covered elsewhere in this playbook, Dynamics 365 (ERP/CRM) and Custom Application Development.",
-          "ICP: growing small-to-midsize businesses that need enterprise-grade IT capability without hiring an enterprise-sized internal team. Named industries include Small Business, Manufacturing, and Healthcare (HIPAA/compliance-driven).",
           "Pricing model: a flat monthly rate per person, which covers their primary device &mdash; shared and additional devices are a small add-on. Simple and predictable; never quote a specific number cold, that comes after Discovery.",
           "Engagement structure: a rolling 90-day commitment, not a multi-year lock-in &mdash; “we earn your business every quarter.” A strong, disarming answer to the “long contract” objection.",
           "Sales motion: Discovery (ballpark scope and budget shared early, no signature expected) → Design → fixed-scope pricing, presented two ways side by side &mdash; a straight hourly project, or the same scope amortized monthly with support included.",
+        ],
+      },
+      icp: {
+        heading: "Ideal Customer Profile &mdash; Who We Chase",
+        items: [
+          "<b>Company size &mdash; sweet spot:</b> 20&ndash;200 employees. Per Jack: the largest client worked with to date is 55 employees &mdash; treat anything much above 100 as realistic upside, not the norm. Most real traction so far sits in the smaller half of the band, so don&rsquo;t hesitate on a 20&ndash;60-employee prospect thinking it&rsquo;s too small.",
+          "<b>Priority industries, in order:</b> Distribution, Pharmaceutical, Manufacturing, Healthcare (HIPAA/compliance-driven). Lead with these verticals when a list has them &mdash; everything else still gets worked, it&rsquo;s just not where outbound should be concentrated first.",
+          "<b>Sweet-spot signal:</b> a business with SOME internal structure already (a named IT contact, an existing Microsoft tenant, a stated budget owner) &mdash; not zero infrastructure, not already fully enterprise-staffed. <i>Working heuristic &mdash; revisit against real closed-won deals as the track record grows.</i>",
+          "<b>How a lead reaches an SDR:</b> raw exports (Apollo pulls, CRM dumps, cold lists) are run through the Lead Scanner&rsquo;s detection engine first &mdash; by the time a lead lands on a dial list, it has already cleared licensing/Dynamics/M365 signal detection and the Auto-DQ screen. An SDR isn&rsquo;t qualifying from zero, they&rsquo;re confirming and deepening a signal the tool already found.",
         ],
       },
       questions: {
@@ -592,21 +465,29 @@
       },
     },
     {
-      key: "outbound-execution", kicker: "EXECUTION",
+      key: "outbound-execution", track: "foundations", kicker: "EXECUTION",
       title: "Outbound Execution Playbook",
       subtitle: "How an SDR performs and executes an outbound call &mdash; from dial to booked Discovery.",
       overview: [
         "An SDR&rsquo;s job on an outbound call is narrow and specific: qualify fit and interest fast, using the language in this playbook, and book a Discovery call. You are selling the next step &mdash; a 20-30 minute Discovery conversation &mdash; not the IT services themselves. Don&rsquo;t over-pitch on the first call.",
-        "Every lead an SDR works has already been triaged by Wired CIO&rsquo;s own detection engine into a tier (Strong Signal / Needs Review / Bad Lead) and a product-line category (Dynamics 365 or M365/Azure) before it ever reaches a dial list. Know which tier and category a lead landed in before you call &mdash; it tells you which service-line sheet in this library to have open.",
+        "Every lead an SDR works has already been triaged by Wired CIO&rsquo;s own detection engine into a tier (Strong Signal / Needs Review / Bad Lead) and a product-line category (Dynamics 365 or M365/Azure) before it ever reaches a dial list. Know which tier and category a lead landed in before you call &mdash; it tells you which section of this playbook to open.",
       ],
       wiredAngle: {
         heading: "Call Flow",
         items: [
           "<b>1. Open on their situation, not our services.</b> Mirror the trigger that got them on the list &mdash; don&rsquo;t lead with a features pitch.",
           "<b>2. Confirm the trigger.</b> What changed, or what are they actively dealing with right now? This is where you find out if the signal that qualified them is still real.",
-          "<b>3. Run the category-specific discovery questions</b> from the matching service-line section (Dynamics 365, MSP, Custom App Dev, Licensing, etc.).",
+          "<b>3. Run the category-specific discovery questions</b> from the matching service-line page (Dynamics 365, MSP, Custom App Dev, Licensing, etc.).",
           "<b>4. Qualify against the tier framework below</b> before you ask for the meeting &mdash; don&rsquo;t book a Discovery call on a lead that&rsquo;s really a Bad Lead in disguise.",
           "<b>5. Book Discovery and set expectations.</b> Wired CIO comes back with a ballpark scope, not a hard sell &mdash; no signature expected at that stage. That&rsquo;s an easy, low-pressure ask.",
+        ],
+      },
+      questions: {
+        heading: "Confirm Fit Early &mdash; Ask This On Every Call",
+        items: [
+          "Roughly how many employees does the company have? &mdash; The sweet spot is 20&ndash;200 (the largest client to date is 55). Outside that band doesn&rsquo;t auto-disqualify, but it tells you and the account team how typical a fit this is.",
+          "What industry are you in? &mdash; Distribution, Pharmaceutical, Manufacturing, and Healthcare are where outbound is focused first. Any industry can still qualify; this just sets expectations for the handoff.",
+          "Is there a named IT contact, an existing Microsoft tenant, or a budget owner already? &mdash; The sweet-spot signal is SOME existing structure, not a business starting from zero and not one already fully enterprise-staffed.",
         ],
       },
       signalsGood: {
@@ -631,10 +512,10 @@
         ],
       },
       objections: {
-        heading: "Objection Framework (Generic &mdash; See Each Section for Specifics)",
+        heading: "Objection Framework (Generic &mdash; See Each Page for Specifics)",
         rows: [
           ["“How much does this cost?”", "Never quote a number cold. Explain the model (flat monthly rate per person, 90-day rolling commitment) and set up Discovery for a real ballpark."],
-          ["“We already have someone.”", "Find out if it&rsquo;s a full replacement “no,” or a co-managed gap — don&rsquo;t assume. See the Co-Managed vs. Fully Managed section."],
+          ["“We already have someone.”", "Find out if it&rsquo;s a full replacement “no,” or a co-managed gap — don&rsquo;t assume. See the Co-Managed vs. Fully Managed page."],
           ["“Just send me some info.”", "Treat as a soft no. Get one more qualifying answer before agreeing, and lock a specific follow-up date rather than an open-ended “I&rsquo;ll email you.”"],
           ["“Not the right time.”", "Ask what would need to change, and when their next budget/planning cycle starts. Log a real, dated follow-up — don&rsquo;t just drop it."],
         ],
@@ -645,7 +526,7 @@
       },
     },
     {
-      key: "dynamics-overview", kicker: "DYNAMICS 365",
+      key: "dynamics-overview", track: "dynamics", kicker: "DYNAMICS 365",
       title: "Dynamics 365 — Platform Overview",
       subtitle: "How to talk about Microsoft&rsquo;s ERP + CRM suite, and how Wired CIO fits in.",
       overview: [
@@ -703,7 +584,7 @@
       crossSell: { text: "Every Dynamics deployment needs a tenant, licensing, and ongoing support &mdash; always ask about their M365/Azure and licensing situation even on a pure Dynamics call." },
     },
     {
-      key: "business-central-erp", kicker: "DYNAMICS 365",
+      key: "business-central-erp", track: "dynamics", kicker: "DYNAMICS 365",
       title: "Business Central / ERP",
       subtitle: "Cloud ERP for finance, supply chain, and operations &mdash; our highest-priority Dynamics module.",
       overview: [
@@ -741,7 +622,7 @@
       crossSell: { text: "Business Central customers almost always need Azure hosting/tenant support and M365 licensing alongside the ERP itself &mdash; always ask." },
     },
     {
-      key: "sales-crm", kicker: "DYNAMICS 365",
+      key: "sales-crm", track: "dynamics", kicker: "DYNAMICS 365",
       title: "Dynamics 365 Sales / CRM",
       subtitle: "Sales, Customer Engagement, Customer Insights, Field Service, Marketing.",
       overview: [
@@ -776,7 +657,7 @@
       crossSell: { text: "Power BI/reporting on top of CRM data, and Azure for any custom integrations, are natural next conversations." },
     },
     {
-      key: "project-operations", kicker: "DYNAMICS 365",
+      key: "project-operations", track: "dynamics", kicker: "DYNAMICS 365",
       title: "Dynamics 365 Project Operations",
       subtitle: "Project-based business management &mdash; resourcing, time/expense, project accounting.",
       overview: [
@@ -803,7 +684,7 @@
       crossSell: { text: "Pairs naturally with Business Central for a full project-to-cash workflow &mdash; always ask about ERP plans in the same conversation." },
     },
     {
-      key: "msp", kicker: "MANAGED IT",
+      key: "msp", track: "managedit", kicker: "MANAGED IT",
       title: "Managed IT Services (MSP)",
       subtitle: "Our core recurring offering &mdash; the umbrella every other service line nests under.",
       overview: [
@@ -845,7 +726,7 @@
       crossSell: { text: "Cybersecurity, Backup/DR, Compliance, and licensing all sell naturally once an MSP relationship is on the table &mdash; MSP is the umbrella." },
     },
     {
-      key: "co-managed-fully-managed", kicker: "MANAGED IT",
+      key: "co-managed-fully-managed", track: "managedit", kicker: "MANAGED IT",
       title: "Co-Managed vs. Fully Managed IT",
       subtitle: "Two shapes of the MSP relationship &mdash; know which one to lead with.",
       overview: [
@@ -878,7 +759,7 @@
       crossSell: { text: "Security, backup/DR, and cloud are the most common co-managed add-on scopes &mdash; lead with whichever gap the internal team named." },
     },
     {
-      key: "custom-app-dev", kicker: "CUSTOM DEVELOPMENT",
+      key: "custom-app-dev", track: "customdev", kicker: "CUSTOM DEVELOPMENT",
       title: "Custom Application Development",
       subtitle: "Power Platform, custom Azure-hosted apps, and Dynamics/M365 integrations.",
       overview: [
@@ -899,7 +780,7 @@
         heading: "Buying Signals &mdash; Listen For This Language",
         items: [
           "“Custom app,” “app build,” “custom development,” “Power Apps,” or “Power Automate” mentioned specifically.",
-          "A document-heavy manual process combined with wanting automation &mdash; see the Azure Document Intelligence section, this is usually the same conversation.",
+          "A document-heavy manual process combined with wanting automation &mdash; see the Azure Document Intelligence page, this is usually the same conversation.",
         ],
       },
       signalsBad: {
@@ -911,7 +792,7 @@
       crossSell: { text: "Azure hosting, Document Intelligence for anything document-heavy, and Dynamics/Power Platform integration are the natural next questions." },
     },
     {
-      key: "azure-billing", kicker: "AZURE / CLOUD",
+      key: "azure-billing", track: "azure", kicker: "AZURE / CLOUD",
       title: "Azure Partner / CSP Billing",
       subtitle: "Consolidated Azure billing, cost management, and support routed through us.",
       overview: [
@@ -948,7 +829,7 @@
       crossSell: { text: "A strong opener for a broader MSP, security, or Dynamics conversation once trust is established on billing." },
     },
     {
-      key: "licensing-csp", kicker: "LICENSING",
+      key: "licensing-csp", track: "azure", kicker: "LICENSING",
       title: "Microsoft Licensing Support / CSP",
       subtitle: "M365, security, and specialty SKUs &mdash; the easiest entry point into every other conversation.",
       overview: [
@@ -981,7 +862,7 @@
       crossSell: { text: "Licensing is the easiest entry point into every other conversation &mdash; MSP, security, Copilot, Dynamics. Always ask what&rsquo;s NOT currently licensed, that&rsquo;s usually the real opening." },
     },
     {
-      key: "document-intelligence", kicker: "CUSTOM DEVELOPMENT",
+      key: "document-intelligence", track: "customdev", kicker: "CUSTOM DEVELOPMENT",
       title: "Azure Document Intelligence",
       subtitle: "AI-powered document extraction &mdash; always pitched as part of a custom app, not standalone.",
       overview: [
@@ -1014,150 +895,207 @@
   ];
 
   // ---------------------------------------------------------------------
-  // Render
+  // Derived indices
   // ---------------------------------------------------------------------
-  const byKey = Object.fromEntries(SECTIONS.map((s) => [s.key, s]));
+  const byKey = Object.fromEntries(SECTIONS.map((s, i) => [s.key, { ...s, order: i }]));
+  const orderedKeys = SECTIONS.map((s) => s.key);
 
-  function esc(s) { return s; } // content is pre-authored HTML-safe
+  function countMeta(s) {
+    const parts = [];
+    if (s.questions) parts.push(`${s.questions.items.length} Qs`);
+    const sigCount = (s.signalsGood ? s.signalsGood.items.length : 0) + (s.signalsBad ? s.signalsBad.items.length : 0);
+    if (sigCount) parts.push(`${sigCount} signals`);
+    if (s.objections) parts.push(`${s.objections.rows.length} objections`);
+    return parts;
+  }
 
   function blockHTML(section) {
     let html = "";
-    html += `<div class="prose block"><h2>${section.title}</h2><p class="subtitle">${section.subtitle}</p></div>`;
-
     html += `<div class="block prose">${section.overview.map((p) => `<p>${p}</p>`).join("")}</div>`;
 
     if (section.wiredAngle) {
       html += `<div class="block"><h3 class="block-heading">${section.wiredAngle.heading}</h3><div class="prose">${section.wiredAngle.items.map((p) => `<p>${p}</p>`).join("")}</div></div>`;
     }
-
     if (section.facts) {
       html += `<div class="block"><h3 class="block-heading">${section.facts.heading}</h3><ul class="fact-list">${section.facts.items.map((f) => `<li>${f}</li>`).join("")}</ul></div>`;
     }
-
+    if (section.icp) {
+      html += `<div class="block"><h3 class="block-heading">${section.icp.heading}</h3><ul class="fact-list">${section.icp.items.map((f) => `<li>${f}</li>`).join("")}</ul></div>`;
+    }
     if (section.questions) {
       html += `<div class="block"><h3 class="block-heading">${section.questions.heading}</h3><ol class="q-list">${section.questions.items.map((q) => `<li>${q}</li>`).join("")}</ol></div>`;
     }
-
     if (section.signalsGood) {
       html += `<div class="block"><h3 class="block-heading">${section.signalsGood.heading}</h3><ul class="signal-list good">${section.signalsGood.items.map((s) => `<li><span class="mark">+</span>${s}</li>`).join("")}</ul></div>`;
     }
-
     if (section.signalsBad) {
       html += `<div class="block"><h3 class="block-heading">${section.signalsBad.heading}</h3><ul class="signal-list bad">${section.signalsBad.items.map((s) => `<li><span class="mark">&times;</span>${s}</li>`).join("")}</ul></div>`;
     }
-
     if (section.objections) {
       html += `<div class="block"><h3 class="block-heading">${section.objections.heading}</h3><div class="obj-scroll"><table class="obj-table"><thead><tr><th>If they say&hellip;</th><th>Ask / respond with&hellip;</th></tr></thead><tbody>${section.objections.rows.map((r) => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join("")}</tbody></table></div></div>`;
     }
-
     if (section.crossSell) {
       html += `<div class="block cross"><b>${section.crossSell.heading || "Cross-Sell / Related Offerings"}</b><br>${section.crossSell.text}</div>`;
     }
-
     return html;
   }
 
-  const content = document.getElementById("content");
-  const navGroups = document.getElementById("navGroups");
+  // ---------------------------------------------------------------------
+  // Index view: filters + cards
+  // ---------------------------------------------------------------------
+  const trackFilters = document.getElementById("trackFilters");
+  const cardGrid = document.getElementById("cardGrid");
+  let activeTrack = "all";
+  let activeQuery = "";
 
-  let counter = 0;
-  const flatOrder = [];
-  GROUPS.forEach((group) => {
-    const groupEl = document.createElement("div");
-    const label = document.createElement("div");
-    label.className = "nav-group-label";
-    label.textContent = group.label;
-    groupEl.appendChild(label);
+  function renderChips() {
+    trackFilters.innerHTML = "";
+    const allChip = document.createElement("button");
+    allChip.className = "chip" + (activeTrack === "all" ? " active" : "");
+    allChip.innerHTML = `<span class="swatch"></span>All sections`;
+    allChip.addEventListener("click", () => { activeTrack = "all"; renderChips(); renderCards(); });
+    trackFilters.appendChild(allChip);
 
-    const list = document.createElement("ul");
-    list.className = "nav-list";
+    TRACK_ORDER.forEach((key) => {
+      const t = TRACKS[key];
+      const chip = document.createElement("button");
+      chip.className = "chip" + (activeTrack === key ? " active" : "");
+      chip.style.setProperty("--chip-color", t.color);
+      chip.innerHTML = `<span class="swatch"></span>${t.label}`;
+      chip.addEventListener("click", () => { activeTrack = key; renderChips(); renderCards(); });
+      trackFilters.appendChild(chip);
+    });
+  }
 
-    group.keys.forEach((key) => {
-      const section = byKey[key];
-      counter++;
-      flatOrder.push(key);
-
-      const item = document.createElement("li");
-      const a = document.createElement("a");
-      a.href = `#${key}`;
-      a.className = "nav-link";
-      a.dataset.key = key;
-      a.dataset.search = (section.title + " " + section.kicker).toLowerCase();
-      a.innerHTML = `<span class="nav-num mono">${String(counter).padStart(2, "0")}</span><span>${section.title}</span>`;
-      item.appendChild(a);
-      list.appendChild(item);
-
-      const doc = document.createElement("section");
-      doc.className = "doc";
-      doc.id = key;
-      doc.innerHTML =
-        `<div class="doc-kicker"><span class="eyebrow">${section.kicker}</span><span class="doc-index mono">${String(counter).padStart(2, "0")} / ${SECTIONS.length}</span></div>` +
-        blockHTML(section);
-      content.appendChild(doc);
+  function renderCards() {
+    const q = activeQuery.trim().toLowerCase();
+    const filtered = SECTIONS.filter((s) => {
+      if (activeTrack !== "all" && s.track !== activeTrack) return false;
+      if (q && !(s.title.toLowerCase().includes(q) || s.subtitle.toLowerCase().includes(q) || s.kicker.toLowerCase().includes(q))) return false;
+      return true;
     });
 
-    groupEl.appendChild(list);
-    navGroups.appendChild(groupEl);
-  });
-
-  // ---------------------------------------------------------------------
-  // Scrollspy
-  // ---------------------------------------------------------------------
-  const navLinks = Array.from(document.querySelectorAll(".nav-link"));
-  const docSections = Array.from(document.querySelectorAll("section.doc"));
-
-  function setActive(key) {
-    navLinks.forEach((l) => l.classList.toggle("active", l.dataset.key === key));
-  }
-
-  try {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries.filter((e) => e.isIntersecting);
-        if (visible.length) {
-          visible.sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
-          setActive(visible[0].target.id);
-        }
-      },
-      { rootMargin: "-10% 0px -75% 0px", threshold: 0 }
-    );
-    docSections.forEach((s) => observer.observe(s));
-  } catch (e) {
-    setActive(flatOrder[0]);
-  }
-
-  // ---------------------------------------------------------------------
-  // Search / filter
-  // ---------------------------------------------------------------------
-  const navSearch = document.getElementById("navSearch");
-  navSearch.addEventListener("input", () => {
-    const q = navSearch.value.trim().toLowerCase();
-    document.querySelectorAll(".nav-groups > div").forEach((groupEl) => {
-      let anyVisible = false;
-      groupEl.querySelectorAll(".nav-link").forEach((link) => {
-        const match = !q || link.dataset.search.includes(q);
-        link.parentElement.hidden = !match;
-        if (match) anyVisible = true;
-      });
-      groupEl.hidden = !anyVisible;
+    cardGrid.innerHTML = "";
+    if (!filtered.length) {
+      cardGrid.innerHTML = `<div class="empty-state">No sections match &ldquo;${activeQuery}&rdquo;.</div>`;
+      return;
+    }
+    filtered.forEach((s) => {
+      const idx = orderedKeys.indexOf(s.key) + 1;
+      const t = TRACKS[s.track];
+      const card = document.createElement("button");
+      card.className = "card";
+      card.style.setProperty("--track-color", t.color);
+      const meta = countMeta(s);
+      card.innerHTML =
+        `<div class="card-top"><span class="eyebrow">${s.kicker}</span><span class="card-idx mono">${String(idx).padStart(2, "0")}</span></div>` +
+        `<div class="card-title">${s.title}</div>` +
+        `<div class="card-sub">${s.subtitle}</div>` +
+        `<div class="card-meta">${meta.map((m) => `<span><b>${m.split(" ")[0]}</b> ${m.split(" ").slice(1).join(" ")}</span>`).join("")}</div>`;
+      card.addEventListener("click", () => { location.hash = s.key; });
+      cardGrid.appendChild(card);
     });
-  });
-
-  // ---------------------------------------------------------------------
-  // Mobile nav toggle
-  // ---------------------------------------------------------------------
-  const sidebar = document.getElementById("sidebar");
-  const scrim = document.getElementById("scrim");
-  const navToggle = document.getElementById("navToggle");
-
-  function closeNav() {
-    sidebar.classList.remove("open");
-    scrim.classList.remove("show");
   }
-  navToggle.addEventListener("click", () => {
-    sidebar.classList.add("open");
-    scrim.classList.add("show");
+
+  document.getElementById("navSearch").addEventListener("input", (e) => {
+    activeQuery = e.target.value;
+    renderCards();
   });
-  scrim.addEventListener("click", closeNav);
-  navLinks.forEach((l) => l.addEventListener("click", closeNav));
+
+  renderChips();
+  renderCards();
+
+  // ---------------------------------------------------------------------
+  // Detail view + routing
+  // ---------------------------------------------------------------------
+  const indexView = document.getElementById("indexView");
+  const detailView = document.getElementById("detailView");
+  const detailContent = document.getElementById("detailContent");
+  const detailKicker = document.getElementById("detailKicker");
+  const detailIdx = document.getElementById("detailIdx");
+  const prevBtn = document.getElementById("prevBtn");
+  const nextBtn = document.getElementById("nextBtn");
+
+  function neighborButton(key, dir) {
+    if (!key) return `<span></span>`;
+    const s = byKey[key];
+    return `<button class="foot-nav-btn ${dir}" data-goto="${key}"><span class="dir">${dir === "next" ? "Next" : "Previous"}</span><span>${s.title}</span></button>`;
+  }
+
+  function showDetail(key) {
+    const section = byKey[key];
+    if (!section) { showIndex(); return; }
+    const idx = section.order;
+    const t = TRACKS[section.track];
+
+    indexView.hidden = true;
+    detailView.hidden = false;
+    detailView.style.setProperty("--track-color", t.color);
+    detailKicker.textContent = section.kicker;
+    detailKicker.style.color = t.color;
+    detailIdx.textContent = `${String(idx + 1).padStart(2, "0")} / ${SECTIONS.length}`;
+
+    const prevKey = orderedKeys[idx - 1] || null;
+    const nextKey = orderedKeys[idx + 1] || null;
+    prevBtn.disabled = !prevKey;
+    nextBtn.disabled = !nextKey;
+    prevBtn.onclick = () => prevKey && (location.hash = prevKey);
+    nextBtn.onclick = () => nextKey && (location.hash = nextKey);
+
+    detailContent.style.setProperty("--track-color", t.color);
+    detailContent.innerHTML =
+      `<div class="doc-title">${section.title}</div>` +
+      `<div class="doc-subtitle">${section.subtitle}</div>` +
+      blockHTML(section) +
+      `<div class="doc-footer-nav">${neighborButton(prevKey, "prev")}${neighborButton(nextKey, "next")}</div>`;
+
+    detailContent.querySelectorAll("[data-goto]").forEach((btn) => {
+      btn.addEventListener("click", () => { location.hash = btn.dataset.goto; });
+    });
+
+    window.scrollTo({ top: 0, behavior: "instant" in window ? "instant" : "auto" });
+  }
+
+  function showIndex() {
+    detailView.hidden = true;
+    indexView.hidden = false;
+  }
+
+  function routeFromHash() {
+    const key = location.hash.replace(/^#/, "");
+    if (key && byKey[key]) showDetail(key);
+    else showIndex();
+  }
+
+  window.addEventListener("hashchange", routeFromHash);
+  document.getElementById("backLink").addEventListener("click", () => { location.hash = ""; });
+  document.getElementById("brandHome").addEventListener("click", () => { location.hash = ""; });
+  routeFromHash();
+
+  // ---------------------------------------------------------------------
+  // Print
+  // ---------------------------------------------------------------------
+  const printAllEl = document.getElementById("printAll");
+
+  function buildPrintAll() {
+    let html = `<div class="print-cover"><h1>Wired CIO SDR Playbook</h1><p>Outbound Cheat Library — internal reference, generated for print.</p></div>`;
+    SECTIONS.forEach((s) => {
+      const t = TRACKS[s.track];
+      html += `<div class="print-doc" style="--track-color:${t.color}"><span class="eyebrow" style="color:${t.color}">${s.kicker}</span><div class="doc-title">${s.title}</div><div class="doc-subtitle">${s.subtitle}</div>${blockHTML(s)}</div>`;
+    });
+    printAllEl.innerHTML = html;
+  }
+  buildPrintAll();
+
+  document.getElementById("printBtn").addEventListener("click", () => {
+    if (detailView.hidden) {
+      document.body.classList.add("print-all-mode");
+      printAllEl.hidden = false;
+    }
+    window.print();
+  });
+  window.addEventListener("afterprint", () => {
+    document.body.classList.remove("print-all-mode");
+    printAllEl.hidden = true;
+  });
 </script>
