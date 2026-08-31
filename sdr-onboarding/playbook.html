@@ -636,6 +636,19 @@
         "An SDR&rsquo;s job on an outbound call is narrow and specific: qualify fit and interest fast, using the language in this playbook, and book a Discovery call. You are selling the next step &mdash; a 20-30 minute Discovery conversation &mdash; not the IT services themselves. Don&rsquo;t over-pitch on the first call.",
         "Every lead an SDR works has already been triaged by Wired CIO&rsquo;s own detection engine into a tier (Strong Signal / Needs Review / Bad Lead) and a product-line category (Dynamics 365 or M365/Azure) before it ever reaches a dial list. Know which tier and category a lead landed in before you call &mdash; it tells you which section of this playbook to open.",
       ],
+      gate: {
+        heading: "Book No Matter What &mdash; The Non-Negotiables",
+        items: [
+          "What specific problem can we help solve? &mdash; A real, mission-critical, front-end problem (the wedge), not vague interest. If you can&rsquo;t name it in one sentence, you don&rsquo;t have enough yet.",
+          "What&rsquo;s the timeline? &mdash; Are they moving now, or just exploring for someday?",
+          "How many users or employees does the company have &mdash; today, and however many would end up licensed on whatever platform this becomes?",
+          "Does the company profile actually make sense for us to engage and try to build a partnership with? &mdash; Re-check against the ICP: SMB, solely under 200 employees, priority industries (Distribution, Pharmaceutical, Manufacturing, Healthcare).",
+          "What&rsquo;s their current state? &mdash; For Dynamics specifically: what platform are they on today, or how are they operating without one. For every other line: what are they doing today instead of what we&rsquo;d sell them?",
+          "Is there something real driving this initiative &mdash; or are they fishing for free info or consulting? &mdash; If it&rsquo;s the latter, that&rsquo;s a red flag, not a booking.",
+          "Do you have a clear direction for where this conversation goes next? &mdash; If you can&rsquo;t answer that yourself, don&rsquo;t expect the prospect to.",
+          "<b>If you have questions or hesitation about any of this &mdash; don&rsquo;t book blind.</b> Circle back with the sales team, review the call and the details together, and follow up with the prospect once there&rsquo;s a clear direction. A booked call with no direction wastes the account team&rsquo;s time and the prospect&rsquo;s.",
+        ],
+      },
       wiredAngle: {
         heading: "Call Flow",
         items: [
@@ -1082,6 +1095,9 @@
     let html = "";
     html += `<div class="block prose">${section.overview.map((p) => `<p>${p}</p>`).join("")}</div>`;
 
+    if (section.gate) {
+      html += `<div class="block"><h3 class="block-heading">${section.gate.heading}</h3><ol class="q-list">${section.gate.items.map((q) => `<li>${q}</li>`).join("")}</ol></div>`;
+    }
     if (section.wiredAngle) {
       html += `<div class="block"><h3 class="block-heading">${section.wiredAngle.heading}</h3><div class="prose">${section.wiredAngle.items.map((p) => `<p>${p}</p>`).join("")}</div></div>`;
     }
@@ -1130,6 +1146,9 @@
     }
 
     let cards = "";
+    if (section.gate) {
+      cards += playCard(section.gate.heading, `<ol class="q-list">${section.gate.items.map((q) => `<li>${q}</li>`).join("")}</ol>`, { wide: true, borderColor: t.color });
+    }
     if (section.snapshot) {
       cards += playCard(section.snapshot.heading, tableHTML(section.snapshot.headers, section.snapshot.rows), { wide: true });
     }
@@ -1332,6 +1351,7 @@
     const chunks = [];
     const push = (type, heading, text, weight) => chunks.push({ type, heading, text: stripTags(text), weight, tokens: tokenize(stripTags(text)) });
     push("overview", null, s.overview.join(" "), 1);
+    if (s.gate) s.gate.items.forEach((i) => push("gate", s.gate.heading, i, 2.5));
     if (s.wiredAngle) s.wiredAngle.items.forEach((i) => push("angle", s.wiredAngle.heading, i, 1.5));
     if (s.snapshot) s.snapshot.rows.forEach((r) => push("snapshot", s.snapshot.heading, `${r[0]}: ${r[1]}`, 1));
     if (s.facts) s.facts.items.forEach((i) => push("fact", s.facts.heading, i, 1.5));
@@ -1380,7 +1400,7 @@
   }
 
   const CHUNK_LABEL = {
-    overview: "Overview", angle: "Positioning", snapshot: "Snapshot", fact: "Key fact",
+    overview: "Overview", gate: "Non-negotiable", angle: "Positioning", snapshot: "Snapshot", fact: "Key fact",
     icp: "Ideal customer profile", question: "Discovery question", "signal-good": "Buying signal",
     "signal-bad": "Red flag", objection: "Objection response", crosssell: "Cross-sell",
   };
