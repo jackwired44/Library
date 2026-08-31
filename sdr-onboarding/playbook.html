@@ -315,59 +315,97 @@
   .pager button:hover:not(:disabled) { border-color: var(--track-color, var(--accent)); color: var(--track-color, var(--accent)); }
   .pager button:disabled { opacity: 0.35; cursor: default; }
 
-  .detail-content { max-width: 700px; margin: 0 auto; padding: 40px clamp(18px, 4vw, 44px) 90px; }
+  .detail-content { max-width: 960px; margin: 0 auto; padding: 34px clamp(18px, 4vw, 44px) 90px; }
 
-  .doc-title { font-family: "Archivo", sans-serif; font-size: clamp(24px, 3vw, 32px); font-weight: 800; letter-spacing: -0.015em; margin-bottom: 8px; }
-  .doc-subtitle { color: var(--muted); font-size: 15px; max-width: 66ch; line-height: 1.55; margin-bottom: 30px; }
+  .doc-title { font-family: "Archivo", sans-serif; font-size: clamp(24px, 3vw, 32px); font-weight: 800; letter-spacing: -0.015em; margin-bottom: 6px; }
+  .doc-subtitle { color: var(--muted); font-size: 14.5px; max-width: 72ch; line-height: 1.5; margin-bottom: 16px; }
 
-  .block { margin-bottom: 28px; }
+  .play-stats { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+  .play-stat {
+    font-family: "IBM Plex Mono", monospace; font-size: 10.5px; color: var(--muted);
+    background: var(--surface-sunken); border: 1px solid var(--border);
+    border-radius: 999px; padding: 5px 11px;
+  }
+
+  .play-lead {
+    border-left: 3px solid var(--track-color, var(--accent));
+    background: var(--surface-sunken);
+    border-radius: 0 10px 10px 0;
+    padding: 14px 18px;
+    margin-bottom: 22px;
+  }
+  .play-lead p { margin: 0 0 10px; font-size: 14.5px; line-height: 1.6; color: var(--ink); }
+  .play-lead p:last-child { margin-bottom: 0; }
+  .play-lead b { font-weight: 600; }
+
+  .play-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+    gap: 14px;
+    align-items: start;
+    margin-bottom: 20px;
+  }
+
+  .play-card {
+    border: 1px solid var(--border);
+    border-top: 3px solid var(--border);
+    border-radius: 10px;
+    padding: 15px 17px;
+    background: var(--surface);
+    min-width: 0;
+  }
+  .play-card.wide { grid-column: 1 / -1; }
+
+  /* .block is only used by the print-all rendering (buildPrintAll), which
+     stays a linear read-top-to-bottom layout on purpose. */
+  .block { margin-bottom: 22px; }
   .block:last-child { margin-bottom: 0; }
 
   .block-heading {
     display: flex; align-items: center; gap: 9px;
-    font-size: 12.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
-    color: var(--ink); margin: 0 0 12px;
+    font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--ink); margin: 0 0 11px;
   }
-  .block-heading::before { content: ""; width: 3px; height: 13px; border-radius: 2px; background: var(--track-color, var(--accent)); flex-shrink: 0; }
+  .block-heading::before { content: ""; width: 3px; height: 12px; border-radius: 2px; background: var(--track-color, var(--accent)); flex-shrink: 0; }
 
-  .prose p { margin: 0 0 12px; line-height: 1.65; font-size: 15px; max-width: 66ch; color: var(--ink); }
+  .prose p { margin: 0 0 10px; line-height: 1.6; font-size: 14px; color: var(--ink); }
   .prose p:last-child { margin-bottom: 0; }
   .prose b { font-weight: 600; }
 
   .fact-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
-  .fact-list li { position: relative; padding-left: 18px; font-size: 14.5px; line-height: 1.55; max-width: 64ch; }
-  .fact-list li::before { content: ""; position: absolute; left: 0; top: 9px; width: 6px; height: 6px; border-radius: 50%; background: var(--track-color, var(--muted)); }
+  .fact-list li { position: relative; padding-left: 16px; font-size: 13.5px; line-height: 1.5; }
+  .fact-list li::before { content: ""; position: absolute; left: 0; top: 8px; width: 5px; height: 5px; border-radius: 50%; background: var(--track-color, var(--muted)); }
 
-  .q-list { list-style: none; margin: 0; padding: 0; counter-reset: q; display: flex; flex-direction: column; gap: 12px; }
-  .q-list li { counter-increment: q; display: grid; grid-template-columns: 24px 1fr; gap: 10px; font-size: 14.5px; line-height: 1.55; max-width: 64ch; }
+  .q-list { list-style: none; margin: 0; padding: 0; counter-reset: q; display: flex; flex-direction: column; gap: 10px; }
+  .q-list li { counter-increment: q; display: grid; grid-template-columns: 22px 1fr; gap: 9px; font-size: 13.5px; line-height: 1.5; }
   .q-list li::before {
-    content: counter(q); font-family: "IBM Plex Mono", monospace; font-size: 11.5px; font-weight: 600;
+    content: counter(q); font-family: "IBM Plex Mono", monospace; font-size: 11px; font-weight: 600;
     color: var(--track-color, var(--accent));
     background: color-mix(in srgb, var(--track-color, var(--accent)) 14%, var(--surface));
-    width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center;
+    width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center;
   }
 
-  .signal-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
-  .signal-list li { display: grid; grid-template-columns: 20px 1fr; gap: 10px; align-items: baseline; font-size: 14px; line-height: 1.55; max-width: 64ch; }
-  .signal-list .mark { width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; font-family: "IBM Plex Mono", monospace; font-size: 11px; font-weight: 700; align-self: start; margin-top: 1px; }
+  .signal-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .signal-list li { display: grid; grid-template-columns: 18px 1fr; gap: 9px; align-items: baseline; font-size: 13.5px; line-height: 1.5; }
+  .signal-list .mark { width: 18px; height: 18px; border-radius: 6px; display: grid; place-items: center; font-family: "IBM Plex Mono", monospace; font-size: 10.5px; font-weight: 700; align-self: start; margin-top: 1px; }
   .signal-list.good .mark { background: var(--good-soft); color: var(--good); }
   .signal-list.bad .mark { background: var(--bad-soft); color: var(--bad); }
 
-  .obj-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; }
-  .obj-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .obj-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+  .obj-table { width: 100%; border-collapse: collapse; font-size: 13px; }
   .obj-table th {
     text-align: left; font-family: "IBM Plex Mono", monospace; font-size: 10px; font-weight: 600;
     letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent-ink);
-    background: var(--track-color, var(--accent)); padding: 10px 14px;
+    background: var(--track-color, var(--accent)); padding: 9px 13px;
   }
-  .obj-table td { padding: 12px 14px; border-top: 1px solid var(--border); vertical-align: top; line-height: 1.5; }
+  .obj-table td { padding: 11px 13px; border-top: 1px solid var(--border); vertical-align: top; line-height: 1.45; }
   .obj-table tr:nth-child(even) td { background: var(--surface-sunken); }
   .obj-table td:first-child { font-weight: 600; white-space: nowrap; color: var(--ink); }
   .obj-table td:last-child { color: var(--muted); }
 
   .cross {
     background: var(--surface-sunken); border: 1px solid var(--border); border-radius: 10px;
-    padding: 14px 16px; font-size: 13.5px; line-height: 1.55; color: var(--muted); max-width: 66ch;
+    padding: 14px 16px; font-size: 13.5px; line-height: 1.55; color: var(--muted);
   }
   .cross b { color: var(--ink); }
 
@@ -1074,6 +1112,56 @@
     return html;
   }
 
+  function playCard(heading, bodyHtml, { wide, borderColor } = {}) {
+    return `<div class="play-card${wide ? " wide" : ""}" style="border-top-color:${borderColor || "var(--border)"}"><h3 class="block-heading">${heading}</h3>${bodyHtml}</div>`;
+  }
+
+  // Playbook-style detail rendering: a short "briefing" lead, a stat strip,
+  // then every block as its own scannable panel in a reflowing grid --
+  // instead of blockHTML's linear stack of prose sections (which stays in
+  // use for the print-all binder, meant to be read start to finish).
+  function renderDetail(section) {
+    const t = TRACKS[section.track];
+    let html = `<div class="play-lead">${section.overview.map((p) => `<p>${p}</p>`).join("")}</div>`;
+
+    const meta = countMeta(section);
+    if (meta.length) {
+      html += `<div class="play-stats">${meta.map((m) => `<span class="play-stat">${m}</span>`).join("")}</div>`;
+    }
+
+    let cards = "";
+    if (section.snapshot) {
+      cards += playCard(section.snapshot.heading, tableHTML(section.snapshot.headers, section.snapshot.rows), { wide: true });
+    }
+    if (section.wiredAngle) {
+      cards += playCard(section.wiredAngle.heading, `<div class="prose">${section.wiredAngle.items.map((p) => `<p>${p}</p>`).join("")}</div>`, { wide: true, borderColor: t.color });
+    }
+    if (section.facts) {
+      cards += playCard(section.facts.heading, `<ul class="fact-list">${section.facts.items.map((f) => `<li>${f}</li>`).join("")}</ul>`);
+    }
+    if (section.icp) {
+      cards += playCard(section.icp.heading, `<ul class="fact-list">${section.icp.items.map((f) => `<li>${f}</li>`).join("")}</ul>`);
+    }
+    if (section.questions) {
+      cards += playCard(section.questions.heading, `<ol class="q-list">${section.questions.items.map((q) => `<li>${q}</li>`).join("")}</ol>`, { borderColor: t.color });
+    }
+    if (section.signalsGood) {
+      cards += playCard(section.signalsGood.heading, `<ul class="signal-list good">${section.signalsGood.items.map((s) => `<li><span class="mark">+</span>${s}</li>`).join("")}</ul>`, { borderColor: "var(--good)" });
+    }
+    if (section.signalsBad) {
+      cards += playCard(section.signalsBad.heading, `<ul class="signal-list bad">${section.signalsBad.items.map((s) => `<li><span class="mark">&times;</span>${s}</li>`).join("")}</ul>`, { borderColor: "var(--bad)" });
+    }
+    if (section.objections) {
+      cards += playCard(section.objections.heading, tableHTML(["If they say&hellip;", "Ask / respond with&hellip;"], section.objections.rows), { wide: true, borderColor: t.color });
+    }
+    html += `<div class="play-grid">${cards}</div>`;
+
+    if (section.crossSell) {
+      html += `<div class="cross"><b>${section.crossSell.heading || "Cross-Sell / Related Offerings"}</b><br>${section.crossSell.text}</div>`;
+    }
+    return html;
+  }
+
   // ---------------------------------------------------------------------
   // Index view: filters + cards
   // ---------------------------------------------------------------------
@@ -1187,7 +1275,7 @@
     detailContent.innerHTML =
       `<div class="doc-title">${section.title}</div>` +
       `<div class="doc-subtitle">${section.subtitle}</div>` +
-      blockHTML(section) +
+      renderDetail(section) +
       `<div class="doc-footer-nav">${neighborButton(prevKey, "prev")}${neighborButton(nextKey, "next")}</div>`;
 
     detailContent.querySelectorAll("[data-goto]").forEach((btn) => {
