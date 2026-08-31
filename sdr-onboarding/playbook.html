@@ -399,7 +399,7 @@
   // Content
   // ---------------------------------------------------------------------
   const TRACKS = {
-    foundations: { label: "Foundations", color: "var(--track-foundations)" },
+    foundations: { label: "Company Foundation + Fundamentals", color: "var(--track-foundations)" },
     dynamics: { label: "Dynamics 365", color: "var(--track-dynamics)" },
     managedit: { label: "Managed IT", color: "var(--track-managedit)" },
     azure: { label: "Azure Partner & Custom Development", color: "var(--track-azure)" },
@@ -409,6 +409,45 @@
   const TRACK_ORDER = ["foundations", "dynamics", "managedit", "azure", "licensing"];
 
   const SECTIONS = [
+    {
+      key: "company-profile", track: "foundations", kicker: "COMPANY PROFILE",
+      title: "Company Profile",
+      subtitle: "The fact sheet &mdash; hard details at a glance. See Who Is Wired CIO for the pitch and positioning that go with these facts.",
+      overview: [
+        "This page is the quick-reference snapshot: legal basics, location, and the confirmed numbers SDRs are actually held to (company-size sweet spot, priority industries). Nothing here is the pitch itself &mdash; that&rsquo;s the next page.",
+      ],
+      snapshot: {
+        heading: "Snapshot",
+        headers: ["Field", "Detail"],
+        rows: [
+          ["Trade name", "Wired CIO"],
+          ["Headquarters", "3432 W Diversey Ave, Floor 2, Chicago, IL 60647"],
+          ["Also serving", "Cincinnati market"],
+          ["Website", "wiredcio.com"],
+          ["Founder", "Russell &mdash; 15 years of IT experience, deep Microsoft expertise"],
+          ["Tagline", "&ldquo;When your technology works, so do your people.&rdquo;"],
+          ["Core model", "Microsoft-aligned managed IT partner &mdash; fully managed or co-managed"],
+          ["Execution model", "Enterprise-grade execution on Microsoft&rsquo;s SMB-tier stack &mdash; configure what&rsquo;s already included in licenses clients own, plus our own tooling on top"],
+          ["Land-and-expand motion", "Solve one front-end, mission-critical problem first, then expand into ongoing platform, security, or full MSP support"],
+          ["Company-size target", "SMB only, solely under 200 employees (largest client to date: 55 employees)"],
+          ["Priority industries", "Distribution, Pharmaceutical, Manufacturing, Healthcare (in that order)"],
+          ["Pricing model", "Flat monthly rate per person, covering their primary device"],
+          ["Engagement structure", "Rolling 90-day commitment"],
+        ],
+      },
+      facts: {
+        heading: "Still To Confirm &mdash; Don&rsquo;t Guess These On a Call",
+        items: [
+          "<b>Founding year</b> &mdash; not yet confirmed. Don&rsquo;t state a specific year until Jack confirms one.",
+          "<b>Total Wired CIO headcount</b> (the team itself, not client seat counts) &mdash; not yet confirmed.",
+          "<b>Formal Microsoft Partner designation/tier</b> (e.g. a named Solutions Partner competency) &mdash; the site says “Microsoft-aligned” but no specific certification/tier was found publicly. Confirm the real designation with Jack before quoting one to a prospect.",
+        ],
+      },
+      crossSell: {
+        heading: "Where to Go Next",
+        text: "<b>Who Is Wired CIO</b> for the pitch, differentiators, and objection handling built on these facts. <b>Outbound Execution Playbook</b> for the call flow and qualification framework these numbers feed into.",
+      },
+    },
     {
       key: "who-is-wired-cio", track: "foundations", kicker: "COMPANY PRIMER",
       title: "Who Is Wired CIO",
@@ -424,6 +463,8 @@
           "Most traditional IT contracts cover day-to-day tickets and nothing else &mdash; strategy, applications, security, and compliance sit outside the scope, handled ad hoc or not at all. Wired CIO&rsquo;s scope is strategy, operations, security, applications, and compliance from one accountable team.",
           "A dedicated vCIO owns the technology roadmap so a client&rsquo;s IT evolves with the business instead of reacting to it after something breaks &mdash; this is a strategic relationship, not a vendor relationship.",
           "Wired CIO is the single point of contact for every technology vendor &mdash; ISPs, SaaS providers, hardware vendors &mdash; and owns their tickets directly, so the client&rsquo;s own team stops chasing support lines.",
+          "The core value prop, per Jack: most SMBs already pay for far more inside their Microsoft license SKUs than they&rsquo;re actually using. We configure and apply what&rsquo;s already included in the licenses they own &mdash; plus our own tooling on top &mdash; to deliver enterprise-grade execution on an SMB-tier Microsoft stack, without the client needing to buy anything new just to get more value out of what they already pay for.",
+          "The typical land-and-expand motion: solve one specific, front-end, mission-critical problem first &mdash; the wedge, a visible and urgent pain point, not a vague &ldquo;better IT&rdquo; pitch. Once that&rsquo;s solved, form an ongoing relationship around it: platform build-out, security, or a full MSP tech-stack engagement. Land narrow and urgent, expand into recurring.",
         ],
       },
       facts: {
@@ -439,7 +480,7 @@
       icp: {
         heading: "Ideal Customer Profile &mdash; Who We Chase",
         items: [
-          "<b>Company size &mdash; sweet spot:</b> 20&ndash;200 employees. Per Jack: the largest client worked with to date is 55 employees &mdash; treat anything much above 100 as realistic upside, not the norm. Most real traction so far sits in the smaller half of the band, so don&rsquo;t hesitate on a 20&ndash;60-employee prospect thinking it&rsquo;s too small.",
+          "<b>Company size &mdash; hard target, not just a preference:</b> we solely target SMB, under 200 employees. Per Jack: the largest client worked with to date is 55 employees &mdash; treat anything much above 100 as realistic upside, not the norm. Most real traction so far sits in the smaller half of the band, so don&rsquo;t hesitate on a 20&ndash;60-employee prospect thinking it&rsquo;s too small.",
           "<b>Priority industries, in order:</b> Distribution, Pharmaceutical, Manufacturing, Healthcare (HIPAA/compliance-driven). Lead with these verticals when a list has them &mdash; everything else still gets worked, it&rsquo;s just not where outbound should be concentrated first.",
           "<b>Sweet-spot signal:</b> a business with SOME internal structure already (a named IT contact, an existing Microsoft tenant, a stated budget owner) &mdash; not zero infrastructure, not already fully enterprise-staffed. <i>Working heuristic &mdash; revisit against real closed-won deals as the track record grows.</i>",
           "<b>How a lead reaches an SDR:</b> raw exports (Apollo pulls, CRM dumps, cold lists) are run through the Lead Scanner&rsquo;s detection engine first &mdash; by the time a lead lands on a dial list, it has already cleared licensing/Dynamics/M365 signal detection and the Auto-DQ screen. An SDR isn&rsquo;t qualifying from zero, they&rsquo;re confirming and deepening a signal the tool already found.",
@@ -485,9 +526,10 @@
       questions: {
         heading: "Confirm Fit Early &mdash; Ask This On Every Call",
         items: [
-          "Roughly how many employees does the company have? &mdash; The sweet spot is 20&ndash;200 (the largest client to date is 55). Outside that band doesn&rsquo;t auto-disqualify, but it tells you and the account team how typical a fit this is.",
+          "Roughly how many employees does the company have? &mdash; We solely target under 200 (the largest client to date is 55). Outside that band, it&rsquo;s not a fit &mdash; this is a hard target, not just a preference.",
           "What industry are you in? &mdash; Distribution, Pharmaceutical, Manufacturing, and Healthcare are where outbound is focused first. Any industry can still qualify; this just sets expectations for the handoff.",
           "Is there a named IT contact, an existing Microsoft tenant, or a budget owner already? &mdash; The sweet-spot signal is SOME existing structure, not a business starting from zero and not one already fully enterprise-staffed.",
+          "What&rsquo;s the one thing that&rsquo;s actually urgent right now &mdash; the specific, front-end, mission-critical problem? &mdash; Not a vague &ldquo;we should improve our IT&rdquo;. This is the wedge: solve this one problem first, then expand into ongoing support.",
         ],
       },
       signalsGood: {
@@ -909,12 +951,19 @@
     return parts;
   }
 
+  function tableHTML(headers, rows) {
+    return `<div class="obj-scroll"><table class="obj-table"><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join("")}</tbody></table></div>`;
+  }
+
   function blockHTML(section) {
     let html = "";
     html += `<div class="block prose">${section.overview.map((p) => `<p>${p}</p>`).join("")}</div>`;
 
     if (section.wiredAngle) {
       html += `<div class="block"><h3 class="block-heading">${section.wiredAngle.heading}</h3><div class="prose">${section.wiredAngle.items.map((p) => `<p>${p}</p>`).join("")}</div></div>`;
+    }
+    if (section.snapshot) {
+      html += `<div class="block"><h3 class="block-heading">${section.snapshot.heading}</h3>${tableHTML(section.snapshot.headers, section.snapshot.rows)}</div>`;
     }
     if (section.facts) {
       html += `<div class="block"><h3 class="block-heading">${section.facts.heading}</h3><ul class="fact-list">${section.facts.items.map((f) => `<li>${f}</li>`).join("")}</ul></div>`;
@@ -932,7 +981,7 @@
       html += `<div class="block"><h3 class="block-heading">${section.signalsBad.heading}</h3><ul class="signal-list bad">${section.signalsBad.items.map((s) => `<li><span class="mark">&times;</span>${s}</li>`).join("")}</ul></div>`;
     }
     if (section.objections) {
-      html += `<div class="block"><h3 class="block-heading">${section.objections.heading}</h3><div class="obj-scroll"><table class="obj-table"><thead><tr><th>If they say&hellip;</th><th>Ask / respond with&hellip;</th></tr></thead><tbody>${section.objections.rows.map((r) => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join("")}</tbody></table></div></div>`;
+      html += `<div class="block"><h3 class="block-heading">${section.objections.heading}</h3>${tableHTML(["If they say&hellip;", "Ask / respond with&hellip;"], section.objections.rows)}</div>`;
     }
     if (section.crossSell) {
       html += `<div class="block cross"><b>${section.crossSell.heading || "Cross-Sell / Related Offerings"}</b><br>${section.crossSell.text}</div>`;
