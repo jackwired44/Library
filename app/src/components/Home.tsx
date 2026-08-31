@@ -2,7 +2,7 @@
 // module of its own. First pass per Jack: "need to start somewhere then fine
 // tune." Doesn't read or write any app state beyond the counts it's handed;
 // every module it links to is untouched.
-type NavView = "scanner" | "history" | "library" | "engage";
+type NavView = "scanner" | "history" | "library" | "engage" | "lists";
 
 interface HomeProps {
   onNavigate: (view: NavView) => void;
@@ -11,6 +11,7 @@ interface HomeProps {
   historyCount: number;
   tasksOpenCount: number;
   contactsCount: number;
+  listsCount: number;
 }
 
 interface ModuleTile {
@@ -22,7 +23,7 @@ interface ModuleTile {
   stat?: string;
 }
 
-export default function Home({ onNavigate, onOpenCheatSheet, libraryCount, historyCount, tasksOpenCount, contactsCount }: HomeProps) {
+export default function Home({ onNavigate, onOpenCheatSheet, libraryCount, historyCount, tasksOpenCount, contactsCount, listsCount }: HomeProps) {
   const tiles: ModuleTile[] = [
     {
       key: "scanner",
@@ -38,6 +39,14 @@ export default function Home({ onNavigate, onOpenCheatSheet, libraryCount, histo
       description: "The source of truth. Every Strong Signal lead, filed by month and category — the one place all of it lives.",
       action: () => onNavigate("library"),
       stat: `${libraryCount} file${libraryCount === 1 ? "" : "s"}`,
+    },
+    {
+      key: "lists",
+      icon: "🗂️",
+      title: "Lists",
+      description: "Hand-pick specific leads from a scan — any tier — into your own named lists, downloadable as CSV any time.",
+      action: () => onNavigate("lists"),
+      stat: `${listsCount} list${listsCount === 1 ? "" : "s"}`,
     },
     {
       key: "engage",

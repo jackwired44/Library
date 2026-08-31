@@ -1832,6 +1832,101 @@ same way.
   views agree, and the arithmetic (10 = 5 duplicates + 2 no-signal + 3
   processed) checks out exactly.
 
+### Bug fixed: "Rows scanned" undercounted when a batch was reopened/combined from History (app/ only)
+
+Per Jack: "the rows scanned count when its processing multiple files it
+might not be accurate but it seems the strong signals is pretty accurate
+with the total." A fresh multi-file upload was verified correct live (4 +
+3 files = 7 rows read, matching exactly) — the real gap was elsewhere:
+Scanner's `lastScanStats` (the fix directly above) is local state, only
+ever set inside Scanner's own `handleFiles`/`loadFromLibraryPicker`.
+Reopening a single History entry ("View") or combining several
+("Combine into Scanner") both go through `App.tsx`'s
+`loadHistoryIntoScanner` instead, which never touched that state — so
+those paths silently fell back to the old undercounted `results.length`,
+exactly matching Jack's report (Strong Signal counts read straight off
+`results` either way, so those stayed accurate). Fixed by having
+`combineHistoryEntries` (`lib/history.ts`) also sum `duplicatesRemoved`
+and track the max `largestDuplicateGroup` across the combined entries
+(mirroring what it already did for `rowsScanned`), threaded through a new
+`loadedScanStats` App.tsx state → Scanner prop, adopted into
+`lastScanStats` via a `useEffect` scoped to just this path. Verified live:
+uploaded a 2-file, 7-row batch, confirmed the fresh-upload banner read "7
+rows read"; reopened that same entry from History via "View" and
+confirmed the reopened Scanner view now also reads "7 rows read" (not 2,
+the old `results.length` bug).
+
+## Custom Lead Lists (app/ only)
+
+Per Jack: "I want to be able to also add certain leads i select and add to
+customized made lists the ability to download it as csv added in."
+Proposed (new nav item, new IndexedDB store, Scanner-only for v1) and
+approved before building, per the standing proposal rule.
+
+- **What it is, and why it's not the Lead Library.** A list is a plain,
+  user-named group of hand-picked leads — Jack selects rows in Scanner's
+  results table (checkboxes already used for every other bulk action) and
+  adds them to a new or existing list via a new "+ Add to list" control in
+  the bulk-action bar. Deliberately kept separate from the Lead Library:
+  Library only ever files Strong Signal rows, auto-organized by month and
+  category; a Custom Lead List takes ANY tier (Strong Signal, Needs
+  Review, or Bad Lead — confirmed live, a Needs Review row filed into a
+  list right alongside two Strong Signal ones) and is grouped purely by
+  Jack's own naming, not auto-filed anywhere.
+- **New nav item "Lists"** (`app/src/components/Lists.tsx`), between Lead
+  Library and History, with a live count badge same as Library/History.
+  Home's module grid gained a matching tile. New IndexedDB store
+  (`STORE_LEAD_LISTS`, `lib/db.ts`, `DB_VERSION` bumped 7→8) — same
+  one-store-per-concern pattern as everything else.
+- **`lib/leadLists.ts`** (new) — `LeadList { id, name, createdAt, rows }`,
+  each row a `ListedLeadRow` (the same `ExportRow` shape Final
+  Downloads/Library already use, so a list downloads with identical
+  columns, plus `__rowKey`/`__category`/`__tier` for display and dedupe).
+  Each list stores its own snapshot of the leads added to it (same
+  pattern the Lead Library's `StoredRow` already uses) — editing or
+  deleting the original Scanner/History row later doesn't change what's
+  in the list.
+- **Dedupe on add, same convention as everywhere else.** Adding a lead
+  already in that list (exact name+company match, case/whitespace-
+  insensitive — `normalizeDupKey`, now exported from `detection.ts` for
+  reuse) is a silent no-op, not a second copy; a lead missing either name
+  or company skips the dedupe check entirely, same "can't reliably key it"
+  rule the Scanner's own batch duplicate detection and Contacts' merge
+  fallback already use. Verified live: re-selecting the same 3 leads and
+  hitting "Add to list" again against the same list correctly reported
+  "Added 0 leads (3 already there)" instead of duplicating them.
+- **Bug caught and fixed before shipping: stale-closure race between
+  create and add.** The first pass had Scanner call one prop to create a
+  new list, then immediately call a second prop to add the selected rows
+  to it — both `App.tsx` handlers independently read the same `leadLists`
+  closure from that render. `setLeadLists` from the create step doesn't
+  update that closure before the add step's own handler (captured at the
+  same render) reads it, so the add step looked up the brand-new list in
+  a `leadLists` array that didn't contain it yet — confirmed live: adding
+  3 selected leads to a brand-new list reported "Added 0 leads (3 already
+  there)" and the Lists nav count stayed at 0. Fixed by collapsing both
+  steps into one `App.tsx` function (`addSelectedToList`) that threads a
+  single local `working` array through create-then-add, never round-
+  tripping through React state in between. Re-verified live after the
+  fix: same flow now correctly reports "Added 3 leads to the list" and
+  the new list shows up immediately.
+- **Lists view**: each list is a card — rename (inline), delete (a plain
+  browser confirm dialog noting the original leads aren't touched), and expand to
+  show its rows (Company/Contact/product-line badge/tier badge/remove-
+  from-list). "Download CSV" reuses the exact same `downloadCSV`/
+  `EXPORT_LABELS` pipeline Final Downloads/Library/History all already
+  use, so a downloaded list opens looking identical to every other
+  export. Deleting a list or removing a lead from it only affects the
+  list — never the source Scanner/History/Library data.
+- **Scope for v1, per the approved proposal**: adding leads only from
+  Scanner's results table, not Library/History/Contacts directly — flag
+  if those are wanted as add-to-list entry points later.
+- Verified live end-to-end: created a list from 3 selected leads spanning
+  all three tiers, confirmed dedupe on re-add, removed one lead (3 → 2),
+  renamed the list, and deleted it (confirm dialog, list gone,
+  empty state shown) — all against the real IndexedDB-backed flow, not a
+  mock.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

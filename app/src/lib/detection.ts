@@ -989,7 +989,7 @@ export function buildExportRow(r: Pick<ResultRow, "row" | "category" | "notesSum
 /* ------------------------------------------------------------------ */
 /* Duplicate detection — exact full-name + company match, batch-scoped  */
 /* ------------------------------------------------------------------ */
-function normalizeDupKey(s: unknown): string {
+export function normalizeDupKey(s: unknown): string {
   return String(s || "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 export function markDuplicateLeads(results: ResultRow[]): void {

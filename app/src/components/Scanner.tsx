@@ -21,6 +21,7 @@ import {
   type BucketKey,
 } from "../lib/detection";
 import { downloadCSV, parseCSVFile, parseCSVText } from "../lib/csv";
+import type { LeadList } from "../lib/leadLists";
 import BookedStamp from "./BookedStamp";
 import OnCrmBadge from "./OnCrmBadge";
 import {
@@ -88,6 +89,11 @@ interface ScannerProps {
   // accounting banner silently fell back to the post-filter results.length
   // whenever a batch was reopened from History instead of freshly uploaded.
   loadedScanStats: { rowsScanned: number; duplicatesRemoved: number; largestDuplicateGroup: number } | null;
+  // Custom Lead Lists (see CLAUDE.md "Custom Lead Lists") — the bulk-action
+  // bar's "+ Add to list" reads existing lists from here and creates/adds
+  // through these two, same pattern as every other bulk action.
+  leadLists: LeadList[];
+  onAddSelectedToList: (rows: ResultRow[], opts: { existingId?: string; newName?: string }) => { listId: string; added: number } | null;
 }
 
 export default function Scanner({
@@ -108,6 +114,8 @@ export default function Scanner({
   ruleOverrides,
   contacts,
   loadedScanStats,
+  leadLists,
+  onAddSelectedToList,
 }: ScannerProps) {
   // Per-bucket download file name — editable, defaults to the standard
   // wired-cio-<bucket>-leads.csv name until Jack renames it. Reset on
@@ -142,6 +150,9 @@ export default function Scanner({
   const [bulkTarget, setBulkTarget] = useState<CategoryKey>("dynamics365");
   const [bulkDisposition, setBulkDisposition] = useState<Disposition>("none");
   const [bulkPriorityMonth, setBulkPriorityMonth] = useState("");
+  const [listPickerValue, setListPickerValue] = useState("");
+  const [newListName, setNewListName] = useState("");
+  const [listNotice, setListNotice] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -542,6 +553,19 @@ export default function Scanner({
   function setPriorityMonthForSelected(month: string) {
     if (!selected.size || !month) return;
     mutateResults((list) => list.filter((r) => selected.has(r.id)).map((r) => { r.priorityMonth = month; return r; }));
+  }
+  function addSelectedToList() {
+    if (!selected.size || !results) return;
+    const isNew = listPickerValue === "__new__";
+    if (isNew && !newListName.trim()) return;
+    if (!isNew && !listPickerValue) return;
+    const rows = results.filter((r) => selected.has(r.id));
+    const result = onAddSelectedToList(rows, isNew ? { newName: newListName } : { existingId: listPickerValue });
+    if (!result) return;
+    const skipped = rows.length - result.added;
+    setListNotice(`Added ${result.added} lead${result.added === 1 ? "" : "s"} to the list${skipped > 0 ? ` (${skipped} already there)` : ""}.`);
+    setListPickerValue("");
+    setNewListName("");
   }
 
   function bucketRowsFor(bucketKey: BucketKey) {
@@ -992,7 +1016,33 @@ export default function Scanner({
           <button onClick={() => setPriorityForSelected(false)} style={{ background: "#fff", border: "1px solid #D5D9E0", borderRadius: 8, padding: "7px 12px" }}>Unmark Priority</button>
           <input type="month" value={bulkPriorityMonth} onChange={(e) => setBulkPriorityMonth(e.target.value)} style={{ border: "1px solid #D5D9E0", borderRadius: 8, padding: "6px 8px" }} />
           <button onClick={() => setPriorityMonthForSelected(bulkPriorityMonth)} style={{ background: "#fff", border: "1px solid #D5D9E0", borderRadius: 8, padding: "7px 12px" }}>Apply month</button>
-          <button onClick={() => setSelected(new Set())} style={{ background: "none", border: "none", textDecoration: "underline" }}>Clear selection</button>
+          <span style={{ width: 1, height: 20, background: "#D6DEFA" }} />
+          <span>Add to list:</span>
+          <select value={listPickerValue} onChange={(e) => setListPickerValue(e.target.value)} style={{ maxWidth: 160 }}>
+            <option value="">Choose a list…</option>
+            {leadLists.map((l) => (
+              <option key={l.id} value={l.id}>{l.name} ({l.rows.length})</option>
+            ))}
+            <option value="__new__">+ New list…</option>
+          </select>
+          {listPickerValue === "__new__" && (
+            <input
+              type="text"
+              placeholder="List name"
+              value={newListName}
+              onChange={(e) => setNewListName(e.target.value)}
+              style={{ border: "1px solid #D5D9E0", borderRadius: 8, padding: "6px 8px", width: 130 }}
+            />
+          )}
+          <button
+            onClick={addSelectedToList}
+            disabled={!listPickerValue || (listPickerValue === "__new__" && !newListName.trim())}
+            style={{ background: "#2CC295", color: "#081E22", border: "none", borderRadius: 8, padding: "7px 14px", fontWeight: 700, opacity: !listPickerValue || (listPickerValue === "__new__" && !newListName.trim()) ? 0.5 : 1 }}
+          >
+            Add
+          </button>
+          {listNotice && <span style={{ fontSize: 12, color: "#3A4B8C" }}>{listNotice}</span>}
+          <button onClick={() => { setSelected(new Set()); setListNotice(null); }} style={{ background: "none", border: "none", textDecoration: "underline" }}>Clear selection</button>
         </div>
       )}
 

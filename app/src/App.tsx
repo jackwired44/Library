@@ -26,13 +26,26 @@ import {
 import { loadRuleOverrides, persistRuleOverrides } from "./lib/ruleOverrides";
 import { loadTasksFromDB, persistTask, deleteTaskFromDB, createTask, createContactTask, type Task, type TaskPriority } from "./lib/tasks";
 import { isUnlocked, setUnlocked } from "./lib/auth";
+import {
+  loadLeadListsFromDB,
+  persistLeadList,
+  deleteLeadListFromDB,
+  createLeadList,
+  renameLeadList,
+  deleteLeadList,
+  addRowsToList,
+  removeRowFromList,
+  type LeadList,
+} from "./lib/leadLists";
+import ListsView from "./components/Lists";
 
-type View = "home" | "scanner" | "history" | "library" | "engage";
+type View = "home" | "scanner" | "history" | "library" | "engage" | "lists";
 const NAV_ITEMS: { key: View; label: string; icon: string }[] = [
   { key: "home", label: "Home", icon: "🏠" },
   { key: "scanner", label: "Scanner", icon: "🔎" },
   { key: "engage", label: "Engage", icon: "🤝" },
   { key: "library", label: "Lead Library", icon: "📚" },
+  { key: "lists", label: "Lists", icon: "🗂️" },
   { key: "history", label: "History", icon: "🕘" },
 ];
 
@@ -89,6 +102,14 @@ export default function App() {
   const [contactsLoading, setContactsLoading] = useState(true);
   const [contactsError, setContactsError] = useState<string | null>(null);
 
+  // Custom Lead Lists — Jack hand-picks specific leads out of a Scanner
+  // batch into his own named lists (any tier, unlike the Lead Library
+  // which only ever files Strong Signal). See CLAUDE.md "Custom Lead
+  // Lists" and lib/leadLists.ts.
+  const [leadLists, setLeadLists] = useState<LeadList[]>([]);
+  const [leadListsLoading, setLeadListsLoading] = useState(true);
+  const [leadListsError, setLeadListsError] = useState<string | null>(null);
+
   useEffect(() => {
     loadLibraryFromDB()
       .then(({ entries, groups }) => {
@@ -132,6 +153,15 @@ export default function App() {
       .catch(() => {
         setContactsError("Couldn't load your Contacts directory from this browser's local storage.");
         setContactsLoading(false);
+      });
+    loadLeadListsFromDB()
+      .then((loaded) => {
+        setLeadLists(loaded);
+        setLeadListsLoading(false);
+      })
+      .catch(() => {
+        setLeadListsError("Couldn't load your Lists from this browser's local storage.");
+        setLeadListsLoading(false);
       });
   }, []);
 
@@ -193,6 +223,53 @@ export default function App() {
       if (updated) persistContact(updated);
       return next;
     });
+  }
+
+  // Custom Lead Lists — see CLAUDE.md "Custom Lead Lists." A single explicit
+  // click each (create/add/rename/delete), not a rapid-fire path like
+  // Scanner's own per-row toggles, so reading `leadLists` straight from
+  // closure here (rather than a functional setState updater) is safe —
+  // avoids the exact "outer read raced the updater" class of bug CLAUDE.md
+  // already documents for Scanner's mutateResults.
+  //
+  // Create-a-new-list-and-add-to-it is ONE function, not "create" then a
+  // separate "add" call — two separate handlers each reading `leadLists`
+  // from their own render's closure would have the second call miss the
+  // first's brand-new list entirely (setLeadLists from the create step
+  // hasn't re-rendered yet when the add step's closure was captured).
+  // Threading one local `working` array through both steps here avoids
+  // that same class of stale-closure bug.
+  function addSelectedToList(rows: ResultRow[], opts: { existingId?: string; newName?: string }): { listId: string; added: number } | null {
+    let working = leadLists;
+    let targetId = opts.existingId;
+    if (opts.newName) {
+      const { lists, list } = createLeadList(working, opts.newName);
+      if (!list) return null;
+      working = lists;
+      targetId = list.id;
+    }
+    if (!targetId) return null;
+    const { lists: afterAdd, added } = addRowsToList(working, targetId, rows);
+    setLeadLists(afterAdd);
+    const updated = afterAdd.find((l) => l.id === targetId);
+    if (updated) persistLeadList(updated);
+    return { listId: targetId, added };
+  }
+  function renameList(id: string, name: string) {
+    const next = renameLeadList(leadLists, id, name);
+    setLeadLists(next);
+    const updated = next.find((l) => l.id === id);
+    if (updated) persistLeadList(updated);
+  }
+  function deleteList(id: string) {
+    setLeadLists(deleteLeadList(leadLists, id));
+    deleteLeadListFromDB(id);
+  }
+  function removeLeadFromList(listId: string, rowKey: string) {
+    const next = removeRowFromList(leadLists, listId, rowKey);
+    setLeadLists(next);
+    const updated = next.find((l) => l.id === listId);
+    if (updated) persistLeadList(updated);
   }
 
   function updateRuleOverrides(next: RuleOverrides) {
@@ -393,7 +470,13 @@ export default function App() {
                 <span aria-hidden="true">{item.icon}</span>
                 <span>
                   {item.label}
-                  {item.key === "library" ? ` (${libraryEntries.length})` : item.key === "history" ? ` (${historyEntries.length})` : ""}
+                  {item.key === "library"
+                    ? ` (${libraryEntries.length})`
+                    : item.key === "history"
+                      ? ` (${historyEntries.length})`
+                      : item.key === "lists"
+                        ? ` (${leadLists.length})`
+                        : ""}
                 </span>
               </button>
             ))}
@@ -423,6 +506,7 @@ export default function App() {
               historyCount={historyEntries.length}
               tasksOpenCount={tasks.filter((t) => !t.done).length}
               contactsCount={contacts.length}
+              listsCount={leadLists.length}
             />
           )}
           {view === "scanner" && (
@@ -448,6 +532,8 @@ export default function App() {
               ruleOverrides={ruleOverrides}
               contacts={contacts}
               loadedScanStats={loadedScanStats}
+              leadLists={leadLists}
+              onAddSelectedToList={addSelectedToList}
             />
           )}
           {view === "engage" && (
@@ -493,6 +579,16 @@ export default function App() {
               onLoadIntoScanner={loadParsedFilesIntoScanner}
               onRecordHistory={recordHistory}
               ruleOverrides={ruleOverrides}
+            />
+          )}
+          {view === "lists" && (
+            <ListsView
+              lists={leadLists}
+              loading={leadListsLoading}
+              error={leadListsError}
+              onRename={renameList}
+              onDelete={deleteList}
+              onRemoveRow={removeLeadFromList}
             />
           )}
         </main>
