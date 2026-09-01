@@ -17,7 +17,7 @@
 // has no email. A row with neither still gets a Contact record, it's just
 // never matched as a duplicate of anything else.
 import { dbGetAll, dbPut, STORE_CONTACTS } from "./db";
-import { computeFileFieldMapping, getEmailDomain, getFullName, isFreeEmailDomain, resolveRowFields, type CategoryKey, type Disposition, type ParsedFile, type ResolvedFields, type ResultRow } from "./detection";
+import { computeFileFieldMapping, getEmailDomain, getFullName, isFreeEmailDomain, resolveRowFields, type CategoryKey, type Disposition, type ParsedFile, type ResolvedFields, type ResultRow, type Tier } from "./detection";
 
 export interface Contact {
   id: string;
@@ -44,6 +44,12 @@ export interface Contact {
   // no-auto-sync precedent as filed Library rows (see CLAUDE.md). A
   // re-upload/re-scan of the same person is what refreshes these.
   category?: CategoryKey;
+  // Strong Signal / Needs Review / Bad Lead, from the same scan pass that
+  // set category/matchedSnippet — added so Contacts can be filtered by
+  // tier (see CLAUDE.md "Contacts: tier + date filtering"). Same snapshot
+  // semantics as category/matchedSnippet, not disposition's sticky/
+  // persistent contract below.
+  tier?: Tier;
   matchedSnippet?: string;
   disposition?: Disposition;
   dispositionNote?: string;
@@ -316,6 +322,7 @@ export function attachScanResultsToContacts(existing: Contact[], resultRows: Res
     const updated: Contact = {
       ...match,
       category: r.category,
+      tier: r.tier,
       matchedSnippet: r.notesSummary || "",
       disposition: r.disposition,
       dispositionNote: r.dispositionNote || "",

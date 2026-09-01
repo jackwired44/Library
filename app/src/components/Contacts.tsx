@@ -11,7 +11,7 @@
 // people-match pass (see lib/apolloEnrich.ts) — never automatic.
 import { Fragment, useMemo, useState } from "react";
 import { OUTREACH_STATUS_META, type Contact, searchContacts } from "../lib/contacts";
-import { CATEGORY_META, DISPOSITION_META, DISPOSITION_ORDER, type Disposition } from "../lib/detection";
+import { CATEGORY_META, DISPOSITION_META, DISPOSITION_ORDER, type Disposition, type Tier } from "../lib/detection";
 import { checkApolloAvailability, enrichContactsViaApollo, type EnrichOutcome } from "../lib/apolloEnrich";
 import ContactDetail from "./ContactDetail";
 import BookedStamp from "./BookedStamp";
@@ -19,6 +19,13 @@ import OnCrmBadge from "./OnCrmBadge";
 import type { Task, TaskPriority } from "../lib/tasks";
 
 const MAX_ENRICH_BATCH = 10;
+
+const TIER_META: Record<Tier, { label: string; color: string; bg: string }> = {
+  signal: { label: "Strong Signal", color: "#2CC295", bg: "#E7F1EA" },
+  mention: { label: "Needs Review", color: "#9A5B22", bg: "#FBEBDD" },
+  dq: { label: "Bad Lead", color: "#B5443B", bg: "#FBEAE8" },
+};
+const TIER_ORDER: Tier[] = ["signal", "mention", "dq"];
 
 interface ContactsProps {
   contacts: Contact[];
@@ -56,6 +63,17 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
   // stands (contacted, how many times, meeting booked/not interested/etc.)
   // at a glance. Filters on top of search/sort rather than replacing them.
   const [dispositionFilter, setDispositionFilter] = useState<Disposition | "all">("all");
+  // Tier + date filtering — per Jack: "i do want to be able to filter by
+  // dates as well as strong signal or not as well as needs review or bad
+  // leads." Tier is a snapshot from the same scan pass that already sets
+  // category/disposition (see lib/contacts.ts's Contact.tier); a contact
+  // with no tier (never cleared detection on any scan) only shows up
+  // under "All". Date filters against lastSeenAt — already a real,
+  // full-precision timestamp on every contact, so no new "collected on"
+  // field was needed.
+  const [tierFilter, setTierFilter] = useState<Tier | "all">("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [addingForId, setAddingForId] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   // Apollo enrichment — per Jack, explicit and selection-driven only ("as
@@ -139,10 +157,20 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
     return counts;
   }, [searched]);
 
+  const tierCounts = useMemo(() => {
+    const counts: Record<Tier, number> = { signal: 0, mention: 0, dq: 0 };
+    searched.forEach((c) => { if (c.tier) counts[c.tier]++; });
+    return counts;
+  }, [searched]);
+
   const filtered = useMemo(() => {
-    if (dispositionFilter === "all") return searched;
-    return searched.filter((c) => (c.disposition || "none") === dispositionFilter);
-  }, [searched, dispositionFilter]);
+    let list = searched;
+    if (dispositionFilter !== "all") list = list.filter((c) => (c.disposition || "none") === dispositionFilter);
+    if (tierFilter !== "all") list = list.filter((c) => c.tier === tierFilter);
+    if (dateFrom) list = list.filter((c) => c.lastSeenAt >= dateFrom);
+    if (dateTo) list = list.filter((c) => c.lastSeenAt <= `${dateTo}T23:59:59.999Z`);
+    return list;
+  }, [searched, dispositionFilter, tierFilter, dateFrom, dateTo]);
 
   // Aggregate outreach summary for whichever bucket is currently selected
   // — per Jack: "know where a lead stands, how many times they've been
@@ -181,6 +209,32 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
           <option value="company">Company (A–Z)</option>
           <option value="timesSeen">Times seen (most first)</option>
         </select>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ fontSize: 11.5, color: "var(--muted)", fontWeight: 600 }}>Seen</span>
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            title="Only show contacts last seen on or after this date"
+            style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "7px 8px", fontSize: 12.5 }}
+          />
+          <span style={{ fontSize: 11.5, color: "var(--muted)" }}>to</span>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            title="Only show contacts last seen on or before this date"
+            style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "7px 8px", fontSize: 12.5 }}
+          />
+          {(dateFrom || dateTo) && (
+            <button
+              onClick={() => { setDateFrom(""); setDateTo(""); }}
+              style={{ border: "none", background: "none", textDecoration: "underline", fontSize: 11.5, color: "var(--muted)", cursor: "pointer" }}
+            >
+              Clear
+            </button>
+          )}
+        </div>
       </div>
 
       <div style={{ marginBottom: 22 }}>
@@ -252,6 +306,44 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
         </div>
       )}
 
+      {contacts.length > 0 && (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
+          <button
+            onClick={() => setTierFilter("all")}
+            style={{
+              border: "1px solid var(--border)",
+              borderRadius: 999,
+              padding: "6px 14px",
+              fontSize: 12.5,
+              fontWeight: 700,
+              cursor: "pointer",
+              background: tierFilter === "all" ? "var(--ink)" : "var(--surface)",
+              color: tierFilter === "all" ? "#fff" : "var(--ink)",
+            }}
+          >
+            All tiers ({searched.length})
+          </button>
+          {TIER_ORDER.map((t) => (
+            <button
+              key={t}
+              onClick={() => setTierFilter(t)}
+              style={{
+                border: `1px solid ${tierFilter === t ? TIER_META[t].color : "var(--border)"}`,
+                borderRadius: 999,
+                padding: "6px 14px",
+                fontSize: 12.5,
+                fontWeight: 700,
+                cursor: "pointer",
+                background: tierFilter === t ? TIER_META[t].bg : "var(--surface)",
+                color: tierFilter === t ? TIER_META[t].color : "var(--muted)",
+              }}
+            >
+              {TIER_META[t].label} ({tierCounts[t]})
+            </button>
+          ))}
+        </div>
+      )}
+
       {bucketSummary && (
         <div style={{ display: "flex", gap: 18, alignItems: "center", background: "var(--surface-sunken)", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 12.5 }}>
           <span style={{ fontWeight: 700 }}>{filtered.length} contact{filtered.length === 1 ? "" : "s"}</span>
@@ -266,7 +358,10 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
         </div>
       ) : filtered.length === 0 ? (
         <div style={{ fontSize: 13, color: "var(--muted)", padding: "24px 0" }}>
-          No contacts match{search ? ` "${search}"` : ""}{dispositionFilter !== "all" ? ` with disposition "${DISPOSITION_META[dispositionFilter].label}"` : ""}.
+          No contacts match{search ? ` "${search}"` : ""}
+          {dispositionFilter !== "all" ? ` with disposition "${DISPOSITION_META[dispositionFilter].label}"` : ""}
+          {tierFilter !== "all" ? ` in tier "${TIER_META[tierFilter].label}"` : ""}
+          {dateFrom || dateTo ? ` last seen ${dateFrom ? `on/after ${dateFrom}` : ""}${dateFrom && dateTo ? " and " : ""}${dateTo ? `on/before ${dateTo}` : ""}` : ""}.
         </div>
       ) : (
         <>
@@ -353,7 +448,35 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
                       <div>{c.company || "—"}</div>
                     </td>
                     <td style={{ padding: "9px 12px", color: "var(--muted)" }}>{c.title || "—"}</td>
-                    <td style={{ padding: "9px 12px" }}>{c.email || "—"}</td>
+                    <td style={{ padding: "9px 12px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                        <span>{c.email || "—"}</span>
+                        {c.companyWebsite && (
+                          <a
+                            href={c.companyWebsite}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title={`Open ${c.companyWebsite}`}
+                            onClick={(e) => e.stopPropagation()}
+                            style={{ color: "var(--accent)", fontSize: 12, textDecoration: "none" }}
+                          >
+                            🌐
+                          </a>
+                        )}
+                        {c.linkedinUrl && (
+                          <a
+                            href={c.linkedinUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Open LinkedIn profile"
+                            onClick={(e) => e.stopPropagation()}
+                            style={{ color: "#0A66C2", fontSize: 12, textDecoration: "none", fontWeight: 700 }}
+                          >
+                            in
+                          </a>
+                        )}
+                      </div>
+                    </td>
                     <td style={{ padding: "9px 12px" }}>{c.workPhone || c.mobilePhone || "—"}</td>
                     <td style={{ padding: "9px 12px" }}>
                       {c.category ? (

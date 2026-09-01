@@ -2254,6 +2254,74 @@ removed."
   tab-switch bug fix above); confirmed the header search box is gone;
   confirmed Home shows "Welcome, Jack." from the real Profile record.
 
+## Contacts: tier + date filtering, and website/LinkedIn hyperlinks (app/ only)
+
+Per Jack: "under engage in the contacts section i do want to be able to
+filter by dates as well as strong signal or not as well as needs review
+or bad leads" and, separately, "next to email in the contacts row we
+should be able to click their website hyperlink and next to that their
+linkdeln." Both build directly on data Contacts already had — no new
+IndexedDB store, no new upload/persistence path.
+
+- **`Contact.tier?: Tier`** (`lib/contacts.ts`) — a new optional field,
+  same snapshot semantics as `category`/`matchedSnippet`: set from
+  `ResultRow.tier` in `attachScanResultsToContacts`, overwritten fresh on
+  every scan that touches that contact, not accumulated. A contact whose
+  most recent scan never cleared detection at all (`scanRowUnified`
+  returns `null` for a zero-signal row, so it's never a `ResultRow`) has
+  no `tier` and only ever shows up under Contacts' "All tiers" bucket —
+  there's no fourth "no signal" filter bucket, since that's not a
+  qualification tier, just the absence of one.
+- **Tier filter row** (`Contacts.tsx`) — "All tiers" plus one button per
+  `TIER_ORDER` (Strong Signal/Needs Review/Bad Lead), same exact button
+  styling and live-count pattern as the existing disposition filter row
+  directly below it, and independent of it — a contact can be filtered by
+  tier and disposition at the same time (`filtered`'s useMemo chains
+  disposition → tier → date-range, same "narrows on top of search" model
+  the disposition filter already established).
+- **Date range filter** — two `<input type="date">` fields ("Seen ...to
+  ...") next to the search/sort row, filtering on `Contact.lastSeenAt`.
+  Per Jack's own clarification ("looking at dates and every file is
+  associated with a month day and year"), this reuses the existing
+  full-precision `lastSeenAt` timestamp Contacts already stamps on every
+  merge — no new "date collected" field was added, since one already
+  existed and doing otherwise would've meant tracking two overlapping
+  dates. `dateTo` is inclusive of the whole calendar day (compared against
+  `${dateTo}T23:59:59.999Z`), not just midnight. A small "Clear" link
+  appears only once a date is set.
+- **Empty-state message** now names every active filter (search term,
+  disposition, tier, and/or date range) instead of just search+
+  disposition, so a genuinely empty result reads as "your filters matched
+  nothing" rather than looking broken.
+- **Website/LinkedIn hyperlinks** — the Email column now also renders a
+  small 🌐 link (when `Contact.companyWebsite` is set — see "Company
+  website field, auto-derived from email domain" above) and a small "in"
+  link (when `Contact.linkedinUrl` is set — manually saved via
+  `ContactDetail`, or auto-filled by Apollo enrichment) directly next to
+  the email text, per Jack's exact placement ask. Both are plain
+  `target="_blank"` links with `stopPropagation` on click so clicking them
+  doesn't also trigger the row's other click handlers; absent for a
+  contact with no website/LinkedIn on file, same "—" pattern used
+  elsewhere in this table.
+- **Industry explicitly NOT built here** — Jack's own message named it but
+  flagged it needs full Apollo company enrichment first ("industry can be
+  added also but will need to enrich the data fully from apollo"); see the
+  paused "Company enrichment" Roadmap item above. Not started.
+- Scoped to Contacts.tsx only for this pass — Jack separately asked that
+  this kind of filtering extend to "a few different areas" (e.g.
+  Companies.tsx); not yet started, flagged as a likely next slice rather
+  than assumed in scope here.
+- Verified live: uploaded a 4-contact test batch spanning all three
+  tiers (one Strong Signal Dynamics 365 hit, one Needs Review mention,
+  one zero-signal row with no tier at all, one Auto-DQ'd single-seat
+  Business Central mention) — confirmed each tier filter button narrows
+  the table to exactly the right contact(s) and the zero-signal contact
+  never shows under any tier bucket; confirmed setting a future "seen
+  from" date correctly shows the empty-state message and clearing it
+  restores all rows; confirmed the 🌐 website link renders with the
+  correct auto-derived `https://` href for two different real company
+  domains.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool
