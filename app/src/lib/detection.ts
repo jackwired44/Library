@@ -723,6 +723,36 @@ const PLACEHOLDER_EMAIL_RE = /^(?:test|noemail|none|na|asdf|example|foo|bar|samp
 // plain Bad Lead, same as before.
 export const PERSONAL_EMAIL_DQ_LABEL = "Personal email domain";
 
+// Per Jack: "stuff like f1 company partner or something is a bad lead."
+// Grounded in real rows from his own 500-row export (see CLAUDE.md's
+// "Full Strong Signal audit"): 1st care Palliative and Hospice and
+// D'Amico Hospitality had a Comments field containing nothing but
+// "F1 / Company Tenant Partner" — a CRM product-code + partner-type
+// label, not a person saying anything — yet they cleared Strong Signal
+// purely off a msp_primaryproductcodename column hit.
+//
+// Deliberately a WHOLE-FIELD test, not a substring one like every other
+// DQ_RULES entry: a real lead that mentions F1 licenses inside an actual
+// sentence ("F1 licenses for 200 frontline workers") must NOT be DQ'd.
+// This only fires when the row's free text is nothing BUT that metadata.
+export const CRM_METADATA_ONLY_DQ_LABEL = "CRM metadata only, no lead content";
+// Label-ish tokens that carry no buying intent on their own. Anything
+// left over after stripping these (and punctuation) counts as real content.
+const CRM_METADATA_TOKEN_RE =
+  /\b(?:f1|f3|e1|e3|e5|g1|g3|g5|company|tenant|partner|customer|account|prospect|lead|contact|reseller|csp|direct|indirect|n\/?a|na|null|none|unknown|tbd|pending)\b/gi;
+// A real note runs longer than a field label; this cap keeps the rule off
+// genuine prose even if every word in it happened to be on the list above.
+const CRM_METADATA_MAX_LEN = 60;
+export function isCrmMetadataOnly(text: unknown): boolean {
+  const trimmed = String(text || "").trim();
+  // Empty comments aren't this rule's business — a row can legitimately
+  // qualify off a product-area column with no notes at all.
+  if (!trimmed) return false;
+  if (trimmed.length > CRM_METADATA_MAX_LEN) return false;
+  const residue = trimmed.replace(CRM_METADATA_TOKEN_RE, " ").replace(/[^a-z0-9]+/gi, " ").trim();
+  return residue.length === 0;
+}
+
 export interface ResolvedFields {
   firstName?: string;
   lastName?: string;
@@ -745,6 +775,7 @@ function getDQReasons(combinedText: string, resolved: ResolvedFields, licensing:
   if (resolved.email && PLACEHOLDER_EMAIL_RE.test(String(resolved.email).trim())) reasons.push("Placeholder/invalid email");
   const emailDomain = getEmailDomain(resolved.email);
   if (emailDomain && isFreeEmailDomain(emailDomain)) reasons.push(PERSONAL_EMAIL_DQ_LABEL);
+  if (isCrmMetadataOnly(resolved.comments)) reasons.push(CRM_METADATA_ONLY_DQ_LABEL);
   return reasons;
 }
 

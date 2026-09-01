@@ -2766,6 +2766,94 @@ under the roster rather than implying a login exists.
   IndexedDB directly to confirm `ownerId`/`groupId`/group name really
   persisted rather than trusting the render.
 
+## Auto-DQ: CRM-metadata-only rows ("F1 / Company Tenant Partner")
+
+Per Jack: "stuff like f1 company partner or something is a bad lead."
+Grounded in real rows from his own 500-row export (see "Full Strong
+Signal audit" above): **1st care Palliative and Hospice** and **D'Amico
+Hospitality** had a Comments field containing nothing but
+`"F1 / Company Tenant Partner"` — a CRM product-code + partner-type
+label, not a person saying anything — yet both cleared Strong Signal
+purely off a `msp_primaryproductcodename` column hit.
+
+- **`CRM_METADATA_ONLY_DQ_LABEL`** ("CRM metadata only, no lead content"),
+  checked in `getDQReasons` against the resolved **comments** field.
+- **Deliberately a WHOLE-FIELD test**, unlike every other `DQ_RULES`
+  entry (which are substring regexes against the combined text). A real
+  lead that mentions F1 inside an actual sentence — "We need F1 licenses
+  for 200 frontline workers" — must NOT be disqualified. The rule strips
+  label-ish tokens (f1/f3/e1/e3/e5/g1/g3/g5, company, tenant, partner,
+  customer, account, prospect, lead, contact, reseller, csp, direct,
+  indirect, n/a, null, none, unknown, tbd, pending) plus punctuation, and
+  only fires when **nothing** is left. A 60-character cap keeps it off
+  genuine prose regardless.
+- **Empty comments do not trigger it** — a row can legitimately qualify
+  off a Product Area column with no notes at all; that's a different
+  question and wasn't what Jack flagged.
+- Verified: 14/14 boundary cases in a direct unit check ("F1 / Company
+  Tenant Partner", "Company Tenant Partner", "F1", "Partner", "N/A",
+  "NULL" all DQ; "F1 licenses for 200 frontline workers", "Wants a CSP
+  partner for Azure billing", "Looking at E3 licensing for 40 users",
+  "Company Tenant Partner - interested in Dynamics" all pass through).
+  Then live: a 3-row file scanned to 2 Strong Signal / 1 Bad Lead, with
+  the metadata-only row carrying the new reason and the F1-in-a-sentence
+  row untouched at Strong Signal.
+
+## Apollo-style visual pass: white ground + green/blue "wire" lining
+
+Per Jack: "change the background to a more apollo like interface with
+white background with the green blue wired lining coming through
+separating pages sections tabs and making it look cleaner."
+
+**Honest limitation, stated up front:** apollo.io is blocked by this
+environment's network egress, so the "deep scan of Apollo's UI" Jack
+asked for could not be performed. This pass is built from his own written
+brief plus the app's existing token system — not from a live look at
+Apollo. Screenshots would let this be tightened properly.
+
+- **Tokens (`styles.css`)**: `--bg` moved from the flat grey `#eef0f2` to
+  plain **white**; `--border` lightened to `#e4e9ed`; `--surface-sunken`
+  to `#f6f8f9`. Definition now comes from hairline borders and the accent
+  wire rather than a tinted backdrop. The blue already used ad hoc for
+  LinkedIn/meeting-booked was promoted to a real token,
+  `--accent-blue: #0a66c2`, alongside the existing brand green.
+- **The "wire"** — `linear-gradient(90deg, var(--accent), var(--accent-blue))`
+  — is defined once and reused so the treatment can't drift: as the
+  header's bottom rule (via `border-image`), as `.wire-rule` / `.wire-top`
+  utilities, and as the fill on every active tab/filter pill.
+- **Active states stopped being heavy dark pills.** The sidebar's active
+  item is now an accent-tinted row with a 3px green inset rail (Apollo's
+  lit-rail idiom) instead of a solid `--ink` block. Tab/filter pills
+  across Scanner, Contacts, Sequences, History, Library and the Cheat
+  Sheet switched from `#081E22` to the wire gradient; their inactive
+  fills moved from one-off hexes (`#F6FAFA`, `#E9EBEF`, `#4C6167`) onto
+  the shared tokens so they follow the white ground.
+- Verified live: computed `body` background is exactly `rgb(255,255,255)`,
+  the header's border-image resolves to the green→blue gradient, and the
+  active sidebar item computes to an accent tint with a
+  `rgb(44,194,149) 3px inset` rail.
+
+## Home banner: sales-motion metrics instead of data volume
+
+Per Jack: "change contacts below welcome jack to assigned tasks instead
+and active sequences as another meetings booked on the week another
+follow up leads as another." The banner's four stat pills went from
+counts of how much data is in the system (Lead Library / Contacts / Open
+tasks / Uploads) to what the day actually looks like:
+
+- **Assigned tasks** — open tasks tied to a specific contact (someone is
+  on the hook), as opposed to a loose personal to-do on the Board.
+- **Active sequences** — sequences whose status resolves to active, with
+  the live enrollment count across them on hover.
+- **Booked this week** — required a real data change: `disposition`
+  carries no timestamp, so this could only ever have been an all-time
+  number. `Contact.meetingBookedAt` (`lib/contacts.ts`) is now stamped on
+  the transition INTO meeting-booked, kept while it stays booked, and
+  cleared if the disposition moves away (so a re-book re-stamps). Scoped
+  to the Monday-start week, matching every other week boundary in the app.
+- **Follow-up leads** — distinct contacts with an open follow-up, so two
+  tasks on one lead count once.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

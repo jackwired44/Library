@@ -63,6 +63,13 @@ export interface Contact {
   // explicit manual edit in Scanner (which writes back here the same way
   // it always has).
   crossedOut?: boolean;
+  // When this contact's disposition first became "meeting-booked".
+  // Needed because disposition itself carries no timestamp, so
+  // "meetings booked this week" had no way to scope to a week — Home's
+  // start-of-day dashboard could only ever show an all-time count.
+  // Stamped once, on the transition into meeting-booked, and cleared if
+  // the disposition later moves away from it (so a re-book re-stamps).
+  meetingBookedAt?: string | null;
   // Manual outreach tracking — per Jack: "how many calls have been made to
   // the client and how many emails as well as the dispositions so we know
   // if they have been contacted, contacted successfully, not interested or
@@ -327,6 +334,12 @@ export function attachScanResultsToContacts(existing: Contact[], resultRows: Res
       disposition: r.disposition,
       dispositionNote: r.dispositionNote || "",
       crossedOut: r.crossedOut,
+      // Stamp on the transition INTO meeting-booked; keep an existing
+      // stamp while it stays booked; clear it if it moves away.
+      meetingBookedAt:
+        r.disposition === "meeting-booked"
+          ? match.meetingBookedAt || new Date().toISOString()
+          : null,
     };
     byId.set(updated.id, updated);
     touchedIds.add(updated.id);

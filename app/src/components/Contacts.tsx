@@ -300,7 +300,7 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
               fontSize: 12.5,
               fontWeight: 700,
               cursor: "pointer",
-              background: dispositionFilter === "all" ? "var(--ink)" : "var(--surface)",
+              background: dispositionFilter === "all" ? "linear-gradient(90deg, var(--accent), var(--accent-blue))" : "var(--surface)",
               color: dispositionFilter === "all" ? "#fff" : "var(--ink)",
             }}
           >
@@ -338,7 +338,7 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
               fontSize: 12.5,
               fontWeight: 700,
               cursor: "pointer",
-              background: tierFilter === "all" ? "var(--ink)" : "var(--surface)",
+              background: tierFilter === "all" ? "linear-gradient(90deg, var(--accent), var(--accent-blue))" : "var(--surface)",
               color: tierFilter === "all" ? "#fff" : "var(--ink)",
             }}
           >
@@ -544,7 +544,7 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
                     <td style={{ padding: "9px 12px", whiteSpace: "nowrap" }}>
                       <button
                         onClick={() => setAddingForId(addingForId === c.id ? null : c.id)}
-                        style={{ border: "1px solid var(--border)", background: addingForId === c.id ? "var(--ink)" : "var(--surface)", color: addingForId === c.id ? "#fff" : "var(--ink)", borderRadius: 7, padding: "5px 10px", fontSize: 11.5, fontWeight: 700 }}
+                        style={{ border: "1px solid var(--border)", background: addingForId === c.id ? "linear-gradient(90deg, var(--accent), var(--accent-blue))" : "var(--surface)", color: addingForId === c.id ? "#fff" : "var(--ink)", borderRadius: 7, padding: "5px 10px", fontSize: 11.5, fontWeight: 700 }}
                       >
                         + Task
                       </button>

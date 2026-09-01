@@ -279,7 +279,7 @@ export default function SequencesView({
               fontSize: 12.5,
               fontWeight: 700,
               cursor: "pointer",
-              background: statusFilter === f ? "var(--ink)" : "var(--surface)",
+              background: statusFilter === f ? "linear-gradient(90deg, var(--accent), var(--accent-blue))" : "var(--surface)",
               color: statusFilter === f ? "#fff" : "var(--muted)",
             }}
           >

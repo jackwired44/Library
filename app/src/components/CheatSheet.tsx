@@ -35,7 +35,7 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
             <button onClick={onSwitchToNotes} style={{ border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 13, fontWeight: 700, background: "#F4F6F7", color: "#5b6b72", cursor: "pointer" }}>
               Platform Notes
             </button>
-            <button disabled style={{ border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 13, fontWeight: 700, background: "#081E22", color: "#fff" }}>
+            <button disabled style={{ border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 13, fontWeight: 700, background: "linear-gradient(90deg, var(--accent), var(--accent-blue))", color: "#fff" }}>
               Cheat Sheet
             </button>
           </div>
@@ -286,7 +286,7 @@ function ChipList({ items, tone }: { items: string[]; tone?: "dq" }) {
           key={label}
           style={{
             fontSize: 11.5,
-            background: tone === "dq" ? "#FBEAE8" : "#F6FAFA",
+            background: tone === "dq" ? "#FBEAE8" : "var(--surface-sunken)",
             color: tone === "dq" ? "#B5443B" : "#4c6167",
             padding: "3px 9px",
             borderRadius: 20,

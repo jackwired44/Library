@@ -146,7 +146,7 @@ export default function HistoryView({ history, loading, error, onLoadIntoScanner
           <button
             key={g}
             onClick={() => { setGroupBy(g); setActiveGroupKey("all"); }}
-            style={{ border: "none", borderRadius: 8, padding: "5px 11px", fontWeight: 600, fontSize: 12, background: groupBy === g ? "#081E22" : "#F6FAFA", color: groupBy === g ? "#fff" : "#4C6167" }}
+            style={{ border: "none", borderRadius: 8, padding: "5px 11px", fontWeight: 600, fontSize: 12, background: groupBy === g ? "linear-gradient(90deg, var(--accent), var(--accent-blue))" : "var(--surface-sunken)", color: groupBy === g ? "#fff" : "var(--muted)" }}
           >
             {g === "day" ? "Day" : g === "week" ? "Week" : "Month"}
           </button>
@@ -156,7 +156,7 @@ export default function HistoryView({ history, loading, error, onLoadIntoScanner
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
         <button
           onClick={() => setActiveGroupKey("all")}
-          style={{ border: "none", borderRadius: 8, padding: "7px 12px", fontWeight: 600, background: activeGroupKey === "all" ? "#081E22" : "#F6FAFA", color: activeGroupKey === "all" ? "#fff" : "#4C6167" }}
+          style={{ border: "none", borderRadius: 8, padding: "7px 12px", fontWeight: 600, background: activeGroupKey === "all" ? "linear-gradient(90deg, var(--accent), var(--accent-blue))" : "var(--surface-sunken)", color: activeGroupKey === "all" ? "#fff" : "var(--muted)" }}
         >
           All ({filtered.length})
         </button>
@@ -164,7 +164,7 @@ export default function HistoryView({ history, loading, error, onLoadIntoScanner
           <button
             key={g.key}
             onClick={() => setActiveGroupKey(g.key)}
-            style={{ border: "none", borderRadius: 8, padding: "7px 12px", fontWeight: 600, background: activeGroupKey === g.key ? "#081E22" : "#F6FAFA", color: activeGroupKey === g.key ? "#fff" : "#4C6167" }}
+            style={{ border: "none", borderRadius: 8, padding: "7px 12px", fontWeight: 600, background: activeGroupKey === g.key ? "linear-gradient(90deg, var(--accent), var(--accent-blue))" : "var(--surface-sunken)", color: activeGroupKey === g.key ? "#fff" : "var(--muted)" }}
           >
             {g.label} ({g.entries.length})
           </button>

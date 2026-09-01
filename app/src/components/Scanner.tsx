@@ -934,8 +934,8 @@ export default function Scanner({
               borderRadius: 8,
               padding: "7px 13px",
               fontWeight: 600,
-              background: !showNoSignal && tierFilter === t ? "#081E22" : "#E9EBEF",
-              color: !showNoSignal && tierFilter === t ? "#fff" : "#4C6167",
+              background: !showNoSignal && tierFilter === t ? "linear-gradient(90deg, var(--accent), var(--accent-blue))" : "var(--surface-sunken)",
+              color: !showNoSignal && tierFilter === t ? "#fff" : "var(--muted)",
             }}
           >
             {t === "signal" ? `Strong Signal (${tierCounts.signal})` : t === "mention" ? `Needs review (${tierCounts.mention})` : `Bad Leads (${tierCounts.dq})`}
@@ -950,8 +950,8 @@ export default function Scanner({
               borderRadius: 8,
               padding: "7px 13px",
               fontWeight: 600,
-              background: showNoSignal ? "#081E22" : "#E9EBEF",
-              color: showNoSignal ? "#fff" : "#4C6167",
+              background: showNoSignal ? "linear-gradient(90deg, var(--accent), var(--accent-blue))" : "var(--surface-sunken)",
+              color: showNoSignal ? "#fff" : "var(--muted)",
             }}
           >
             Non Relevant ({noSignalRows.length})
@@ -964,8 +964,8 @@ export default function Scanner({
             borderRadius: 8,
             padding: "7px 13px",
             fontWeight: 600,
-            background: !showNoSignal && tierFilter === "all" ? "#081E22" : "#E9EBEF",
-            color: !showNoSignal && tierFilter === "all" ? "#fff" : "#4C6167",
+            background: !showNoSignal && tierFilter === "all" ? "linear-gradient(90deg, var(--accent), var(--accent-blue))" : "var(--surface-sunken)",
+            color: !showNoSignal && tierFilter === "all" ? "#fff" : "var(--muted)",
           }}
         >
           All ({tierCounts.total})
@@ -997,7 +997,7 @@ export default function Scanner({
       <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
         <button
           onClick={() => setCategoryFilter("all")}
-          style={{ border: "none", borderRadius: 8, padding: "7px 12px", background: categoryFilter === "all" ? "#081E22" : "#F6FAFA", color: categoryFilter === "all" ? "#fff" : "#4C6167" }}
+          style={{ border: "none", borderRadius: 8, padding: "7px 12px", background: categoryFilter === "all" ? "linear-gradient(90deg, var(--accent), var(--accent-blue))" : "var(--surface-sunken)", color: categoryFilter === "all" ? "#fff" : "var(--muted)" }}
         >
           All product lines ({categoryCounts.all})
         </button>
@@ -1005,7 +1005,7 @@ export default function Scanner({
           <button
             key={k}
             onClick={() => setCategoryFilter(k)}
-            style={{ border: "none", borderRadius: 8, padding: "7px 12px", background: categoryFilter === k ? "#081E22" : "#F6FAFA", color: categoryFilter === k ? "#fff" : "#4C6167" }}
+            style={{ border: "none", borderRadius: 8, padding: "7px 12px", background: categoryFilter === k ? "linear-gradient(90deg, var(--accent), var(--accent-blue))" : "var(--surface-sunken)", color: categoryFilter === k ? "#fff" : "var(--muted)" }}
           >
             {CATEGORY_META[k].label} ({categoryCounts[k] || 0})
           </button>
@@ -1015,7 +1015,7 @@ export default function Scanner({
             value={dynamicsSortDesc ? "desc" : "asc"}
             onChange={(e) => setDynamicsSortDesc(e.target.value === "desc")}
             title="Seat count order within each module block (ERP block always ranks above Sales/CRM, regardless of this setting)"
-            style={{ border: "1px solid #D5D9E0", borderRadius: 9, padding: "7px 10px", fontSize: 12.5, fontWeight: 600, color: "#4C6167" }}
+            style={{ border: "1px solid #D5D9E0", borderRadius: 9, padding: "7px 10px", fontSize: 12.5, fontWeight: 600, color: "var(--muted)" }}
           >
             <option value="desc">Seat count: greatest to least</option>
             <option value="asc">Seat count: least to greatest</option>
@@ -1049,8 +1049,8 @@ export default function Scanner({
                 padding: "7px 12px",
                 fontSize: 12.5,
                 fontWeight: 600,
-                background: m365SubView === key ? "#081E22" : "#F6FAFA",
-                color: m365SubView === key ? "#fff" : "#4C6167",
+                background: m365SubView === key ? "linear-gradient(90deg, var(--accent), var(--accent-blue))" : "var(--surface-sunken)",
+                color: m365SubView === key ? "#fff" : "var(--muted)",
               }}
             >
               {label}
@@ -1080,8 +1080,8 @@ export default function Scanner({
                 padding: "7px 12px",
                 fontSize: 12.5,
                 fontWeight: 600,
-                background: dynamicsSubView === key ? "#081E22" : "#F6FAFA",
-                color: dynamicsSubView === key ? "#fff" : "#4C6167",
+                background: dynamicsSubView === key ? "linear-gradient(90deg, var(--accent), var(--accent-blue))" : "var(--surface-sunken)",
+                color: dynamicsSubView === key ? "#fff" : "var(--muted)",
               }}
             >
               {label}
@@ -1219,7 +1219,7 @@ export default function Scanner({
                         ))}
                       </div>
                     </td>
-                    <td style={{ padding: "10px 14px", color: "#4C6167", fontSize: 12.5, maxWidth: 300 }}>{r.notesSummary}</td>
+                    <td style={{ padding: "10px 14px", color: "var(--muted)", fontSize: 12.5, maxWidth: 300 }}>{r.notesSummary}</td>
                     <td style={{ padding: "10px 14px" }}>
                       <button onClick={() => toggleTier(r.id)} style={{ border: "none", borderRadius: 20, padding: "4px 10px", fontWeight: 700, color: tierColor, background: tierBg }}>{tierLabel}</button>
                     </td>

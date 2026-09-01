@@ -9,11 +9,45 @@
   color-scheme: light;
   --ink: #081e22;
   --muted: #5b6b72;
-  --bg: #eef0f2;
+  /* Apollo-style white ground, per Jack: "white background with the green
+     blue wired lining coming through separating pages sections tabs."
+     The canvas is plain white and definition comes from hairline borders
+     and the accent "wire" below — not from a tinted backdrop. */
+  --bg: #ffffff;
   --surface: #ffffff;
-  --surface-sunken: #f5f6f8;
-  --border: #dde1e6;
+  --surface-sunken: #f6f8f9;
+  --border: #e4e9ed;
+  --border-strong: #d3dae0;
+  /* The two brand hues the "wire" is drawn from — the green is the
+     existing Wired CIO accent, the blue is the one already used for
+     LinkedIn/meeting-booked, promoted to a real token. */
   --accent: #2cc295;
+  --accent-blue: #0a66c2;
+  --accent-soft: #eaf6f1;
+}
+
+/* The signature lining: a hairline green -> blue rule used to separate
+   pages, sections and tab rows. One definition, reused everywhere, so the
+   treatment can't drift between views. */
+.wire-rule {
+  height: 2px;
+  border: none;
+  margin: 0;
+  background: linear-gradient(90deg, var(--accent), var(--accent-blue));
+  border-radius: 2px;
+}
+/* A panel with the wire along its top edge — for section cards that
+   should read as their own區 block without a heavy border. */
+.wire-top {
+  position: relative;
+  overflow: hidden;
+}
+.wire-top::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-blue));
 }
 
 * {
@@ -68,7 +102,10 @@ button:disabled {
   top: 0;
   z-index: 30;
   background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  /* The wire separates the header from the page instead of a flat grey
+     border — the top-most instance of the lining. */
+  border-bottom: 2px solid transparent;
+  border-image: linear-gradient(90deg, var(--accent), var(--accent-blue)) 1;
   margin: 0 -24px 18px;
   padding: 12px 24px;
 }
@@ -101,9 +138,9 @@ button:disabled {
   border: 1px solid var(--border);
 }
 .nav-btn.active {
-  background: var(--ink);
-  color: #fff;
-  border-color: var(--ink);
+  background: var(--accent-soft);
+  color: var(--ink);
+  border-color: var(--accent);
 }
 
 .side-nav-btn {
@@ -124,9 +161,17 @@ button:disabled {
   background: var(--surface-sunken);
   border-color: var(--border);
 }
+/* Active nav reads as a lit rail rather than a heavy dark pill — the
+   same green/blue lining, applied vertically. */
 .side-nav-btn.active {
-  background: var(--ink);
-  color: #fff;
+  background: var(--accent-soft);
+  color: var(--ink);
+  font-weight: 700;
+  border-color: transparent;
+  box-shadow: inset 3px 0 0 0 var(--accent);
+}
+.side-nav-btn.active:hover {
+  background: var(--accent-soft);
 }
 .side-nav-btn span:first-child {
   font-size: 14px;

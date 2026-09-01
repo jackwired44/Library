@@ -8,14 +8,13 @@ import { loadProfile, type Profile } from "../lib/profile";
 import { computeAutoActual, countCompletedChannelTasks, type WeeklyGoals } from "../lib/weeklyGoals";
 import { compareByTimeThenCreated, formatTaskTime, startOfWeek, todayDateKey, weekRangeLabel, type Task } from "../lib/tasks";
 import type { Contact } from "../lib/contacts";
+import { resolveStatus, type Sequence, type SequenceEnrollment } from "../lib/sequences";
 
 interface HomeProps {
-  libraryCount: number;
-  historyCount: number;
-  tasksOpenCount: number;
-  contactsCount: number;
   tasks: Task[];
   contacts: Contact[];
+  sequences: Sequence[];
+  enrollments: SequenceEnrollment[];
   onToggleTask: (id: string) => void;
   weeklyGoals: WeeklyGoals;
   onUpdateMetric: (id: string, patch: Partial<{ label: string; target: number; actual: number }>) => void;
@@ -32,12 +31,10 @@ const PRIORITY_META: Record<string, { label: string; color: string; bg: string; 
 const CHANNEL_ICON: Record<string, string> = { call: "📞", email: "✉️" };
 
 export default function Home({
-  libraryCount,
-  historyCount,
-  tasksOpenCount,
-  contactsCount,
   tasks,
   contacts,
+  sequences,
+  enrollments,
   onToggleTask,
   weeklyGoals,
   onUpdateMetric,
@@ -70,6 +67,32 @@ export default function Home({
   const emailsToday = useMemo(() => countCompletedChannelTasks(tasks, "email", today, today), [tasks, today]);
   const meetingsBooked = useMemo(() => contacts.filter((c) => c.disposition === "meeting-booked").length, [contacts]);
 
+  // The banner's headline numbers, per Jack: assigned tasks, active
+  // sequences, meetings booked this week, follow-up leads — the sales
+  // motion, not how much data is sitting in the system.
+  const weekStartKey = useMemo(() => {
+    const d = startOfWeek(new Date());
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }, []);
+  // Assigned = an open task tied to a specific contact (someone is on the
+  // hook for it), as opposed to a loose personal to-do on the Board.
+  const assignedTasks = useMemo(() => tasks.filter((t) => !t.done && t.contactId).length, [tasks]);
+  const activeSequences = useMemo(() => sequences.filter((s) => resolveStatus(s) === "active").length, [sequences]);
+  const activeEnrollments = useMemo(() => enrollments.filter((e) => e.status === "active").length, [enrollments]);
+  // Scoped to this week via the meetingBookedAt stamp (lib/contacts.ts) —
+  // disposition alone carries no date, so before that field this could
+  // only ever be an all-time number.
+  const meetingsThisWeek = useMemo(
+    () => contacts.filter((c) => c.disposition === "meeting-booked" && (c.meetingBookedAt || "").slice(0, 10) >= weekStartKey).length,
+    [contacts, weekStartKey]
+  );
+  // A lead with an open follow-up scheduled — distinct people, not tasks,
+  // so two tasks on one lead count once.
+  const followUpLeads = useMemo(
+    () => new Set(tasks.filter((t) => !t.done && t.contactId).map((t) => t.contactId)).size,
+    [tasks]
+  );
+
   return (
     <div>
       <div
@@ -98,13 +121,14 @@ export default function Home({
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {[
-            { label: "Lead Library", value: libraryCount },
-            { label: "Contacts", value: contactsCount },
-            { label: "Open tasks", value: tasksOpenCount },
-            { label: "Uploads", value: historyCount },
+            { label: "Assigned tasks", value: assignedTasks, hint: "Open tasks tied to a specific contact" },
+            { label: "Active sequences", value: activeSequences, hint: `${activeEnrollments} active enrollment${activeEnrollments === 1 ? "" : "s"} across them` },
+            { label: "Booked this week", value: meetingsThisWeek, hint: "Contacts whose disposition became Meeting booked since Monday" },
+            { label: "Follow-up leads", value: followUpLeads, hint: "Distinct contacts with an open follow-up scheduled" },
           ].map((s) => (
             <div
               key={s.label}
+              title={s.hint}
               style={{
                 background: "var(--surface-sunken)",
                 border: "1px solid var(--border)",

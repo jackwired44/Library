@@ -924,12 +924,10 @@ export default function App() {
 
           {view === "home" && (
             <Home
-              libraryCount={libraryEntries.length}
-              historyCount={historyEntries.length}
-              tasksOpenCount={tasks.filter((t) => !t.done).length}
-              contactsCount={contacts.length}
               tasks={tasks}
               contacts={contacts}
+              sequences={sequences}
+              enrollments={enrollments}
               onToggleTask={toggleTask}
               weeklyGoals={getOrCreateCurrentWeekGoals()}
               onUpdateMetric={updateWeeklyMetric}

@@ -572,7 +572,7 @@ function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownl
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
           <label style={{ fontSize: 11.5, color: "#9aa1ac" }}>Received:</label>
           <input type="date" defaultValue={entry.receivedAt || ""} onBlur={(e) => onReceivedDate(e.target.value)} style={{ border: "1px solid #D8DBE1", borderRadius: 7, padding: "5px 7px" }} />
-          <button onClick={onToggleExpanded} title={expanded ? "Hide leads" : "Edit leads"} style={{ border: "1px solid #D5D9E0", background: expanded ? "#081E22" : "#fff", color: expanded ? "#fff" : "#081E22", borderRadius: 7, padding: "6px 9px" }}>{expanded ? "▴" : "▾"}</button>
+          <button onClick={onToggleExpanded} title={expanded ? "Hide leads" : "Edit leads"} style={{ border: "1px solid #D5D9E0", background: expanded ? "linear-gradient(90deg, var(--accent), var(--accent-blue))" : "#fff", color: expanded ? "#fff" : "#081E22", borderRadius: 7, padding: "6px 9px" }}>{expanded ? "▴" : "▾"}</button>
           <button onClick={onLoad} style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 7, padding: "6px 10px" }}>Load</button>
           <button onClick={onDownload} style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 7, padding: "6px 10px" }}>⬇</button>
           <button onClick={onDelete} title="Remove this file" style={{ border: "1px solid #F0D6D6", background: "#fff", borderRadius: 7, padding: "6px 8px", color: "#B5443B" }}>✕</button>
@@ -593,8 +593,8 @@ function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownl
                     padding: "5px 10px",
                     fontSize: 11.5,
                     fontWeight: 600,
-                    background: subView === key ? "#081E22" : "#F6FAFA",
-                    color: subView === key ? "#fff" : "#4C6167",
+                    background: subView === key ? "linear-gradient(90deg, var(--accent), var(--accent-blue))" : "var(--surface-sunken)",
+                    color: subView === key ? "#fff" : "var(--muted)",
                   }}
                 >
                   {label}
