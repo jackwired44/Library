@@ -1,19 +1,22 @@
-// Engage — a nav-level grouping of the sales-motion tools (Contacts,
-// Companies, and the task Board) under one tab, separate from the lead-
-// processing tools (Scanner/Lead Library/History). Per Jack's explicit
-// ask, switching between them is a dropdown on the main Engage screen
-// (originally a button tab strip — replaced when Companies was added as a
-// third option). TaskBoard and Contacts are otherwise unchanged, same
-// props, same data; Companies is a new read-only roll-up (see
-// lib/companies.ts) — "we will slowly build this out with more data
-// fields and closer to an actual Apollo down the road."
-import { useState } from "react";
+// Engage — a nav-level grouping of the sales-motion tools under one tab,
+// separate from the lead-processing tools (Scanner/Lead Library/History).
+// Switching between them is a dropdown on the main Engage screen, mirrored
+// by the sidebar's own collapsible Engage sub-nav (see App.tsx's
+// ENGAGE_SUB_ITEMS) — both lists use the same tab order: Sequences, Tasks,
+// Calls, Emails, Companies, Contacts, Lists. Per Jack: "add companies
+// under emails and reorganize it top to bottom properly... move lists
+// under there also."
+import { useEffect, useState } from "react";
 import TaskBoard from "./TaskBoard";
 import ContactsView from "./Contacts";
 import CompaniesView from "./Companies";
 import ChannelTasks from "./ChannelTasks";
+import SequencesView from "./Sequences";
+import ListsView from "./Lists";
 import type { Task, TaskPriority } from "../lib/tasks";
 import type { Contact, ManualContactInput } from "../lib/contacts";
+import type { Sequence, SequenceEnrollment, SequenceChannel } from "../lib/sequences";
+import type { LeadList } from "../lib/leadLists";
 
 interface EngageProps {
   tasks: Task[];
@@ -31,23 +34,45 @@ interface EngageProps {
   onAddContact: (input: ManualContactInput) => void;
   onUpdateContact: (id: string, patch: Partial<Contact>) => void;
 
-  // Set when navigating here from the header search (see App.tsx/
-  // HeaderSearch.tsx) so Engage lands straight on the right tab/result
-  // instead of always defaulting to Tasks. Engage unmounts whenever the
-  // sidebar navigates away (App.tsx conditionally renders it), so these
-  // only need to seed initial state, not stay in sync afterward.
+  sequences: Sequence[];
+  enrollments: SequenceEnrollment[];
+  sequencesLoading: boolean;
+  sequencesError: string | null;
+  onCreateSequence: (name: string) => Sequence | null;
+  onRenameSequence: (id: string, name: string) => void;
+  onAddSequenceStep: (id: string, channel: SequenceChannel, waitDays: number, note?: string) => void;
+  onRemoveSequenceStep: (id: string, stepId: string) => void;
+  onMoveSequenceStep: (id: string, stepId: string, direction: -1 | 1) => void;
+  onDeleteSequence: (id: string) => void;
+  onEnrollInSequence: (sequenceId: string, contactIds: string[]) => number;
+  onRestartEnrollment: (enrollmentId: string) => void;
+  onRemoveEnrollment: (enrollmentId: string) => void;
+
+  leadLists: LeadList[];
+  leadListsLoading: boolean;
+  leadListsError: string | null;
+  onRenameList: (id: string, name: string) => void;
+  onDeleteList: (id: string) => void;
+  onRemoveLeadFromList: (listId: string, rowKey: string) => void;
+
+  // Set when navigating here from Home's tiles or the sidebar sub-nav so
+  // Engage lands straight on the right tab instead of always defaulting
+  // to Sequences. Engage unmounts whenever the sidebar navigates away
+  // (App.tsx conditionally renders it), so this only needs to seed
+  // initial state, not stay in sync afterward.
   initialTab?: EngageTab;
   initialContactsSearch?: string;
 }
 
-export type EngageTab = "contacts" | "companies" | "tasks" | "calls" | "emails" | "sequences";
+export type EngageTab = "sequences" | "tasks" | "calls" | "emails" | "companies" | "contacts" | "lists";
 const TAB_OPTIONS: { key: EngageTab; label: string }[] = [
-  { key: "contacts", label: "Contacts" },
-  { key: "companies", label: "Companies" },
+  { key: "sequences", label: "Sequences" },
   { key: "tasks", label: "Tasks" },
   { key: "calls", label: "Calls" },
   { key: "emails", label: "Emails" },
-  { key: "sequences", label: "Sequences" },
+  { key: "companies", label: "Companies" },
+  { key: "contacts", label: "Contacts" },
+  { key: "lists", label: "Lists" },
 ];
 
 export default function Engage({
@@ -64,10 +89,41 @@ export default function Engage({
   onAddContactTask,
   onAddContact,
   onUpdateContact,
+  sequences,
+  enrollments,
+  sequencesLoading,
+  sequencesError,
+  onCreateSequence,
+  onRenameSequence,
+  onAddSequenceStep,
+  onRemoveSequenceStep,
+  onMoveSequenceStep,
+  onDeleteSequence,
+  onEnrollInSequence,
+  onRestartEnrollment,
+  onRemoveEnrollment,
+  leadLists,
+  leadListsLoading,
+  leadListsError,
+  onRenameList,
+  onDeleteList,
+  onRemoveLeadFromList,
   initialTab,
   initialContactsSearch,
 }: EngageProps) {
-  const [tab, setTab] = useState<EngageTab>(initialTab || "tasks");
+  const [tab, setTab] = useState<EngageTab>(initialTab || "sequences");
+  // Engage does NOT unmount/remount when navigating between its own
+  // sub-items while already on the Engage view (App.tsx keeps `view`
+  // at "engage" the whole time) — so `useState`'s one-time initializer
+  // above never re-fires. Without this effect, clicking a different
+  // sidebar sub-item (or Home tile) while already viewing Engage did
+  // nothing at all: `initialTab` changed but the visible tab silently
+  // stayed put. Read as "tab switching is delayed/broken" — it wasn't
+  // slow, it just wasn't happening. Confirmed by tracing the render
+  // path, not guessed.
+  useEffect(() => {
+    setTab(initialTab || "sequences");
+  }, [initialTab]);
 
   return (
     <div>
@@ -85,6 +141,25 @@ export default function Engage({
         </select>
       </div>
 
+      {tab === "sequences" && (
+        <SequencesView
+          sequences={sequences}
+          enrollments={enrollments}
+          contacts={contacts}
+          tasks={tasks}
+          loading={sequencesLoading}
+          error={sequencesError}
+          onCreate={onCreateSequence}
+          onRename={onRenameSequence}
+          onAddStep={onAddSequenceStep}
+          onRemoveStep={onRemoveSequenceStep}
+          onMoveStep={onMoveSequenceStep}
+          onDelete={onDeleteSequence}
+          onEnroll={onEnrollInSequence}
+          onRestart={onRestartEnrollment}
+          onRemoveEnrollment={onRemoveEnrollment}
+        />
+      )}
       {tab === "tasks" && (
         <TaskBoard
           tasks={tasks}
@@ -96,6 +171,13 @@ export default function Engage({
           onDeleteTask={onDeleteTask}
         />
       )}
+      {tab === "calls" && (
+        <ChannelTasks channel="call" contacts={contacts} tasks={tasks} onAddContactTask={onAddContactTask} onToggleTask={onToggleTask} onDeleteTask={onDeleteTask} />
+      )}
+      {tab === "emails" && (
+        <ChannelTasks channel="email" contacts={contacts} tasks={tasks} onAddContactTask={onAddContactTask} onToggleTask={onToggleTask} onDeleteTask={onDeleteTask} />
+      )}
+      {tab === "companies" && <CompaniesView contacts={contacts} onAddContact={onAddContact} onUpdateContact={onUpdateContact} />}
       {tab === "contacts" && (
         <ContactsView
           contacts={contacts}
@@ -109,24 +191,15 @@ export default function Engage({
           initialSearch={initialContactsSearch}
         />
       )}
-      {tab === "companies" && <CompaniesView contacts={contacts} onAddContact={onAddContact} onUpdateContact={onUpdateContact} />}
-      {tab === "calls" && (
-        <ChannelTasks channel="call" contacts={contacts} tasks={tasks} onAddContactTask={onAddContactTask} onToggleTask={onToggleTask} onDeleteTask={onDeleteTask} />
-      )}
-      {tab === "emails" && (
-        <ChannelTasks channel="email" contacts={contacts} tasks={tasks} onAddContactTask={onAddContactTask} onToggleTask={onToggleTask} onDeleteTask={onDeleteTask} />
-      )}
-      {tab === "sequences" && (
-        <div>
-          <h2 style={{ margin: "0 0 8px", fontSize: 18 }}>📡 Sequences</h2>
-          <div style={{ background: "var(--surface)", border: "1px dashed var(--border)", borderRadius: 12, padding: "20px 22px", maxWidth: 620, fontSize: 13, color: "var(--muted)", lineHeight: 1.6 }}>
-            Not built yet — this will pull your live Apollo sequences in as a
-            chart-style, dual-screen view alongside Apollo itself (open/reply
-            rates, per-contact call-task status, and disposition tracking).
-            Scoping is underway; see CLAUDE.md "Apollo sequences
-            investigation" for what's confirmed so far.
-          </div>
-        </div>
+      {tab === "lists" && (
+        <ListsView
+          lists={leadLists}
+          loading={leadListsLoading}
+          error={leadListsError}
+          onRename={onRenameList}
+          onDelete={onDeleteList}
+          onRemoveRow={onRemoveLeadFromList}
+        />
       )}
     </div>
   );

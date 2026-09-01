@@ -1,11 +1,18 @@
 // The post-login landing page — a navigation hub + brief orientation, not a
 // module of its own. First pass per Jack: "need to start somewhere then fine
-// tune." Doesn't read or write any app state beyond the counts it's handed;
-// every module it links to is untouched.
-type NavView = "scanner" | "history" | "library" | "engage" | "lists";
+// tune." Reads only its own Profile (for the greeting) beyond the counts
+// it's handed; every module it links to is untouched.
+import { useEffect, useState } from "react";
+import { loadProfile, type Profile } from "../lib/profile";
+import type { EngageTab } from "./Engage";
+
+type NavView = "scanner" | "history" | "library" | "engage";
 
 interface HomeProps {
-  onNavigate: (view: NavView) => void;
+  // Lists no longer has its own top-level view — its tile jumps into
+  // Engage's Lists tab instead, same as every other Engage sub-area (see
+  // CLAUDE.md "Engage reorganized").
+  onNavigate: (view: NavView, engageTab?: EngageTab) => void;
   onOpenCheatSheet: () => void;
   libraryCount: number;
   historyCount: number;
@@ -24,6 +31,12 @@ interface ModuleTile {
 }
 
 export default function Home({ onNavigate, onOpenCheatSheet, libraryCount, historyCount, tasksOpenCount, contactsCount, listsCount }: HomeProps) {
+  const [profile, setProfile] = useState<Profile | null>(null);
+  useEffect(() => {
+    loadProfile().then(setProfile);
+  }, []);
+  const firstName = profile?.name?.trim().split(/\s+/)[0] || "Jack";
+
   const tiles: ModuleTile[] = [
     {
       key: "scanner",
@@ -45,14 +58,14 @@ export default function Home({ onNavigate, onOpenCheatSheet, libraryCount, histo
       icon: "🗂️",
       title: "Lists",
       description: "Hand-pick specific leads from a scan — any tier — into your own named lists, downloadable as CSV any time.",
-      action: () => onNavigate("lists"),
+      action: () => onNavigate("engage", "lists"),
       stat: `${listsCount} list${listsCount === 1 ? "" : "s"}`,
     },
     {
       key: "engage",
       icon: "🤝",
       title: "Engage",
-      description: "Contacts (every person from any upload, deduplicated) and a day-by-day task board — schedule and prioritize outbound follow-ups.",
+      description: "Sequences, Tasks, Calls, Emails, Companies, and Contacts — everyone from any upload, deduplicated — work an already-qualified pipeline.",
       action: () => onNavigate("engage"),
       stat: `${contactsCount} contact${contactsCount === 1 ? "" : "s"}${tasksOpenCount > 0 ? ` · ${tasksOpenCount} open task${tasksOpenCount === 1 ? "" : "s"}` : ""}`,
     },
@@ -90,7 +103,7 @@ export default function Home({ onNavigate, onOpenCheatSheet, libraryCount, histo
         }}
       >
         <div>
-          <h1 style={{ margin: "0 0 3px", fontSize: 19 }}>Welcome back, Jack.</h1>
+          <h1 style={{ margin: "0 0 3px", fontSize: 19 }}>Welcome, {firstName}.</h1>
           <p style={{ margin: 0, maxWidth: 560, fontSize: 12.5, lineHeight: 1.5, color: "var(--muted)" }}>
             The <strong style={{ color: "var(--ink)" }}>Lead Library</strong> is the single source of truth for every qualified
             lead — the first step toward a lighter-weight, self-hosted CRM built solely for outbound sales.

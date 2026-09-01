@@ -9,7 +9,6 @@ import PlatformNotes from "./components/PlatformNotes";
 import Home from "./components/Home";
 import Engage, { type EngageTab } from "./components/Engage";
 import AccountPanel from "./components/AccountPanel";
-import HeaderSearch from "./components/HeaderSearch";
 import type { ParsedFile, ResultRow, RuleOverrides } from "./lib/detection";
 import { scanParsedFiles, DEFAULT_RULE_OVERRIDES } from "./lib/detection";
 import { loadLibraryFromDB, ensureMonthFoldersExist, persistGroup, type LibraryEntry, type LibraryGroup } from "./lib/library";
@@ -37,34 +36,56 @@ import {
   removeRowFromList,
   type LeadList,
 } from "./lib/leadLists";
-import ListsView from "./components/Lists";
+import {
+  loadSequencesFromDB,
+  persistSequence,
+  deleteSequenceFromDB,
+  loadEnrollmentsFromDB,
+  persistEnrollment,
+  deleteEnrollmentFromDB,
+  createSequence,
+  addStep,
+  removeStep,
+  moveStep,
+  renameSequence,
+  enrollContact,
+  advanceEnrollment,
+  restartEnrollment,
+  removeEnrollment,
+  finishActiveEnrollmentsForContact,
+  TERMINAL_DISPOSITIONS,
+  type Sequence,
+  type SequenceEnrollment,
+  type SequenceChannel,
+} from "./lib/sequences";
 
-type View = "home" | "scanner" | "history" | "library" | "engage" | "lists";
+type View = "home" | "scanner" | "history" | "library" | "engage";
 const NAV_ITEMS: { key: View; label: string; icon: string }[] = [
   { key: "home", label: "Home", icon: "🏠" },
   { key: "scanner", label: "Scanner", icon: "🔎" },
-  // (Engage's own sub-nav — Sequences/Tasks/Calls/Emails — is inserted
-  // right after the Engage row below, see ENGAGE_SUB_ITEMS.)
+  // (Engage's own sub-nav — Sequences/Tasks/Calls/Emails/Companies/
+  // Contacts/Lists — is inserted right after the Engage row below, see
+  // ENGAGE_SUB_ITEMS.)
   { key: "engage", label: "Engage", icon: "🤝" },
   { key: "library", label: "Lead Library", icon: "📚" },
-  { key: "lists", label: "Lists", icon: "🗂️" },
   { key: "history", label: "History", icon: "🕘" },
 ];
 
 // Engage's own sub-nav, shown nested under the Engage row in the sidebar
 // — per Jack: "a tab on the left hand side like Apollo's Engage for
-// tasks, calls, emails... add a sequence tab also." Additive: these are
-// shortcuts straight into an EngageTab, alongside (not replacing)
-// Engage's own in-page dropdown, which still has every tab including
-// these plus Contacts/Companies. Sequences is a placeholder only for now
-// — see CLAUDE.md "Apollo sequences investigation," still blocked on
-// reauthorizing the connector and confirming the disposition mapping.
+// tasks, calls, emails... add a sequence tab also," then "add companies
+// under emails and reorganize it top to bottom properly... move lists
+// under there also." Same order as Engage's own in-page dropdown
+// (Engage.tsx's TAB_OPTIONS) — Lists moved here from its own top-level
+// nav item, no longer a separate View.
 const ENGAGE_SUB_ITEMS: { key: EngageTab; label: string; icon: string }[] = [
   { key: "sequences", label: "Sequences", icon: "📡" },
   { key: "tasks", label: "Tasks", icon: "✅" },
   { key: "calls", label: "Calls", icon: "📞" },
   { key: "emails", label: "Emails", icon: "✉️" },
+  { key: "companies", label: "Companies", icon: "🏢" },
   { key: "contacts", label: "Contacts", icon: "👤" },
+  { key: "lists", label: "Lists", icon: "🗂️" },
 ];
 
 export interface UploadedFile {
@@ -83,9 +104,9 @@ export interface UploadedFile {
 export default function App() {
   const [unlocked, setUnlockedState] = useState(isUnlocked());
   const [view, setView] = useState<View>("home");
-  // Seeds Engage's initial tab/search when navigating there from the
-  // header search (see HeaderSearch.tsx) — reset when Engage is opened
-  // any other way (sidebar click) so a stale search doesn't linger.
+  // Seeds Engage's initial tab when navigating there from the sidebar
+  // sub-nav or a Home tile — reset when Engage is opened any other way
+  // so a stale seed doesn't linger.
   const [engageEntry, setEngageEntry] = useState<{ tab?: EngageTab; contactsQuery?: string }>({});
   // Collapsed by default — per Jack: "collapsable drop downs under tabs
   // with relevant sub sections like engage... just like apollo." Toggled
@@ -134,6 +155,13 @@ export default function App() {
   const [leadLists, setLeadLists] = useState<LeadList[]>([]);
   const [leadListsLoading, setLeadListsLoading] = useState(true);
   const [leadListsError, setLeadListsError] = useState<string | null>(null);
+
+  // Native Sequences (Phase 1 of the Outbound Engine) — see CLAUDE.md
+  // "Native Sequences" and lib/sequences.ts.
+  const [sequences, setSequences] = useState<Sequence[]>([]);
+  const [enrollments, setEnrollments] = useState<SequenceEnrollment[]>([]);
+  const [sequencesLoading, setSequencesLoading] = useState(true);
+  const [sequencesError, setSequencesError] = useState<string | null>(null);
 
   useEffect(() => {
     loadLibraryFromDB()
@@ -188,6 +216,16 @@ export default function App() {
         setLeadListsError("Couldn't load your Lists from this browser's local storage.");
         setLeadListsLoading(false);
       });
+    Promise.all([loadSequencesFromDB(), loadEnrollmentsFromDB()])
+      .then(([loadedSeqs, loadedEnrollments]) => {
+        setSequences(loadedSeqs);
+        setEnrollments(loadedEnrollments);
+        setSequencesLoading(false);
+      })
+      .catch(() => {
+        setSequencesError("Couldn't load your Sequences from this browser's local storage.");
+        setSequencesLoading(false);
+      });
   }, []);
 
   function addTask(date: string, text: string) {
@@ -196,13 +234,32 @@ export default function App() {
     setTasks((prev) => [...prev, task]);
     persistTask(task);
   }
+  // A single explicit click, same reasoning as the Lists create+add fix
+  // above — reads `tasks`/`enrollments`/`sequences`/`contacts` straight
+  // from closure rather than a functional updater, since there's no
+  // rapid-fire path here that would race a stale read.
   function toggleTask(id: string) {
-    setTasks((prev) => {
-      const next = prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t));
-      const updated = next.find((t) => t.id === id);
-      if (updated) persistTask(updated);
-      return next;
-    });
+    const task = tasks.find((t) => t.id === id);
+    if (!task) return;
+    const done = !task.done;
+    const updatedTask: Task = { ...task, done };
+    setTasks((prev) => prev.map((t) => (t.id === id ? updatedTask : t)));
+    persistTask(updatedTask);
+
+    // Completing (not un-completing) a Sequence-generated task advances
+    // its enrollment to the next step — see CLAUDE.md "Native Sequences."
+    if (done && task.sequenceEnrollmentId) {
+      const result = advanceEnrollment(enrollments, sequences, contacts, task.sequenceEnrollmentId);
+      if (result) {
+        setEnrollments((prev) => prev.map((e) => (e.id === result.enrollment.id ? result.enrollment : e)));
+        persistEnrollment(result.enrollment);
+        if (result.task) {
+          const nextTask = result.task;
+          setTasks((prev) => [...prev, nextTask]);
+          persistTask(nextTask);
+        }
+      }
+    }
   }
   function editTask(id: string, text: string) {
     setTasks((prev) => {
@@ -297,6 +354,102 @@ export default function App() {
     if (updated) persistLeadList(updated);
   }
 
+  // Native Sequences (Phase 1) — see CLAUDE.md "Native Sequences" and
+  // lib/sequences.ts. All single explicit clicks, same closure-read
+  // reasoning as Lists' handlers above.
+  function createNewSequence(name: string): Sequence | null {
+    const seq = createSequence(name);
+    if (seq) {
+      setSequences((prev) => [seq, ...prev]);
+      persistSequence(seq);
+    }
+    return seq;
+  }
+  function updateSequenceSteps(next: Sequence) {
+    setSequences((prev) => prev.map((s) => (s.id === next.id ? next : s)));
+    persistSequence(next);
+  }
+  function renameSequenceById(id: string, name: string) {
+    const seq = sequences.find((s) => s.id === id);
+    if (!seq) return;
+    updateSequenceSteps(renameSequence(seq, name));
+  }
+  function addSequenceStep(id: string, channel: SequenceChannel, waitDays: number, note?: string) {
+    const seq = sequences.find((s) => s.id === id);
+    if (!seq) return;
+    updateSequenceSteps(addStep(seq, channel, waitDays, note));
+  }
+  function removeSequenceStep(id: string, stepId: string) {
+    const seq = sequences.find((s) => s.id === id);
+    if (!seq) return;
+    updateSequenceSteps(removeStep(seq, stepId));
+  }
+  function moveSequenceStep(id: string, stepId: string, direction: -1 | 1) {
+    const seq = sequences.find((s) => s.id === id);
+    if (!seq) return;
+    updateSequenceSteps(moveStep(seq, stepId, direction));
+  }
+  function deleteSequence(id: string) {
+    setSequences((prev) => prev.filter((s) => s.id !== id));
+    deleteSequenceFromDB(id);
+    // Removes (not silently orphans) every enrollment that belonged to
+    // the deleted sequence — same "visible, not silently dangling" bar
+    // as everything else in this app; there is no view left that could
+    // show them once the sequence itself is gone.
+    setEnrollments((prev) => {
+      const [gone, kept] = [prev.filter((e) => e.sequenceId === id), prev.filter((e) => e.sequenceId !== id)];
+      gone.forEach((e) => deleteEnrollmentFromDB(e.id));
+      return kept;
+    });
+  }
+  function enrollContactsInSequence(sequenceId: string, contactIds: string[]): number {
+    const seq = sequences.find((s) => s.id === sequenceId);
+    if (!seq) return 0;
+    const alreadyEnrolled = new Set(enrollments.filter((e) => e.sequenceId === sequenceId && e.status === "active").map((e) => e.contactId));
+    const toEnroll = contactIds.filter((id) => !alreadyEnrolled.has(id));
+    const newEnrollments: SequenceEnrollment[] = [];
+    const newTasks: Task[] = [];
+    toEnroll.forEach((contactId) => {
+      const contact = contacts.find((c) => c.id === contactId);
+      if (!contact) return;
+      const result = enrollContact(seq, contact);
+      if (!result) return;
+      newEnrollments.push(result.enrollment);
+      if (result.task) newTasks.push(result.task);
+    });
+    if (newEnrollments.length) {
+      setEnrollments((prev) => [...prev, ...newEnrollments]);
+      newEnrollments.forEach((e) => persistEnrollment(e));
+    }
+    if (newTasks.length) {
+      setTasks((prev) => [...prev, ...newTasks]);
+      newTasks.forEach((t) => persistTask(t));
+    }
+    return newEnrollments.length;
+  }
+  function restartSequenceEnrollment(enrollmentId: string) {
+    const enrollment = enrollments.find((e) => e.id === enrollmentId);
+    if (!enrollment) return;
+    const seq = sequences.find((s) => s.id === enrollment.sequenceId);
+    const contact = contacts.find((c) => c.id === enrollment.contactId);
+    if (!seq || !contact) return;
+    const result = restartEnrollment(enrollment, seq, contact);
+    setEnrollments((prev) => prev.map((e) => (e.id === enrollmentId ? result.enrollment : e)));
+    persistEnrollment(result.enrollment);
+    if (result.task) {
+      const task = result.task;
+      setTasks((prev) => [...prev, task]);
+      persistTask(task);
+    }
+  }
+  function removeSequenceEnrollment(enrollmentId: string) {
+    const enrollment = enrollments.find((e) => e.id === enrollmentId);
+    if (!enrollment) return;
+    const updated = removeEnrollment(enrollment);
+    setEnrollments((prev) => prev.map((e) => (e.id === enrollmentId ? updated : e)));
+    persistEnrollment(updated);
+  }
+
   function updateRuleOverrides(next: RuleOverrides) {
     setRuleOverrides(next);
     persistRuleOverrides(next);
@@ -349,8 +502,28 @@ export default function App() {
       const { contacts: afterCsv, touched: t1 } = mergeContactsFromParsedFiles(prev, parsedFiles);
       const { contacts: afterScan, touched: t2 } = attachScanResultsToContacts(afterCsv, scanned);
       const touchedIds = new Set([...t1, ...t2].map((c) => c.id));
-      afterScan.filter((c) => touchedIds.has(c.id)).forEach((c) => persistContact(c));
+      const touchedContacts = afterScan.filter((c) => touchedIds.has(c.id));
+      touchedContacts.forEach((c) => persistContact(c));
+      finishTerminalEnrollments(touchedContacts);
       return afterScan;
+    });
+  }
+
+  // Auto-finishes any ACTIVE Sequence enrollment for a contact whose
+  // disposition just landed on a terminal value — per Jack: "each
+  // sequence will finish off how their dispositions were selected." Uses
+  // a functional setEnrollments updater (safe against the stale-closure
+  // class of bug even when called from inside another functional
+  // updater, unlike a plain closure read) — see CLAUDE.md "Native
+  // Sequences."
+  function finishTerminalEnrollments(touchedContacts: Contact[]) {
+    const terminalIds = touchedContacts.filter((c) => c.disposition && TERMINAL_DISPOSITIONS.has(c.disposition)).map((c) => c.id);
+    if (!terminalIds.length) return;
+    setEnrollments((prev) => {
+      let next = prev;
+      terminalIds.forEach((id) => { next = finishActiveEnrollmentsForContact(next, id); });
+      next.forEach((e, i) => { if (e !== prev[i]) persistEnrollment(e); });
+      return next;
     });
   }
 
@@ -378,6 +551,7 @@ export default function App() {
     setContacts((prev) => {
       const { contacts: next, touched } = attachScanResultsToContacts(prev, [row]);
       touched.forEach((c) => persistContact(c));
+      finishTerminalEnrollments(touched);
       return next;
     });
   }
@@ -460,14 +634,6 @@ export default function App() {
           >
             Lock
           </button>
-          <HeaderSearch
-            contacts={contacts}
-            onJumpToContacts={(query) => {
-              setEngageEntry({ tab: "contacts", contactsQuery: query });
-              setView("engage");
-              setEngageNavExpanded(true);
-            }}
-          />
         </div>
       </header>
 
@@ -505,9 +671,7 @@ export default function App() {
                         ? ` (${libraryEntries.length})`
                         : item.key === "history"
                           ? ` (${historyEntries.length})`
-                          : item.key === "lists"
-                            ? ` (${leadLists.length})`
-                            : ""}
+                          : ""}
                     </span>
                   </button>
                   {item.key === "engage" && (
@@ -530,7 +694,10 @@ export default function App() {
                         style={{ fontSize: 12, padding: "5px 8px" }}
                       >
                         <span aria-hidden="true">{sub.icon}</span>
-                        <span>{sub.label}</span>
+                        <span>
+                          {sub.label}
+                          {sub.key === "lists" ? ` (${leadLists.length})` : ""}
+                        </span>
                       </button>
                     ))}
                   </div>
@@ -557,7 +724,13 @@ export default function App() {
 
           {view === "home" && (
             <Home
-              onNavigate={(v) => setView(v)}
+              onNavigate={(v, engageTab) => {
+                setView(v);
+                if (engageTab) {
+                  setEngageEntry({ tab: engageTab });
+                  setEngageNavExpanded(true);
+                }
+              }}
               onOpenCheatSheet={() => setNotesPanelTab("cheatsheet")}
               libraryCount={libraryEntries.length}
               historyCount={historyEntries.length}
@@ -608,6 +781,25 @@ export default function App() {
               onAddContactTask={addContactTask}
               onAddContact={addManualContact}
               onUpdateContact={updateContact}
+              sequences={sequences}
+              enrollments={enrollments}
+              sequencesLoading={sequencesLoading}
+              sequencesError={sequencesError}
+              onCreateSequence={createNewSequence}
+              onRenameSequence={renameSequenceById}
+              onAddSequenceStep={addSequenceStep}
+              onRemoveSequenceStep={removeSequenceStep}
+              onMoveSequenceStep={moveSequenceStep}
+              onDeleteSequence={deleteSequence}
+              onEnrollInSequence={enrollContactsInSequence}
+              onRestartEnrollment={restartSequenceEnrollment}
+              onRemoveEnrollment={removeSequenceEnrollment}
+              leadLists={leadLists}
+              leadListsLoading={leadListsLoading}
+              leadListsError={leadListsError}
+              onRenameList={renameList}
+              onDeleteList={deleteList}
+              onRemoveLeadFromList={removeLeadFromList}
               initialTab={engageEntry.tab}
               initialContactsSearch={engageEntry.contactsQuery}
             />
@@ -636,16 +828,6 @@ export default function App() {
               onLoadIntoScanner={loadParsedFilesIntoScanner}
               onRecordHistory={recordHistory}
               ruleOverrides={ruleOverrides}
-            />
-          )}
-          {view === "lists" && (
-            <ListsView
-              lists={leadLists}
-              loading={leadListsLoading}
-              error={leadListsError}
-              onRename={renameList}
-              onDelete={deleteList}
-              onRemoveRow={removeLeadFromList}
             />
           )}
         </main>

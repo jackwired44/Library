@@ -283,6 +283,16 @@ function HistoryCard({
   // recorded at scan time (buildHistoryEntry).
   const dupCount = entry.duplicatesRemoved || 0;
   const largestDupGroup = entry.largestDuplicateGroup || 0;
+  // A row with zero Dynamics/M365/licensing signal never becomes a
+  // ResultRow at all (scanRowUnified returns null for it — see
+  // CLAUDE.md) — so it's never in entry.results, and rowsScanned -
+  // duplicates - results.length is the ONLY place that count still
+  // exists. Was previously invisible in History (Jack caught it: rows
+  // scanned said 500, but Strong Signal + Needs Review + Bad Leads only
+  // summed to 140, with nothing explaining the other 360) — surfaced
+  // explicitly here now, matching the same accounting Scanner's own
+  // banner already shows live.
+  const noSignalCount = Math.max(0, entry.rowsScanned - dupCount - entry.results.length);
   // Per Jack: "break it down by needs review, strong signal and further
   // with the product lines etc" — a full tier + category accounting per
   // import, not just the total Strong Signal count History already had.
@@ -326,6 +336,12 @@ function HistoryCard({
               <strong style={{ color: "#9A5B22" }}>{mentionCount.toLocaleString()} Needs Review</strong>
               {" · "}
               <strong style={{ color: "#B5443B" }}>{dqCount.toLocaleString()} Bad Leads</strong>
+              {noSignalCount > 0 && (
+                <>
+                  {" · "}
+                  <strong style={{ color: "#9aa1ac" }}>{noSignalCount.toLocaleString()} no signal</strong>
+                </>
+              )}
             </div>
             {topCompanies.length > 0 && <div style={{ fontSize: 11.5, color: "#9aa1ac", marginTop: 2 }}>{topCompanies.join(", ")}{entry.results.length > 3 ? "…" : ""}</div>}
           </div>

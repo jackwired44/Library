@@ -2117,6 +2117,143 @@ urgency ("showing someone this today so need to walk through it").
   narrows correctly; confirmed the header renders "Wired Sales Outbound"
   at the larger size without clipping/overflow in the header bar.
 
+## Native Sequences (app/ only)
+
+Per Jack, approving the earlier proposal: "This wont fully work til i buiild
+it out all the way but it is a great start in the direction i am looking to
+go." Phase 1 of the Outbound Engine — a real, working sequence builder and
+workflow engine, native to the app, deliberately independent of the still-
+blocked Apollo connector.
+
+- **Data model** (`lib/sequences.ts`, new `STORE_SEQUENCES`/
+  `STORE_SEQUENCE_ENROLLMENTS`, `DB_VERSION` bumped 8→9): a `Sequence` is a
+  name plus an ordered list of `SequenceStep` (channel: call/email/
+  linkedin, a wait-days-after-previous-step, an optional note). A
+  `SequenceEnrollment` tracks one contact's progress through one sequence
+  — current step index, status (active/finished/removed), and the id of
+  the currently-open Task for that step.
+- **No separate task engine — reuses the existing Task store.** `Task`
+  gained one more optional field, `sequenceEnrollmentId` (`lib/tasks.ts`),
+  alongside the `channel` field the Calls/Emails tabs already added.
+  Enrolling a contact creates a Task for step 0, due after that step's
+  wait period; completing that task (`App.tsx`'s `toggleTask`, checked for
+  `done && task.sequenceEnrollmentId`) calls `advanceEnrollment`, which
+  either generates the next step's task or — if that was the last step —
+  finishes the enrollment (`finishReason: "completed-all-steps"`). This
+  means a sequence's tasks are workable from anywhere: the Sequences tab
+  itself, the plain Board, or the Calls/Emails tabs — same store, same
+  `onToggleTask`.
+- **Email and LinkedIn steps do NOT actually send/connect anything —
+  intentionally, flagged in the Sequences UI itself.** There's no
+  SendGrid or LinkedIn API tied in (see Roadmap). An email/LinkedIn step
+  generates a task you work by hand, exactly like a call step. This was
+  called out explicitly in the build proposal so it wouldn't be mistaken
+  for real automation later.
+- **"Each sequence will finish off how their dispositions were selected,
+  restarted, or removed" — implemented literally.** `TERMINAL_DISPOSITIONS`
+  (`meeting-booked`, `not-interested`) — when `attachScanResultsToContacts`
+  reports a touched contact whose disposition just landed on one of these
+  (both call sites: `mergeContacts` and `syncToHistory` in `App.tsx`), every
+  ACTIVE enrollment for that contact auto-finishes
+  (`finishReason: "disposition"`) via a new `finishTerminalEnrollments`
+  helper using a functional `setEnrollments` updater (safe against the
+  stale-closure class of bug even when called from inside another
+  functional updater). Nothing destructive — already-created tasks are
+  left alone, only future step generation stops. **Restart** (back to step
+  0, fresh task) and **Remove** (stops it, keeps the history, distinct
+  `finishReason: "manual"`) are both explicit per-enrollment buttons in the
+  Sequences UI, never automatic.
+- **UI** (`components/Sequences.tsx`): name a sequence, add/reorder/remove
+  steps (channel + wait-days + optional note), enroll any number of
+  contacts via checkboxes (dedup on re-add, same "already active in this
+  sequence" no-op pattern as Custom Lead Lists), and one view per sequence
+  listing every enrollment with its current step, status badge, and the
+  due date of its open task — Restart/Remove buttons per row.
+- **Bug found and fixed while verifying: the Engage tab silently stopped
+  switching when navigating between sub-items while already inside
+  Engage.** `Engage.tsx`'s `tab` state was seeded from the `initialTab`
+  prop via `useState`'s one-time initializer only — since `view` stays
+  `"engage"` the whole time you're clicking between sidebar sub-items,
+  `App.tsx` never unmounts/remounts `<Engage>`, so that initializer never
+  re-ran. Clicking a different sidebar sub-item (or a Home tile) while
+  already viewing Engage changed the `initialTab` prop but the visibly
+  active tab silently stayed put — reads exactly like "tab switching is
+  delayed," which is what surfaced it. Fixed with a
+  `useEffect(() => setTab(initialTab || "sequences"), [initialTab])`.
+  Confirmed by tracing the render path, then verified live: clicking
+  Tasks → Calls → Companies in sequence while staying on the Engage view
+  now switches correctly every time (previously only the first click
+  worked).
+- Verified live end-to-end: created a 2-step sequence (call, then email),
+  enrolled a contact, confirmed the generated task's exact text and due
+  date; completed the step-1 task from the Calls tab and confirmed the
+  enrollment advanced to Step 2/2; separately, set a different enrolled
+  contact's disposition to "Meeting booked" in Scanner and confirmed
+  their enrollment auto-finished with "Ended by disposition" — both core
+  mechanics working, not just scaffolding.
+
+## Engage reorganized: sidebar sub-nav collapsible, Lists folded in, header search removed (app/ only)
+
+A batch of navigation requests building directly on the sidebar sub-nav
+shipped earlier the same session. Per Jack: "i want to be able to... more
+collapsable drop downs under tabs with relevant sub sections like
+engage... all collapasable on the left hand side when clicking a little
+arrow icon next to engage just like apollo," then "add companies under
+emails and reorganize it top to bottom properly... you can move lists
+under there also," then "the search bar at the top... can now be
+removed."
+
+- **Sidebar Engage sub-nav is now a real collapsible toggle**, not
+  always-expanded — a small ▸/▾ button next to "Engage" (`App.tsx`'s
+  `engageNavExpanded` state, **collapsed by default**, unlike the
+  always-open version shipped earlier the same session). Clicking
+  "Engage" itself still auto-expands it and navigates to the default tab.
+- **Companies and Contacts moved from Engage's in-page dropdown into the
+  sidebar sub-nav too** (previously sidebar-only had Sequences/Tasks/
+  Calls/Emails), and **Lists moved from its own top-level sidebar item
+  into Engage's sub-nav** — no longer a separate `View`. Both the sidebar
+  sub-nav (`ENGAGE_SUB_ITEMS`) and Engage's own in-page dropdown
+  (`TAB_OPTIONS`) now share the exact same order: **Sequences, Tasks,
+  Calls, Emails, Companies, Contacts, Lists** — Companies landing right
+  after Emails per Jack's explicit ask. Engage's default tab changed from
+  Tasks to Sequences to match.
+- **Home's Lists tile now navigates into Engage's Lists tab** instead of a
+  standalone view (`onNavigate` gained an optional second `EngageTab`
+  argument, threaded through `App.tsx` the same way the sidebar sub-nav
+  already sets `engageEntry` + expands the sub-nav).
+- **Global header search removed entirely** — `HeaderSearch.tsx` deleted,
+  its import/render/CSS all removed from `App.tsx`/`styles.css`. Contacts
+  can still be found via the Contacts tab's own search box; nothing else
+  depended on the header search.
+- **"Welcome, {first name}" instead of a hardcoded "Welcome back, Jack."**
+  — Home now loads the real (editable) `Profile` record itself
+  (`lib/profile.ts`) and greets by its first word, falling back to
+  "Jack" if no profile is saved yet. Independent load, same pattern
+  `AccountPanel` already used for the same data — Home remounts on every
+  navigation there anyway, so a profile edit shows up next visit.
+- **History's per-entry breakdown now shows the "no signal" count** — per
+  Jack, catching a real gap while looking at a real 500-row upload: "rows
+  scanned for file 8/26/2026 say 500 while strong signal says 64, needs
+  review 33, bad leads 43 — total 140." The math was always correct
+  (`rowsScanned = duplicatesRemoved + noSignalCount + results.length`,
+  same identity Scanner's own live banner already enforces) but History
+  never surfaced the `noSignalCount` term — a row with zero Dynamics/
+  M365/licensing signal never becomes a `ResultRow` at all
+  (`scanRowUnified` returns `null` for it), so it was never in
+  `entry.results` and the number had nowhere to display. Added a
+  `noSignalCount` computation and a "N no signal" segment to
+  `HistoryCard`'s breakdown line, matching Scanner's existing wording.
+  Not a bug in the detection engine — the 64 Strong Signal figure for
+  that exact file was independently confirmed correct earlier this
+  session (see the "Full Strong Signal audit" section above); this was
+  purely a display gap in History specifically.
+- Verified live: confirmed the sidebar sub-nav starts collapsed and the
+  arrow toggles it; confirmed the new order matches in both the sidebar
+  and the in-page dropdown; confirmed clicking through Tasks → Calls →
+  Companies while staying in Engage switches correctly each time (the
+  tab-switch bug fix above); confirmed the header search box is gone;
+  confirmed Home shows "Welcome, Jack." from the real Profile record.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool
@@ -2149,17 +2286,18 @@ rather than trusting memory of it.
   -text note).
 - A power dialer, eventually a 2x parallel dialer, hooked up to VOIP or
   Teams phone numbers.
-- Sequenced outbound task management — calling/emailing/outreach cadences
-  per lead, Apollo-style. Research doc: ["Sequence UX Teardown"](https://claude.ai/code/artifact/b6dec613-1643-4f5a-a8d1-8d04872558c5)
+- **Sequenced outbound task management — Phase 1 shipped**, see "Native
+  Sequences" below. Research doc: ["Sequence UX Teardown"](https://claude.ai/code/artifact/b6dec613-1643-4f5a-a8d1-8d04872558c5)
   (published artifact) — a HubSpot-vs-Apollo comparison of their Sequences/
   Engage UI and underlying data model (step types, wait-time/schedule
   config, enrollment + auto-pause rules, dialer mechanics, reporting),
   including real sequence/task shapes pulled live from Apollo's own API,
-  plus a phased build plan (Phase 1: task/call-only sequencing reusing
-  existing Task/Contact data, no email step; Phase 2: email steps once
-  SendGrid lands; Phase 3: power dialer). Read this before scoping the
-  item below for real — it already answers most of the "how would this
-  actually work" questions.
+  plus the phased build plan this followed (Phase 1: task/call-only
+  sequencing reusing existing Task/Contact data, no email step — done;
+  Phase 2: real email/LinkedIn sending once SendGrid/a LinkedIn API land;
+  Phase 3: power dialer). Still ahead: pulling real Apollo sequence/call-
+  outcome data in as its own separate track (see "Apollo sequences
+  investigation" above — blocked on reauthorizing the connector).
 - User accounts/login policies as a real precursor to any of the above
   (today's single shared password gate, per Access & ownership, isn't that).
 - SendGrid tie-in for sending + monitoring outbound email, and a view of
