@@ -50,6 +50,24 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
           are yours to edit; everything else here is the fixed rule set built into the app.
         </p>
 
+        <Section title="🔥 Hot signals right now">
+          <p style={{ marginBottom: 8 }}>
+            These clear a category match AND jump straight to Strong Signal on their own — no trigger word or seat count
+            needed on top:
+          </p>
+          <ul style={{ margin: "0 0 6px", paddingLeft: 20, display: "flex", flexDirection: "column", gap: 5 }}>
+            <li><strong>Azure Document Intelligence</strong> mentions — M365 / Azure.</li>
+            <li><strong>Full custom app build on Azure</strong> — M365 / Azure.</li>
+            <li><strong>Google → Microsoft migration</strong> language — M365 / Azure (also lands in the "Google → Microsoft" view tab, see below).</li>
+            <li><strong>MSP / CSP / full partner-engagement</strong> language — including plain "partner engagement" or "full engagement" phrasing, not just "bring in a partner" — M365 / Azure.</li>
+            <li><strong>Security design / architecture / hardening</strong> language — M365 / Azure (this one also creates the category match on its own, same footing as "IT support"/"help desk").</li>
+          </ul>
+          <p style={{ margin: 0, color: "#9aa1ac", fontSize: 12 }}>
+            Everything else still needs a trigger word, a stated seat count, or (Dynamics only) a bare number sitting next
+            to the match — see each category below.
+          </p>
+        </Section>
+
         <Section title="Licensing — Microsoft SKUs">
           <p>
             Looks for any of {SKU_CATALOGUE.length} Microsoft SKU patterns. A <strong>Strong Signal</strong> requires a
@@ -132,6 +150,39 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
               </div>
               <KeywordEditor category="dataPlatform" ruleOverrides={ruleOverrides} onChangeRuleOverrides={onChangeRuleOverrides} />
             </div>
+          </CategoryDetail>
+        </Section>
+
+        <Section title="How each category breaks down further (View tabs)">
+          <p style={{ marginBottom: 10 }}>
+            Once a category filter is active in Scanner or a Lead Library file, a "View:" row of tabs slices it further —
+            purely for browsing/filtering. It never changes what's downloaded, filed, or which of the two categories a lead
+            counts toward.
+          </p>
+          <CategoryDetail k="dynamics365">
+            <strong>Four tabs, always: All Dynamics 365 · Business Central / ERP · Sales / CRM · Everything else.</strong>
+            <br />
+            <strong>Business Central / ERP</strong> — a row mentions "Business Central" or bare "ERP." This is the same
+            tier-0 module ranking (highest-priority Dynamics leads, always shown first).
+            <br />
+            <strong>Sales / CRM</strong> — a row mentions "Sales" or "CRM" and does <em>not</em> also hit Business
+            Central/ERP — the two tabs are mutually exclusive; BC/ERP always wins if a row hits both.
+            <br />
+            <strong>Everything else</strong> — every other Dynamics hit: Finance and Operations, Supply Chain Management,
+            Customer Engagement/Insights, Field Service, Marketing, Project Operations, Human Resources, and anything with
+            no specific module named.
+          </CategoryDetail>
+          <CategoryDetail k="m365Tenant">
+            <strong>Three tabs, always: All M365/Azure · Google → Microsoft · Everything else.</strong>
+            <br />
+            <strong>Google → Microsoft</strong> — literal Google Workspace→Microsoft 365 migration language, PLUS any
+            other Migration/Modernization-category hit (those already require partner-engagement language to count at
+            all, so they're already Strong Signal), PLUS Azure hits qualified specifically via on-prem-to-cloud migration
+            language. Azure billing/CSP hits and security-design hits do NOT land here even though they're Strong Signal —
+            they stay in Everything else.
+            <br />
+            <strong>Everything else</strong> — every other M365/Azure hit: Azure billing/CSP, Document Intelligence, app
+            builds, security design/hardening, tenant support, and plain licensing.
           </CategoryDetail>
         </Section>
 

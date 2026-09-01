@@ -1,10 +1,10 @@
 import { useMemo, useState } from "react";
 import { ACTIVE_BUCKET_KEYS, ACTIVE_CATEGORY_KEYS, BUCKET_META, CATEGORY_META, EXPORT_LABELS, exportRowsForBucket, getFullName, type BucketKey } from "../lib/detection";
 import { downloadCSV, toCSV, downloadBlob } from "../lib/csv";
-import { getWeeks, getDays, getFilteredHistory, buildAuditTrailRows, AUDIT_TRAIL_COLUMNS, type HistoryEntry } from "../lib/history";
+import { getWeeks, getDays, getMonths, getFilteredHistory, buildAuditTrailRows, AUDIT_TRAIL_COLUMNS, type HistoryEntry } from "../lib/history";
 import type { LibraryEntry } from "../lib/library";
 
-type GroupBy = "week" | "day";
+type GroupBy = "week" | "day" | "month";
 
 interface HistoryProps {
   history: HistoryEntry[];
@@ -28,7 +28,7 @@ type PendingDelete = { kind: "single"; id: string; fileName: string } | { kind: 
 
 export default function HistoryView({ history, loading, error, onLoadIntoScanner, onDeleteEntry, onUpdateEntry, onClearHistory, libraryEntries }: HistoryProps) {
   const [search, setSearch] = useState("");
-  const [groupBy, setGroupBy] = useState<GroupBy>("day");
+  const [groupBy, setGroupBy] = useState<GroupBy>("month");
   const [activeGroupKey, setActiveGroupKey] = useState<string | "all">("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
@@ -77,7 +77,8 @@ export default function HistoryView({ history, loading, error, onLoadIntoScanner
   const filtered = useMemo(() => getFilteredHistory(history, search), [history, search]);
   const weeks = useMemo(() => getWeeks(filtered), [filtered]);
   const days = useMemo(() => getDays(filtered), [filtered]);
-  const groups = groupBy === "day" ? days : weeks;
+  const months = useMemo(() => getMonths(filtered), [filtered]);
+  const groups = groupBy === "day" ? days : groupBy === "week" ? weeks : months;
   const visibleEntries = activeGroupKey === "all" ? filtered : groups.find((g) => g.key === activeGroupKey)?.entries || [];
 
   function toggleSelect(id: string) {
@@ -141,13 +142,13 @@ export default function HistoryView({ history, loading, error, onLoadIntoScanner
 
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
         <span style={{ fontSize: 11.5, color: "#8b93a0", fontWeight: 700, textTransform: "uppercase" }}>Group by</span>
-        {(["day", "week"] as GroupBy[]).map((g) => (
+        {(["day", "week", "month"] as GroupBy[]).map((g) => (
           <button
             key={g}
             onClick={() => { setGroupBy(g); setActiveGroupKey("all"); }}
             style={{ border: "none", borderRadius: 8, padding: "5px 11px", fontWeight: 600, fontSize: 12, background: groupBy === g ? "#081E22" : "#F6FAFA", color: groupBy === g ? "#fff" : "#4C6167" }}
           >
-            {g === "day" ? "Day" : "Week"}
+            {g === "day" ? "Day" : g === "week" ? "Week" : "Month"}
           </button>
         ))}
       </div>

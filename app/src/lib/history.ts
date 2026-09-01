@@ -5,6 +5,7 @@
 
 import { dbGetAll, dbPut, dbDelete, STORE_HISTORY } from "./db";
 import type { ResultRow, ParsedFile } from "./detection";
+import { monthKeyFromDate, monthLabelFromKey } from "./library";
 
 export interface HistoryEntry {
   id: string;
@@ -112,6 +113,34 @@ export function getWeeks(history: HistoryEntry[]): Week[] {
   return keys.map((k) => ({
     key: k,
     label: weekLabelOf(k),
+    entries: map.get(k)!.sort((a, b) => new Date(b.importedAt).getTime() - new Date(a.importedAt).getTime()),
+  }));
+}
+
+/* ------------------------------------------------------------------ */
+/* Month grouping — per Jack: "history should end up collapsing and     */
+/* storing by the month also with all uploaded files," matching the     */
+/* Lead Library's own month-folder organization. Same Group-by pattern  */
+/* as Day/Week above (a filter tab, not a new UI concept) — reuses the  */
+/* Library's own monthKeyFromDate/monthLabelFromKey so "August 2026"    */
+/* here always means the same thing "August 2026" does in the Library. */
+/* ------------------------------------------------------------------ */
+export interface Month {
+  key: string;
+  label: string;
+  entries: HistoryEntry[];
+}
+export function getMonths(history: HistoryEntry[]): Month[] {
+  const map = new Map<string, HistoryEntry[]>();
+  history.forEach((h) => {
+    const k = monthKeyFromDate(new Date(h.importedAt));
+    if (!map.has(k)) map.set(k, []);
+    map.get(k)!.push(h);
+  });
+  const keys = [...map.keys()].sort((a, b) => b.localeCompare(a));
+  return keys.map((k) => ({
+    key: k,
+    label: monthLabelFromKey(k),
     entries: map.get(k)!.sort((a, b) => new Date(b.importedAt).getTime() - new Date(a.importedAt).getTime()),
   }));
 }

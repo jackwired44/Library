@@ -2044,6 +2044,79 @@ polish, and matches the Roadmap's "single source of truth for every
 qualified lead" framing already captured below — this is that same
 thesis, restated with an explicit usage-pattern prediction attached.
 
+## Shell — sidebar Engage sub-nav, Cheat Sheet redo, header rename, History-by-month (app/ only)
+
+A batch of navigation/UI-clarity requests fired in quick succession ahead
+of a same-day walkthrough with someone else — treated as a set of
+concrete, additive tweaks rather than one big proposal, per Jack's own
+urgency ("showing someone this today so need to walk through it").
+
+- **Sidebar Engage sub-nav, Apollo-style.** Per Jack: "a tab on the left
+  hand side like Apollo's Engage for tasks, calls, emails... add a
+  sequence tab also," then refined to "collapsable... just like apollo"
+  with Contacts added too. `App.tsx`'s sidebar now renders a small
+  ▸/▾ toggle next to the Engage row (`engageNavExpanded` state, collapsed
+  by default) that reveals `ENGAGE_SUB_ITEMS` — Sequences, Tasks, Calls,
+  Emails, Contacts — indented underneath. Clicking Engage itself also
+  auto-expands it (so navigating there doesn't hide the very sub-nav
+  you're about to use); clicking a sub-item sets `engageEntry.tab` and
+  navigates, reusing the exact mechanism `HeaderSearch` already used to
+  jump to Contacts. Purely additive — Engage's own in-page dropdown
+  (`Engage.tsx`) still has every tab including these plus Companies, so
+  nothing that worked before stopped working.
+- **Sequences tab is a placeholder only**, per Jack's explicit "dont
+  build out yet" — `Engage.tsx` renders a plain "not built yet" notice
+  pointing at the "Apollo sequences investigation" section above. `Task`/
+  `EngageTab` gained no new fields for this; it's UI-only.
+- **Cheat Sheet redone for content clarity, zero rule changes.** Per
+  Jack: "for questions on how the two categories are broken down...
+  what signals are hot and how they break down with different product
+  lines in their own category... change no functions." Two new sections
+  added to `CheatSheet.tsx`, both purely descriptive (sourced from the
+  same fixed rules already documented elsewhere in this file, nothing
+  recomputed or changed): **"🔥 Hot signals right now"** (Document
+  Intelligence, full app builds, Google→Microsoft, MSP/CSP/partner-
+  engagement, security-design language — the hits that skip the trigger-
+  word/count requirement entirely) and **"How each category breaks down
+  further (View tabs)"** (spells out the Business Central/ERP vs Sales/
+  CRM vs Everything-else split for Dynamics, and Google→Microsoft vs
+  Everything-else for M365/Azure — previously undocumented anywhere in
+  the Cheat Sheet itself, only in this file). The existing threshold
+  editor, keyword editor, and Auto-DQ/Duplicates sections are untouched.
+- **Direct Cheat Sheet entry point.** `AccountPanel.tsx`'s bottom-left
+  "⚙ Settings" button — which only ever opened the Cheat Sheet, never a
+  broader settings page — is relabeled "❓ Cheat Sheet" so it reads
+  honestly for a live walkthrough. Same handler, same modal, no new
+  state; a rename, not a new function.
+- **Header retitled** "Wired Sales Outbound" (was "Wired CIO"), larger
+  (26px, up from 17px) — per Jack: "add Wired Sales Outbound for the
+  title in big letters." Subtitle ("Lead Scanner") and the "W" mark are
+  unchanged.
+- **Scanner's "Recent uploads" card is now collapsible** (▸/▾, expanded
+  by default) — per Jack: "Recent uploads on scanner should be
+  collapsable." New `recentUploadsCollapsed` state in `Scanner.tsx`,
+  reset on "Start over" like every other per-batch UI choice.
+- **History gains a "Month" grouping**, alongside the existing Day/Week
+  tabs — per Jack: "history should end up collapsing and storing by the
+  month also with all uploaded files," matching the Lead Library's own
+  month-folder organization. New `getMonths()` in `lib/history.ts`,
+  mirroring `getWeeks`/`getDays` exactly but reusing the Library's own
+  `monthKeyFromDate`/`monthLabelFromKey` (imported from `lib/library.ts`)
+  so "August 2026" means the same thing in both places. Month is now the
+  default grouping (was Day) since it's the more natural default given
+  how Jack organizes everything else in the app. No new interaction
+  pattern — it's the same click-a-pill-to-filter mechanic Day/Week
+  already had, not a new accordion UI.
+- Verified live: uploaded a batch, confirmed the Recent-uploads collapse
+  toggle round-trips correctly; expanded the sidebar Engage group and
+  confirmed Sequences/Tasks/Calls/Emails/Contacts all navigate to the
+  right panel with no console errors; confirmed the Cheat Sheet's two new
+  sections render in full (verified against the actual rendered DOM
+  text, not just the source) alongside every pre-existing section
+  untouched; confirmed History's Month tab shows a real month pill and
+  narrows correctly; confirmed the header renders "Wired Sales Outbound"
+  at the larger size without clipping/overflow in the header bar.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

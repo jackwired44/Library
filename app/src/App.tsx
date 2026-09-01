@@ -43,10 +43,28 @@ type View = "home" | "scanner" | "history" | "library" | "engage" | "lists";
 const NAV_ITEMS: { key: View; label: string; icon: string }[] = [
   { key: "home", label: "Home", icon: "🏠" },
   { key: "scanner", label: "Scanner", icon: "🔎" },
+  // (Engage's own sub-nav — Sequences/Tasks/Calls/Emails — is inserted
+  // right after the Engage row below, see ENGAGE_SUB_ITEMS.)
   { key: "engage", label: "Engage", icon: "🤝" },
   { key: "library", label: "Lead Library", icon: "📚" },
   { key: "lists", label: "Lists", icon: "🗂️" },
   { key: "history", label: "History", icon: "🕘" },
+];
+
+// Engage's own sub-nav, shown nested under the Engage row in the sidebar
+// — per Jack: "a tab on the left hand side like Apollo's Engage for
+// tasks, calls, emails... add a sequence tab also." Additive: these are
+// shortcuts straight into an EngageTab, alongside (not replacing)
+// Engage's own in-page dropdown, which still has every tab including
+// these plus Contacts/Companies. Sequences is a placeholder only for now
+// — see CLAUDE.md "Apollo sequences investigation," still blocked on
+// reauthorizing the connector and confirming the disposition mapping.
+const ENGAGE_SUB_ITEMS: { key: EngageTab; label: string; icon: string }[] = [
+  { key: "sequences", label: "Sequences", icon: "📡" },
+  { key: "tasks", label: "Tasks", icon: "✅" },
+  { key: "calls", label: "Calls", icon: "📞" },
+  { key: "emails", label: "Emails", icon: "✉️" },
+  { key: "contacts", label: "Contacts", icon: "👤" },
 ];
 
 export interface UploadedFile {
@@ -69,6 +87,13 @@ export default function App() {
   // header search (see HeaderSearch.tsx) — reset when Engage is opened
   // any other way (sidebar click) so a stale search doesn't linger.
   const [engageEntry, setEngageEntry] = useState<{ tab?: EngageTab; contactsQuery?: string }>({});
+  // Collapsed by default — per Jack: "collapsable drop downs under tabs
+  // with relevant sub sections like engage... just like apollo." Toggled
+  // by its own arrow, separate from the Engage row's own click-to-navigate
+  // — navigating into Engage (sidebar click, header search, a sub-item
+  // itself) also auto-expands it so the sub-nav isn't hidden right when
+  // you're using it.
+  const [engageNavExpanded, setEngageNavExpanded] = useState(false);
   // Shared Platform Notes/Cheat Sheet panel (see CLAUDE.md "Cheat Sheet
   // relocation + dated Platform Notes") — one panel, two tabs, replacing
   // the old separate floating Cheat Sheet button + notes popover.
@@ -422,7 +447,7 @@ export default function App() {
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div className="app-mark" aria-hidden="true">W</div>
           <div>
-            <h1 style={{ fontSize: 17, margin: 0, lineHeight: 1.2 }}>Wired CIO</h1>
+            <h1 style={{ fontSize: 26, margin: 0, lineHeight: 1.15, letterSpacing: "-0.01em" }}>Wired Sales Outbound</h1>
             <div style={{ fontSize: 11, color: "#8b93a0", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Lead Scanner</div>
           </div>
         </div>
@@ -440,6 +465,7 @@ export default function App() {
             onJumpToContacts={(query) => {
               setEngageEntry({ tab: "contacts", contactsQuery: query });
               setView("engage");
+              setEngageNavExpanded(true);
             }}
           />
         </div>
@@ -459,26 +485,57 @@ export default function App() {
         >
           <nav style={{ display: "flex", flexDirection: "column", gap: 2, overflowY: "auto", minHeight: 0 }}>
             {NAV_ITEMS.map((item) => (
-              <button
-                key={item.key}
-                onClick={() => {
-                  setView(item.key);
-                  if (item.key === "engage") setEngageEntry({});
-                }}
-                className={`side-nav-btn${view === item.key ? " active" : ""}`}
-              >
-                <span aria-hidden="true">{item.icon}</span>
-                <span>
-                  {item.label}
-                  {item.key === "library"
-                    ? ` (${libraryEntries.length})`
-                    : item.key === "history"
-                      ? ` (${historyEntries.length})`
-                      : item.key === "lists"
-                        ? ` (${leadLists.length})`
-                        : ""}
-                </span>
-              </button>
+              <div key={item.key}>
+                <div style={{ display: "flex", alignItems: "center", gap: 0 }}>
+                  <button
+                    onClick={() => {
+                      setView(item.key);
+                      if (item.key === "engage") {
+                        setEngageEntry({});
+                        setEngageNavExpanded(true);
+                      }
+                    }}
+                    className={`side-nav-btn${view === item.key ? " active" : ""}`}
+                    style={{ flex: 1 }}
+                  >
+                    <span aria-hidden="true">{item.icon}</span>
+                    <span>
+                      {item.label}
+                      {item.key === "library"
+                        ? ` (${libraryEntries.length})`
+                        : item.key === "history"
+                          ? ` (${historyEntries.length})`
+                          : item.key === "lists"
+                            ? ` (${leadLists.length})`
+                            : ""}
+                    </span>
+                  </button>
+                  {item.key === "engage" && (
+                    <button
+                      onClick={() => setEngageNavExpanded((v) => !v)}
+                      title={engageNavExpanded ? "Collapse Engage" : "Expand Engage"}
+                      style={{ border: "none", background: "none", cursor: "pointer", padding: "0 8px", color: "var(--muted)", fontSize: 10 }}
+                    >
+                      {engageNavExpanded ? "▾" : "▸"}
+                    </button>
+                  )}
+                </div>
+                {item.key === "engage" && engageNavExpanded && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 1, marginLeft: 20, borderLeft: "1px solid var(--border)", paddingLeft: 6 }}>
+                    {ENGAGE_SUB_ITEMS.map((sub) => (
+                      <button
+                        key={sub.key}
+                        onClick={() => { setEngageEntry({ tab: sub.key }); setView("engage"); }}
+                        className={`side-nav-btn${view === "engage" && engageEntry.tab === sub.key ? " active" : ""}`}
+                        style={{ fontSize: 12, padding: "5px 8px" }}
+                      >
+                        <span aria-hidden="true">{sub.icon}</span>
+                        <span>{sub.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             ))}
           </nav>
           <div style={{ marginTop: "auto" }}>

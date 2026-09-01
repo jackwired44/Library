@@ -40,8 +40,8 @@ export default function AccountPanel({ onOpenSettings, onOpenNotes }: AccountPan
           <div className="account-org">{[profile?.role, profile?.org].filter(Boolean).join(" · ") || "Wired CIO"}</div>
         </div>
       </button>
-      <button onClick={onOpenSettings} title="Settings — rule tuning, thresholds, Cheat Sheet" className="account-gear account-gear-standalone">
-        ⚙ Settings
+      <button onClick={onOpenSettings} title="Cheat Sheet — how leads qualify, hot signals, product-line breakdown" className="account-gear account-gear-standalone">
+        ❓ Cheat Sheet
       </button>
       <button onClick={onOpenNotes} className="notes-trigger">
         📝 Platform notes

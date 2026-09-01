@@ -156,6 +156,7 @@ export default function Scanner({
   const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [recentUploadsCollapsed, setRecentUploadsCollapsed] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // High Priority panel (landing screen) — filter by which source CSV a
   // priority lead came from; "all" shows every priority lead across all
@@ -687,7 +688,14 @@ export default function Scanner({
 
         {recentUploads.length > 0 && (
           <div style={{ marginTop: 24, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "14px 16px" }}>
-            <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", marginBottom: 10 }}>Recent uploads</div>
+            <button
+              onClick={() => setRecentUploadsCollapsed((v) => !v)}
+              style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", border: "none", background: "none", cursor: "pointer", padding: 0, marginBottom: recentUploadsCollapsed ? 0 : 10 }}
+            >
+              <span style={{ fontSize: 10, color: "var(--muted)" }}>{recentUploadsCollapsed ? "▸" : "▾"}</span>
+              <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase" }}>Recent uploads ({recentUploads.length})</span>
+            </button>
+            {!recentUploadsCollapsed && (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {recentUploads.map((h) => {
                 const signalCount = h.results.filter((r) => r.tier === "signal").length;
@@ -705,6 +713,7 @@ export default function Scanner({
                 );
               })}
             </div>
+            )}
           </div>
         )}
 

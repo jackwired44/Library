@@ -40,13 +40,14 @@ interface EngageProps {
   initialContactsSearch?: string;
 }
 
-export type EngageTab = "contacts" | "companies" | "tasks" | "calls" | "emails";
+export type EngageTab = "contacts" | "companies" | "tasks" | "calls" | "emails" | "sequences";
 const TAB_OPTIONS: { key: EngageTab; label: string }[] = [
   { key: "contacts", label: "Contacts" },
   { key: "companies", label: "Companies" },
   { key: "tasks", label: "Tasks" },
   { key: "calls", label: "Calls" },
   { key: "emails", label: "Emails" },
+  { key: "sequences", label: "Sequences" },
 ];
 
 export default function Engage({
@@ -114,6 +115,18 @@ export default function Engage({
       )}
       {tab === "emails" && (
         <ChannelTasks channel="email" contacts={contacts} tasks={tasks} onAddContactTask={onAddContactTask} onToggleTask={onToggleTask} onDeleteTask={onDeleteTask} />
+      )}
+      {tab === "sequences" && (
+        <div>
+          <h2 style={{ margin: "0 0 8px", fontSize: 18 }}>📡 Sequences</h2>
+          <div style={{ background: "var(--surface)", border: "1px dashed var(--border)", borderRadius: 12, padding: "20px 22px", maxWidth: 620, fontSize: 13, color: "var(--muted)", lineHeight: 1.6 }}>
+            Not built yet — this will pull your live Apollo sequences in as a
+            chart-style, dual-screen view alongside Apollo itself (open/reply
+            rates, per-contact call-task status, and disposition tracking).
+            Scoping is underway; see CLAUDE.md "Apollo sequences
+            investigation" for what's confirmed so far.
+          </div>
+        </div>
       )}
     </div>
   );
