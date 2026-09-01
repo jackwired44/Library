@@ -535,40 +535,38 @@
     {
       key: "company-profile", track: "foundations", kicker: "COMPANY PROFILE",
       title: "Company Profile",
-      subtitle: "The fact sheet &mdash; hard details at a glance. See Who Is Wired CIO for the pitch and positioning that go with these facts.",
+      subtitle: "Who we target, who we don&rsquo;t, and who&rsquo;s the priority right now. For company facts (HQ, founder, pricing), see Who Is Wired CIO.",
       overview: [
-        "This page is the quick-reference snapshot: legal basics, location, and the confirmed numbers SDRs are actually held to (company-size sweet spot, priority industries). Nothing here is the pitch itself &mdash; that&rsquo;s the next page.",
+        "This page is the targeting filter, not the pitch &mdash; use it to decide whether a company is worth working before you spend time qualifying the call itself.",
       ],
-      snapshot: {
-        heading: "Snapshot",
-        headers: ["Field", "Detail"],
-        rows: [
-          ["Trade name", "Wired CIO"],
-          ["Headquarters", "3432 W Diversey Ave, Floor 2, Chicago, IL 60647"],
-          ["Also serving", "Cincinnati market"],
-          ["Website", "wiredcio.com"],
-          ["Founder", "Russell &mdash; 15 years of IT experience, deep Microsoft expertise"],
-          ["Tagline", "&ldquo;When your technology works, so do your people.&rdquo;"],
-          ["Core model", "Microsoft-aligned managed IT partner &mdash; fully managed or co-managed"],
-          ["Execution model", "Enterprise-grade execution on Microsoft&rsquo;s SMB-tier stack &mdash; configure what&rsquo;s already included in licenses clients own, plus our own tooling on top"],
-          ["Land-and-expand motion", "Solve one front-end, mission-critical problem first, then expand into ongoing platform, security, or full MSP support"],
-          ["Company-size target", "SMB only, solely under 200 employees (largest client to date: 55 employees)"],
-          ["Priority industries", "Distribution, Pharmaceutical, Manufacturing, Healthcare (in that order)"],
-          ["Pricing model", "Flat monthly rate per person, covering their primary device"],
-          ["Engagement structure", "Rolling 90-day commitment"],
+      signalsGood: {
+        heading: "Who We Target",
+        items: [
+          "Companies with 10&ndash;200 employees, ideally still growing &mdash; not stagnant, not shrinking.",
+          "A visible front-end application or project issue right now &mdash; a specific, immediate pain point, not vague interest in &ldquo;better IT.&rdquo;",
+          "A business we can grow with long-term: that front-end issue is the wedge into ongoing support &mdash; full MSP, co-managed IT, ERP support, CRM support, Azure Document Intelligence builds/app support, and a CSP licensing partnership.",
+          "A one-stop-shop fit: they need talented solution architects to apply and configure Microsoft&rsquo;s tools &mdash; the features that already deploy with the licenses they own but still need to be set up &mdash; plus our own SaaS tools that we manage and deploy on top.",
         ],
       },
-      facts: {
-        heading: "Still To Confirm &mdash; Don&rsquo;t Guess These On a Call",
+      signalsBad: {
+        heading: "Who We Don&rsquo;t Target",
         items: [
-          "<b>Founding year</b> &mdash; not yet confirmed. Don&rsquo;t state a specific year until Jack confirms one.",
-          "<b>Total Wired CIO headcount</b> (the team itself, not client seat counts) &mdash; not yet confirmed.",
-          "<b>Formal Microsoft Partner designation/tier</b> (e.g. a named Solutions Partner competency) &mdash; the site says “Microsoft-aligned” but no specific certification/tier was found publicly. Confirm the real designation with Jack before quoting one to a prospect.",
+          "Outside the 10&ndash;200 employee band on either side &mdash; too small to have a real IT budget or decision process, or already large enough to run a full internal IT department that doesn&rsquo;t need us.",
+          "No specific front-end problem &mdash; just generic interest with nothing driving urgency.",
+          "A one-off project or free-consultancy ask with no realistic path to an ongoing relationship.",
+          "A business that wants Microsoft&rsquo;s own direct support instead of a partner to configure, apply, and manage it for them.",
+        ],
+      },
+      icp: {
+        heading: "Current Priority &mdash; Right Now",
+        items: [
+          "<b>Priority industries, in order:</b> Distribution, Pharmaceutical, Manufacturing, Healthcare (HIPAA/compliance-driven).",
+          "Every other industry still qualifies if the rest of this page fits &mdash; these four are just where outbound should concentrate first.",
         ],
       },
       crossSell: {
         heading: "Where to Go Next",
-        text: "<b>Who Is Wired CIO</b> for the pitch, differentiators, and objection handling built on these facts. <b>Outbound Execution Playbook</b> for the call flow and qualification framework these numbers feed into.",
+        text: "<b>Who Is Wired CIO</b> for company facts, the pitch, and objection handling. <b>Outbound Execution Playbook</b> for the call flow and the full qualification framework this targeting profile feeds into.",
       },
     },
     {
@@ -598,12 +596,16 @@
           "Pricing model: a flat monthly rate per person, which covers their primary device &mdash; shared and additional devices are a small add-on. Simple and predictable; never quote a specific number cold, that comes after Discovery.",
           "Engagement structure: a rolling 90-day commitment, not a multi-year lock-in &mdash; “we earn your business every quarter.” A strong, disarming answer to the “long contract” objection.",
           "Sales motion: Discovery (ballpark scope and budget shared early, no signature expected) → Design → fixed-scope pricing, presented two ways side by side &mdash; a straight hourly project, or the same scope amortized monthly with support included.",
+          "HQ: 3432 W Diversey Ave, Floor 2, Chicago, IL 60647. Website: wiredcio.com.",
+          "Founded in 2022, originally as a traditional MSP-focused shop &mdash; the business underwent a significant transformation and revamp from that model into the current front-end-app-and-immediate-pain-point approach, then longer-term support and growth. The land-and-expand motion this playbook teaches is the same path the company itself grew through.",
+          "Team: about 14 people total &mdash; 6 solution architects (contracted and full-time, all stateside), plus an offshore help desk.",
+          "<b>Still to confirm &mdash; don&rsquo;t guess this on a call:</b> the formal Microsoft Partner designation/tier. The site says &ldquo;Microsoft-aligned&rdquo; but no specific certification/tier was found publicly &mdash; confirm the real one with Jack before quoting it to a prospect.",
         ],
       },
       icp: {
         heading: "Ideal Customer Profile &mdash; Who We Chase",
         items: [
-          "<b>Company size &mdash; hard target, not just a preference:</b> we solely target SMB, under 200 employees. Per Jack: the largest client worked with to date is 55 employees &mdash; treat anything much above 100 as realistic upside, not the norm. Most real traction so far sits in the smaller half of the band, so don&rsquo;t hesitate on a 20&ndash;60-employee prospect thinking it&rsquo;s too small.",
+          "<b>Company size &mdash; hard target, not just a preference:</b> we solely target SMB, 10&ndash;200 employees, ideally still growing. Per Jack: the largest client worked with to date is 55 employees &mdash; treat anything much above 100 as realistic upside, not the norm.",
           "<b>Priority industries, in order:</b> Distribution, Pharmaceutical, Manufacturing, Healthcare (HIPAA/compliance-driven). Lead with these verticals when a list has them &mdash; everything else still gets worked, it&rsquo;s just not where outbound should be concentrated first.",
           "<b>Sweet-spot signal:</b> a business with SOME internal structure already (a named IT contact, an existing Microsoft tenant, a stated budget owner) &mdash; not zero infrastructure, not already fully enterprise-staffed. <i>Working heuristic &mdash; revisit against real closed-won deals as the track record grows.</i>",
           "<b>How a lead reaches an SDR:</b> raw exports (Apollo pulls, CRM dumps, cold lists) are run through the Lead Scanner&rsquo;s detection engine first &mdash; by the time a lead lands on a dial list, it has already cleared licensing/Dynamics/M365 signal detection and the Auto-DQ screen. An SDR isn&rsquo;t qualifying from zero, they&rsquo;re confirming and deepening a signal the tool already found.",
@@ -642,7 +644,7 @@
           "What specific problem can we help solve? &mdash; A real, mission-critical, front-end problem (the wedge), not vague interest. If you can&rsquo;t name it in one sentence, you don&rsquo;t have enough yet.",
           "What&rsquo;s the timeline? &mdash; Are they moving now, or just exploring for someday?",
           "How many users or employees does the company have &mdash; today, and however many would end up licensed on whatever platform this becomes?",
-          "Does the company profile actually make sense for us to engage and try to build a partnership with? &mdash; Re-check against the ICP: SMB, solely under 200 employees, priority industries (Distribution, Pharmaceutical, Manufacturing, Healthcare).",
+          "Does the company profile actually make sense for us to engage and try to build a partnership with? &mdash; Re-check against the ICP: SMB, 10&ndash;200 employees, priority industries (Distribution, Pharmaceutical, Manufacturing, Healthcare).",
           "What&rsquo;s their current state? &mdash; For Dynamics specifically: what platform are they on today, or how are they operating without one. For every other line: what are they doing today instead of what we&rsquo;d sell them?",
           "Is there something real driving this initiative &mdash; or are they fishing for free info or consulting? &mdash; If it&rsquo;s the latter, that&rsquo;s a red flag, not a booking.",
           "Do you have a clear direction for where this conversation goes next? &mdash; If you can&rsquo;t answer that yourself, don&rsquo;t expect the prospect to.",
@@ -662,7 +664,7 @@
       questions: {
         heading: "Confirm Fit Early &mdash; Ask This On Every Call",
         items: [
-          "Roughly how many employees does the company have? &mdash; We solely target under 200 (the largest client to date is 55). Outside that band, it&rsquo;s not a fit &mdash; this is a hard target, not just a preference.",
+          "Roughly how many employees does the company have? &mdash; We solely target 10&ndash;200 (the largest client to date is 55). Outside that band, it&rsquo;s not a fit &mdash; this is a hard target, not just a preference.",
           "What industry are you in? &mdash; Distribution, Pharmaceutical, Manufacturing, and Healthcare are where outbound is focused first. Any industry can still qualify; this just sets expectations for the handoff.",
           "Is there a named IT contact, an existing Microsoft tenant, or a budget owner already? &mdash; The sweet-spot signal is SOME existing structure, not a business starting from zero and not one already fully enterprise-staffed.",
           "What&rsquo;s the one thing that&rsquo;s actually urgent right now &mdash; the specific, front-end, mission-critical problem? &mdash; Not a vague &ldquo;we should improve our IT&rdquo;. This is the wedge: solve this one problem first, then expand into ongoing support.",
