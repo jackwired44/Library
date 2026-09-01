@@ -7,18 +7,20 @@
 import { useMemo, useState } from "react";
 import type { Contact } from "../lib/contacts";
 import type { Task } from "../lib/tasks";
-import type { Sequence, SequenceEnrollment, SequenceChannel } from "../lib/sequences";
+import { resolveWaitHours, MIN_WAIT_HOURS, MAX_WAIT_HOURS, type Sequence, type SequenceEnrollment, type SequenceChannel } from "../lib/sequences";
+import { resolveListContacts, type LeadList } from "../lib/leadLists";
 
 interface SequencesProps {
   sequences: Sequence[];
   enrollments: SequenceEnrollment[];
   contacts: Contact[];
   tasks: Task[];
+  leadLists: LeadList[];
   loading: boolean;
   error: string | null;
   onCreate: (name: string) => Sequence | null;
   onRename: (id: string, name: string) => void;
-  onAddStep: (id: string, channel: SequenceChannel, waitDays: number, note?: string) => void;
+  onAddStep: (id: string, channel: SequenceChannel, waitHours: number, note?: string) => void;
   onRemoveStep: (id: string, stepId: string) => void;
   onMoveStep: (id: string, stepId: string, direction: -1 | 1) => void;
   onDelete: (id: string) => void;
@@ -27,11 +29,43 @@ interface SequencesProps {
   onRemoveEnrollment: (enrollmentId: string) => void;
 }
 
-const CHANNEL_META: Record<SequenceChannel, { label: string; icon: string }> = {
-  call: { label: "Call", icon: "📞" },
-  email: { label: "Email", icon: "✉️" },
-  linkedin: { label: "LinkedIn", icon: "🔗" },
+// Every channel is manual today — there's no SendGrid/LinkedIn API tied
+// in, so an email/LinkedIn step generates a task worked by hand, exactly
+// like a call step (see CLAUDE.md "Native Sequences"). Per Jack: state
+// that plainly on each step rather than leaving it implied, so it's
+// "properly built in" — and so the moment a channel DOES get real
+// send/connect automation, flipping its sendMode here is the one place
+// that updates every badge in this view at once.
+const CHANNEL_META: Record<SequenceChannel, { label: string; icon: string; sendMode: "manual" | "automated" }> = {
+  call: { label: "Call", icon: "📞", sendMode: "manual" },
+  email: { label: "Email", icon: "✉️", sendMode: "manual" },
+  linkedin: { label: "LinkedIn", icon: "🔗", sendMode: "manual" },
 };
+const SEND_MODE_META: Record<"manual" | "automated", { label: string; color: string; bg: string }> = {
+  manual: { label: "Manual", color: "#9A5B22", bg: "#FBEBDD" },
+  automated: { label: "Automated", color: "#2CC295", bg: "#E7F1EA" },
+};
+function SendModeBadge({ channel }: { channel: SequenceChannel }) {
+  const mode = CHANNEL_META[channel].sendMode;
+  const meta = SEND_MODE_META[mode];
+  return (
+    <span
+      title={mode === "manual" ? "Generates a task you work by hand — nothing sends itself yet" : "Sends automatically once the step's wait period elapses"}
+      style={{ fontSize: 9.5, fontWeight: 700, color: meta.color, background: meta.bg, borderRadius: 999, padding: "1px 7px", whiteSpace: "nowrap" }}
+    >
+      {meta.label}
+    </span>
+  );
+}
+
+// Formats a step's wait as whole days when it divides evenly, hours
+// otherwise — e.g. 168 -> "7d", 36 -> "36h". Min is 1 hour, max is 7
+// days (168h), enforced in lib/sequences.ts's addStep.
+function formatWait(hours: number): string {
+  if (hours <= 0) return "immediately";
+  if (hours % 24 === 0) return `${hours / 24}d`;
+  return `${hours}h`;
+}
 
 const STATUS_META: Record<SequenceEnrollment["status"], { label: string; color: string; bg: string }> = {
   active: { label: "Active", color: "#2CC295", bg: "#E7F1EA" },
@@ -44,6 +78,7 @@ export default function SequencesView({
   enrollments,
   contacts,
   tasks,
+  leadLists,
   loading,
   error,
   onCreate,
@@ -137,10 +172,11 @@ export default function SequencesView({
                     seq={seq}
                     enrollments={seqEnrollments}
                     contacts={contacts}
+                    leadLists={leadLists}
                     contactById={contactById}
                     taskById={taskById}
                     onRename={(name) => onRename(seq.id, name)}
-                    onAddStep={(channel, waitDays, note) => onAddStep(seq.id, channel, waitDays, note)}
+                    onAddStep={(channel, waitHours, note) => onAddStep(seq.id, channel, waitHours, note)}
                     onRemoveStep={(stepId) => onRemoveStep(seq.id, stepId)}
                     onMoveStep={(stepId, dir) => onMoveStep(seq.id, stepId, dir)}
                     onEnroll={(contactIds) => onEnroll(seq.id, contactIds)}
@@ -161,6 +197,7 @@ function SequenceDetail({
   seq,
   enrollments,
   contacts,
+  leadLists,
   contactById,
   taskById,
   onRename,
@@ -174,10 +211,11 @@ function SequenceDetail({
   seq: Sequence;
   enrollments: SequenceEnrollment[];
   contacts: Contact[];
+  leadLists: LeadList[];
   contactById: Map<string, Contact>;
   taskById: Map<string, Task>;
   onRename: (name: string) => void;
-  onAddStep: (channel: SequenceChannel, waitDays: number, note?: string) => void;
+  onAddStep: (channel: SequenceChannel, waitHours: number, note?: string) => void;
   onRemoveStep: (stepId: string) => void;
   onMoveStep: (stepId: string, dir: -1 | 1) => void;
   onEnroll: (contactIds: string[]) => number;
@@ -187,14 +225,22 @@ function SequenceDetail({
   const [renaming, setRenaming] = useState(false);
   const [nameDraft, setNameDraft] = useState(seq.name);
   const [stepChannel, setStepChannel] = useState<SequenceChannel>("call");
-  const [stepWait, setStepWait] = useState(1);
+  const [stepWaitValue, setStepWaitValue] = useState(1);
+  const [stepWaitUnit, setStepWaitUnit] = useState<"hours" | "days">("days");
   const [stepNote, setStepNote] = useState("");
+  const [listPickerId, setListPickerId] = useState("");
   const [enrollPicker, setEnrollPicker] = useState<Set<string>>(new Set());
   const [enrollNotice, setEnrollNotice] = useState<string | null>(null);
 
   function commitRename() {
     onRename(nameDraft);
     setRenaming(false);
+  }
+  function submitAddStep() {
+    const hours = stepWaitUnit === "hours" ? stepWaitValue : stepWaitValue * 24;
+    onAddStep(stepChannel, hours, stepNote.trim() || undefined);
+    setStepNote("");
+    setStepWaitValue(1);
   }
   function submitEnroll() {
     const ids = [...enrollPicker];
@@ -203,6 +249,22 @@ function SequenceDetail({
     const skipped = ids.length - added;
     setEnrollNotice(`Enrolled ${added} contact${added === 1 ? "" : "s"}${skipped > 0 ? ` (${skipped} already active in this sequence)` : ""}.`);
     setEnrollPicker(new Set());
+  }
+  function submitEnrollFromList() {
+    const list = leadLists.find((l) => l.id === listPickerId);
+    if (!list) return;
+    const { resolved, unresolvedCount } = resolveListContacts(list, contacts);
+    if (!resolved.length) {
+      setEnrollNotice(`None of "${list.name}"'s ${list.rows.length} lead(s) matched a known Contact yet.`);
+      return;
+    }
+    const added = onEnroll(resolved.map((c) => c.id));
+    const skipped = resolved.length - added;
+    const parts = [`Enrolled ${added} contact${added === 1 ? "" : "s"} from "${list.name}"`];
+    if (skipped > 0) parts.push(`${skipped} already active in this sequence`);
+    if (unresolvedCount > 0) parts.push(`${unresolvedCount} of the list's leads had no matching Contact`);
+    setEnrollNotice(`${parts.join(" — ")}.`);
+    setListPickerId("");
   }
 
   const activeEnrollments = enrollments.filter((e) => e.status !== "removed");
@@ -237,7 +299,8 @@ function SequenceDetail({
             <div key={step.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--surface-sunken)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 10px", fontSize: 12.5 }}>
               <span style={{ fontWeight: 700 }}>{i + 1}.</span>
               <span>{CHANNEL_META[step.channel].icon} {CHANNEL_META[step.channel].label}</span>
-              <span style={{ color: "var(--muted)" }}>{step.waitDays === 0 ? "immediately" : `${step.waitDays}d after previous`}</span>
+              <SendModeBadge channel={step.channel} />
+              <span style={{ color: "var(--muted)" }}>{formatWait(resolveWaitHours(step))}{resolveWaitHours(step) > 0 ? " after previous" : ""}</span>
               {step.note && <span style={{ color: "var(--muted)", fontStyle: "italic" }}>— {step.note}</span>}
               <span style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
                 <button onClick={() => onMoveStep(step.id, -1)} disabled={i === 0} title="Move earlier" style={{ border: "none", background: "none", cursor: i === 0 ? "default" : "pointer", opacity: i === 0 ? 0.3 : 1 }}>▲</button>
@@ -248,21 +311,36 @@ function SequenceDetail({
           ))}
         </div>
       )}
-      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginBottom: 18 }}>
+      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginBottom: 6 }}>
         <select value={stepChannel} onChange={(e) => setStepChannel(e.target.value as SequenceChannel)} style={{ border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 12.5 }}>
           {(Object.keys(CHANNEL_META) as SequenceChannel[]).map((c) => (
             <option key={c} value={c}>{CHANNEL_META[c].icon} {CHANNEL_META[c].label}</option>
           ))}
         </select>
-        <input type="number" min={0} value={stepWait} onChange={(e) => setStepWait(Number(e.target.value))} style={{ width: 60, border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 12.5 }} />
-        <span style={{ fontSize: 11.5, color: "var(--muted)" }}>days after previous step</span>
+        <SendModeBadge channel={stepChannel} />
+        <input
+          type="number"
+          min={1}
+          max={stepWaitUnit === "hours" ? MAX_WAIT_HOURS : 7}
+          value={stepWaitValue}
+          onChange={(e) => setStepWaitValue(Number(e.target.value))}
+          style={{ width: 60, border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 12.5 }}
+        />
+        <select value={stepWaitUnit} onChange={(e) => setStepWaitUnit(e.target.value as "hours" | "days")} style={{ border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 12.5 }}>
+          <option value="hours">hours</option>
+          <option value="days">days</option>
+        </select>
+        <span style={{ fontSize: 11.5, color: "var(--muted)" }}>after previous step</span>
         <input value={stepNote} onChange={(e) => setStepNote(e.target.value)} placeholder="Optional note/script" style={{ border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 12.5, flex: "1 1 160px" }} />
         <button
-          onClick={() => { onAddStep(stepChannel, stepWait, stepNote.trim() || undefined); setStepNote(""); setStepWait(1); }}
+          onClick={submitAddStep}
           style={{ background: "#2CC295", color: "#081E22", border: "none", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 700 }}
         >
           + Add step
         </button>
+      </div>
+      <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 18 }}>
+        Fires as soon as {MIN_WAIT_HOURS} hour after the previous step, or as late as 7 days ({MAX_WAIT_HOURS} hours).
       </div>
 
       <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>Enrolled contacts</div>
@@ -299,7 +377,35 @@ function SequenceDetail({
         </div>
       )}
 
-      <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>+ Enroll contacts</div>
+      <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>Enroll from a Lead List</div>
+      {leadLists.length === 0 ? (
+        <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 16 }}>
+          No Lead Lists yet — build one from Scanner's results table (select leads → "Add to list"), then come back here to enroll the whole list at once.
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginBottom: 16 }}>
+          <select
+            value={listPickerId}
+            onChange={(e) => setListPickerId(e.target.value)}
+            style={{ border: "1px solid var(--border)", borderRadius: 7, padding: "6px 10px", fontSize: 12.5, minWidth: 200 }}
+          >
+            <option value="">Choose a list…</option>
+            {leadLists.map((l) => (
+              <option key={l.id} value={l.id}>{l.name} ({l.rows.length})</option>
+            ))}
+          </select>
+          <button
+            onClick={submitEnrollFromList}
+            disabled={!listPickerId || seq.steps.length === 0}
+            title={seq.steps.length === 0 ? "Add at least one step first" : undefined}
+            style={{ background: "#2CC295", color: "#081E22", border: "none", borderRadius: 7, padding: "7px 14px", fontWeight: 700, opacity: !listPickerId || seq.steps.length === 0 ? 0.5 : 1 }}
+          >
+            Enroll list
+          </button>
+        </div>
+      )}
+
+      <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>Or enroll specific contacts (manual)</div>
       <div style={{ maxHeight: 160, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 8, marginBottom: 8 }}>
         {contacts.map((c) => (
           <label key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 10px", fontSize: 12.5, borderBottom: "1px solid var(--border)", cursor: "pointer" }}>

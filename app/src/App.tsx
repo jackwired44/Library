@@ -374,10 +374,10 @@ export default function App() {
     if (!seq) return;
     updateSequenceSteps(renameSequence(seq, name));
   }
-  function addSequenceStep(id: string, channel: SequenceChannel, waitDays: number, note?: string) {
+  function addSequenceStep(id: string, channel: SequenceChannel, waitHours: number, note?: string) {
     const seq = sequences.find((s) => s.id === id);
     if (!seq) return;
-    updateSequenceSteps(addStep(seq, channel, waitDays, note));
+    updateSequenceSteps(addStep(seq, channel, waitHours, note));
   }
   function removeSequenceStep(id: string, stepId: string) {
     const seq = sequences.find((s) => s.id === id);

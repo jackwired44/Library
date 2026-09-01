@@ -17,14 +17,36 @@ import { getFullName } from "./detection";
 
 export type SequenceChannel = "call" | "email" | "linkedin";
 
+// Per Jack: steps should be able to fire as soon as 1 hour after the
+// previous step, up to a max of 7 days — sub-day precision wasn't
+// possible when wait was day-only. Task.date is still calendar-day-only
+// (no time-of-day anywhere in this app), so a sub-day wait still just
+// lands the generated task on "today" (or "tomorrow" if it crosses
+// midnight) — same date-only granularity every other task already uses.
+export const MIN_WAIT_HOURS = 1;
+export const MAX_WAIT_HOURS = 24 * 7; // 168 — 7 days
+
 export interface SequenceStep {
   id: string;
   position: number;
   channel: SequenceChannel;
-  // Days after the PREVIOUS step's completion (or after enrollment, for
-  // step 0) before this step's task is due.
-  waitDays: number;
+  // Hours after the PREVIOUS step's completion (or after enrollment, for
+  // step 0) before this step's task is due. Clamped to
+  // [MIN_WAIT_HOURS, MAX_WAIT_HOURS] by addStep.
+  waitHours: number;
+  // Legacy field from before hour-level granularity existed — a step
+  // persisted before this change stored a whole-day wait here instead.
+  // Only ever read as a fallback (resolveWaitHours), never written by new
+  // code. Optional so old persisted Sequences still load and work.
+  waitDays?: number;
   note?: string;
+}
+
+// Reads a step's wait as hours regardless of which field it was saved
+// with (see waitDays above).
+export function resolveWaitHours(step: SequenceStep): number {
+  if (typeof step.waitHours === "number") return step.waitHours;
+  return (step.waitDays ?? 0) * 24;
 }
 
 export interface Sequence {
@@ -87,8 +109,9 @@ export function createSequence(name: string): Sequence | null {
   return { id: newId("seq"), name: trimmed, createdAt: new Date().toISOString(), steps: [] };
 }
 
-export function addStep(seq: Sequence, channel: SequenceChannel, waitDays: number, note?: string): Sequence {
-  const step: SequenceStep = { id: newId("step"), position: seq.steps.length, channel, waitDays: Math.max(0, waitDays), note };
+export function addStep(seq: Sequence, channel: SequenceChannel, waitHours: number, note?: string): Sequence {
+  const clamped = Math.min(MAX_WAIT_HOURS, Math.max(MIN_WAIT_HOURS, Math.round(waitHours)));
+  const step: SequenceStep = { id: newId("step"), position: seq.steps.length, channel, waitHours: clamped, note };
   return { ...seq, steps: [...seq.steps, step] };
 }
 export function removeStep(seq: Sequence, stepId: string): Sequence {
@@ -112,9 +135,9 @@ export function renameSequence(seq: Sequence, name: string): Sequence {
 /* ------------------------------------------------------------------ */
 const CHANNEL_LABEL: Record<SequenceChannel, string> = { call: "Call", email: "Email", linkedin: "LinkedIn" };
 
-function addDays(iso: string, days: number): string {
+function addHours(iso: string, hours: number): string {
   const d = new Date(iso);
-  d.setDate(d.getDate() + days);
+  d.setHours(d.getHours() + hours);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
@@ -140,7 +163,7 @@ export function enrollContact(seq: Sequence, contact: Contact): { enrollment: Se
   };
   const step0 = seq.steps[0];
   if (!step0) return { enrollment: { ...enrollment, status: "finished", finishedAt: nowIso, finishReason: "completed-all-steps" }, task: null };
-  const dueDate = addDays(nowIso, step0.waitDays);
+  const dueDate = addHours(nowIso, resolveWaitHours(step0));
   const task = createSequenceTask(dueDate, taskTextFor(contact, step0, seq), contact.id, step0.channel, enrollment.id);
   return { enrollment: { ...enrollment, currentTaskId: task?.id ?? null }, task };
 }
@@ -170,7 +193,7 @@ export function advanceEnrollment(
   if (!nextStep) {
     return { enrollment: { ...enrollment, status: "finished", finishedAt: nowIso, finishReason: "completed-all-steps", currentTaskId: null }, task: null };
   }
-  const dueDate = addDays(nowIso, nextStep.waitDays);
+  const dueDate = addHours(nowIso, resolveWaitHours(nextStep));
   const task = createSequenceTask(dueDate, taskTextFor(contact, nextStep, seq), contact.id, nextStep.channel, enrollment.id);
   return { enrollment: { ...enrollment, currentStepIndex: nextIndex, currentTaskId: task?.id ?? null }, task };
 }
@@ -182,7 +205,7 @@ export function restartEnrollment(enrollment: SequenceEnrollment, seq: Sequence,
   const nowIso = new Date().toISOString();
   const step0 = seq.steps[0];
   if (!step0) return { enrollment: { ...enrollment, status: "finished", currentStepIndex: 0, finishedAt: nowIso, finishReason: "completed-all-steps", currentTaskId: null }, task: null };
-  const dueDate = addDays(nowIso, step0.waitDays);
+  const dueDate = addHours(nowIso, resolveWaitHours(step0));
   const task = createSequenceTask(dueDate, taskTextFor(contact, step0, seq), contact.id, step0.channel, enrollment.id);
   return { enrollment: { ...enrollment, status: "active", currentStepIndex: 0, finishedAt: undefined, finishReason: undefined, currentTaskId: task?.id ?? null }, task };
 }

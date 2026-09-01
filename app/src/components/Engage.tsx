@@ -40,7 +40,7 @@ interface EngageProps {
   sequencesError: string | null;
   onCreateSequence: (name: string) => Sequence | null;
   onRenameSequence: (id: string, name: string) => void;
-  onAddSequenceStep: (id: string, channel: SequenceChannel, waitDays: number, note?: string) => void;
+  onAddSequenceStep: (id: string, channel: SequenceChannel, waitHours: number, note?: string) => void;
   onRemoveSequenceStep: (id: string, stepId: string) => void;
   onMoveSequenceStep: (id: string, stepId: string, direction: -1 | 1) => void;
   onDeleteSequence: (id: string) => void;
@@ -147,6 +147,7 @@ export default function Engage({
           enrollments={enrollments}
           contacts={contacts}
           tasks={tasks}
+          leadLists={leadLists}
           loading={sequencesLoading}
           error={sequencesError}
           onCreate={onCreateSequence}

@@ -2322,6 +2322,68 @@ IndexedDB store, no new upload/persistence path.
   correct auto-derived `https://` href for two different real company
   domains.
 
+## Sequences: hour-granularity waits, manual/automated labels, list-based enrollment (app/ only)
+
+Three concrete, directly-instructed tweaks to already-shipped Native
+Sequences, built without a separate proposal round each (per the working
+style rule — narrow, unambiguous asks building on existing mechanics).
+
+- **Step wait now goes down to 1 hour, up to 7 days.** `SequenceStep`
+  changed from `waitDays: number` (whole days only) to `waitHours: number`
+  (`lib/sequences.ts`), clamped to `[MIN_WAIT_HOURS, MAX_WAIT_HOURS]` =
+  `[1, 168]` by `addStep`. A step persisted before this change (which
+  stored `waitDays`) still loads and works — `resolveWaitHours(step)`
+  reads `waitHours` if present, else falls back to `waitDays * 24`; new
+  code only ever writes `waitHours`. `Task.date` is still calendar-day-
+  only (no time-of-day anywhere in this app), so a sub-day wait still just
+  lands the generated task on "today" (or "tomorrow" if it crosses
+  midnight) — `addHours` (replacing the old `addDays`) computes the due
+  timestamp at hour precision, then still formats down to a plain
+  `YYYY-MM-DD`. The step builder (`Sequences.tsx`) now has a number input
+  plus an Hours/Days unit dropdown instead of a bare "days" field, with a
+  visible "Fires as soon as 1 hour... or as late as 7 days" hint; the
+  final value is clamped again on the backend regardless of what unit was
+  used, so there's no way to submit outside the range from either the UI
+  or a stale/older client.
+- **Every step now shows a Manual/Automated badge.** Per Jack: "emails
+  should state automated or manual so its properly built in." `CHANNEL_META`
+  gained a `sendMode: "manual" | "automated"` per channel — all three
+  (call/email/LinkedIn) are `"manual"` today, since nothing actually
+  sends/connects yet (see the original Native Sequences section above).
+  Shown via a shared `SendModeBadge` component on every step row and next
+  to the channel picker in the add-step form, so the limitation is visible
+  at the point of building the sequence, not just in the intro paragraph.
+  The moment a channel gets real send automation (SendGrid, a LinkedIn
+  API), flipping its `sendMode` here is the one place that updates every
+  badge in the view at once.
+- **Sequences can now be bulk-enrolled from a Custom Lead List**, not just
+  picked contact-by-contact. Per Jack: "instead of adding contacts
+  manually how it is now in sequences lets be able to add lists instead —
+  will scan leads assign to lists then post to sequences basically."
+  `lib/leadLists.ts`'s new `resolveListContacts(list, contacts)` maps a
+  list's own row snapshots (`ListedLeadRow` — plain export columns, no
+  direct link back to a Contact id) onto real, live Contacts via the exact
+  same email-first/name+company-fallback lookup every other cross-
+  referencing in this app uses (`buildContactIndex`/`lookupContact` from
+  `lib/contacts.ts`). A list row that resolves to no Contact (e.g. added
+  some other way, or from before that person was ever scanned) is counted
+  as unresolved rather than guessed at, and that count is surfaced in the
+  enrollment notice, not swallowed silently.
+  `Sequences.tsx`'s enrollment section now leads with "Enroll from a Lead
+  List" (a folder-style dropdown of existing lists + an "Enroll list"
+  button); the original contact-checkbox picker stays right below it,
+  relabeled "Or enroll specific contacts (manual)" — kept rather than
+  removed, since Jack's ask was about adding the list path, not proven to
+  need dropping ad hoc single-contact enrollment. Flag if the manual
+  picker should come out entirely.
+- Verified live: added a step at "1 hour," confirmed it displays "1h
+  after previous" with a Manual badge; added a "7 days" step and a 999-
+  hours step, confirmed both correctly display/clamp to "7d after
+  previous" (the true 168-hour ceiling); built a Lead List from Scanner's
+  bulk-action bar, enrolled it directly from Sequences, and confirmed the
+  enrollment notice read "Enrolled 1 contact from '...'" with the new
+  enrollment showing Active status.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

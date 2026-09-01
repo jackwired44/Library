@@ -8,6 +8,7 @@
 import { dbGetAll, dbPut, dbDelete, STORE_LEAD_LISTS } from "./db";
 import { buildExportRow, getFullName, normalizeDupKey, EXPORT_LABELS, type CategoryKey, type ExportRow, type ResultRow, type Tier } from "./detection";
 import { toCSV } from "./csv";
+import { buildContactIndex, lookupContact, type Contact } from "./contacts";
 
 export type ListedLeadRow = ExportRow & {
   __rowKey: string;
@@ -95,4 +96,33 @@ export function removeRowFromList(lists: LeadList[], listId: string, rowKey: str
 
 export function leadListRawText(list: LeadList): string {
   return toCSV(list.rows, EXPORT_LABELS);
+}
+
+// Resolves a list's own row snapshots (plain export columns — a list row
+// has no direct link back to a Contact id) onto the real, live Contacts
+// they came from, so a whole list can be bulk-enrolled into a Sequence in
+// one action — per Jack: "will scan leads assign to lists then post to
+// sequences basically." Same email-first/name+company-fallback lookup
+// every other cross-referencing in this app already uses (see
+// lib/contacts.ts's buildContactIndex/lookupContact). A row that matches
+// no Contact (e.g. the source upload predates that person ever being
+// scanned, or they were manually added to the list some other way) is
+// counted but skipped rather than guessed at — the caller surfaces that
+// count so it isn't silent.
+export function resolveListContacts(list: LeadList, contacts: Contact[]): { resolved: Contact[]; unresolvedCount: number } {
+  const index = buildContactIndex(contacts);
+  const seen = new Set<string>();
+  const resolved: Contact[] = [];
+  let unresolvedCount = 0;
+  list.rows.forEach((r) => {
+    const fullName = `${r["First Name"] || ""} ${r["Last Name"] || ""}`.trim();
+    const company = r["Company Name"] || "";
+    const email = r["Email"] || "";
+    const contact = lookupContact(index, fullName, company, email);
+    if (!contact) { unresolvedCount++; return; }
+    if (seen.has(contact.id)) return;
+    seen.add(contact.id);
+    resolved.push(contact);
+  });
+  return { resolved, unresolvedCount };
 }
