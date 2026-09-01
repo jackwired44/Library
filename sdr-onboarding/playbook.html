@@ -352,7 +352,7 @@
   .pager button:hover:not(:disabled) { border-color: var(--track-color, var(--accent)); color: var(--track-color, var(--accent)); }
   .pager button:disabled { opacity: 0.35; cursor: default; }
 
-  .detail-content { max-width: 960px; margin: 0 auto; padding: 34px clamp(18px, 4vw, 44px) 90px; }
+  .detail-content { max-width: 1160px; margin: 0 auto; padding: 34px clamp(18px, 4vw, 48px) 90px; }
 
   .doc-title { font-family: "Archivo", sans-serif; font-size: clamp(24px, 3vw, 32px); font-weight: 800; letter-spacing: -0.015em; margin-bottom: 6px; }
   .doc-subtitle { color: var(--muted); font-size: 14.5px; max-width: 72ch; line-height: 1.5; margin-bottom: 16px; }
@@ -379,11 +379,13 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
     gap: 14px;
-    align-items: start;
+    align-items: stretch;
     margin-bottom: 20px;
   }
 
   .play-card {
+    display: flex;
+    flex-direction: column;
     border: 1px solid var(--border);
     border-top: 3px solid var(--border);
     border-radius: 10px;
@@ -608,52 +610,39 @@
     {
       key: "company-profile", track: "foundations", kicker: "COMPANY PROFILE",
       title: "Company Profile",
-      subtitle: "Who we target, who we don&rsquo;t, and who&rsquo;s the priority right now. For company facts (HQ, founder, pricing), see Who Is Wired CIO.",
+      subtitle: "Wired CIO, and who we target, at a high level.",
       overview: [
-        "This page is the targeting filter, not the pitch &mdash; use it to decide whether a company is worth working before you spend time qualifying the call itself.",
-        "The &ldquo;why&rdquo; behind all of it, per Jack: give SMBs enterprise-level support so they can compete with the bigger guys, stay secure, and focus on growth. Every criterion below exists in service of that.",
+        "Wired CIO is a Microsoft Solutions Partner (specialty practice in Dynamics/Business Applications) building the IT department of the future for growing SMBs &mdash; fully managed or co-managed, one partner for the whole Microsoft stack. The mission, per Jack: give SMBs enterprise-level support so they can compete with bigger companies, stay secure, and focus on growth.",
+        "This page is the high-level targeting filter &mdash; who we go after, who we don&rsquo;t, and who&rsquo;s the priority right now. For the deeper pitch and objection handling, see Who Is Wired CIO. For the full call-by-call qualification framework, see Outbound Execution.",
       ],
-      gate: {
-        heading: "What Actually Matters &mdash; Not Price",
-        items: [
-          "Is it a priority for them right now? Not &ldquo;interesting someday&rdquo; &mdash; an actual priority.",
-          "Are they willing to actually get it solved, created, or built &mdash; or just curious/browsing?",
-          "Does the company size, structure, people, and industry make sense for us to engage with?",
-          "We don&rsquo;t talk about price much on outbound, and we don&rsquo;t argue past price sensitivity. If they seem price-sensitive, that&rsquo;s a waste-of-time signal &mdash; log a follow-up for when they have a clear direction instead of selling harder. This applies to every service line, not just one.",
-        ],
-      },
       signalsGood: {
         heading: "Who We Target",
         items: [
-          "Companies with 10&ndash;200 employees, ideally still growing &mdash; not stagnant, not shrinking. That band works best, but it&rsquo;s not a hard ceiling: larger companies are workable too, provided it&rsquo;s a direct engagement with the actual decision-maker(s) for the specific problem, not a layered committee/procurement process.",
-          "For MSP, co-managed, and fully-managed opportunities specifically: growing companies that are scaling past their current infrastructure and need high-growth-level support &mdash; the trigger is outgrowing what they already have, not just wanting IT support in the abstract.",
-          "A visible front-end application or project issue right now &mdash; a specific, immediate pain point, not vague interest in &ldquo;better IT.&rdquo; We want to be able to solve an actual problem the company has, not sell a concept.",
-          "A business we can grow with long-term: that front-end issue is the wedge into ongoing support &mdash; full MSP, co-managed IT, ERP support, CRM support, Azure Document Intelligence builds/app support, and a CSP licensing partnership.",
-          "Quality companies we can work with long-term &mdash; the relationship matters as much as the deal. A one-stop-shop fit: they need talented solution architects to apply and configure Microsoft&rsquo;s tools &mdash; the features that already deploy with the licenses they own but still need to be set up &mdash; plus our own SaaS tools that we manage and deploy on top.",
+          "SMBs, 10&ndash;200 employees, ideally still growing &mdash; that band works best, though larger companies can work with direct access to the real decision-maker.",
+          "A real, specific problem to solve right now &mdash; the wedge into a long-term relationship: full MSP, co-managed IT, ERP/CRM support, Azure Document Intelligence/app builds, or a CSP licensing partnership.",
+          "Quality companies we want a long-term relationship with, not just a one-time deal &mdash; a one-stop-shop fit for solution architects configuring Microsoft&rsquo;s tools plus our own SaaS tools on top.",
         ],
       },
       signalsBad: {
         heading: "Who We Don&rsquo;t Target",
         items: [
-          "Too small to have a real IT budget or decision process, on the low end.",
-          "On the large end: it&rsquo;s not the headcount itself that&rsquo;s disqualifying, it&rsquo;s no direct access to the actual decision-maker for the specific problem &mdash; a large company buried in committee/procurement layers is a worse fit than a large company where you can get straight to whoever owns the pain point.",
-          "No specific front-end problem &mdash; just generic interest with nothing driving urgency.",
-          "A one-off project or free-consultancy ask with no realistic path to an ongoing relationship.",
-          "A business that wants Microsoft&rsquo;s own direct support instead of a partner to configure, apply, and manage it for them.",
-          "<b>Rude people &mdash; a hard line, not a soft preference.</b> Regardless of deal size or how well everything else fits, we don&rsquo;t work with people who are disrespectful to the team. Flag it and walk away.",
-          "<b>Bars, restaurants, and front-line/front-of-house retail &mdash; excluded outright,</b> regardless of size, structure, or anything else on this page. Not our ICP, full stop.",
+          "Too small to have a real IT budget, or too large with no direct line to the actual decision-maker.",
+          "No real problem to solve, or a one-off/free-consulting ask with no path to an ongoing relationship.",
+          "Wants Microsoft&rsquo;s own direct support instead of a partner.",
+          "Rude people, full stop &mdash; regardless of deal size or fit otherwise.",
+          "Bars, restaurants, and front-line retail &mdash; not our ICP.",
         ],
       },
       icp: {
         heading: "Current Priority &mdash; Right Now",
         items: [
           "<b>Priority industries, in order:</b> Distribution, Pharmaceutical, Manufacturing, Healthcare (HIPAA/compliance-driven).",
-          "Every other industry still qualifies if the rest of this page fits &mdash; except bars, restaurants, and front-line retail, which are excluded outright (see Who We Don&rsquo;t Target).",
+          "Every other industry still qualifies if the rest of this page fits.",
         ],
       },
       crossSell: {
         heading: "Where to Go Next",
-        text: "<b>Who Is Wired CIO</b> for company facts, the pitch, and objection handling. <b>Outbound Execution Playbook</b> for the call flow and the full qualification framework this targeting profile feeds into.",
+        text: "<b>Who Is Wired CIO</b> for company facts, the pitch, and objection handling. <b>Outbound Execution Playbook</b> for the call flow and the full qualification framework, including why we don&rsquo;t chase price.",
       },
     },
     {
@@ -661,61 +650,41 @@
       title: "Who Is Wired CIO",
       subtitle: "“When your technology works, so do your people.” — what every SDR needs to know cold before the first dial.",
       overview: [
-        "Wired CIO builds the IT department of the future: one Microsoft-aligned partner to grow, protect, automate, and align a business. We&rsquo;re an IT partner for growing businesses &mdash; fully managed or co-managed, built on the Microsoft cloud, and accountable for the whole stack, not just the help desk.",
-        "Founded by Russell, a technology leader with 15 years of IT experience and deep Microsoft expertise. The company exists because of a gap he saw firsthand: large enterprises run IT with reporting trees of eighty-plus specialists &mdash; help desk, system administrators, security engineers, and more &mdash; but growing companies need most of those same capabilities and can&rsquo;t field that full roster themselves. That&rsquo;s the gap Wired CIO fills.",
-        "Headquartered in Chicago, also serving the Cincinnati market. Core values: transparency, continuous improvement, and a solution-first mindset &mdash; proactive strategy, not reactionary fixes.",
+        "Wired CIO builds the IT department of the future: one Microsoft-aligned partner to grow, protect, automate, and align a business &mdash; fully managed or co-managed, accountable for the whole stack, not just the help desk. Founded in 2022 by Russell (15 years in IT, deep Microsoft expertise), originally as a traditional MSP shop before a deliberate pivot to today&rsquo;s front-end-problem/wedge model. A Microsoft Solutions Partner with a specialty practice in Dynamics (Business Applications).",
+        "Team of about 14 &mdash; 6 solution architects (contracted and full-time, all stateside), plus an offshore help desk. HQ: 3432 W Diversey Ave, Chicago, IL, also serving Cincinnati. Website: wiredcio.com.",
+        "Mission, per Jack: give SMBs enterprise-level support so they can compete with bigger companies, stay secure, and focus on growth.",
       ],
       wiredAngle: {
         heading: "Why This Is a Different Pitch Than “We Do IT Support”",
         items: [
-          "Most traditional IT contracts cover day-to-day tickets and nothing else &mdash; strategy, applications, security, and compliance sit outside the scope, handled ad hoc or not at all. Wired CIO&rsquo;s scope is strategy, operations, security, applications, and compliance from one accountable team.",
-          "A dedicated vCIO owns the technology roadmap so a client&rsquo;s IT evolves with the business instead of reacting to it after something breaks &mdash; this is a strategic relationship, not a vendor relationship.",
-          "Wired CIO is the single point of contact for every technology vendor &mdash; ISPs, SaaS providers, hardware vendors &mdash; and owns their tickets directly, so the client&rsquo;s own team stops chasing support lines.",
-          "The core value prop, per Jack: most SMBs already pay for far more inside their Microsoft license SKUs than they&rsquo;re actually using. We configure and apply what&rsquo;s already included in the licenses they own &mdash; plus our own tooling on top &mdash; to deliver enterprise-grade execution on an SMB-tier Microsoft stack, without the client needing to buy anything new just to get more value out of what they already pay for.",
-          "The typical land-and-expand motion: solve one specific, front-end, mission-critical problem first &mdash; the wedge, a visible and urgent pain point, not a vague &ldquo;better IT&rdquo; pitch. Once that&rsquo;s solved, form an ongoing relationship around it: platform build-out, security, or a full MSP tech-stack engagement. Land narrow and urgent, expand into recurring.",
+          "Most traditional IT contracts cover day-to-day tickets only &mdash; strategy, security, applications, and compliance sit outside the scope. Wired CIO covers all of it from one accountable team, with a dedicated vCIO owning the roadmap and a single point of contact for every vendor.",
+          "Core value prop: most SMBs already pay for far more inside their Microsoft license SKUs than they&rsquo;re using. We configure what&rsquo;s already included, plus our own tooling on top &mdash; enterprise-grade execution on an SMB-tier stack, no new purchase required.",
+          "Land-and-expand: solve one front-end, mission-critical problem first (the wedge), then expand into ongoing platform, security, or full MSP support. See Company Profile for who that applies to.",
         ],
       },
       facts: {
         heading: "Key Facts &mdash; Know This Cold",
         items: [
           "Tagline: <i>“When your technology works, so do your people.”</i>",
-          "Full service line-up: Managed IT Services, Cybersecurity, Cloud Services, IT Consulting &amp; Advisory, Backup &amp; Disaster Recovery, Compliance Services, Vendor Management, and Technical Training &amp; Support &mdash; plus, covered elsewhere in this playbook, Dynamics 365 (ERP/CRM) and Custom Application Development. Also: email marketing campaigns (written with variable-based/personalized prompts) and high-performance outbound targeting highly qualified companies &mdash; the same discipline this playbook itself teaches.",
-          "Pricing model: a flat monthly rate per person, which covers their primary device &mdash; shared and additional devices are a small add-on. Simple and predictable; never quote a specific number cold, that comes after Discovery.",
-          "Engagement structure: a rolling 90-day commitment, not a multi-year lock-in &mdash; “we earn your business every quarter.” A strong, disarming answer to the “long contract” objection.",
-          "Sales motion: Discovery (ballpark scope and budget shared early, no signature expected) → Design → fixed-scope pricing, presented two ways side by side &mdash; a straight hourly project, or the same scope amortized monthly with support included.",
-          "HQ: 3432 W Diversey Ave, Floor 2, Chicago, IL 60647. Website: wiredcio.com.",
-          "Founded in 2022, originally as a traditional MSP-focused shop &mdash; the business underwent a significant transformation and revamp from that model into the current front-end-app-and-immediate-pain-point approach, then longer-term support and growth. The land-and-expand motion this playbook teaches is the same path the company itself grew through.",
-          "Team: about 14 people total &mdash; 6 solution architects (contracted and full-time, all stateside), plus an offshore help desk.",
-          "Microsoft partner status: a Microsoft Solutions Partner, with a specialty practice in Microsoft Dynamics (Business Applications). <i>If there are other named practice designations beyond Dynamics, confirm the full list with Jack &mdash; only this one has been stated explicitly.</i>",
-          "Mission, per Jack: give SMBs enterprise-level support so they can compete with the bigger guys, stay secure, and focus on growth &mdash; that&rsquo;s the &ldquo;why&rdquo; behind the whole ICP and the execution model above.",
-        ],
-      },
-      icp: {
-        heading: "Ideal Customer Profile &mdash; Who We Chase",
-        items: [
-          "<b>Company size &mdash; strong preference, not an absolute ceiling:</b> 10&ndash;200 employees works best. Per Jack: the largest client worked with to date is 550 employees &mdash; larger companies ARE workable, but only with direct engagement with the actual decision-maker(s) for the specific problem, not a layered committee sale.",
-          "<b>Priority industries, in order:</b> Distribution, Pharmaceutical, Manufacturing, Healthcare (HIPAA/compliance-driven). Lead with these verticals when a list has them &mdash; everything else still gets worked, it&rsquo;s just not where outbound should be concentrated first.",
-          "<b>Sweet-spot signal:</b> a business with SOME internal structure already (a named IT contact, an existing Microsoft tenant, a stated budget owner) &mdash; not zero infrastructure, not already fully enterprise-staffed. <i>Working heuristic &mdash; revisit against real closed-won deals as the track record grows.</i>",
-          "<b>How a lead reaches an SDR:</b> Apollo is used as an enriched outbound CRM &mdash; it has most companies and contact numbers already associated, and lead lists are also purchased through it. On top of that, publicly available tenant/platform signals get scrubbed: whether a company is running Microsoft or Google for email, rough user/license counts, and what other platforms they may already be subscribed to (Salesforce, NetSuite, Dynamics, etc.). All of it is built from public signals, then run through the Lead Scanner&rsquo;s detection engine &mdash; by the time a lead lands on a dial list, it has already cleared licensing/Dynamics/M365 signal detection and the Auto-DQ screen. An SDR isn&rsquo;t qualifying from zero, they&rsquo;re confirming and deepening a signal the tool already found &mdash; making bold, informed assumptions from public data is exactly what makes the outreach high-quality instead of a random cold call.",
+          "Full service line-up: Managed IT, Cybersecurity, Cloud Services, IT Consulting &amp; Advisory, Backup &amp; Disaster Recovery, Compliance, Vendor Management, Technical Training &amp; Support, Dynamics 365, Custom Application Development, email marketing campaigns, and high-performance outbound.",
+          "Pricing: a flat monthly rate per person, covering their primary device. Never quote a number cold &mdash; that comes after Discovery.",
+          "Engagement: a rolling 90-day commitment, not a multi-year lock-in &mdash; “we earn your business every quarter.”",
+          "Sales motion: Discovery &rarr; Design &rarr; fixed-scope pricing, presented two ways (hourly project, or the same scope amortized monthly with support included).",
+          "How a lead reaches an SDR: Apollo as an enriched outbound CRM plus purchased lead lists, cross-checked against public tenant/platform signals (Microsoft vs. Google, license counts, other platforms), then run through the Lead Scanner&rsquo;s detection engine before it hits a dial list. See Company Profile for who that lead needs to be.",
         ],
       },
       questions: {
         heading: "Be Ready to Answer These (Prospects Will Ask)",
         items: [
-          "“How is this different from just hiring an IT person?” &mdash; Point to the comprehensive scope: strategy, security, applications, and compliance from one accountable team, not just a warm body closing tickets.",
+          "“How is this different from just hiring an IT person?” &mdash; Comprehensive scope: strategy, security, applications, and compliance from one accountable team.",
           "“What&rsquo;s the contract length?” &mdash; A rolling 90-day commitment, not a multi-year lock-in.",
-          "“How much does this cost?” &mdash; Flat monthly rate per person, covering their primary device. Give a real ballpark only after Discovery, never a number cold &mdash; and don&rsquo;t dwell on it. If they keep pressing on price this early, that&rsquo;s a signal to check priority and fit, not to keep selling.",
           "“Are you a Microsoft shop, or can you work with anything?” &mdash; Microsoft-aligned by design: M365, Azure, and Dynamics 365 are the whole-stack story.",
-          "“We already have IT &mdash; why would we need you?” &mdash; Find out if there&rsquo;s real co-managed potential before assuming this has to be a full replacement conversation.",
+          "“We already have IT &mdash; why would we need you?” &mdash; Find out if there&rsquo;s real co-managed potential before assuming full replacement.",
         ],
       },
-      objections: {
-        heading: "Objection Handling",
-        rows: [
-          ["“That sounds expensive.”", "Don&rsquo;t argue past it — we don&rsquo;t talk price much on outbound, and pushing a price-sensitive prospect is a waste of time. Acknowledge it, ask if this is actually a priority and whether they&rsquo;re willing to get it solved or built, and if not, log a follow-up for when they have a clear direction instead of selling harder."],
-          ["“We like our current IT person/provider.”", "Ask what&rsquo;s NOT covered today — strategy, security, compliance, applications are the gaps a support-only contract usually leaves open. Co-managed is often the easier entry point."],
-          ["“We don&rsquo;t have time for a call right now.”", "Acknowledge it, then ask for a specific window instead of “send me info” — log a real follow-up date, don&rsquo;t let it go cold."],
-        ],
+      crossSell: {
+        heading: "Where to Go Next",
+        text: "<b>Company Profile</b> for who we target and don&rsquo;t. <b>Outbound Execution Playbook</b> for the call flow, the qualification framework, and price-objection handling.",
       },
     },
     {
@@ -747,8 +716,9 @@
           "<b>1. Open on their situation, not our services.</b> Mirror the trigger that got them on the list &mdash; don&rsquo;t lead with a features pitch.",
           "<b>2. Confirm the trigger.</b> What changed, or what are they actively dealing with right now? This is where you find out if the signal that qualified them is still real.",
           "<b>3. Run the category-specific discovery questions</b> from the matching service-line page (Dynamics 365, MSP, Custom App Dev, Licensing, etc.).",
-          "<b>4. Qualify against the tier framework below</b> before you ask for the meeting &mdash; don&rsquo;t book a Discovery call on a lead that&rsquo;s really a Bad Lead in disguise.",
-          "<b>5. Book Discovery and set expectations.</b> Wired CIO comes back with a ballpark scope, not a hard sell &mdash; no signature expected at that stage. That&rsquo;s an easy, low-pressure ask.",
+          "<b>4. Off-ramp if they go too deep into technical detail.</b> Don&rsquo;t try to answer specifics that are above your qualifying job &mdash; redirect: &ldquo;That&rsquo;s exactly what our solution architect will dig into with you on the Discovery call &mdash; let&rsquo;s get that booked so you get a real answer, not a guess from me.&rdquo; Every service-line page can spew into deep technical territory; the off-ramp is always the same move.",
+          "<b>5. Qualify against the tier framework below</b> before you ask for the meeting &mdash; don&rsquo;t book a Discovery call on a lead that&rsquo;s really a Bad Lead in disguise.",
+          "<b>6. Book Discovery and set expectations, or circle back.</b> Qualified and clear on direction &mdash; book it, Wired CIO comes back with a ballpark scope, not a hard sell, no signature expected at that stage. Not clear, or something about the call gave you pause &mdash; don&rsquo;t book blind; circle back with the sales team to qualify it further before committing to anything.",
         ],
       },
       questions: {
