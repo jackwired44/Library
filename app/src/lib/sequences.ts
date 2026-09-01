@@ -40,6 +40,19 @@ export interface SequenceStep {
   // code. Optional so old persisted Sequences still load and work.
   waitDays?: number;
   note?: string;
+  // AI-prompting fields, mirroring Apollo's system/user prompt inputs for
+  // AI-generated step content — per Jack: "for ai prompting like apollo
+  // has user prompt input and system prompt input for steps like
+  // emails." Data capture ONLY today: this app has no LLM/AI integration
+  // at all yet, so these have zero effect on the task a step actually
+  // generates (taskTextFor below still only ever uses `note`) — they're
+  // here so the content is ready to feed a real generation call once one
+  // exists (see CLAUDE.md Roadmap), same "captured now, wired in later"
+  // pattern as the channel Manual/Automated badges. Available on any
+  // channel, not just email — Jack's own "like" suggested a category,
+  // not an email-only restriction.
+  systemPrompt?: string;
+  userPrompt?: string;
 }
 
 // Reads a step's wait as hours regardless of which field it was saved
@@ -113,6 +126,13 @@ export function addStep(seq: Sequence, channel: SequenceChannel, waitHours: numb
   const clamped = Math.min(MAX_WAIT_HOURS, Math.max(MIN_WAIT_HOURS, Math.round(waitHours)));
   const step: SequenceStep = { id: newId("step"), position: seq.steps.length, channel, waitHours: clamped, note };
   return { ...seq, steps: [...seq.steps, step] };
+}
+export function updateStep(
+  seq: Sequence,
+  stepId: string,
+  patch: Partial<Pick<SequenceStep, "note" | "systemPrompt" | "userPrompt">>
+): Sequence {
+  return { ...seq, steps: seq.steps.map((s) => (s.id === stepId ? { ...s, ...patch } : s)) };
 }
 export function removeStep(seq: Sequence, stepId: string): Sequence {
   const steps = seq.steps.filter((s) => s.id !== stepId).map((s, i) => ({ ...s, position: i }));

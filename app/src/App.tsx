@@ -47,6 +47,7 @@ import {
   addStep,
   removeStep,
   moveStep,
+  updateStep,
   renameSequence,
   enrollContact,
   advanceEnrollment,
@@ -57,6 +58,7 @@ import {
   type Sequence,
   type SequenceEnrollment,
   type SequenceChannel,
+  type SequenceStep,
 } from "./lib/sequences";
 import {
   loadWeeklyGoalsFromDB,
@@ -431,6 +433,11 @@ export default function App() {
     const seq = sequences.find((s) => s.id === id);
     if (!seq) return;
     updateSequenceSteps(removeStep(seq, stepId));
+  }
+  function updateSequenceStep(id: string, stepId: string, patch: Partial<Pick<SequenceStep, "note" | "systemPrompt" | "userPrompt">>) {
+    const seq = sequences.find((s) => s.id === id);
+    if (!seq) return;
+    updateSequenceSteps(updateStep(seq, stepId, patch));
   }
   function moveSequenceStep(id: string, stepId: string, direction: -1 | 1) {
     const seq = sequences.find((s) => s.id === id);
@@ -833,6 +840,7 @@ export default function App() {
               onRenameSequence={renameSequenceById}
               onAddSequenceStep={addSequenceStep}
               onRemoveSequenceStep={removeSequenceStep}
+              onUpdateSequenceStep={updateSequenceStep}
               onMoveSequenceStep={moveSequenceStep}
               onDeleteSequence={deleteSequence}
               onEnrollInSequence={enrollContactsInSequence}

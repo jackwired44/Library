@@ -2557,6 +2557,36 @@ the decision happens after actually seeing what came back.
   disabled "✓ Filed," and the sidebar's Lead Library count incremented
   from 0 to 1.
 
+## Sequence steps: AI system/user prompt fields (app/ only, data capture only)
+
+Per Jack: "create a text body in sequence for ai prompting like apollo
+has user prompt input and system prompt input for steps like emails."
+Mirrors Apollo's system-prompt/user-prompt pair, but this app has no
+LLM/AI integration at all yet (no API key, no `window.claude.use("mcp")`
+AI call anywhere), so this is deliberately data-capture-only for now —
+same "captured now, wired in later" pattern as the channel Manual/
+Automated badges.
+
+- **`SequenceStep` gained two optional fields**, `systemPrompt`/
+  `userPrompt` (`lib/sequences.ts`) — plain text, available on any
+  channel (not email-only; Jack's own "like" phrasing read as a category,
+  not a restriction). `taskTextFor` (what a step's generated Task text
+  actually reads) is untouched — these fields have zero effect on
+  anything a step currently does.
+- **Per-step "🤖 AI prompt" toggle** (`Sequences.tsx`) next to each step's
+  move/remove buttons — collapsed by default, shows a small "✓" once
+  either field has real content. Expands to two textareas (System
+  prompt, User prompt) with a plain-text disclaimer above them: *"nothing
+  calls any AI with these yet."* Saved on blur via a new `updateStep`
+  (`lib/sequences.ts`) and `onUpdateSequenceStep` handler chain (App.tsx
+  → Engage.tsx → Sequences.tsx), threaded the same way `onAddStep`/
+  `onRemoveStep` already are.
+- Verified live: added an email step, opened its AI prompt editor, typed
+  a system and user prompt, confirmed the toggle shows a checkmark;
+  collapsed and reopened the editor and confirmed both values round-trip
+  correctly (not lost, not stale); reloaded the page and confirmed both
+  prompts persisted through IndexedDB.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

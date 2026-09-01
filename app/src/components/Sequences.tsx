@@ -7,7 +7,7 @@
 import { useMemo, useState } from "react";
 import type { Contact } from "../lib/contacts";
 import type { Task } from "../lib/tasks";
-import { resolveWaitHours, MIN_WAIT_HOURS, MAX_WAIT_HOURS, type Sequence, type SequenceEnrollment, type SequenceChannel } from "../lib/sequences";
+import { resolveWaitHours, MIN_WAIT_HOURS, MAX_WAIT_HOURS, type Sequence, type SequenceEnrollment, type SequenceChannel, type SequenceStep } from "../lib/sequences";
 import { resolveListContacts, type LeadList } from "../lib/leadLists";
 
 interface SequencesProps {
@@ -22,6 +22,7 @@ interface SequencesProps {
   onRename: (id: string, name: string) => void;
   onAddStep: (id: string, channel: SequenceChannel, waitHours: number, note?: string) => void;
   onRemoveStep: (id: string, stepId: string) => void;
+  onUpdateStep: (id: string, stepId: string, patch: Partial<Pick<SequenceStep, "note" | "systemPrompt" | "userPrompt">>) => void;
   onMoveStep: (id: string, stepId: string, direction: -1 | 1) => void;
   onDelete: (id: string) => void;
   onEnroll: (sequenceId: string, contactIds: string[]) => number;
@@ -85,6 +86,7 @@ export default function SequencesView({
   onRename,
   onAddStep,
   onRemoveStep,
+  onUpdateStep,
   onMoveStep,
   onDelete,
   onEnroll,
@@ -178,6 +180,7 @@ export default function SequencesView({
                     onRename={(name) => onRename(seq.id, name)}
                     onAddStep={(channel, waitHours, note) => onAddStep(seq.id, channel, waitHours, note)}
                     onRemoveStep={(stepId) => onRemoveStep(seq.id, stepId)}
+                    onUpdateStep={(stepId, patch) => onUpdateStep(seq.id, stepId, patch)}
                     onMoveStep={(stepId, dir) => onMoveStep(seq.id, stepId, dir)}
                     onEnroll={(contactIds) => onEnroll(seq.id, contactIds)}
                     onRestart={onRestart}
@@ -203,6 +206,7 @@ function SequenceDetail({
   onRename,
   onAddStep,
   onRemoveStep,
+  onUpdateStep,
   onMoveStep,
   onEnroll,
   onRestart,
@@ -217,6 +221,7 @@ function SequenceDetail({
   onRename: (name: string) => void;
   onAddStep: (channel: SequenceChannel, waitHours: number, note?: string) => void;
   onRemoveStep: (stepId: string) => void;
+  onUpdateStep: (stepId: string, patch: Partial<Pick<SequenceStep, "note" | "systemPrompt" | "userPrompt">>) => void;
   onMoveStep: (stepId: string, dir: -1 | 1) => void;
   onEnroll: (contactIds: string[]) => number;
   onRestart: (enrollmentId: string) => void;
@@ -228,6 +233,9 @@ function SequenceDetail({
   const [stepWaitValue, setStepWaitValue] = useState(1);
   const [stepWaitUnit, setStepWaitUnit] = useState<"hours" | "days">("days");
   const [stepNote, setStepNote] = useState("");
+  // Which step's AI-prompt editor (system/user prompt) is expanded — one
+  // at a time, collapsed by default so the step list stays scannable.
+  const [promptEditorStepId, setPromptEditorStepId] = useState<string | null>(null);
   const [listPickerId, setListPickerId] = useState("");
   const [enrollPicker, setEnrollPicker] = useState<Set<string>>(new Set());
   const [enrollNotice, setEnrollNotice] = useState<string | null>(null);
@@ -295,20 +303,67 @@ function SequenceDetail({
         <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10 }}>No steps yet — add one below.</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 10 }}>
-          {seq.steps.map((step, i) => (
-            <div key={step.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--surface-sunken)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 10px", fontSize: 12.5 }}>
-              <span style={{ fontWeight: 700 }}>{i + 1}.</span>
-              <span>{CHANNEL_META[step.channel].icon} {CHANNEL_META[step.channel].label}</span>
-              <SendModeBadge channel={step.channel} />
-              <span style={{ color: "var(--muted)" }}>{formatWait(resolveWaitHours(step))}{resolveWaitHours(step) > 0 ? " after previous" : ""}</span>
-              {step.note && <span style={{ color: "var(--muted)", fontStyle: "italic" }}>— {step.note}</span>}
-              <span style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
-                <button onClick={() => onMoveStep(step.id, -1)} disabled={i === 0} title="Move earlier" style={{ border: "none", background: "none", cursor: i === 0 ? "default" : "pointer", opacity: i === 0 ? 0.3 : 1 }}>▲</button>
-                <button onClick={() => onMoveStep(step.id, 1)} disabled={i === seq.steps.length - 1} title="Move later" style={{ border: "none", background: "none", cursor: i === seq.steps.length - 1 ? "default" : "pointer", opacity: i === seq.steps.length - 1 ? 0.3 : 1 }}>▼</button>
-                <button onClick={() => onRemoveStep(step.id)} title="Remove step" style={{ border: "none", background: "none", color: "#B5443B" }}>✕</button>
-              </span>
-            </div>
-          ))}
+          {seq.steps.map((step, i) => {
+            const hasPrompt = Boolean(step.systemPrompt?.trim() || step.userPrompt?.trim());
+            const promptOpen = promptEditorStepId === step.id;
+            return (
+              <div key={step.id}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--surface-sunken)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 10px", fontSize: 12.5 }}>
+                  <span style={{ fontWeight: 700 }}>{i + 1}.</span>
+                  <span>{CHANNEL_META[step.channel].icon} {CHANNEL_META[step.channel].label}</span>
+                  <SendModeBadge channel={step.channel} />
+                  <span style={{ color: "var(--muted)" }}>{formatWait(resolveWaitHours(step))}{resolveWaitHours(step) > 0 ? " after previous" : ""}</span>
+                  {step.note && <span style={{ color: "var(--muted)", fontStyle: "italic" }}>— {step.note}</span>}
+                  <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4 }}>
+                    <button
+                      onClick={() => setPromptEditorStepId(promptOpen ? null : step.id)}
+                      title="AI prompt for this step — system + user prompt, captured for future AI-generated content (not sent to any AI yet)"
+                      style={{
+                        border: `1px solid ${hasPrompt ? "#CFE3F7" : "var(--border)"}`,
+                        borderRadius: 999,
+                        padding: "2px 8px",
+                        fontSize: 10.5,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        background: hasPrompt ? "#EAF3FC" : "var(--surface)",
+                        color: hasPrompt ? "#0A66C2" : "var(--muted)",
+                      }}
+                    >
+                      🤖 AI prompt{hasPrompt ? " ✓" : ""}
+                    </button>
+                    <button onClick={() => onMoveStep(step.id, -1)} disabled={i === 0} title="Move earlier" style={{ border: "none", background: "none", cursor: i === 0 ? "default" : "pointer", opacity: i === 0 ? 0.3 : 1 }}>▲</button>
+                    <button onClick={() => onMoveStep(step.id, 1)} disabled={i === seq.steps.length - 1} title="Move later" style={{ border: "none", background: "none", cursor: i === seq.steps.length - 1 ? "default" : "pointer", opacity: i === seq.steps.length - 1 ? 0.3 : 1 }}>▼</button>
+                    <button onClick={() => onRemoveStep(step.id)} title="Remove step" style={{ border: "none", background: "none", color: "#B5443B" }}>✕</button>
+                  </span>
+                </div>
+                {promptOpen && (
+                  <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderTop: "none", borderRadius: "0 0 8px 8px", padding: "10px 12px", marginTop: -1 }}>
+                    <div style={{ fontSize: 10.5, color: "var(--muted)", marginBottom: 8, lineHeight: 1.4 }}>
+                      Captured for a future AI-generated version of this step, same idea as Apollo's system/user prompt
+                      fields — <strong>nothing calls any AI with these yet</strong>, this app has no AI integration wired
+                      in. Safe to fill in now so the content is ready once one is.
+                    </div>
+                    <label style={{ display: "block", fontSize: 10.5, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", marginBottom: 3 }}>System prompt</label>
+                    <textarea
+                      defaultValue={step.systemPrompt || ""}
+                      onBlur={(e) => onUpdateStep(step.id, { systemPrompt: e.target.value })}
+                      placeholder="e.g. You are a friendly, concise SDR at Wired CIO writing a short first-touch email…"
+                      rows={2}
+                      style={{ width: "100%", border: "1px solid var(--border)", borderRadius: 7, padding: "6px 8px", fontSize: 12, marginBottom: 8, resize: "vertical", boxSizing: "border-box" }}
+                    />
+                    <label style={{ display: "block", fontSize: 10.5, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", marginBottom: 3 }}>User prompt</label>
+                    <textarea
+                      defaultValue={step.userPrompt || ""}
+                      onBlur={(e) => onUpdateStep(step.id, { userPrompt: e.target.value })}
+                      placeholder="e.g. Write a 3-sentence intro referencing {{company}}'s Dynamics 365 interest and asking for 15 minutes."
+                      rows={2}
+                      style={{ width: "100%", border: "1px solid var(--border)", borderRadius: 7, padding: "6px 8px", fontSize: 12, resize: "vertical", boxSizing: "border-box" }}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
       <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginBottom: 6 }}>

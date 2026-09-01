@@ -42,6 +42,7 @@ interface EngageProps {
   onRenameSequence: (id: string, name: string) => void;
   onAddSequenceStep: (id: string, channel: SequenceChannel, waitHours: number, note?: string) => void;
   onRemoveSequenceStep: (id: string, stepId: string) => void;
+  onUpdateSequenceStep: (id: string, stepId: string, patch: Partial<{ note: string; systemPrompt: string; userPrompt: string }>) => void;
   onMoveSequenceStep: (id: string, stepId: string, direction: -1 | 1) => void;
   onDeleteSequence: (id: string) => void;
   onEnrollInSequence: (sequenceId: string, contactIds: string[]) => number;
@@ -97,6 +98,7 @@ export default function Engage({
   onRenameSequence,
   onAddSequenceStep,
   onRemoveSequenceStep,
+  onUpdateSequenceStep,
   onMoveSequenceStep,
   onDeleteSequence,
   onEnrollInSequence,
@@ -154,6 +156,7 @@ export default function Engage({
           onRename={onRenameSequence}
           onAddStep={onAddSequenceStep}
           onRemoveStep={onRemoveSequenceStep}
+          onUpdateStep={onUpdateSequenceStep}
           onMoveStep={onMoveSequenceStep}
           onDelete={onDeleteSequence}
           onEnroll={onEnrollInSequence}
