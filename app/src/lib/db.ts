@@ -3,7 +3,7 @@
 // used. No server, no shared backend (see CLAUDE.md, Access & ownership).
 
 export const DB_NAME = "wiredCioUnifiedLeadScannerLibrary_v1";
-export const DB_VERSION = 10;
+export const DB_VERSION = 11;
 export const STORE_LIBRARY = "files";
 export const STORE_GROUPS = "groups";
 export const STORE_HISTORY = "history";
@@ -16,6 +16,8 @@ export const STORE_LEAD_LISTS = "leadLists";
 export const STORE_SEQUENCES = "sequences";
 export const STORE_SEQUENCE_ENROLLMENTS = "sequenceEnrollments";
 export const STORE_WEEKLY_GOALS = "weeklyGoals";
+export const STORE_USERS = "users";
+export const STORE_SEQUENCE_GROUPS = "sequenceGroups";
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -38,6 +40,8 @@ function openDB(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE_SEQUENCES)) db.createObjectStore(STORE_SEQUENCES, { keyPath: "id" });
       if (!db.objectStoreNames.contains(STORE_SEQUENCE_ENROLLMENTS)) db.createObjectStore(STORE_SEQUENCE_ENROLLMENTS, { keyPath: "id" });
       if (!db.objectStoreNames.contains(STORE_WEEKLY_GOALS)) db.createObjectStore(STORE_WEEKLY_GOALS, { keyPath: "weekKey" });
+      if (!db.objectStoreNames.contains(STORE_USERS)) db.createObjectStore(STORE_USERS, { keyPath: "id" });
+      if (!db.objectStoreNames.contains(STORE_SEQUENCE_GROUPS)) db.createObjectStore(STORE_SEQUENCE_GROUPS, { keyPath: "id" });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error || new Error("Could not open local file storage."));

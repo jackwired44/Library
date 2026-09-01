@@ -2702,6 +2702,70 @@ untouched, and Weekly Goals sits below the new panel exactly as before.
   a time after creation; no time column on the Board/Contacts tables. Flag
   if any of those are wanted next.
 
+## Sequences: owners, groups, pause/archive, copy (app/ only)
+
+Per Jack: "build out sequences to have sequence owners by users
+associated with the platform and have credentials // should be able to
+group sequences also edit and delete as well as pause/activate + archive
+if need be and copy which duplicates it exactly."
+
+**The credentials half is NOT built, deliberately.** `lib/users.ts` is a
+roster for ATTRIBUTION, not AUTHENTICATION — there is one shared password
+(`lib/auth.ts`) and no server, so an owner stamp says who a sequence
+belongs to, never who may open the app or act as whom. Anyone who unlocks
+the app still sees and edits everything regardless of owner. Adding a
+password field to a user record would be actively misleading. Real
+per-user sign-in is the same unmade backend decision as the email
+sign-in-code thread (see Access & ownership and the Roadmap). The roster
+is built so a real account can bind to an existing user id later without
+re-attributing every sequence. The UI says all of this in plain text
+under the roster rather than implying a login exists.
+
+- **`lib/users.ts`** (new, `STORE_USERS`) — `PlatformUser {id, name,
+  email, role, isSelf}` with roles Owner/Admin/Rep. The roster always
+  contains "you", seeded once from the local Profile so there's always
+  someone to attribute to. Editable inline in Profile & Access, which
+  replaced its disabled "+ Invite teammate" placeholder with a real
+  add/edit/remove list. Removing a user clears them off any sequence they
+  owned rather than leaving a dangling id.
+- **`lib/sequenceGroups.ts`** (new, `STORE_SEQUENCE_GROUPS`) — folders for
+  sequences, same shape as the Lead Library's own `LibraryGroup`, and the
+  same rule: **deleting a group never deletes the sequences in it**, they
+  just become ungrouped. Managed from a "🗂 Groups" panel; the sequence
+  list renders one section per group with "Ungrouped" last.
+- **`Sequence` gained `status`, `ownerId`, `groupId`, `archivedAt`** — all
+  optional, so every sequence saved before this still loads (an undefined
+  status reads as "active" via `resolveStatus`). `DB_VERSION` 10→11.
+- **Pause/archive gate real behavior, they are not labels.** A
+  non-runnable sequence takes no new enrollments (`enrollContact` returns
+  null — the UI disables the controls too, but that function is the real
+  guard) and generates no new step tasks: completing an already-open task
+  still counts, but the enrollment parks on its next step with no open
+  task. `resumeEnrollments` regenerates that task when the sequence is
+  reactivated, so pausing suspends rather than strands people mid-sequence.
+- **Copy duplicates exactly** — steps deep-copied with fresh ids (a shared
+  step id would make two sequences edit each other), owner and group
+  carried over, named "… (copy)", always starting active. Enrollments are
+  deliberately NOT copied: they belong to the original's contacts and
+  their in-flight tasks, and duplicating them would generate a second live
+  task per person.
+- **Bug found and fixed during verification: pausing made the card vanish.**
+  The status filter defaulted to "Active only", so clicking Pause instantly
+  filtered the sequence out of view — leaving no reachable Activate button.
+  Confirmed live before fixing. The filter is now **Live (active + paused,
+  the default) / Archived / All**: archiving is the action that removes
+  something from the default list, pausing just stops it running. That
+  distinction is the whole point of having both.
+- Verified live, 16/16 checks, zero console errors: added a teammate to
+  the roster; created a sequence, assigned it that owner and a new group;
+  copied it and confirmed the copy carried the step; enrolled a contact;
+  paused it and confirmed the "no new enrollments or step tasks" notice
+  plus a disabled enroll button; archived it and confirmed it left the
+  Live list and appeared under Archived; reactivated it back into Live;
+  reloaded and confirmed owner, group and copy all survived — and read
+  IndexedDB directly to confirm `ownerId`/`groupId`/group name really
+  persisted rather than trusting the render.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

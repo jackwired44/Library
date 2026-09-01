@@ -7,7 +7,9 @@
 import { useMemo, useState } from "react";
 import type { Contact } from "../lib/contacts";
 import type { Task } from "../lib/tasks";
-import { resolveWaitHours, MIN_WAIT_HOURS, MAX_WAIT_HOURS, type Sequence, type SequenceEnrollment, type SequenceChannel, type SequenceStep } from "../lib/sequences";
+import { resolveWaitHours, resolveStatus, isSequenceRunnable, MIN_WAIT_HOURS, MAX_WAIT_HOURS, type Sequence, type SequenceEnrollment, type SequenceChannel, type SequenceStep, type SequenceStatus } from "../lib/sequences";
+import { userLabel, type PlatformUser } from "../lib/users";
+import { type SequenceGroup } from "../lib/sequenceGroups";
 import { resolveListContacts, type LeadList } from "../lib/leadLists";
 
 interface SequencesProps {
@@ -28,7 +30,24 @@ interface SequencesProps {
   onEnroll: (sequenceId: string, contactIds: string[]) => number;
   onRestart: (enrollmentId: string) => void;
   onRemoveEnrollment: (enrollmentId: string) => void;
+  users: PlatformUser[];
+  groups: SequenceGroup[];
+  onSetStatus: (id: string, status: SequenceStatus) => void;
+  onSetOwner: (id: string, ownerId: string | null) => void;
+  onSetGroup: (id: string, groupId: string | null) => void;
+  onCopy: (id: string) => Sequence | null;
+  onAddGroup: (name: string) => void;
+  onRenameGroup: (id: string, name: string) => void;
+  onDeleteGroup: (id: string) => void;
 }
+
+// Sequence lifecycle badge colors — distinct from STATUS_META further
+// down, which is for an ENROLLMENT's status (active/finished/removed).
+const SEQ_STATUS_META: Record<SequenceStatus, { label: string; color: string; bg: string }> = {
+  active: { label: "Active", color: "#2CC295", bg: "#E7F1EA" },
+  paused: { label: "Paused", color: "#9A5B22", bg: "#FBEBDD" },
+  archived: { label: "Archived", color: "#5B6B72", bg: "#EDEFF1" },
+};
 
 // Every channel is manual today — there's no SendGrid/LinkedIn API tied
 // in, so an email/LinkedIn step generates a task worked by hand, exactly
@@ -92,12 +111,67 @@ export default function SequencesView({
   onEnroll,
   onRestart,
   onRemoveEnrollment,
+  users,
+  groups,
+  onSetStatus,
+  onSetOwner,
+  onSetGroup,
+  onCopy,
+  onAddGroup,
+  onRenameGroup,
+  onDeleteGroup,
 }: SequencesProps) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
+  // "Live" (active + paused) is the default, NOT "active only" — pausing
+  // a sequence must never make it vanish out from under you the moment
+  // you click Pause, which is exactly what an active-only default did.
+  // Archiving is the action that removes something from the default
+  // list; pausing just stops it running. Confirmed live: with an
+  // active-only default, pausing hid the card and left no reachable
+  // Activate button.
+  const [statusFilter, setStatusFilter] = useState<"live" | SequenceStatus | "all">("live");
+  const [ownerFilter, setOwnerFilter] = useState<string>("all");
+  const [newGroupName, setNewGroupName] = useState("");
+  const [managingGroups, setManagingGroups] = useState(false);
 
   const contactById = useMemo(() => new Map(contacts.map((c) => [c.id, c])), [contacts]);
   const taskById = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
+
+  const visible = useMemo(() => {
+    let list = sequences;
+    if (statusFilter === "all") {
+      // "All" still sorts archived to the bottom rather than mixing them in.
+      list = [...list].sort((a, b) => Number(resolveStatus(a) === "archived") - Number(resolveStatus(b) === "archived"));
+    } else if (statusFilter === "live") {
+      list = list.filter((s) => resolveStatus(s) !== "archived");
+    } else {
+      list = list.filter((s) => resolveStatus(s) === statusFilter);
+    }
+    if (ownerFilter !== "all") {
+      list = list.filter((s) => (ownerFilter === "unassigned" ? !s.ownerId : s.ownerId === ownerFilter));
+    }
+    return list;
+  }, [sequences, statusFilter, ownerFilter]);
+
+  // Grouped for display: one bucket per group that actually has visible
+  // sequences, plus an "Ungrouped" bucket last.
+  const grouped = useMemo(() => {
+    const buckets: { id: string | null; name: string; items: Sequence[] }[] = [];
+    groups.forEach((g) => {
+      const items = visible.filter((s) => s.groupId === g.id);
+      if (items.length) buckets.push({ id: g.id, name: g.name, items });
+    });
+    const ungrouped = visible.filter((s) => !s.groupId || !groups.some((g) => g.id === s.groupId));
+    if (ungrouped.length) buckets.push({ id: null, name: "Ungrouped", items: ungrouped });
+    return buckets;
+  }, [visible, groups]);
+
+  const statusCounts = useMemo(() => {
+    const counts: Record<SequenceStatus, number> = { active: 0, paused: 0, archived: 0 };
+    sequences.forEach((s) => { counts[resolveStatus(s)]++; });
+    return counts;
+  }, [sequences]);
 
   function handleCreate() {
     const seq = onCreate(newName);
@@ -139,57 +213,256 @@ export default function SequencesView({
         <button onClick={handleCreate} disabled={!newName.trim()} style={{ background: "#2CC295", color: "#081E22", border: "none", borderRadius: 8, padding: "8px 16px", fontWeight: 700, opacity: newName.trim() ? 1 : 0.5 }}>
           + New sequence
         </button>
+        <button
+          onClick={() => setManagingGroups((v) => !v)}
+          style={{ border: "1px solid var(--border)", background: "var(--surface)", borderRadius: 8, padding: "8px 14px", fontSize: 12.5, fontWeight: 700 }}
+        >
+          🗂 Groups ({groups.length})
+        </button>
+      </div>
+
+      {managingGroups && (
+        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "12px 16px", marginBottom: 16 }}>
+          <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>Sequence groups</div>
+          {groups.length === 0 && <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 8 }}>No groups yet — name one below, then assign sequences to it.</div>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 10 }}>
+            {groups.map((g) => (
+              <div key={g.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <input
+                  defaultValue={g.name}
+                  onBlur={(e) => { if (e.target.value.trim() && e.target.value !== g.name) onRenameGroup(g.id, e.target.value); }}
+                  style={{ flex: "1 1 200px", border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 12.5, fontWeight: 600 }}
+                />
+                <span style={{ fontSize: 11.5, color: "var(--muted)", whiteSpace: "nowrap" }}>
+                  {sequences.filter((s) => s.groupId === g.id).length} sequence(s)
+                </span>
+                <button
+                  onClick={() => {
+                    if (window.confirm(`Delete the group "${g.name}"? The sequences in it are NOT deleted — they just become ungrouped.`)) onDeleteGroup(g.id);
+                  }}
+                  title="Delete group (sequences inside are kept, just ungrouped)"
+                  style={{ border: "none", background: "none", color: "#B5443B", fontSize: 13, cursor: "pointer" }}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <input
+              value={newGroupName}
+              onChange={(e) => setNewGroupName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && newGroupName.trim()) { onAddGroup(newGroupName); setNewGroupName(""); } }}
+              placeholder="New group name"
+              style={{ flex: "1 1 200px", border: "1px solid var(--border)", borderRadius: 7, padding: "6px 8px", fontSize: 12.5 }}
+            />
+            <button
+              onClick={() => { if (newGroupName.trim()) { onAddGroup(newGroupName); setNewGroupName(""); } }}
+              disabled={!newGroupName.trim()}
+              style={{ border: "none", background: "#2CC295", color: "#081E22", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 700, opacity: newGroupName.trim() ? 1 : 0.5 }}
+            >
+              Add group
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 16 }}>
+        {(["live", "archived", "all"] as const).map((f) => (
+          <button
+            key={f}
+            onClick={() => setStatusFilter(f)}
+            style={{
+              border: "1px solid var(--border)",
+              borderRadius: 999,
+              padding: "5px 13px",
+              fontSize: 12.5,
+              fontWeight: 700,
+              cursor: "pointer",
+              background: statusFilter === f ? "var(--ink)" : "var(--surface)",
+              color: statusFilter === f ? "#fff" : "var(--muted)",
+            }}
+          >
+            {f === "all"
+              ? `All (${sequences.length})`
+              : f === "live"
+                ? `Live (${statusCounts.active + statusCounts.paused})`
+                : `Archived (${statusCounts.archived})`}
+          </button>
+        ))}
+        <span style={{ width: 1, height: 18, background: "var(--border)" }} />
+        <span style={{ fontSize: 11.5, color: "var(--muted)", fontWeight: 700 }}>Owner</span>
+        <select
+          title="Filter by owner"
+          aria-label="Filter by owner"
+          value={ownerFilter}
+          onChange={(e) => setOwnerFilter(e.target.value)}
+          style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "5px 8px", fontSize: 12.5 }}
+        >
+          <option value="all">Anyone</option>
+          {users.map((u) => (
+            <option key={u.id} value={u.id}>{u.name}</option>
+          ))}
+          <option value="unassigned">Unassigned</option>
+        </select>
       </div>
 
       {sequences.length === 0 ? (
         <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: 28, textAlign: "center", color: "var(--muted)", fontSize: 13 }}>
           No sequences yet — name one above to start building it.
         </div>
+      ) : visible.length === 0 ? (
+        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: 28, textAlign: "center", color: "var(--muted)", fontSize: 13 }}>
+          No sequences match this filter.
+        </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {sequences.map((seq) => {
-            const seqEnrollments = enrollments.filter((e) => e.sequenceId === seq.id);
-            const activeCount = seqEnrollments.filter((e) => e.status === "active").length;
-            const isOpen = openId === seq.id;
-            return (
-              <div key={seq.id} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 13, padding: "14px 18px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-                  <button onClick={() => setOpenId(isOpen ? null : seq.id)} style={{ display: "flex", alignItems: "center", gap: 10, border: "none", background: "none", cursor: "pointer", textAlign: "left" }}>
-                    <span style={{ fontSize: 12, color: "var(--muted)" }}>{isOpen ? "▾" : "▸"}</span>
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: 13.5 }}>{seq.name}</div>
-                      <div style={{ fontSize: 11.5, color: "var(--muted)" }}>
-                        {seq.steps.length === 0 ? "No steps yet" : seq.steps.map((s) => CHANNEL_META[s.channel].icon).join(" → ")}
-                        {" · "}
-                        {activeCount} active enrollment{activeCount === 1 ? "" : "s"}
-                      </div>
-                    </div>
-                  </button>
-                  <button onClick={() => handleDelete(seq)} style={{ background: "var(--surface)", color: "#B5443B", border: "1px solid #F0C6C1", borderRadius: 8, padding: "6px 12px", fontSize: 12 }}>
-                    Delete
-                  </button>
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          {grouped.map((bucket) => (
+            <div key={bucket.id || "ungrouped"}>
+              {groups.length > 0 && (
+                <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 7 }}>
+                  🗂 {bucket.name} <span style={{ fontWeight: 400 }}>· {bucket.items.length}</span>
                 </div>
-                {isOpen && (
-                  <SequenceDetail
-                    seq={seq}
-                    enrollments={seqEnrollments}
-                    contacts={contacts}
-                    leadLists={leadLists}
-                    contactById={contactById}
-                    taskById={taskById}
-                    onRename={(name) => onRename(seq.id, name)}
-                    onAddStep={(channel, waitHours, note) => onAddStep(seq.id, channel, waitHours, note)}
-                    onRemoveStep={(stepId) => onRemoveStep(seq.id, stepId)}
-                    onUpdateStep={(stepId, patch) => onUpdateStep(seq.id, stepId, patch)}
-                    onMoveStep={(stepId, dir) => onMoveStep(seq.id, stepId, dir)}
-                    onEnroll={(contactIds) => onEnroll(seq.id, contactIds)}
-                    onRestart={onRestart}
-                    onRemoveEnrollment={onRemoveEnrollment}
-                  />
-                )}
+              )}
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {bucket.items.map((seq) => {
+                  const seqEnrollments = enrollments.filter((e) => e.sequenceId === seq.id);
+                  const activeCount = seqEnrollments.filter((e) => e.status === "active").length;
+                  const isOpen = openId === seq.id;
+                  const status = resolveStatus(seq);
+                  const statusMeta = SEQ_STATUS_META[status];
+                  const runnable = isSequenceRunnable(seq);
+                  return (
+                    <div
+                      key={seq.id}
+                      style={{
+                        background: "var(--surface)",
+                        border: "1px solid var(--border)",
+                        borderRadius: 13,
+                        padding: "14px 18px",
+                        // An archived sequence reads as set-aside without
+                        // being hidden when you deliberately filter to it.
+                        opacity: status === "archived" ? 0.72 : 1,
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+                        <button onClick={() => setOpenId(isOpen ? null : seq.id)} style={{ display: "flex", alignItems: "center", gap: 10, border: "none", background: "none", cursor: "pointer", textAlign: "left" }}>
+                          <span style={{ fontSize: 12, color: "var(--muted)" }}>{isOpen ? "▾" : "▸"}</span>
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: 13.5, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                              {seq.name}
+                              <span style={{ fontSize: 9.5, fontWeight: 700, color: statusMeta.color, background: statusMeta.bg, borderRadius: 999, padding: "1px 8px" }}>
+                                {statusMeta.label}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: 11.5, color: "var(--muted)" }}>
+                              {seq.steps.length === 0 ? "No steps yet" : seq.steps.map((s) => CHANNEL_META[s.channel].icon).join(" → ")}
+                              {" · "}
+                              {activeCount} active enrollment{activeCount === 1 ? "" : "s"}
+                              {" · owner: "}
+                              {userLabel(users, seq.ownerId)}
+                            </div>
+                          </div>
+                        </button>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                          {runnable ? (
+                            <button
+                              onClick={() => onSetStatus(seq.id, "paused")}
+                              title="Stop new enrollments and stop generating new step tasks. Open tasks are left alone."
+                              style={{ border: "1px solid var(--border)", background: "var(--surface)", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 600 }}
+                            >
+                              ⏸ Pause
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => onSetStatus(seq.id, "active")}
+                              title="Resume: regenerates the open task for any enrollment parked without one."
+                              style={{ border: "none", background: "#2CC295", color: "#081E22", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700 }}
+                            >
+                              ▶ Activate
+                            </button>
+                          )}
+                          {status !== "archived" ? (
+                            <button
+                              onClick={() => onSetStatus(seq.id, "archived")}
+                              title="Archive: hidden from the default list, no enrollments, no new tasks. Reversible."
+                              style={{ border: "1px solid var(--border)", background: "var(--surface)", borderRadius: 8, padding: "6px 12px", fontSize: 12 }}
+                            >
+                              🗄 Archive
+                            </button>
+                          ) : null}
+                          <button
+                            onClick={() => { const copy = onCopy(seq.id); if (copy) setOpenId(copy.id); }}
+                            title="Duplicate this sequence exactly — same steps, owner and group. Enrollments are not copied."
+                            style={{ border: "1px solid var(--border)", background: "var(--surface)", borderRadius: 8, padding: "6px 12px", fontSize: 12 }}
+                          >
+                            ⧉ Copy
+                          </button>
+                          <button onClick={() => handleDelete(seq)} style={{ background: "var(--surface)", color: "#B5443B", border: "1px solid #F0C6C1", borderRadius: 8, padding: "6px 12px", fontSize: 12 }}>
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                      {isOpen && (
+                        <>
+                          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
+                            <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase" }}>Owner</span>
+                            <select
+                              title="Sequence owner"
+                              aria-label="Sequence owner"
+                              value={seq.ownerId || ""}
+                              onChange={(e) => onSetOwner(seq.id, e.target.value || null)}
+                              style={{ border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 12.5 }}
+                            >
+                              <option value="">Unassigned</option>
+                              {users.map((u) => (
+                                <option key={u.id} value={u.id}>{u.name}</option>
+                              ))}
+                            </select>
+                            <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase" }}>Group</span>
+                            <select
+                              title="Sequence group"
+                              aria-label="Sequence group"
+                              value={seq.groupId || ""}
+                              onChange={(e) => onSetGroup(seq.id, e.target.value || null)}
+                              style={{ border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 12.5 }}
+                            >
+                              <option value="">Ungrouped</option>
+                              {groups.map((g) => (
+                                <option key={g.id} value={g.id}>{g.name}</option>
+                              ))}
+                            </select>
+                            {!runnable && (
+                              <span style={{ fontSize: 11.5, color: "#9A5B22" }}>
+                                {status === "paused" ? "Paused" : "Archived"} — no new enrollments or step tasks until reactivated.
+                              </span>
+                            )}
+                          </div>
+                          <SequenceDetail
+                            seq={seq}
+                            enrollments={seqEnrollments}
+                            contacts={contacts}
+                            leadLists={leadLists}
+                            contactById={contactById}
+                            taskById={taskById}
+                            runnable={runnable}
+                            onRename={(name) => onRename(seq.id, name)}
+                            onAddStep={(channel, waitHours, note) => onAddStep(seq.id, channel, waitHours, note)}
+                            onRemoveStep={(stepId) => onRemoveStep(seq.id, stepId)}
+                            onUpdateStep={(stepId, patch) => onUpdateStep(seq.id, stepId, patch)}
+                            onMoveStep={(stepId, dir) => onMoveStep(seq.id, stepId, dir)}
+                            onEnroll={(contactIds) => onEnroll(seq.id, contactIds)}
+                            onRestart={onRestart}
+                            onRemoveEnrollment={onRemoveEnrollment}
+                          />
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -203,6 +476,7 @@ function SequenceDetail({
   leadLists,
   contactById,
   taskById,
+  runnable,
   onRename,
   onAddStep,
   onRemoveStep,
@@ -218,6 +492,10 @@ function SequenceDetail({
   leadLists: LeadList[];
   contactById: Map<string, Contact>;
   taskById: Map<string, Task>;
+  // False when the sequence is paused/archived — enrolling is blocked in
+  // lib/sequences.ts regardless, this just disables the controls so the
+  // UI doesn't offer an action that would silently no-op.
+  runnable: boolean;
   onRename: (name: string) => void;
   onAddStep: (channel: SequenceChannel, waitHours: number, note?: string) => void;
   onRemoveStep: (stepId: string) => void;
@@ -451,9 +729,9 @@ function SequenceDetail({
           </select>
           <button
             onClick={submitEnrollFromList}
-            disabled={!listPickerId || seq.steps.length === 0}
-            title={seq.steps.length === 0 ? "Add at least one step first" : undefined}
-            style={{ background: "#2CC295", color: "#081E22", border: "none", borderRadius: 7, padding: "7px 14px", fontWeight: 700, opacity: !listPickerId || seq.steps.length === 0 ? 0.5 : 1 }}
+            disabled={!listPickerId || seq.steps.length === 0 || !runnable}
+            title={!runnable ? "This sequence is paused/archived — activate it to enroll" : seq.steps.length === 0 ? "Add at least one step first" : undefined}
+            style={{ background: "#2CC295", color: "#081E22", border: "none", borderRadius: 7, padding: "7px 14px", fontWeight: 700, opacity: !listPickerId || seq.steps.length === 0 || !runnable ? 0.5 : 1 }}
           >
             Enroll list
           </button>
@@ -481,9 +759,9 @@ function SequenceDetail({
       </div>
       <button
         onClick={submitEnroll}
-        disabled={!enrollPicker.size || seq.steps.length === 0}
-        title={seq.steps.length === 0 ? "Add at least one step first" : undefined}
-        style={{ background: "#2CC295", color: "#081E22", border: "none", borderRadius: 8, padding: "7px 14px", fontWeight: 700, opacity: !enrollPicker.size || seq.steps.length === 0 ? 0.5 : 1 }}
+        disabled={!enrollPicker.size || seq.steps.length === 0 || !runnable}
+        title={!runnable ? "This sequence is paused/archived — activate it to enroll" : seq.steps.length === 0 ? "Add at least one step first" : undefined}
+        style={{ background: "#2CC295", color: "#081E22", border: "none", borderRadius: 8, padding: "7px 14px", fontWeight: 700, opacity: !enrollPicker.size || seq.steps.length === 0 || !runnable ? 0.5 : 1 }}
       >
         Enroll {enrollPicker.size || ""} contact{enrollPicker.size === 1 ? "" : "s"}
       </button>

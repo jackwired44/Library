@@ -62,11 +62,43 @@ export function resolveWaitHours(step: SequenceStep): number {
   return (step.waitDays ?? 0) * 24;
 }
 
+// A sequence's lifecycle state — per Jack: "pause/activate + archive if
+// need be." These are NOT cosmetic labels; they gate real behavior (see
+// isSequenceRunnable / enrollContact / advanceEnrollment below):
+//   active   — normal: accepts enrollments, generates step tasks
+//   paused   — accepts no new enrollments and generates no new step
+//              tasks; existing open tasks are left alone, and an
+//              enrollment that advances while paused just parks on its
+//              current step with no open task until reactivated
+//   archived — same as paused, plus hidden from the main list
+export type SequenceStatus = "active" | "paused" | "archived";
+
 export interface Sequence {
   id: string;
   name: string;
   createdAt: string;
   steps: SequenceStep[];
+  // Optional on all three so every sequence saved before these existed
+  // still loads: an undefined status reads as "active" everywhere via
+  // resolveStatus(), and an unowned/ungrouped sequence is simply shown
+  // as such rather than being hidden or crashing.
+  status?: SequenceStatus;
+  // Which local platform user owns this sequence (lib/users.ts). This is
+  // ATTRIBUTION, not authentication — this app has one shared password
+  // and no server, so an owner stamp says who a sequence belongs to, not
+  // who is allowed to touch it. See CLAUDE.md Access & ownership.
+  ownerId?: string | null;
+  // Optional folder (lib/sequenceGroups.ts) — null/undefined = ungrouped.
+  groupId?: string | null;
+  archivedAt?: string | null;
+}
+
+export function resolveStatus(seq: Sequence): SequenceStatus {
+  return seq.status || "active";
+}
+// Only an active sequence enrolls contacts and generates step tasks.
+export function isSequenceRunnable(seq: Sequence): boolean {
+  return resolveStatus(seq) === "active";
 }
 
 export type EnrollmentStatus = "active" | "finished" | "removed";
@@ -151,6 +183,44 @@ export function renameSequence(seq: Sequence, name: string): Sequence {
 }
 
 /* ------------------------------------------------------------------ */
+/* Lifecycle, ownership, grouping, duplication                          */
+/* ------------------------------------------------------------------ */
+export function setSequenceStatus(seq: Sequence, status: SequenceStatus): Sequence {
+  return {
+    ...seq,
+    status,
+    archivedAt: status === "archived" ? new Date().toISOString() : null,
+  };
+}
+export function setSequenceOwner(seq: Sequence, ownerId: string | null): Sequence {
+  return { ...seq, ownerId };
+}
+export function setSequenceGroup(seq: Sequence, groupId: string | null): Sequence {
+  return { ...seq, groupId };
+}
+
+// Per Jack: "copy which duplicates it exactly." Every step is deep-copied
+// with fresh ids (a step id is used as a React key and as the target of
+// step edits, so two sequences sharing one would edit each other), and
+// the copy keeps the original's owner/group/step content verbatim.
+// Deliberately NOT copied: enrollments (they belong to the original's
+// contacts and their in-flight tasks — duplicating them would generate a
+// second live task per person), and archivedAt. A copy always starts
+// "active" so it's immediately usable, and is named "<name> (copy)".
+export function duplicateSequence(seq: Sequence): Sequence {
+  return {
+    id: newId("seq"),
+    name: `${seq.name} (copy)`,
+    createdAt: new Date().toISOString(),
+    steps: seq.steps.map((s, i) => ({ ...s, id: newId("step"), position: i })),
+    status: "active",
+    ownerId: seq.ownerId ?? null,
+    groupId: seq.groupId ?? null,
+    archivedAt: null,
+  };
+}
+
+/* ------------------------------------------------------------------ */
 /* Enrollment / workflow mechanics                                      */
 /* ------------------------------------------------------------------ */
 const CHANNEL_LABEL: Record<SequenceChannel, string> = { call: "Call", email: "Email", linkedin: "LinkedIn" };
@@ -171,6 +241,10 @@ function taskTextFor(contact: Contact, step: SequenceStep, seq: Sequence): strin
 // finishes it immediately, with no task, if the sequence has no steps).
 // Returns null if the sequence has no steps and nothing to build.
 export function enrollContact(seq: Sequence, contact: Contact): { enrollment: SequenceEnrollment; task: Task | null } | null {
+  // A paused or archived sequence takes no new enrollments at all — that's
+  // the point of pausing one. The UI disables the enroll controls too, but
+  // this is the real guard.
+  if (!isSequenceRunnable(seq)) return null;
   const nowIso = new Date().toISOString();
   const enrollment: SequenceEnrollment = {
     id: newId("enr"),
@@ -213,9 +287,46 @@ export function advanceEnrollment(
   if (!nextStep) {
     return { enrollment: { ...enrollment, status: "finished", finishedAt: nowIso, finishReason: "completed-all-steps", currentTaskId: null }, task: null };
   }
+  // A paused/archived sequence still lets an already-open task be
+  // completed — that work really happened — but generates nothing new.
+  // The enrollment parks on its next step with no open task; reactivating
+  // the sequence regenerates it (see resumeEnrollments below).
+  if (!isSequenceRunnable(seq)) {
+    return { enrollment: { ...enrollment, currentStepIndex: nextIndex, currentTaskId: null }, task: null };
+  }
   const dueDate = addHours(nowIso, resolveWaitHours(nextStep));
   const task = createSequenceTask(dueDate, taskTextFor(contact, nextStep, seq), contact.id, nextStep.channel, enrollment.id);
   return { enrollment: { ...enrollment, currentStepIndex: nextIndex, currentTaskId: task?.id ?? null }, task };
+}
+
+// Reactivating a paused/archived sequence: every ACTIVE enrollment that
+// got parked without an open task (see advanceEnrollment above) gets its
+// current step's task regenerated, due from now. An enrollment that still
+// has an open task is left completely alone — no duplicate task.
+export function resumeEnrollments(
+  seq: Sequence,
+  enrollments: SequenceEnrollment[],
+  contacts: Contact[]
+): { enrollments: SequenceEnrollment[]; tasks: Task[] } {
+  const nowIso = new Date().toISOString();
+  const tasks: Task[] = [];
+  const next = enrollments.map((e) => {
+    if (e.sequenceId !== seq.id || e.status !== "active" || e.currentTaskId) return e;
+    const step = seq.steps[e.currentStepIndex];
+    const contact = contacts.find((c) => c.id === e.contactId);
+    if (!step || !contact) return e;
+    const task = createSequenceTask(
+      addHours(nowIso, resolveWaitHours(step)),
+      taskTextFor(contact, step, seq),
+      contact.id,
+      step.channel,
+      e.id
+    );
+    if (!task) return e;
+    tasks.push(task);
+    return { ...e, currentTaskId: task.id };
+  });
+  return { enrollments: next, tasks };
 }
 
 // Manual restart — back to step 0, fresh task, same as a brand-new

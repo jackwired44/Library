@@ -15,7 +15,9 @@ import SequencesView from "./Sequences";
 import ListsView from "./Lists";
 import type { Task, TaskPriority } from "../lib/tasks";
 import type { Contact, ManualContactInput } from "../lib/contacts";
-import type { Sequence, SequenceEnrollment, SequenceChannel } from "../lib/sequences";
+import type { Sequence, SequenceEnrollment, SequenceChannel, SequenceStatus } from "../lib/sequences";
+import type { PlatformUser } from "../lib/users";
+import type { SequenceGroup } from "../lib/sequenceGroups";
 import type { LeadList } from "../lib/leadLists";
 
 interface EngageProps {
@@ -48,6 +50,15 @@ interface EngageProps {
   onEnrollInSequence: (sequenceId: string, contactIds: string[]) => number;
   onRestartEnrollment: (enrollmentId: string) => void;
   onRemoveEnrollment: (enrollmentId: string) => void;
+  users: PlatformUser[];
+  sequenceGroups: SequenceGroup[];
+  onSetSequenceStatus: (id: string, status: SequenceStatus) => void;
+  onSetSequenceOwner: (id: string, ownerId: string | null) => void;
+  onSetSequenceGroup: (id: string, groupId: string | null) => void;
+  onCopySequence: (id: string) => Sequence | null;
+  onAddSequenceGroup: (name: string) => void;
+  onRenameSequenceGroup: (id: string, name: string) => void;
+  onDeleteSequenceGroup: (id: string) => void;
 
   leadLists: LeadList[];
   leadListsLoading: boolean;
@@ -104,6 +115,15 @@ export default function Engage({
   onEnrollInSequence,
   onRestartEnrollment,
   onRemoveEnrollment,
+  users,
+  sequenceGroups,
+  onSetSequenceStatus,
+  onSetSequenceOwner,
+  onSetSequenceGroup,
+  onCopySequence,
+  onAddSequenceGroup,
+  onRenameSequenceGroup,
+  onDeleteSequenceGroup,
   leadLists,
   leadListsLoading,
   leadListsError,
@@ -162,6 +182,15 @@ export default function Engage({
           onEnroll={onEnrollInSequence}
           onRestart={onRestartEnrollment}
           onRemoveEnrollment={onRemoveEnrollment}
+          users={users}
+          groups={sequenceGroups}
+          onSetStatus={onSetSequenceStatus}
+          onSetOwner={onSetSequenceOwner}
+          onSetGroup={onSetSequenceGroup}
+          onCopy={onCopySequence}
+          onAddGroup={onAddSequenceGroup}
+          onRenameGroup={onRenameSequenceGroup}
+          onDeleteGroup={onDeleteSequenceGroup}
         />
       )}
       {tab === "tasks" && (

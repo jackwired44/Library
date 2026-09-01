@@ -54,12 +54,38 @@ import {
   restartEnrollment,
   removeEnrollment,
   finishActiveEnrollmentsForContact,
+  setSequenceStatus,
+  setSequenceOwner,
+  setSequenceGroup,
+  duplicateSequence,
+  resumeEnrollments,
   TERMINAL_DISPOSITIONS,
   type Sequence,
   type SequenceEnrollment,
   type SequenceChannel,
   type SequenceStep,
+  type SequenceStatus,
 } from "./lib/sequences";
+import {
+  loadUsersFromDB,
+  persistUser,
+  deleteUserFromDB,
+  createUser,
+  updateUser,
+  selfUserFrom,
+  SELF_USER_ID,
+  type PlatformUser,
+  type UserRole,
+} from "./lib/users";
+import {
+  loadSequenceGroupsFromDB,
+  persistSequenceGroup,
+  deleteSequenceGroupFromDB,
+  createSequenceGroup,
+  renameSequenceGroup,
+  type SequenceGroup,
+} from "./lib/sequenceGroups";
+import { loadProfile } from "./lib/profile";
 import {
   loadWeeklyGoalsFromDB,
   persistWeeklyGoals,
@@ -180,6 +206,11 @@ export default function App() {
   // per week), but only the current week's is ever shown/edited from Home.
   const [weeklyGoals, setWeeklyGoals] = useState<WeeklyGoals[]>([]);
 
+  // Platform users (sequence owners) and sequence groups — see
+  // lib/users.ts for why these are attribution, not credentials.
+  const [users, setUsers] = useState<PlatformUser[]>([]);
+  const [sequenceGroups, setSequenceGroups] = useState<SequenceGroup[]>([]);
+
   useEffect(() => {
     loadLibraryFromDB()
       .then(({ entries, groups }) => {
@@ -244,6 +275,21 @@ export default function App() {
         setSequencesLoading(false);
       });
     loadWeeklyGoalsFromDB().then(setWeeklyGoals).catch(() => {});
+    loadSequenceGroupsFromDB().then(setSequenceGroups).catch(() => {});
+    // The roster always has at least "you" — seeded from the local
+    // Profile the first time, so sequences have someone to belong to
+    // before any teammate is ever added.
+    Promise.all([loadUsersFromDB(), loadProfile()])
+      .then(([loaded, profile]) => {
+        if (loaded.length === 0) {
+          const self = selfUserFrom(profile.name);
+          setUsers([self]);
+          persistUser(self);
+        } else {
+          setUsers(loaded);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   // The current week's goals record, created on the fly (not persisted)
@@ -457,6 +503,98 @@ export default function App() {
       return kept;
     });
   }
+  // --- Sequence lifecycle / ownership / grouping (see lib/sequences.ts) ---
+  // Pausing or archiving stops new enrollments and new step tasks;
+  // reactivating regenerates the open task for any active enrollment that
+  // got parked without one, so a paused sequence resumes rather than
+  // stranding people mid-sequence.
+  function setSequenceLifecycle(id: string, status: SequenceStatus) {
+    const seq = sequences.find((s) => s.id === id);
+    if (!seq) return;
+    const next = setSequenceStatus(seq, status);
+    updateSequenceSteps(next);
+    if (status !== "active") return;
+    const { enrollments: resumed, tasks: newTasks } = resumeEnrollments(next, enrollments, contacts);
+    if (!newTasks.length) return;
+    setEnrollments(resumed);
+    resumed.forEach((e) => { if (enrollments.find((p) => p.id === e.id)?.currentTaskId !== e.currentTaskId) persistEnrollment(e); });
+    setTasks((prev) => [...prev, ...newTasks]);
+    newTasks.forEach(persistTask);
+  }
+  function assignSequenceOwner(id: string, ownerId: string | null) {
+    const seq = sequences.find((s) => s.id === id);
+    if (!seq) return;
+    updateSequenceSteps(setSequenceOwner(seq, ownerId));
+  }
+  function assignSequenceGroup(id: string, groupId: string | null) {
+    const seq = sequences.find((s) => s.id === id);
+    if (!seq) return;
+    updateSequenceSteps(setSequenceGroup(seq, groupId));
+  }
+  // "Copy which duplicates it exactly" — steps deep-copied with fresh ids,
+  // no enrollments carried over (see duplicateSequence).
+  function copySequence(id: string): Sequence | null {
+    const seq = sequences.find((s) => s.id === id);
+    if (!seq) return null;
+    const copy = duplicateSequence(seq);
+    setSequences((prev) => [copy, ...prev]);
+    persistSequence(copy);
+    return copy;
+  }
+
+  // --- Sequence groups ---
+  function addSequenceGroup(name: string) {
+    const group = createSequenceGroup(name);
+    if (!group) return;
+    setSequenceGroups((prev) => [...prev, group].sort((a, b) => a.name.localeCompare(b.name)));
+    persistSequenceGroup(group);
+  }
+  function renameSequenceGroupById(id: string, name: string) {
+    const group = sequenceGroups.find((g) => g.id === id);
+    if (!group) return;
+    const next = renameSequenceGroup(group, name);
+    setSequenceGroups((prev) => prev.map((g) => (g.id === id ? next : g)).sort((a, b) => a.name.localeCompare(b.name)));
+    persistSequenceGroup(next);
+  }
+  // Deleting a group never deletes its sequences — they just become
+  // ungrouped, same rule the Lead Library's folders follow.
+  function deleteSequenceGroupById(id: string) {
+    setSequenceGroups((prev) => prev.filter((g) => g.id !== id));
+    deleteSequenceGroupFromDB(id);
+    sequences.filter((s) => s.groupId === id).forEach((s) => {
+      const next = setSequenceGroup(s, null);
+      setSequences((prev) => prev.map((p) => (p.id === s.id ? next : p)));
+      persistSequence(next);
+    });
+  }
+
+  // --- Platform users (attribution only — see lib/users.ts) ---
+  function addUser(name: string, email: string, role: UserRole) {
+    const user = createUser(name, email, role);
+    if (!user) return;
+    setUsers((prev) => [...prev, user]);
+    persistUser(user);
+  }
+  function editUser(id: string, patch: Partial<Pick<PlatformUser, "name" | "email" | "role">>) {
+    const user = users.find((u) => u.id === id);
+    if (!user) return;
+    const next = updateUser(user, patch);
+    setUsers((prev) => prev.map((u) => (u.id === id ? next : u)));
+    persistUser(next);
+  }
+  // Removing a user clears them off any sequence they owned rather than
+  // leaving a dangling owner id pointing at nobody.
+  function removeUser(id: string) {
+    if (id === SELF_USER_ID) return;
+    setUsers((prev) => prev.filter((u) => u.id !== id));
+    deleteUserFromDB(id);
+    sequences.filter((s) => s.ownerId === id).forEach((s) => {
+      const next = setSequenceOwner(s, null);
+      setSequences((prev) => prev.map((p) => (p.id === s.id ? next : p)));
+      persistSequence(next);
+    });
+  }
+
   function enrollContactsInSequence(sequenceId: string, contactIds: string[]): number {
     const seq = sequences.find((s) => s.id === sequenceId);
     if (!seq) return 0;
@@ -761,7 +899,14 @@ export default function App() {
             ))}
           </nav>
           <div style={{ marginTop: "auto" }}>
-            <AccountPanel onOpenSettings={() => setNotesPanelTab("cheatsheet")} onOpenNotes={() => setNotesPanelTab("notes")} />
+            <AccountPanel
+              onOpenSettings={() => setNotesPanelTab("cheatsheet")}
+              onOpenNotes={() => setNotesPanelTab("notes")}
+              users={users}
+              onAddUser={addUser}
+              onEditUser={editUser}
+              onRemoveUser={removeUser}
+            />
           </div>
         </aside>
 
@@ -848,6 +993,15 @@ export default function App() {
               onEnrollInSequence={enrollContactsInSequence}
               onRestartEnrollment={restartSequenceEnrollment}
               onRemoveEnrollment={removeSequenceEnrollment}
+              users={users}
+              sequenceGroups={sequenceGroups}
+              onSetSequenceStatus={setSequenceLifecycle}
+              onSetSequenceOwner={assignSequenceOwner}
+              onSetSequenceGroup={assignSequenceGroup}
+              onCopySequence={copySequence}
+              onAddSequenceGroup={addSequenceGroup}
+              onRenameSequenceGroup={renameSequenceGroupById}
+              onDeleteSequenceGroup={deleteSequenceGroupById}
               leadLists={leadLists}
               leadListsLoading={leadListsLoading}
               leadListsError={leadListsError}

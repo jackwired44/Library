@@ -10,13 +10,18 @@
 import { useEffect, useState } from "react";
 import { loadProfile, saveProfile, type Profile } from "../lib/profile";
 import ProfileAccess from "./ProfileAccess";
+import type { PlatformUser, UserRole } from "../lib/users";
 
 interface AccountPanelProps {
+  users: PlatformUser[];
+  onAddUser: (name: string, email: string, role: UserRole) => void;
+  onEditUser: (id: string, patch: Partial<Pick<PlatformUser, "name" | "email" | "role">>) => void;
+  onRemoveUser: (id: string) => void;
   onOpenSettings: () => void;
   onOpenNotes: () => void;
 }
 
-export default function AccountPanel({ onOpenSettings, onOpenNotes }: AccountPanelProps) {
+export default function AccountPanel({ onOpenSettings, onOpenNotes, users, onAddUser, onEditUser, onRemoveUser }: AccountPanelProps) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
 
@@ -47,7 +52,17 @@ export default function AccountPanel({ onOpenSettings, onOpenNotes }: AccountPan
         📝 Platform notes
       </button>
 
-      {profileOpen && profile && <ProfileAccess profile={profile} onSave={handleSaveProfile} onClose={() => setProfileOpen(false)} />}
+      {profileOpen && profile && (
+        <ProfileAccess
+          profile={profile}
+          onSave={handleSaveProfile}
+          onClose={() => setProfileOpen(false)}
+          users={users}
+          onAddUser={onAddUser}
+          onEditUser={onEditUser}
+          onRemoveUser={onRemoveUser}
+        />
+      )}
     </div>
   );
 }
