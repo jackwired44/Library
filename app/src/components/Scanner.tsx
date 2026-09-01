@@ -122,9 +122,24 @@ export default function Scanner({
   // wired-cio-<bucket>-leads.csv name until Jack renames it. Reset on
   // "Start over" via `reset()` below, same as every other per-batch choice.
   const [bucketFileNames, setBucketFileNames] = useState<Record<BucketKey, string>>({ m365Tenant: "", dynamics: "", dataPlatform: "" });
-  const [saveToLibrary, setSaveToLibrary] = useState(false);
+  // Save-to-Lead-Library moved from a pre-upload checkbox to a post-scan
+  // action — per Jack: "i want to be able to store strong signals in
+  // files after theyre scan... put it after so i can store after
+  // uploading." Decide once results are actually visible, not before.
   const [uploadMonthKey, setUploadMonthKey] = useState(() => monthKeyFromDate(new Date()));
   const [filedNotice, setFiledNotice] = useState<string | null>(null);
+  // The History entry this exact batch was recorded under — needed so a
+  // later "Save to Lead Library" click can correctly link
+  // StoredRow.__historyEntryId back to it (see CLAUDE.md's History-linked
+  // bug fix). Set once per scan (handleFiles/loadFromLibraryPicker), used
+  // by saveStrongSignalToLibrary below.
+  const [currentHistoryEntryId, setCurrentHistoryEntryId] = useState<string | null>(null);
+  // Filing appends rows with no dedupe against what's already there (see
+  // lib/library.ts's fileSignalRowsIntoGroup) — a second click for the
+  // same batch would create real duplicate rows in the Library file, so
+  // this batch's filing is one-shot: disabled once filed, reset on a
+  // fresh upload/reset.
+  const [libraryFiledForBatch, setLibraryFiledForBatch] = useState(false);
   const [dedupeNotice, setDedupeNotice] = useState<string | null>(null);
   // Per Jack: "I want it to recognize [duplicates] for input reasons so I
   // know it's being mapped properly scanned and processed" — the raw row
@@ -224,6 +239,8 @@ export default function Scanner({
       setPage(1);
       setSelected(new Set());
       const historyEntry = onRecordHistory(parsedFiles, scanned, "", duplicatesRemoved);
+      setCurrentHistoryEntryId(historyEntry.id);
+      setLibraryFiledForBatch(false);
       // Per Jack: no duplicate (exact name+company match within this same
       // upload) should ever make it into the uploaded leads at all — the
       // first-seen row is kept, every repeat was already merged into it
@@ -234,24 +251,6 @@ export default function Scanner({
       if (duplicatesRemoved > 0) {
         const groupNote = largestDuplicateGroup > 2 ? ` (one lead appeared ${largestDuplicateGroup} times in this file)` : "";
         setDedupeNotice(`${duplicatesRemoved} duplicate row${duplicatesRemoved === 1 ? "" : "s"} recognized and merged into ${duplicatesRemoved === 1 ? "its" : "their"} matching contact${groupNote} — exact name + company match already seen in this upload.`);
-      }
-
-      // Opt-in, off by default (see CLAUDE.md "Library architecture") — a
-      // one-off scan never touches the Library unless this box is checked.
-      if (saveToLibrary) {
-        const monthLabel = monthLabelFromKey(uploadMonthKey);
-        const { groups: groupsWithMonth, group } = getOrCreateGroupByName(libraryGroups, monthLabel);
-        // A duplicate never gets filed either — same reasoning as the CSV
-        // downloads (see exportRowsForBucket): the first-seen row of a
-        // duplicate group still files normally, only the repeat(s) don't.
-        const signalRows = scanned.filter((r) => r.tier === "signal" && !r.isDuplicate);
-        const isNewGroup = groupsWithMonth !== libraryGroups;
-        const { entries: nextEntries, touchedIds } = fileSignalRowsIntoGroup(libraryEntries, groupsWithMonth, group.id, signalRows, historyEntry.id);
-        setLibraryGroups(groupsWithMonth);
-        setLibraryEntries(nextEntries);
-        const touchedEntries = nextEntries.filter((e) => touchedIds.includes(e.id));
-        await Promise.all([isNewGroup ? persistGroup(group) : Promise.resolve(), persistLibraryEntries(touchedEntries)]);
-        setFiledNotice(signalRows.length > 0 ? `Filed ${signalRows.length} Strong Signal lead${signalRows.length === 1 ? "" : "s"} into the ${monthLabel} folder.` : "No Strong Signal leads in this batch — nothing to file.");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not parse one or more of these files.");
@@ -276,9 +275,10 @@ export default function Scanner({
     setSelected(new Set());
     // Saving is an explicit, per-batch choice — never carries over to the
     // next upload (see CLAUDE.md "Library architecture").
-    setSaveToLibrary(false);
     setUploadMonthKey(monthKeyFromDate(new Date()));
     setFiledNotice(null);
+    setCurrentHistoryEntryId(null);
+    setLibraryFiledForBatch(false);
     setDedupeNotice(null);
     setPickerFolderId("");
     setPickerFileKey("");
@@ -328,9 +328,32 @@ export default function Scanner({
     setShowNoSignal(false);
     setPage(1);
     setSelected(new Set());
-    onRecordHistory([parsed], scanned, "", duplicatesRemoved);
+    const historyEntry = onRecordHistory([parsed], scanned, "", duplicatesRemoved);
+    setCurrentHistoryEntryId(historyEntry.id);
+    setLibraryFiledForBatch(false);
     setPickerFolderId("");
     setPickerFileKey("");
+  }
+
+  // Files the CURRENT batch's Strong Signal rows into the Lead Library —
+  // an explicit, post-scan action (see CLAUDE.md "Save to Lead Library
+  // moved after scan") rather than a pre-upload checkbox, so Jack decides
+  // after actually seeing the results. One-shot per batch: fileSignalRowsIntoGroup
+  // appends with no dedupe, so a second click for the same batch would
+  // create real duplicate rows — the button disables itself once filed.
+  function saveStrongSignalToLibrary() {
+    if (!results || !currentHistoryEntryId || libraryFiledForBatch) return;
+    const monthLabel = monthLabelFromKey(uploadMonthKey);
+    const { groups: groupsWithMonth, group } = getOrCreateGroupByName(libraryGroups, monthLabel);
+    const signalRows = results.filter((r) => r.tier === "signal" && !r.isDuplicate);
+    const isNewGroup = groupsWithMonth !== libraryGroups;
+    const { entries: nextEntries, touchedIds } = fileSignalRowsIntoGroup(libraryEntries, groupsWithMonth, group.id, signalRows, currentHistoryEntryId);
+    setLibraryGroups(groupsWithMonth);
+    setLibraryEntries(nextEntries);
+    const touchedEntries = nextEntries.filter((e) => touchedIds.includes(e.id));
+    Promise.all([isNewGroup ? persistGroup(group) : Promise.resolve(), persistLibraryEntries(touchedEntries)]);
+    setFiledNotice(signalRows.length > 0 ? `Filed ${signalRows.length} Strong Signal lead${signalRows.length === 1 ? "" : "s"} into the ${monthLabel} folder.` : "No Strong Signal leads in this batch — nothing to file.");
+    setLibraryFiledForBatch(true);
   }
 
   const filtered = useMemo(() => {
@@ -610,25 +633,7 @@ export default function Scanner({
       <div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12, marginBottom: 16 }}>
           <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "14px 16px" }}>
-            <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", marginBottom: 10 }}>New upload</div>
-            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", marginBottom: 8 }}>
-              <input type="checkbox" checked={saveToLibrary} onChange={(e) => setSaveToLibrary(e.target.checked)} />
-              Save this batch's Strong Signal leads to the Lead Library
-            </label>
-            <select
-              value={uploadMonthKey}
-              disabled={!saveToLibrary}
-              onChange={(e) => setUploadMonthKey(e.target.value)}
-              style={{ width: "100%", border: "1px solid var(--border)", borderRadius: 8, padding: "7px 10px", fontWeight: 700, background: saveToLibrary ? "var(--surface)" : "var(--surface-sunken)", color: saveToLibrary ? "var(--ink)" : "#B7BEC4" }}
-            >
-              {getMonthOptionsForFiling().map((o) => (
-                <option key={o.key} value={o.key}>{o.label}</option>
-              ))}
-            </select>
-          </div>
-
-          <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "14px 16px" }}>
-            <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", marginBottom: 10 }}>Or load from the Lead Library</div>
+            <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", marginBottom: 10 }}>Load from the Lead Library</div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               <select
                 value={pickerFolderId}
@@ -802,6 +807,36 @@ export default function Scanner({
         </div>
         <button onClick={reset} style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 9, padding: "8px 14px" }}>
           Start over
+        </button>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "12px 16px", marginBottom: 16 }}>
+        <span style={{ fontSize: 13, fontWeight: 600 }}>Save this batch's Strong Signal leads to the Lead Library</span>
+        <select
+          value={uploadMonthKey}
+          disabled={libraryFiledForBatch}
+          onChange={(e) => setUploadMonthKey(e.target.value)}
+          style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "7px 10px", fontWeight: 700, background: libraryFiledForBatch ? "var(--surface-sunken)" : "var(--surface)", color: libraryFiledForBatch ? "#B7BEC4" : "var(--ink)" }}
+        >
+          {getMonthOptionsForFiling().map((o) => (
+            <option key={o.key} value={o.key}>{o.label}</option>
+          ))}
+        </select>
+        <button
+          onClick={saveStrongSignalToLibrary}
+          disabled={libraryFiledForBatch}
+          style={{
+            border: "none",
+            borderRadius: 8,
+            padding: "8px 16px",
+            fontWeight: 700,
+            fontSize: 12.5,
+            background: libraryFiledForBatch ? "var(--surface-sunken)" : "var(--accent)",
+            color: libraryFiledForBatch ? "#B7BEC4" : "#081E22",
+            cursor: libraryFiledForBatch ? "not-allowed" : "pointer",
+          }}
+        >
+          {libraryFiledForBatch ? "✓ Filed" : "Save to Lead Library"}
         </button>
       </div>
 

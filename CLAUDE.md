@@ -2512,6 +2512,51 @@ sidebar already covers every one of those links.
   stays present navigating to Scanner and back, and confirmed no
   "Modules" heading or tile grid remains anywhere on Home.
 
+## Save to Lead Library moved after scan (app/ only, Scanner)
+
+Per Jack: "i want to be able to store strong signals in files after
+theyre scan... put it after so i can store after uploading." Previously
+"Save this batch's Strong Signal leads to the Lead Library" was a
+pre-upload checkbox + month picker on the landing screen, decided before
+the scan even ran; it's now a post-scan action on the results screen, so
+the decision happens after actually seeing what came back.
+
+- **The checkbox is gone from the landing screen** — the "New upload"
+  card that held it was removed entirely. The "Load from the Lead
+  Library" folder/file picker (a separate feature — pulling an existing
+  Library file back into Scanner) stays exactly where it was; only the
+  save-related card moved.
+- **A new bordered row at the top of the results screen** — "Save this
+  batch's Strong Signal leads to the Lead Library" + the same month
+  picker + a button, right below the filename/"Start over" row so it's
+  the first thing visible once results load, before scrolling to the
+  tier tabs.
+- **One-shot per batch, same as before** — `fileSignalRowsIntoGroup`
+  appends rows with no dedupe check against what's already filed (each
+  row gets a rowKey but it's never checked against existing rows), so a
+  second click for the same batch would create real duplicate rows in
+  the Library file. The button disables itself (reads "✓ Filed") the
+  moment filing succeeds, and resets on "Start over" or a fresh upload —
+  functionally identical to the old checkbox's "decide once per upload"
+  contract, just moved to fire after the scan instead of before it.
+- **`currentHistoryEntryId` (new Scanner state)** — the History entry
+  this exact batch was recorded under, captured from `onRecordHistory`'s
+  return value the moment the scan runs (`handleFiles`/
+  `loadFromLibraryPicker`), so the later "Save to Lead Library" click can
+  still correctly stamp `StoredRow.__historyEntryId` — the same field a
+  bug fix earlier this session (see "Contact tasks") depends on being
+  right. Filing was previously inline inside the scan itself, where the
+  freshly-created History entry's id was right there in scope; deferring
+  it to a separate click meant that id had to be threaded through state
+  instead.
+- Verified live: confirmed the landing screen no longer shows any
+  pre-upload save checkbox while "Load from the Lead Library" is
+  untouched; uploaded a CSV, confirmed the new "Save to Lead Library" row
+  appears on the results screen; clicked it, confirmed the "Filed 1
+  Strong Signal lead..." notice appeared, the button switched to a
+  disabled "✓ Filed," and the sidebar's Lead Library count incremented
+  from 0 to 1.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool
