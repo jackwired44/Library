@@ -2437,6 +2437,76 @@ own explicit label.
   the normal table, and "Start over" clears the tab along with everything
   else.
 
+## Home rebuilt: no sidebar + self-serve Weekly Goals metrics board (app/ only)
+
+Per Jack: "fix the home page format... to not have the side bar just
+here and have weekly goals metrics that can be pulled and set how many
+outbound calls call backs incoming voicemails etc//build this out with
+little functonalities yet but we will slowly build this into a full
+blown metric board." Builds directly on the earlier-proposed Home
+redesign (weekly goals/targets, calls/emails metrics) with Jack's own
+concrete metric list and an explicit "keep it minimal, this grows later"
+scope.
+
+- **Sidebar hidden on Home only.** `App.tsx`'s `<aside>` (the nav +
+  AccountPanel) now renders conditionally on `view !== "home"` — every
+  other view keeps it exactly as before. Home is reachable from its own
+  module tiles even with no sidebar showing; navigating to any other view
+  brings the sidebar back immediately. A real, deliberate layout
+  difference for Home specifically, not a global nav change.
+- **`lib/weeklyGoals.ts`** (new) — `WeeklyMetricEntry {id, label, target,
+  actual, autoSource?}` and `WeeklyGoals {weekKey, metrics}`, one record
+  per Monday-start week (same convention as `lib/tasks.ts`/`lib/
+  history.ts`), new IndexedDB store `STORE_WEEKLY_GOALS` (`DB_VERSION`
+  bumped 9→10). Deliberately a generic list of named metric rows, not
+  fixed fields — adding a metric later is "+ Add metric," not a code
+  change, which is the actual mechanism behind "we will slowly build
+  this into a full blown metric board."
+- **Three default metrics, matching Jack's exact list**: Outbound calls,
+  Call backs, Incoming voicemails. Only "Outbound calls" is auto-computed
+  (`autoSource: "outboundCalls"`) — its actual is pulled live from
+  completed call-channel Tasks whose date falls in the current week
+  (`computeAutoActual`), the one metric with an existing, reliable data
+  source. Call backs and Incoming voicemails have no existing signal
+  anywhere in the app yet, so they're plain manually-tracked numbers
+  Jack updates by hand — matches his own "pulled and set" phrasing:
+  Outbound calls is pulled, everything else is set, for now.
+- **Bug found and fixed before shipping: default metrics used random
+  ids, computed independently in two places.** The very first edit to a
+  brand-new (never-yet-saved) week's metrics silently vanished — a value
+  typed into "Call backs" actual snapped straight back to 0 the moment
+  React re-rendered. Root cause, confirmed live via direct DOM
+  inspection: `defaultMetrics()` originally called `newId()` (random)
+  for each of the three built-in metrics, and it was being called from
+  TWO separate places before anything was ever persisted — once in
+  `App.tsx`'s render-time `getOrCreateCurrentWeekGoals()` (to show the
+  panel) and again inside the save path's own fallback (when no record
+  existed yet in state to update) — producing two DIFFERENT random id
+  sets for the "same" default metrics. An edit's id (from the rendered
+  set) never matched anything in the save path's freshly-regenerated
+  set, so the update silently no-opped, and the subsequently-persisted
+  (still-zeroed, differently-keyed) default record then replaced the
+  displayed rows on re-render — each row keyed by `m.id` in React,
+  so the id change forced a fresh mount back at 0. Fixed by giving the
+  three built-in metrics fixed, deterministic ids
+  (`"default-outbound-calls"` etc.) instead of random ones — every
+  `defaultMetrics()` call now agrees regardless of where/when it's
+  called, so this class of mismatch can't happen. A metric added later
+  via "+ Add metric" still gets a real random id — safe, since the
+  record already exists in state with stable ids by then.
+- **`updateWeeklyMetric`/`addWeeklyMetric`/`removeWeeklyMetric`
+  (`App.tsx`) read `prev` from inside a functional `setWeeklyGoals`
+  updater**, never an outer closure — same stale-closure-avoidance
+  pattern as `finishTerminalEnrollments` — so two edits fired in quick
+  succession (e.g. typing into both a metric's target and actual field)
+  can't race and silently drop one of them.
+- Verified live: typed into a metric's actual and target fields back to
+  back, confirmed both values stuck (not just the second one) and the
+  progress bar read the correct percentage; added a custom "Meetings
+  booked" metric, reloaded the page, confirmed it and every edited value
+  survived; removed it and confirmed it's gone; confirmed the sidebar is
+  absent on Home and reappears immediately on navigating to Scanner.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

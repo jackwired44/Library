@@ -58,6 +58,16 @@ import {
   type SequenceEnrollment,
   type SequenceChannel,
 } from "./lib/sequences";
+import {
+  loadWeeklyGoalsFromDB,
+  persistWeeklyGoals,
+  currentWeekKey,
+  defaultMetrics,
+  addMetric as addWeeklyMetricEntry,
+  removeMetric as removeWeeklyMetricEntry,
+  updateMetric as updateWeeklyMetricEntry,
+  type WeeklyGoals,
+} from "./lib/weeklyGoals";
 
 type View = "home" | "scanner" | "history" | "library" | "engage";
 const NAV_ITEMS: { key: View; label: string; icon: string }[] = [
@@ -163,6 +173,11 @@ export default function App() {
   const [sequencesLoading, setSequencesLoading] = useState(true);
   const [sequencesError, setSequencesError] = useState<string | null>(null);
 
+  // Weekly Goals — Home's self-serve metrics board (see CLAUDE.md and
+  // lib/weeklyGoals.ts). Every past week's record is kept (small, one row
+  // per week), but only the current week's is ever shown/edited from Home.
+  const [weeklyGoals, setWeeklyGoals] = useState<WeeklyGoals[]>([]);
+
   useEffect(() => {
     loadLibraryFromDB()
       .then(({ entries, groups }) => {
@@ -226,7 +241,40 @@ export default function App() {
         setSequencesError("Couldn't load your Sequences from this browser's local storage.");
         setSequencesLoading(false);
       });
+    loadWeeklyGoalsFromDB().then(setWeeklyGoals).catch(() => {});
   }, []);
+
+  // The current week's goals record, created on the fly (not persisted)
+  // until the first edit actually saves it — so a brand-new week always
+  // shows the default metric set without needing a migration step.
+  function getOrCreateCurrentWeekGoals(): WeeklyGoals {
+    const key = currentWeekKey();
+    return weeklyGoals.find((g) => g.weekKey === key) || { weekKey: key, metrics: defaultMetrics() };
+  }
+  // Reads `prev` from INSIDE the functional updater (never the outer
+  // `weeklyGoals` closure) so two edits fired in quick succession — e.g.
+  // typing into both a metric's target and actual fields — can't race and
+  // silently drop one of them, the same stale-closure class of bug fixed
+  // elsewhere this session (see finishTerminalEnrollments above).
+  function mutateWeeklyGoals(mutate: (current: WeeklyGoals) => WeeklyGoals) {
+    const key = currentWeekKey();
+    setWeeklyGoals((prev) => {
+      const current = prev.find((g) => g.weekKey === key) || { weekKey: key, metrics: defaultMetrics() };
+      const next = mutate(current);
+      persistWeeklyGoals(next);
+      const exists = prev.some((g) => g.weekKey === key);
+      return exists ? prev.map((g) => (g.weekKey === key ? next : g)) : [...prev, next];
+    });
+  }
+  function updateWeeklyMetric(id: string, patch: Partial<{ label: string; target: number; actual: number }>) {
+    mutateWeeklyGoals((current) => updateWeeklyMetricEntry(current, id, patch));
+  }
+  function addWeeklyMetric(label: string) {
+    mutateWeeklyGoals((current) => addWeeklyMetricEntry(current, label));
+  }
+  function removeWeeklyMetric(id: string) {
+    mutateWeeklyGoals((current) => removeWeeklyMetricEntry(current, id));
+  }
 
   function addTask(date: string, text: string) {
     const task = createTask(date, text);
@@ -638,6 +686,7 @@ export default function App() {
       </header>
 
       <div style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
+        {view !== "home" && (
         <aside
           style={{
             width: 178,
@@ -709,6 +758,7 @@ export default function App() {
             <AccountPanel onOpenSettings={() => setNotesPanelTab("cheatsheet")} onOpenNotes={() => setNotesPanelTab("notes")} />
           </div>
         </aside>
+        )}
 
         <main style={{ flex: 1, minWidth: 0 }}>
           <div style={{ marginBottom: 16 }}>
@@ -737,6 +787,11 @@ export default function App() {
               tasksOpenCount={tasks.filter((t) => !t.done).length}
               contactsCount={contacts.length}
               listsCount={leadLists.length}
+              tasks={tasks}
+              weeklyGoals={getOrCreateCurrentWeekGoals()}
+              onUpdateMetric={updateWeeklyMetric}
+              onAddMetric={addWeeklyMetric}
+              onRemoveMetric={removeWeeklyMetric}
             />
           )}
           {view === "scanner" && (
