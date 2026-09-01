@@ -2627,6 +2627,81 @@ this flaw." Root-caused by measurement, not guesswork: seeded a real
   tier filter (→ 1,832) or a search (→ 333) both correctly snap back to
   page 1. Companies behaves identically (1–25 of 1,000).
 
+## Home: start-of-day dashboard (app/ only)
+
+Per Jack, verbatim: "Welcome screen should say the day, how many calls have
+been made, follow ups if any were set for that day with the time, and be a
+metric dashboard when people login — this is what they see to start their
+day." Purely additive to the existing Home (greeting banner + stat-pill row
++ Weekly Goals) — the module tile grid stays removed, the sidebar is
+untouched, and Weekly Goals sits below the new panel exactly as before.
+
+- **Today's date, prominently** — a small uppercase line above the
+  "Welcome, {firstName}." greeting ("Tuesday, September 1, 2026"), plus the
+  same label repeated on the new panel's own header. Formatted from
+  `todayDateKey()` at local noon (`new Date(\`${today}T12:00:00\`)`) so a
+  timezone offset can never render yesterday's weekday.
+- **New "📅 Today" panel** (`TodayPanel`, local to `Home.tsx`), between the
+  banner and Weekly Goals. Two parts:
+  - **A four-tile day metric row**: Calls made today, Emails sent today,
+    Follow-ups due today, Meetings booked. The first two come from
+    `countCompletedChannelTasks(tasks, channel, today, today)` — a new
+    exported helper in `lib/weeklyGoals.ts` that `computeAutoActual` (the
+    Weekly Goals board's auto "Outbound calls" metric) was refactored to
+    call as well, so the day and week numbers can never drift on what
+    counts as a made call. "Meetings booked" counts Contacts whose
+    `disposition === "meeting-booked"` — the same persistent, sticky field
+    every disposition view already reads; no new field, no new store.
+  - **Today's follow-ups list**: every Task with `date === today` and
+    `!done`, showing time, channel icon, priority badge, task text, and
+    the linked Contact's name/company (resolved from the `contacts` array
+    App.tsx already holds). Each row's checkbox calls **the same
+    `onToggleTask` App.tsx passes to the Board/Calls/Emails** — so
+    completing a sequence-generated task from Home still advances its
+    enrollment, no parallel path. Empty state points at Engage →
+    Contacts/Calls/Emails.
+- **`Task.time?: string \| null` ("HH:MM", 24h)** — the first time-of-day
+  anywhere in this app, added strictly optional/additive, exactly the
+  pattern `contactId`/`priority`/`channel`/`sequenceEnrollmentId` already
+  set: every existing task (and any new one created without picking a
+  time) reads `null` and behaves precisely as before. `date` is still the
+  only scheduling key — nothing computes off `time` except display and the
+  Home list's ordering. Settable in both places a contact/channel task is
+  created: `Contacts.tsx`'s `AddContactTaskForm` "+ Task" and
+  `ChannelTasks.tsx`'s "+ Call"/"+ Email" form (a plain
+  `<input type="time">` next to the existing date field, blank by
+  default). Threaded as a trailing optional param through
+  `createContactTask` → `App.tsx`'s `addContactTask` → `Engage.tsx` →
+  `Contacts.tsx`/`ChannelTasks.tsx`, so no existing call site changed
+  meaning. Calls/Emails rows now render `date · time` when a time is set.
+- **Ordering** (`compareByTimeThenCreated`, `lib/tasks.ts`): timed tasks
+  first, in time order; untimed tasks after them in creation order — an
+  absent time is never treated as 00:00, the same "a missing value doesn't
+  become 0" convention the Dynamics seat-count sort already follows. An
+  untimed row renders the word "Anytime" rather than a blank cell.
+- Two small shared helpers were added to `lib/tasks.ts` alongside it —
+  `todayDateKey()` (several components computed this inline) and
+  `formatTaskTime()` ("14:30" → "2:30 PM", locale-formatted, "" for
+  untimed).
+- Verified live (Playwright, preview build, real IndexedDB): Home renders
+  "Tuesday, September 1, 2026" and the empty state with all four metric
+  tiles at 0 before any data; after seeding contacts via a Scanner CSV
+  upload and adding two call tasks for today (one at 09:30, one untimed),
+  Home listed them in exactly that order ("9:30 AM … Morning check-in"
+  then "Anytime … Untimed follow-up") with contact/company, channel icon
+  and priority badge, and read "0 calls made / 0 emails sent / 2
+  follow-ups due"; checking the 9:30 row off from Home flipped the tiles
+  to "1 call made / 1 follow-up due" and dropped it from the open list;
+  adding a 15:45 task from Contacts' "+ Task" form put "3:45 PM" at the
+  top of Home's list ahead of the untimed one, and it survived a full page
+  reload. No app console errors.
+- Deliberately not done: no time on plain Board tasks (`createTask` is
+  untouched) or on Sequence-generated steps (`createSequenceTask` still
+  writes no time — sequence waits are hour-precision internally but land
+  on a calendar day, see "Sequences: hour-granularity waits"); no editing
+  a time after creation; no time column on the Board/Contacts tables. Flag
+  if any of those are wanted next.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

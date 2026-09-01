@@ -7,13 +7,13 @@
 // since the two tabs are otherwise identical.
 import { useMemo, useState } from "react";
 import type { Contact } from "../lib/contacts";
-import type { Task, TaskPriority } from "../lib/tasks";
+import { formatTaskTime, type Task, type TaskPriority } from "../lib/tasks";
 
 interface ChannelTasksProps {
   channel: "call" | "email";
   contacts: Contact[];
   tasks: Task[];
-  onAddContactTask: (contactId: string, date: string, priority: TaskPriority, text: string, channel: "call" | "email") => void;
+  onAddContactTask: (contactId: string, date: string, priority: TaskPriority, text: string, channel: "call" | "email", time?: string | null) => void;
   onToggleTask: (id: string) => void;
   onDeleteTask: (id: string) => void;
 }
@@ -49,10 +49,10 @@ export default function ChannelTasks({ channel, contacts, tasks, onAddContactTas
     [tasks, contactById, channel, hideDone]
   );
 
-  function submit(contact: Contact, date: string, priority: TaskPriority, note: string) {
+  function submit(contact: Contact, date: string, priority: TaskPriority, note: string, time: string) {
     const base = `${meta.verb} ${contact.fullName || contact.company}${contact.company && contact.fullName ? ` (${contact.company})` : ""}`;
     const text = note.trim() ? `${base} — ${note.trim()}` : base;
-    onAddContactTask(contact.id, date, priority, text, channel);
+    onAddContactTask(contact.id, date, priority, text, channel, time || null);
     setShowAdd(false);
   }
 
@@ -96,7 +96,10 @@ export default function ChannelTasks({ channel, contacts, tasks, onAddContactTas
               <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "8px 12px" }}>
                 <input type="checkbox" checked={t.done} onChange={() => onToggleTask(t.id)} />
                 <span style={{ fontSize: 10.5, fontWeight: 700, color: pMeta.color, background: pMeta.bg, borderRadius: 999, padding: "2px 9px", flexShrink: 0 }}>{pMeta.label}</span>
-                <span style={{ fontSize: 12, color: "var(--muted)", flexShrink: 0, whiteSpace: "nowrap" }}>{t.date}</span>
+                <span style={{ fontSize: 12, color: "var(--muted)", flexShrink: 0, whiteSpace: "nowrap" }}>
+                  {t.date}
+                  {t.time ? ` · ${formatTaskTime(t.time)}` : ""}
+                </span>
                 <span style={{ fontSize: 13, flex: 1, textDecoration: t.done ? "line-through" : "none", color: t.done ? "var(--muted)" : "var(--ink)" }}>
                   {t.text}
                 </span>
@@ -119,11 +122,14 @@ function AddChannelTaskForm({
 }: {
   channel: "call" | "email";
   contacts: Contact[];
-  onSubmit: (contact: Contact, date: string, priority: TaskPriority, note: string) => void;
+  onSubmit: (contact: Contact, date: string, priority: TaskPriority, note: string, time: string) => void;
   onCancel: () => void;
 }) {
   const [contactId, setContactId] = useState("");
   const [date, setDate] = useState(todayKey());
+  // Optional time of day (Task.time) — blank = an untimed task, exactly how
+  // every task behaved before the field existed.
+  const [time, setTime] = useState("");
   const [priority, setPriority] = useState<TaskPriority>("medium");
   const [note, setNote] = useState("");
   const meta = CHANNEL_META[channel];
@@ -141,6 +147,13 @@ function AddChannelTaskForm({
         ))}
       </select>
       <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 12.5 }} />
+      <input
+        type="time"
+        value={time}
+        onChange={(e) => setTime(e.target.value)}
+        title="Optional time of day"
+        style={{ border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 12.5 }}
+      />
       <select value={priority} onChange={(e) => setPriority(e.target.value as TaskPriority)} style={{ border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 12.5, fontWeight: 600 }}>
         <option value="high">High priority</option>
         <option value="medium">Medium priority</option>
@@ -155,7 +168,7 @@ function AddChannelTaskForm({
       <button
         onClick={() => {
           const contact = contacts.find((c) => c.id === contactId);
-          if (contact) onSubmit(contact, date, priority, note);
+          if (contact) onSubmit(contact, date, priority, note, time);
         }}
         disabled={!contactId}
         style={{ border: "none", background: "#2CC295", color: "#081E22", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 700, opacity: contactId ? 1 : 0.5 }}

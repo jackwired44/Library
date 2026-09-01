@@ -327,8 +327,8 @@ export default function App() {
   // Contacts page's "+ Task" action — same task store as the Board, just
   // pre-linked to a specific Contact and carrying a priority so sales reps
   // can see which contacts matter most (see CLAUDE.md "Contact tasks").
-  function addContactTask(contactId: string, date: string, priority: TaskPriority, text: string, channel?: "call" | "email") {
-    const task = createContactTask(date, text, contactId, priority, channel);
+  function addContactTask(contactId: string, date: string, priority: TaskPriority, text: string, channel?: "call" | "email", time?: string | null) {
+    const task = createContactTask(date, text, contactId, priority, channel, time);
     if (!task) return;
     setTasks((prev) => [...prev, task]);
     persistTask(task);
@@ -784,6 +784,8 @@ export default function App() {
               tasksOpenCount={tasks.filter((t) => !t.done).length}
               contactsCount={contacts.length}
               tasks={tasks}
+              contacts={contacts}
+              onToggleTask={toggleTask}
               weeklyGoals={getOrCreateCurrentWeekGoals()}
               onUpdateMetric={updateWeeklyMetric}
               onAddMetric={addWeeklyMetric}

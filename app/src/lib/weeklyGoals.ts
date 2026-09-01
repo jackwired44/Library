@@ -81,8 +81,21 @@ export function currentWeekKey(): string {
 export function computeAutoActual(tasks: Task[], weekKey: string): number {
   const end = new Date(weekKey);
   end.setDate(end.getDate() + 6);
-  const endKey = dateKey(end);
-  return tasks.filter((t) => t.channel === "call" && t.done && t.date >= weekKey && t.date <= endKey).length;
+  return countCompletedChannelTasks(tasks, "call", weekKey, dateKey(end));
+}
+
+// The one derivation behind both "outbound calls this week" (above) and
+// Home's start-of-day "calls made / emails sent today" metrics — a
+// completed task on that channel, inside an inclusive YYYY-MM-DD range.
+// Shared rather than duplicated so the day and week numbers can never
+// drift apart on what counts as a made call.
+export function countCompletedChannelTasks(
+  tasks: Task[],
+  channel: "call" | "email",
+  fromKey: string,
+  toKey: string
+): number {
+  return tasks.filter((t) => t.channel === channel && t.done && t.date >= fromKey && t.date <= toKey).length;
 }
 
 export async function loadWeeklyGoalsFromDB(): Promise<WeeklyGoals[]> {

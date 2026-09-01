@@ -30,7 +30,7 @@ interface EngageProps {
   contacts: Contact[];
   contactsLoading: boolean;
   contactsError: string | null;
-  onAddContactTask: (contactId: string, date: string, priority: TaskPriority, text: string, channel?: "call" | "email") => void;
+  onAddContactTask: (contactId: string, date: string, priority: TaskPriority, text: string, channel?: "call" | "email", time?: string | null) => void;
   onAddContact: (input: ManualContactInput) => void;
   onUpdateContact: (id: string, patch: Partial<Contact>) => void;
 
