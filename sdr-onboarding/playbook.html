@@ -693,6 +693,7 @@
       subtitle: "How an SDR performs and executes an outbound call &mdash; from dial to booked Discovery.",
       overview: [
         "An SDR&rsquo;s job on an outbound call is narrow and specific: qualify fit and interest fast, using the language in this playbook, and book a Discovery call. You are selling the next step &mdash; a 20-30 minute Discovery conversation &mdash; not the IT services themselves. Don&rsquo;t over-pitch on the first call.",
+        "Keep the call under 8 minutes, every time &mdash; 12 minutes is the absolute max, aim for 6&ndash;8. That&rsquo;s enough time to get the 4&ndash;7 important, high-level questions (below) answered so the first call funnels into a real, detailed 30-minute Discovery call &mdash; it&rsquo;s not the place to go deep yourself.",
         "Every lead an SDR works has already been triaged by Wired CIO&rsquo;s own detection engine into a tier (Strong Signal / Needs Review / Bad Lead) and a product-line category (Dynamics 365 or M365/Azure) before it ever reaches a dial list. Know which tier and category a lead landed in before you call &mdash; it tells you which section of this playbook to open.",
         "Leads are assigned by Jack, not self-serve &mdash; you work what you&rsquo;re given. Each lead gets a sequence of 4&ndash;7 touch steps (calls/emails), and follow-ups and next steps must be noted for every lead and logged properly after each touch. A lead with no logged next step is a lead about to go cold &mdash; Wired CIO is fully remote, so this playbook and clean logging are how the team stays coordinated without being in the same room.",
       ],
@@ -713,12 +714,12 @@
       wiredAngle: {
         heading: "Call Flow",
         items: [
-          "<b>1. Open on their situation, not our services.</b> Mirror the trigger that got them on the list &mdash; don&rsquo;t lead with a features pitch.",
+          "<b>1. Open on their situation, not our services, and set the Up-Front Contract (Sandler&rsquo;s UFC method).</b> Mirror the trigger that got them on the list &mdash; don&rsquo;t lead with a features pitch. Then agree the agenda out loud before diving in: how long this will take, what you&rsquo;re trying to figure out together, and what happens next depending on fit. Getting that buy-in early is what makes the close at the end feel expected instead of pushy.",
           "<b>2. Confirm the trigger.</b> What changed, or what are they actively dealing with right now? This is where you find out if the signal that qualified them is still real.",
           "<b>3. Run the category-specific discovery questions</b> from the matching service-line page (Dynamics 365, MSP, Custom App Dev, Licensing, etc.).",
-          "<b>4. Off-ramp if they go too deep into technical detail.</b> Don&rsquo;t try to answer specifics that are above your qualifying job &mdash; redirect: &ldquo;That&rsquo;s exactly what our solution architect will dig into with you on the Discovery call &mdash; let&rsquo;s get that booked so you get a real answer, not a guess from me.&rdquo; Every service-line page can spew into deep technical territory; the off-ramp is always the same move.",
+          "<b>4. Never answer a question you can&rsquo;t back up in real detail.</b> Off-ramp instead, every time, no exceptions: refer it back to the team or a solutions architect, say you&rsquo;ll come prepared to answer it at the next meeting, or follow up by email. Don&rsquo;t guess. Applies on every service-line page, not just one.",
           "<b>5. Qualify against the tier framework below</b> before you ask for the meeting &mdash; don&rsquo;t book a Discovery call on a lead that&rsquo;s really a Bad Lead in disguise.",
-          "<b>6. Book Discovery and set expectations, or circle back.</b> Qualified and clear on direction &mdash; book it, Wired CIO comes back with a ballpark scope, not a hard sell, no signature expected at that stage. Not clear, or something about the call gave you pause &mdash; don&rsquo;t book blind; circle back with the sales team to qualify it further before committing to anything.",
+          "<b>6. Book Discovery and set expectations, or circle back.</b> If they&rsquo;re super qualified, book the meeting right there on the phone &mdash; Wired CIO comes back with a ballpark scope, not a hard sell, no signature expected at that stage. Confirm they&rsquo;ve actually received and accepted the calendar invite before you hang up, don&rsquo;t assume it landed. If it&rsquo;s not a live book, set explicit follow-up steps &mdash; a specific call-back time or email &mdash; never an open-ended &ldquo;I&rsquo;ll be in touch.&rdquo; Not clear, or something about the call gave you pause &mdash; don&rsquo;t book blind; circle back with the sales team to qualify it further before committing to anything.",
         ],
       },
       questions: {
@@ -772,7 +773,7 @@
       title: "Dynamics 365 — Platform Overview",
       subtitle: "How to talk about Microsoft&rsquo;s ERP + CRM suite, and how Wired CIO fits in.",
       overview: [
-        "Dynamics 365 is Microsoft&rsquo;s combined ERP and CRM product family. It covers everything from finance and supply chain (Business Central, Finance and Operations, Supply Chain Management &mdash; the modern successors to AX, NAV, and GP) to sales, service, and marketing (Dynamics 365 Sales, Customer Engagement, Customer Insights, Field Service) to project-based business management (Project Operations).",
+        "Dynamics 365 is Microsoft&rsquo;s combined ERP and CRM product family. Wired CIO&rsquo;s ERP practice is Business Central (the modern successor to NAV, GP, and AX) &mdash; plus the CRM side (Dynamics 365 Sales, Customer Engagement, Customer Insights, Field Service) and project-based business management (Project Operations). <b>We do NOT do Finance and Operations</b> &mdash; that&rsquo;s Microsoft&rsquo;s separate, larger enterprise-tier ERP product, outside our practice and outside our SMB ICP. If a lead specifically names Finance and Operations, that&rsquo;s a sign it&rsquo;s not a fit, not a Business Central opportunity in disguise.",
         "Most prospects won&rsquo;t say “Dynamics 365” by name &mdash; they&rsquo;ll describe the pain (an aging ERP, a spreadsheet-based sales process, a system that doesn&rsquo;t talk to their other tools) or name the specific product/module (“Business Central,” “CRM,” “NAV,” “GP”). Learn to recognize both.",
       ],
       wiredAngle: {
@@ -830,8 +831,9 @@
       title: "Business Central / ERP",
       subtitle: "Cloud ERP for finance, supply chain, and operations &mdash; our highest-priority Dynamics module.",
       overview: [
-        "Business Central (and its predecessors NAV, GP, and AX, plus Finance and Operations and Supply Chain Management for larger orgs) is Microsoft&rsquo;s cloud ERP line &mdash; general ledger, AP/AR, inventory, supply chain, manufacturing, and project accounting in one system.",
+        "Business Central (the modern successor to NAV, GP, and AX) is Microsoft&rsquo;s SMB-tier cloud ERP &mdash; general ledger, AP/AR, inventory, supply chain, manufacturing, and project accounting in one system.",
         "This is the single highest-priority Dynamics conversation for us. ERP replacements are large, multi-year, deeply embedded engagements &mdash; once a company is live on Business Central, it becomes the system of record for the whole business, not just one department.",
+        "<b>Not the same product as Dynamics 365 Finance and Operations.</b> F&amp;O is Microsoft&rsquo;s separate, larger enterprise-tier ERP &mdash; Wired CIO does not do F&amp;O implementations. If a lead specifically names Finance and Operations (not just &ldquo;ERP&rdquo; generically), treat it as a different product than this page, not a bigger version of Business Central.",
       ],
       questions: {
         heading: "Discovery Questions &mdash; Ask On the Call",
@@ -847,10 +849,16 @@
       signalsGood: {
         heading: "Buying Signals &mdash; Listen For This Language",
         items: [
-          "“Business Central,” “ERP,” “NAV,” “GP,” “AX,” “Finance and Operations,” or “Supply Chain Management” mentioned by name.",
+          "“Business Central,” “ERP,” “NAV,” “GP,” or “AX” mentioned by name.",
           "A stated or estimated user count alongside any of the above.",
           "End-of-life / no-longer-supported language about a current system.",
-          "Multi-department scope (finance + supply chain + operations together).",
+          "Multi-department scope (finance + supply chain + operations together) &mdash; as long as it&rsquo;s Business Central&rsquo;s version of that, not Finance and Operations.",
+        ],
+      },
+      signalsBad: {
+        heading: "Red Flags &mdash; Not a Fit / Disqualify",
+        items: [
+          "“Finance and Operations” or standalone “Supply Chain Management” named specifically &mdash; that&rsquo;s Microsoft&rsquo;s separate enterprise-tier ERP. Wired CIO does not do F&amp;O; don&rsquo;t treat this as a bigger Business Central deal.",
         ],
       },
       objections: {
@@ -861,7 +869,7 @@
           ["“Not now.”", "Ask about their budget cycle and log a follow-up for that window &mdash; ERP decisions are planned well in advance, so timing matters more than urgency."],
         ],
       },
-      crossSell: { text: "Business Central customers almost always need Azure hosting/tenant support and M365 licensing alongside the ERP itself &mdash; always ask." },
+      crossSell: { text: "Business Central customers almost always need Azure hosting/tenant support and M365 licensing alongside the ERP itself &mdash; always ask. Custom extensions or development on top of Business Central itself (see Custom Application Development) is also part of Wired CIO&rsquo;s practice, not just the base implementation." },
     },
     {
       key: "sales-crm", track: "dynamics", kicker: "DYNAMICS 365",
@@ -1006,9 +1014,9 @@
     {
       key: "custom-app-dev", track: "azure", kicker: "CUSTOM DEVELOPMENT",
       title: "Custom Application Development",
-      subtitle: "Power Platform, custom Azure-hosted apps, and Dynamics/M365 integrations.",
+      subtitle: "Power Platform, custom Azure-hosted apps, custom Business Central extensions, and Dynamics/M365 integrations.",
       overview: [
-        "Wired CIO builds custom solutions on the Microsoft platform &mdash; Power Apps and Power Automate, fully custom Azure-hosted applications, and integrations with Dynamics 365 and M365. This is a project-based (not purely recurring) conversation, usually triggered by a specific manual process or gap that no off-the-shelf product solves.",
+        "Wired CIO builds custom solutions on the Microsoft platform &mdash; Power Apps and Power Automate, fully custom Azure-hosted applications, custom extensions/development on top of Business Central itself, and integrations with Dynamics 365 and M365. This is a project-based (not purely recurring) conversation, usually triggered by a specific manual process or gap that no off-the-shelf product solves.",
       ],
       wiredAngle: {
         heading: "Engagement Model",
@@ -1055,6 +1063,12 @@
         heading: "Wired CIO&rsquo;s Angle",
         items: [
           "Always frame this as part of a custom app development conversation &mdash; the real question is “who&rsquo;s going to build the app that uses this,” not “do you want this Azure service.” Lead with custom app dev, mention Document Intelligence as the engine underneath.",
+        ],
+      },
+      facts: {
+        heading: "Example Build",
+        items: [
+          "A tax-document app: employees or clients upload W-2s or 1099s throughout the year, Document Intelligence extracts the specific fields that matter, and the data gets captured and stored in a structured way &mdash; instead of a folder of PDFs someone has to read by hand. Hosted on Azure, so that usage spend can also route through us as the CSP (see Azure Partner/CSP Billing).",
         ],
       },
       questions: {
