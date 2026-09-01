@@ -1050,22 +1050,57 @@ export function resolveRowFields(row: Record<string, unknown>, fileMapping: Part
   return resolved;
 }
 
+// A row with zero Dynamics/M365/licensing signal — scanRowUnified returns
+// null for it, so it never becomes a ResultRow (see CLAUDE.md's "Rows
+// scanned" accounting sections). Deliberately NOT a ResultRow lookalike —
+// it never ran through detection at all, so giving it a tier/category
+// would misrepresent it. Enough for Jack to manually review the lead
+// itself, not just identify it (Scanner's "Non Relevant" tab, per Jack:
+// "i want to be able to review every lead if i want to... for manual
+// review purposes"); read-only, never downloaded/filed, and deliberately
+// NOT persisted into History (see CLAUDE.md "Non Relevant tab" — History
+// already has no cap on what it retains forever, and this would only add
+// to that).
+export interface NoSignalRow {
+  id: string;
+  sourceFile: string;
+  company: string;
+  contact: string;
+  title: string;
+  email: string;
+  phone: string;
+  notes: string;
+}
+
 // The mapping + scan pass — runs once per upload/reload, feeds both the
 // Scanner/History entry (every row, every tier) and the Library save (just
 // the Strong Signal rows).
 export function scanParsedFiles(
   parsedFiles: ParsedFile[],
   overrides: RuleOverrides = DEFAULT_RULE_OVERRIDES
-): { results: ResultRow[]; rowsScanned: number; duplicatesRemoved: number } {
+): { results: ResultRow[]; rowsScanned: number; duplicatesRemoved: number; noSignalRows: NoSignalRow[] } {
   let rowsScanned = 0;
   const results: ResultRow[] = [];
+  const noSignalRows: NoSignalRow[] = [];
   parsedFiles.forEach((pf, fileIdx) => {
     rowsScanned += pf.data.length;
     const fileMapping = computeFileFieldMapping(pf);
     pf.data.forEach((row, i) => {
       const resolved = resolveRowFields(row, fileMapping);
       const scan = scanRowUnified(row, pf.fields, resolved, overrides);
-      if (!scan) return;
+      if (!scan) {
+        noSignalRows.push({
+          id: `nosignal-${fileIdx}-${i}`,
+          sourceFile: pf.name,
+          company: resolved.company || "",
+          contact: getFullName(resolved),
+          title: resolved.title || "",
+          email: resolved.email || "",
+          phone: resolved.workPhone || resolved.mobilePhone || "",
+          notes: resolved.comments || "",
+        });
+        return;
+      }
       results.push({
         id: `${fileIdx}-${i}`,
         row: { ...row, __f: resolved },
@@ -1089,7 +1124,7 @@ export function scanParsedFiles(
   // reaches the Scanner table, History, or the Library to begin with.
   const deduped = results.filter((r) => !r.isDuplicate);
   const duplicatesRemoved = results.length - deduped.length;
-  return { results: deduped, rowsScanned, duplicatesRemoved };
+  return { results: deduped, rowsScanned, duplicatesRemoved, noSignalRows };
 }
 
 // Dynamics 365 ranking, top to bottom: Business Central/ERP leads first,

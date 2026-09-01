@@ -2384,6 +2384,59 @@ style rule — narrow, unambiguous asks building on existing mechanics).
   enrollment notice read "Enrolled 1 contact from '...'" with the new
   enrollment showing Active status.
 
+## "Non Relevant" tab — manual review of zero-signal rows (app/ only, Scanner)
+
+Per Jack, catching a real gap while looking at a real 500-row upload
+("500 rows read... 342 had no Dynamics 365/M365/Azure/licensing signal
+(not shown below)"): "i do still want to be able to see the 342 here in
+a view next to bad leads... i want to be able to review every lead if i
+want to... for manual review purposes." Named "Non Relevant" per Jack's
+own explicit label.
+
+- **What these rows are.** `scanRowUnified` (`lib/detection.ts`) already
+  returns `null` for any row with zero Dynamics/M365/licensing signal at
+  all — such a row never becomes a `ResultRow`, so it's invisible
+  everywhere else in the app (Scanner's normal tabs, History, Contacts'
+  tier field). This tab is the first place these rows are ever actually
+  shown, not just counted.
+- **`scanParsedFiles` now also returns `noSignalRows: NoSignalRow[]`** —
+  a deliberately separate, much lighter shape than `ResultRow` (company/
+  contact/title/email/phone/notes/source file only) rather than a fake
+  `ResultRow` with an empty tier — these rows never ran through
+  detection, so giving them a tier/category would misrepresent them as
+  scored when they weren't.
+- **Scanner-only, current-batch-only — deliberately NOT persisted into
+  History.** The capacity audit earlier this session flagged that History
+  already keeps every row's full raw CSV data forever with no cap;
+  adding a second, larger "everything that didn't match" array to that
+  same unbounded store would only make that worse. `noSignalRows` lives
+  in Scanner's own local state, set by `handleFiles`/`loadFromLibraryPicker`
+  the same way `lastScanStats` already is, and cleared on "Start over."
+  Reopening a batch from History does NOT restore this tab (the raw rows
+  were never kept) — a real, deliberate scope limit, not an oversight.
+- **A 5th tab, not folded into the existing tier filter.** `Tier` is
+  `"signal" | "mention" | "dq"` — a no-signal row was never scored, so it
+  doesn't have a real tier value to filter on. Rather than inventing a
+  fake 4th `Tier`, "Non Relevant" is its own toggle (`showNoSignal`,
+  `Scanner.tsx`) that swaps out the entire category-filter/sub-view/bulk-
+  action/table section for a separate, read-only `NonRelevantTable`
+  component — same "next to Bad Leads" placement Jack asked for in the
+  tab row, but functionally independent of `tierFilter`. Clicking any of
+  the three real tier tabs (or "All") turns it back off.
+- **Read-only by design** — no checkboxes, no bulk actions, no download,
+  no Library filing, matching the "for manual review purposes" framing:
+  this is a look-and-decide-by-hand view, not a fourth processing bucket.
+  The Notes column shows the row's raw Comments text (truncated, full
+  text on hover) specifically so a manual review has enough to actually
+  judge the lead by, not just identify it.
+- Verified live: uploaded a 3-row batch (1 Strong Signal, 2 with no
+  product/licensing language at all) — confirmed "Non Relevant (2)"
+  appears in the tab row with the right count, clicking it shows both
+  skipped leads with their real company/contact/notes text and hides the
+  category-filter row entirely, clicking back to a real tier tab restores
+  the normal table, and "Start over" clears the tab along with everything
+  else.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

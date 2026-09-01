@@ -19,6 +19,7 @@ import {
   type RuleOverrides,
   type Tier,
   type BucketKey,
+  type NoSignalRow,
 } from "../lib/detection";
 import { downloadCSV, parseCSVFile, parseCSVText } from "../lib/csv";
 import type { LeadList } from "../lib/leadLists";
@@ -142,6 +143,16 @@ export default function Scanner({
     if (loadedScanStats) setLastScanStats(loadedScanStats);
   }, [loadedScanStats]);
   const [tierFilter, setTierFilter] = useState<Tier | "all">("signal");
+  // "Non Relevant" — per Jack: "i want to be able to review every lead if
+  // i want to... looking at those [rows] it didn't have a dynamics/m365/
+  // azure/licensing signal from, for manual review purposes." These rows
+  // never ran through detection at all (scanRowUnified returned null for
+  // them), so they're not ResultRows and don't fit the normal tier tabs —
+  // tracked separately, read-only, current-batch-only (never persisted
+  // into History — see CLAUDE.md, History already keeps every row
+  // forever with no cap, and these would only add to that).
+  const [noSignalRows, setNoSignalRows] = useState<NoSignalRow[]>([]);
+  const [showNoSignal, setShowNoSignal] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<CategoryKey | "all">("all");
   const [duplicatesOnly, setDuplicatesOnly] = useState(false);
   const [priorityOnly, setPriorityOnly] = useState(false);
@@ -202,12 +213,14 @@ export default function Scanner({
     setDedupeNotice(null);
     try {
       const parsedFiles = await Promise.all(files.map(parseCSVFile));
-      const { results: scanned, rowsScanned, duplicatesRemoved } = scanParsedFiles(parsedFiles, ruleOverrides);
+      const { results: scanned, rowsScanned, duplicatesRemoved, noSignalRows: skipped } = scanParsedFiles(parsedFiles, ruleOverrides);
       applyStickyState(scanned, contacts);
       setResults(scanned);
       setUploadedFiles(parsedFiles.map((pf) => ({ name: pf.name, rows: pf.data.length })));
       const largestDuplicateGroup = Math.max(0, ...scanned.map((r) => r.duplicateGroupSize || 0));
       setLastScanStats({ rowsScanned, duplicatesRemoved, largestDuplicateGroup });
+      setNoSignalRows(skipped);
+      setShowNoSignal(false);
       setPage(1);
       setSelected(new Set());
       const historyEntry = onRecordHistory(parsedFiles, scanned, "", duplicatesRemoved);
@@ -257,6 +270,8 @@ export default function Scanner({
     setPriorityOnly(false);
     setM365SubView("all");
     setDynamicsSubView("all");
+    setNoSignalRows([]);
+    setShowNoSignal(false);
     setPage(1);
     setSelected(new Set());
     // Saving is an explicit, per-batch choice — never carries over to the
@@ -303,12 +318,14 @@ export default function Scanner({
       rawText = entry.rawText;
     }
     const parsed = parseCSVText(fileName, rawText);
-    const { results: scanned, rowsScanned, duplicatesRemoved } = scanParsedFiles([parsed], ruleOverrides);
+    const { results: scanned, rowsScanned, duplicatesRemoved, noSignalRows: skipped } = scanParsedFiles([parsed], ruleOverrides);
     applyStickyState(scanned, contacts);
     setResults(scanned);
     setUploadedFiles([{ name: parsed.name, rows: parsed.data.length }]);
     const largestDuplicateGroup = Math.max(0, ...scanned.map((r) => r.duplicateGroupSize || 0));
     setLastScanStats({ rowsScanned, duplicatesRemoved, largestDuplicateGroup });
+    setNoSignalRows(skipped);
+    setShowNoSignal(false);
     setPage(1);
     setSelected(new Set());
     onRecordHistory([parsed], scanned, "", duplicatesRemoved);
@@ -873,22 +890,51 @@ export default function Scanner({
 
       <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 13, padding: "14px 16px 16px", marginBottom: 18 }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
-        {(["signal", "mention", "dq", "all"] as const).map((t) => (
+        {(["signal", "mention", "dq"] as const).map((t) => (
           <button
             key={t}
-            onClick={() => { setTierFilter(t); setPage(1); }}
+            onClick={() => { setTierFilter(t); setShowNoSignal(false); setPage(1); }}
             style={{
               border: "none",
               borderRadius: 8,
               padding: "7px 13px",
               fontWeight: 600,
-              background: tierFilter === t ? "#081E22" : "#E9EBEF",
-              color: tierFilter === t ? "#fff" : "#4C6167",
+              background: !showNoSignal && tierFilter === t ? "#081E22" : "#E9EBEF",
+              color: !showNoSignal && tierFilter === t ? "#fff" : "#4C6167",
             }}
           >
-            {t === "signal" ? `Strong Signal (${tierCounts.signal})` : t === "mention" ? `Needs review (${tierCounts.mention})` : t === "dq" ? `Bad Leads (${tierCounts.dq})` : `All (${tierCounts.total})`}
+            {t === "signal" ? `Strong Signal (${tierCounts.signal})` : t === "mention" ? `Needs review (${tierCounts.mention})` : `Bad Leads (${tierCounts.dq})`}
           </button>
         ))}
+        {noSignalRows.length > 0 && (
+          <button
+            onClick={() => setShowNoSignal(true)}
+            title="Rows with no Dynamics 365/M365/Azure/licensing signal at all — never scored, kept here for manual review only"
+            style={{
+              border: "none",
+              borderRadius: 8,
+              padding: "7px 13px",
+              fontWeight: 600,
+              background: showNoSignal ? "#081E22" : "#E9EBEF",
+              color: showNoSignal ? "#fff" : "#4C6167",
+            }}
+          >
+            Non Relevant ({noSignalRows.length})
+          </button>
+        )}
+        <button
+          onClick={() => { setTierFilter("all"); setShowNoSignal(false); setPage(1); }}
+          style={{
+            border: "none",
+            borderRadius: 8,
+            padding: "7px 13px",
+            fontWeight: 600,
+            background: !showNoSignal && tierFilter === "all" ? "#081E22" : "#E9EBEF",
+            color: !showNoSignal && tierFilter === "all" ? "#fff" : "#4C6167",
+          }}
+        >
+          All ({tierCounts.total})
+        </button>
         {duplicateCount > 0 && (
           <button
             onClick={() => setDuplicatesOnly((v) => !v)}
@@ -906,7 +952,13 @@ export default function Scanner({
           </button>
         )}
       </div>
+      </div>
 
+      {showNoSignal ? (
+        <NonRelevantTable rows={noSignalRows} />
+      ) : (
+      <>
+      <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 13, padding: "14px 16px 16px", marginBottom: 18 }}>
       <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
         <button
           onClick={() => setCategoryFilter("all")}
@@ -1217,6 +1269,58 @@ export default function Scanner({
           <button disabled={currentPage >= totalPages} onClick={() => setPage(currentPage + 1)}>Next</button>
         </div>
       )}
+      </>
+      )}
+    </div>
+  );
+}
+
+// "Non Relevant" — rows with zero Dynamics 365/M365/Azure/licensing signal
+// at all, kept purely so Jack can manually eyeball what got skipped (see
+// CLAUDE.md). Deliberately simple and read-only: no tier/category/matched
+// snippet (these never ran through detection), no bulk actions, no
+// download, no filing — just enough per row to review it and decide by
+// hand. Current-batch-only, not retained in History.
+function NonRelevantTable({ rows }: { rows: NoSignalRow[] }) {
+  return (
+    <div>
+      <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 12 }}>
+        {rows.length} row{rows.length === 1 ? "" : "s"} matched no Dynamics 365/M365/Azure/licensing signal at all — never scored, so there's no tier or product line to show. For manual review only; not downloaded, filed, or kept in History.
+      </div>
+      <div style={{ overflowX: "auto", maxHeight: 560, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 12 }}>
+        <table>
+          <thead>
+            <tr style={{ background: "var(--bg)", textAlign: "left", position: "sticky", top: 0 }}>
+              <th style={{ padding: "9px 12px" }}>Company</th>
+              <th style={{ padding: "9px 12px" }}>Contact</th>
+              <th style={{ padding: "9px 12px" }}>Title</th>
+              <th style={{ padding: "9px 12px" }}>Email</th>
+              <th style={{ padding: "9px 12px" }}>Phone</th>
+              <th style={{ padding: "9px 12px" }}>Notes</th>
+              <th style={{ padding: "9px 12px" }}>Source file</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id} style={{ borderTop: "1px solid var(--border)" }}>
+                <td style={{ padding: "9px 12px", fontWeight: 600 }}>{r.company || "—"}</td>
+                <td style={{ padding: "9px 12px" }}>{r.contact || "—"}</td>
+                <td style={{ padding: "9px 12px", color: "var(--muted)" }}>{r.title || "—"}</td>
+                <td style={{ padding: "9px 12px" }}>{r.email || "—"}</td>
+                <td style={{ padding: "9px 12px" }}>{r.phone || "—"}</td>
+                <td style={{ padding: "9px 12px", maxWidth: 320, color: "var(--muted)", fontSize: 12 }} title={r.notes || undefined}>
+                  {r.notes ? (
+                    <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.notes}</span>
+                  ) : (
+                    "—"
+                  )}
+                </td>
+                <td style={{ padding: "9px 12px", color: "var(--muted)", fontSize: 12 }}>{r.sourceFile}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
