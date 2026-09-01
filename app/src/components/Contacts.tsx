@@ -9,7 +9,7 @@
 // detail view, LinkedIn, and outreach tracking"). Selecting contacts here
 // and clicking "Enrich via Apollo" runs a live, viewer-driven Apollo
 // people-match pass (see lib/apolloEnrich.ts) — never automatic.
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { OUTREACH_STATUS_META, type Contact, searchContacts } from "../lib/contacts";
 import { CATEGORY_META, DISPOSITION_META, DISPOSITION_ORDER, type Disposition, type Tier } from "../lib/detection";
 import { checkApolloAvailability, enrichContactsViaApollo, type EnrichOutcome } from "../lib/apolloEnrich";
@@ -19,6 +19,9 @@ import OnCrmBadge from "./OnCrmBadge";
 import type { Task, TaskPriority } from "../lib/tasks";
 
 const MAX_ENRICH_BATCH = 10;
+// Same page size Scanner's results table uses — see the pagination note
+// below for the measured render cost this avoids.
+const PAGE_SIZE = 25;
 
 const TIER_META: Record<Tier, { label: string; color: string; bg: string }> = {
   signal: { label: "Strong Signal", color: "#2CC295", bg: "#E7F1EA" },
@@ -32,7 +35,7 @@ interface ContactsProps {
   loading: boolean;
   error: string | null;
   tasks: Task[];
-  onAddContactTask: (contactId: string, date: string, priority: TaskPriority, text: string) => void;
+  onAddContactTask: (contactId: string, date: string, priority: TaskPriority, text: string, channel?: "call" | "email", time?: string | null) => void;
   onToggleTask: (id: string) => void;
   onDeleteTask: (id: string) => void;
   onUpdateContact: (id: string, patch: Partial<Contact>) => void;
@@ -74,6 +77,7 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
   const [tierFilter, setTierFilter] = useState<Tier | "all">("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [page, setPage] = useState(1);
   const [addingForId, setAddingForId] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   // Apollo enrichment — per Jack, explicit and selection-driven only ("as
@@ -131,10 +135,10 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
     [tasks, contactById]
   );
 
-  function submitContactTask(contact: Contact, date: string, priority: TaskPriority, note: string) {
+  function submitContactTask(contact: Contact, date: string, priority: TaskPriority, note: string, time?: string) {
     const base = `Follow up with ${contact.fullName || contact.company}${contact.company && contact.fullName ? ` (${contact.company})` : ""}`;
     const text = note.trim() ? `${base} — ${note.trim()}` : base;
-    onAddContactTask(contact.id, date, priority, text);
+    onAddContactTask(contact.id, date, priority, text, undefined, time || null);
     setAddingForId(null);
   }
 
@@ -171,6 +175,23 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
     if (dateTo) list = list.filter((c) => c.lastSeenAt <= `${dateTo}T23:59:59.999Z`);
     return list;
   }, [searched, dispositionFilter, tierFilter, dateFrom, dateTo]);
+
+  // Pagination — per Jack: "companies, lists, and contacts take time to
+  // load." Measured on a real 3,000-contact directory: rendering every
+  // row at once put ~77,500 DOM nodes in this view and took ~5 SECONDS to
+  // switch into, with ~250ms of lag on every keystroke in the search box
+  // (each one re-rendered all 3,000 rows). Scanner already solved exactly
+  // this with a 25-per-page slice; this is the same fix, same shape.
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const currentPage = Math.min(Math.max(1, page), totalPages);
+  const pageItems = useMemo(
+    () => filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
+    [filtered, currentPage]
+  );
+  // Any filter/search/sort change puts you back on page 1 — otherwise
+  // narrowing 3,000 contacts down to 12 while sitting on page 40 shows an
+  // empty table rather than the results.
+  useEffect(() => { setPage(1); }, [search, sort, dispositionFilter, tierFilter, dateFrom, dateTo]);
 
   // Aggregate outreach summary for whichever bucket is currently selected
   // — per Jack: "know where a lead stands, how many times they've been
@@ -416,7 +437,7 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
               </tr>
             </thead>
             <tbody>
-              {filtered.map((c) => (
+              {pageItems.map((c) => (
                 <Fragment key={c.id}>
                   <tr
                     style={{
@@ -532,7 +553,7 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
                   {addingForId === c.id && (
                     <tr style={{ background: "var(--bg)" }}>
                       <td colSpan={13} style={{ padding: "10px 12px" }}>
-                        <AddContactTaskForm contact={c} onSubmit={(date, priority, note) => submitContactTask(c, date, priority, note)} onCancel={() => setAddingForId(null)} />
+                        <AddContactTaskForm contact={c} onSubmit={(date, priority, note, time) => submitContactTask(c, date, priority, note, time)} onCancel={() => setAddingForId(null)} />
                       </td>
                     </tr>
                   )}
@@ -541,6 +562,28 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
             </tbody>
           </table>
         </div>
+        {filtered.length > PAGE_SIZE && (
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 12, alignItems: "center", fontSize: 12.5 }}>
+            <span style={{ color: "var(--muted)" }}>
+              Showing {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length}
+            </span>
+            <button
+              disabled={currentPage <= 1}
+              onClick={() => setPage(currentPage - 1)}
+              style={{ border: "1px solid var(--border)", background: "var(--surface)", borderRadius: 7, padding: "5px 11px" }}
+            >
+              Prev
+            </button>
+            <span>Page {currentPage} of {totalPages}</span>
+            <button
+              disabled={currentPage >= totalPages}
+              onClick={() => setPage(currentPage + 1)}
+              style={{ border: "1px solid var(--border)", background: "var(--surface)", borderRadius: 7, padding: "5px 11px" }}
+            >
+              Next
+            </button>
+          </div>
+        )}
         </>
       )}
 
@@ -555,8 +598,12 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
   );
 }
 
-function AddContactTaskForm({ contact, onSubmit, onCancel }: { contact: Contact; onSubmit: (date: string, priority: TaskPriority, note: string) => void; onCancel: () => void }) {
+function AddContactTaskForm({ contact, onSubmit, onCancel }: { contact: Contact; onSubmit: (date: string, priority: TaskPriority, note: string, time: string) => void; onCancel: () => void }) {
   const [date, setDate] = useState(todayKey());
+  // Optional time of day (Task.time) — blank means an untimed task, exactly
+  // how every task behaved before the field existed. See CLAUDE.md's
+  // "Home: start-of-day dashboard" section.
+  const [time, setTime] = useState("");
   const [priority, setPriority] = useState<TaskPriority>("medium");
   const [note, setNote] = useState("");
 
@@ -564,6 +611,13 @@ function AddContactTaskForm({ contact, onSubmit, onCancel }: { contact: Contact;
     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
       <span style={{ fontSize: 12, fontWeight: 700 }}>Task for {contact.fullName || contact.company}:</span>
       <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 12.5 }} />
+      <input
+        type="time"
+        value={time}
+        onChange={(e) => setTime(e.target.value)}
+        title="Optional time of day"
+        style={{ border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 12.5 }}
+      />
       <select value={priority} onChange={(e) => setPriority(e.target.value as TaskPriority)} style={{ border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 12.5, fontWeight: 600 }}>
         <option value="high">High priority</option>
         <option value="medium">Medium priority</option>
@@ -575,7 +629,7 @@ function AddContactTaskForm({ contact, onSubmit, onCancel }: { contact: Contact;
         placeholder="Note (optional)"
         style={{ flex: "1 1 200px", border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 12.5 }}
       />
-      <button onClick={() => onSubmit(date, priority, note)} style={{ border: "none", background: "#2CC295", color: "#081E22", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 700 }}>
+      <button onClick={() => onSubmit(date, priority, note, time)} style={{ border: "none", background: "#2CC295", color: "#081E22", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 700 }}>
         Add
       </button>
       <button onClick={onCancel} style={{ border: "1px solid var(--border)", background: "var(--surface)", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600 }}>

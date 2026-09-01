@@ -9,13 +9,16 @@
 // (estimated employees, industry, website) and closer to an actual Apollo
 // down the road" — a future LinkedIn integration and richer company
 // profiles beyond this roll-up are direction, not built yet.
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { groupContactsByCompany, searchCompanies } from "../lib/companies";
 import { OUTREACH_STATUS_META, type Contact, type ManualContactInput } from "../lib/contacts";
 import { CATEGORY_META, DISPOSITION_META } from "../lib/detection";
 import ContactDetail from "./ContactDetail";
 import BookedStamp from "./BookedStamp";
 import OnCrmBadge from "./OnCrmBadge";
+
+// Same page size Scanner and Contacts use.
+const PAGE_SIZE = 25;
 
 interface CompaniesProps {
   contacts: Contact[];
@@ -31,6 +34,7 @@ export default function Companies({ contacts, onAddContact, onUpdateContact }: C
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const [addingForKey, setAddingForKey] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
   const contactById = useMemo(() => new Map(contacts.map((c) => [c.id, c])), [contacts]);
 
   const companies = useMemo(() => groupContactsByCompany(contacts), [contacts]);
@@ -42,6 +46,17 @@ export default function Companies({ contacts, onAddContact, onUpdateContact }: C
     else if (sort === "contactCount") sorted.sort((a, b) => b.contactCount - a.contactCount);
     return sorted;
   }, [companies, search, sort]);
+
+  // Paginated for the same measured reason Contacts is (see the note in
+  // Contacts.tsx) — a real directory rolls up to ~1,000 companies, and
+  // rendering every row at once cost ~500ms per tab switch here.
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const currentPage = Math.min(Math.max(1, page), totalPages);
+  const pageItems = useMemo(
+    () => filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
+    [filtered, currentPage]
+  );
+  useEffect(() => { setPage(1); }, [search, sort]);
 
   return (
     <div>
@@ -86,7 +101,7 @@ export default function Companies({ contacts, onAddContact, onUpdateContact }: C
               </tr>
             </thead>
             <tbody>
-              {filtered.map((co) => {
+              {pageItems.map((co) => {
                 const expanded = expandedKey === co.key;
                 return (
                   <Fragment key={co.key}>
@@ -188,6 +203,16 @@ export default function Companies({ contacts, onAddContact, onUpdateContact }: C
               })}
             </tbody>
           </table>
+        </div>
+      )}
+      {filtered.length > PAGE_SIZE && (
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 12, alignItems: "center", fontSize: 12.5 }}>
+          <span style={{ color: "var(--muted)" }}>
+            Showing {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length}
+          </span>
+          <button disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)} style={{ border: "1px solid var(--border)", background: "var(--surface)", borderRadius: 7, padding: "5px 11px" }}>Prev</button>
+          <span>Page {currentPage} of {totalPages}</span>
+          <button disabled={currentPage >= totalPages} onClick={() => setPage(currentPage + 1)} style={{ border: "1px solid var(--border)", background: "var(--surface)", borderRadius: 7, padding: "5px 11px" }}>Next</button>
         </div>
       )}
 

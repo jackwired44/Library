@@ -2587,6 +2587,46 @@ Automated badges.
   correctly (not lost, not stale); reloaded the page and confirmed both
   prompts persisted through IndexedDB.
 
+## Perf fix: Contacts/Companies rendered every row at once (app/ only)
+
+Per Jack: "companies, lists, and contacts take time to load — figure out
+this flaw." Root-caused by measurement, not guesswork: seeded a real
+3,000-contact / ~1,000-company directory and timed each Engage tab.
+
+**Measured before the fix** (3,000 contacts):
+
+| | before | after |
+|---|---|---|
+| Contacts tab switch | **4,998 ms** | **65 ms** |
+| Companies tab switch | 535 ms | 43 ms |
+| Lists tab switch | 232 ms | 21 ms |
+| DOM nodes in `<main>` (Contacts) | **77,500** | 717 |
+| Typing 5 chars in Contacts search | 1,267 ms | 169 ms |
+
+- **The flaw**: `Contacts.tsx` and `Companies.tsx` both rendered
+  `filtered.map(...)` — EVERY row, unpaginated — while Scanner's results
+  table has always sliced to `PAGE_SIZE = 25`. At Jack's real volume that
+  put ~26 DOM nodes per contact row × 3,000 rows into one view, and every
+  keystroke in the search box re-rendered all of them.
+- **Why Lists looked slow too** (it has almost no content of its own):
+  switching AWAY from Contacts made React tear down those 77,500 nodes
+  first. Once Contacts is paginated, that cost disappears — which is why
+  Lists got 11× faster without a single change to `Lists.tsx`.
+- **The fix**: the same 25-per-page slice + Prev/Next pager Scanner
+  already uses, in both components, plus a `useEffect` that resets to
+  page 1 whenever search/sort/filters change (otherwise narrowing 3,000
+  contacts to 12 while sitting on page 40 shows an empty table).
+  Selection for "Enrich via Apollo" is a `Set` of ids, so it survives
+  paging untouched.
+- **Not changed**: `Lists.tsx` still renders every row of an *expanded*
+  list unpaginated. That's latent — only a problem if a single list grows
+  into the hundreds — and it wasn't part of the measured slowdown. Flagged
+  rather than pre-emptively changed.
+- Verified live: pager reads "Showing 1–25 of 3000 · Page 1 of 120",
+  Next advances to 26–50 with genuinely different rows, and applying a
+  tier filter (→ 1,832) or a search (→ 333) both correctly snap back to
+  page 1. Companies behaves identically (1–25 of 1,000).
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool
