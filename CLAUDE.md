@@ -2437,23 +2437,26 @@ own explicit label.
   the normal table, and "Start over" clears the tab along with everything
   else.
 
-## Home rebuilt: no sidebar + self-serve Weekly Goals metrics board (app/ only)
+## Home rebuilt: sidebar everywhere (incl. Home), Modules tile grid removed, self-serve Weekly Goals metrics board (app/ only)
 
 Per Jack: "fix the home page format... to not have the side bar just
 here and have weekly goals metrics that can be pulled and set how many
 outbound calls call backs incoming voicemails etc//build this out with
 little functonalities yet but we will slowly build this into a full
-blown metric board." Builds directly on the earlier-proposed Home
-redesign (weekly goals/targets, calls/emails metrics) with Jack's own
-concrete metric list and an explicit "keep it minimal, this grows later"
-scope.
+blown metric board" — then a direct follow-up correction once he saw it:
+**"no i want everything on the left handside nothing under modules."**
+Net result below is the corrected, final shape — the sidebar is
+unconditional again (same as before this whole change) and Home's old
+"Modules" tile grid is gone entirely, not just de-emphasized, since the
+sidebar already covers every one of those links.
 
-- **Sidebar hidden on Home only.** `App.tsx`'s `<aside>` (the nav +
-  AccountPanel) now renders conditionally on `view !== "home"` — every
-  other view keeps it exactly as before. Home is reachable from its own
-  module tiles even with no sidebar showing; navigating to any other view
-  brings the sidebar back immediately. A real, deliberate layout
-  difference for Home specifically, not a global nav change.
+- **Sidebar unconditional again — Home included.** `App.tsx`'s `<aside>`
+  briefly went conditional on `view !== "home"` mid-session; per Jack's
+  explicit correction it's back to rendering on every view, same as
+  always. Home's own module tiles/`onNavigate`/`onOpenCheatSheet`
+  plumbing were removed with it (`Home.tsx` no longer takes those props
+  at all) — the sidebar is now the only navigation surface, not a
+  duplicate of one.
 - **`lib/weeklyGoals.ts`** (new) — `WeeklyMetricEntry {id, label, target,
   actual, autoSource?}` and `WeeklyGoals {weekKey, metrics}`, one record
   per Monday-start week (same convention as `lib/tasks.ts`/`lib/
@@ -2504,8 +2507,10 @@ scope.
   back, confirmed both values stuck (not just the second one) and the
   progress bar read the correct percentage; added a custom "Meetings
   booked" metric, reloaded the page, confirmed it and every edited value
-  survived; removed it and confirmed it's gone; confirmed the sidebar is
-  absent on Home and reappears immediately on navigating to Scanner.
+  survived; removed it and confirmed it's gone; after the correction,
+  confirmed the sidebar renders on Home exactly like every other view and
+  stays present navigating to Scanner and back, and confirmed no
+  "Modules" heading or tile grid remains anywhere on Home.
 
 ## Roadmap — long-term direction, not a build queue
 

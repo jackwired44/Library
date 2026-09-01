@@ -686,7 +686,6 @@ export default function App() {
       </header>
 
       <div style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
-        {view !== "home" && (
         <aside
           style={{
             width: 178,
@@ -758,7 +757,6 @@ export default function App() {
             <AccountPanel onOpenSettings={() => setNotesPanelTab("cheatsheet")} onOpenNotes={() => setNotesPanelTab("notes")} />
           </div>
         </aside>
-        )}
 
         <main style={{ flex: 1, minWidth: 0 }}>
           <div style={{ marginBottom: 16 }}>
@@ -774,19 +772,10 @@ export default function App() {
 
           {view === "home" && (
             <Home
-              onNavigate={(v, engageTab) => {
-                setView(v);
-                if (engageTab) {
-                  setEngageEntry({ tab: engageTab });
-                  setEngageNavExpanded(true);
-                }
-              }}
-              onOpenCheatSheet={() => setNotesPanelTab("cheatsheet")}
               libraryCount={libraryEntries.length}
               historyCount={historyEntries.length}
               tasksOpenCount={tasks.filter((t) => !t.done).length}
               contactsCount={contacts.length}
-              listsCount={leadLists.length}
               tasks={tasks}
               weeklyGoals={getOrCreateCurrentWeekGoals()}
               onUpdateMetric={updateWeeklyMetric}
