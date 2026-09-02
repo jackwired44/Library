@@ -3,7 +3,7 @@
 // used. No server, no shared backend (see CLAUDE.md, Access & ownership).
 
 export const DB_NAME = "wiredCioUnifiedLeadScannerLibrary_v1";
-export const DB_VERSION = 11;
+export const DB_VERSION = 12;
 export const STORE_LIBRARY = "files";
 export const STORE_GROUPS = "groups";
 export const STORE_HISTORY = "history";
@@ -18,6 +18,7 @@ export const STORE_SEQUENCE_ENROLLMENTS = "sequenceEnrollments";
 export const STORE_WEEKLY_GOALS = "weeklyGoals";
 export const STORE_USERS = "users";
 export const STORE_SEQUENCE_GROUPS = "sequenceGroups";
+export const STORE_EMAIL_ACCOUNTS = "emailAccounts";
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -42,6 +43,7 @@ function openDB(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE_WEEKLY_GOALS)) db.createObjectStore(STORE_WEEKLY_GOALS, { keyPath: "weekKey" });
       if (!db.objectStoreNames.contains(STORE_USERS)) db.createObjectStore(STORE_USERS, { keyPath: "id" });
       if (!db.objectStoreNames.contains(STORE_SEQUENCE_GROUPS)) db.createObjectStore(STORE_SEQUENCE_GROUPS, { keyPath: "id" });
+      if (!db.objectStoreNames.contains(STORE_EMAIL_ACCOUNTS)) db.createObjectStore(STORE_EMAIL_ACCOUNTS, { keyPath: "id" });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error || new Error("Could not open local file storage."));

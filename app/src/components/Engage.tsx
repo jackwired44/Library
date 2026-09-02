@@ -18,6 +18,7 @@ import type { Contact, ManualContactInput } from "../lib/contacts";
 import type { Sequence, SequenceEnrollment, SequenceChannel, SequenceStatus } from "../lib/sequences";
 import type { PlatformUser } from "../lib/users";
 import type { SequenceGroup } from "../lib/sequenceGroups";
+import type { EmailAccount } from "../lib/emailAccounts";
 import type { LeadList } from "../lib/leadLists";
 
 interface EngageProps {
@@ -32,9 +33,10 @@ interface EngageProps {
   contacts: Contact[];
   contactsLoading: boolean;
   contactsError: string | null;
-  onAddContactTask: (contactId: string, date: string, priority: TaskPriority, text: string, channel?: "call" | "email", time?: string | null) => void;
+  onAddContactTask: (contactId: string, date: string, priority: TaskPriority, text: string, channel?: "call" | "email", time?: string | null, userId?: string | null) => void;
   onAddContact: (input: ManualContactInput) => void;
   onUpdateContact: (id: string, patch: Partial<Contact>) => void;
+  onUpdateTaskFields: (id: string, patch: Partial<Pick<Task, "userId" | "repliedAt">>) => void;
 
   sequences: Sequence[];
   enrollments: SequenceEnrollment[];
@@ -59,6 +61,11 @@ interface EngageProps {
   onAddSequenceGroup: (name: string) => void;
   onRenameSequenceGroup: (id: string, name: string) => void;
   onDeleteSequenceGroup: (id: string) => void;
+  emailAccounts: EmailAccount[];
+  onSetSequenceEmailAccount: (id: string, emailAccountId: string | null) => void;
+  onAddEmailAccount: (label: string, fromName: string, fromEmail: string) => void;
+  onEditEmailAccount: (id: string, patch: Partial<Pick<EmailAccount, "label" | "fromName" | "fromEmail">>) => void;
+  onDeleteEmailAccount: (id: string) => void;
 
   leadLists: LeadList[];
   leadListsLoading: boolean;
@@ -101,6 +108,7 @@ export default function Engage({
   onAddContactTask,
   onAddContact,
   onUpdateContact,
+  onUpdateTaskFields,
   sequences,
   enrollments,
   sequencesLoading,
@@ -124,6 +132,11 @@ export default function Engage({
   onAddSequenceGroup,
   onRenameSequenceGroup,
   onDeleteSequenceGroup,
+  emailAccounts,
+  onSetSequenceEmailAccount,
+  onAddEmailAccount,
+  onEditEmailAccount,
+  onDeleteEmailAccount,
   leadLists,
   leadListsLoading,
   leadListsError,
@@ -191,6 +204,11 @@ export default function Engage({
           onAddGroup={onAddSequenceGroup}
           onRenameGroup={onRenameSequenceGroup}
           onDeleteGroup={onDeleteSequenceGroup}
+          emailAccounts={emailAccounts}
+          onSetEmailAccount={onSetSequenceEmailAccount}
+          onAddEmailAccount={onAddEmailAccount}
+          onEditEmailAccount={onEditEmailAccount}
+          onDeleteEmailAccount={onDeleteEmailAccount}
         />
       )}
       {tab === "tasks" && (
@@ -205,10 +223,10 @@ export default function Engage({
         />
       )}
       {tab === "calls" && (
-        <ChannelTasks channel="call" contacts={contacts} tasks={tasks} onAddContactTask={onAddContactTask} onToggleTask={onToggleTask} onDeleteTask={onDeleteTask} />
+        <ChannelTasks channel="call" contacts={contacts} tasks={tasks} users={users} onAddContactTask={onAddContactTask} onToggleTask={onToggleTask} onDeleteTask={onDeleteTask} onUpdateTaskFields={onUpdateTaskFields} />
       )}
       {tab === "emails" && (
-        <ChannelTasks channel="email" contacts={contacts} tasks={tasks} onAddContactTask={onAddContactTask} onToggleTask={onToggleTask} onDeleteTask={onDeleteTask} />
+        <ChannelTasks channel="email" contacts={contacts} tasks={tasks} users={users} onAddContactTask={onAddContactTask} onToggleTask={onToggleTask} onDeleteTask={onDeleteTask} onUpdateTaskFields={onUpdateTaskFields} />
       )}
       {tab === "companies" && <CompaniesView contacts={contacts} onAddContact={onAddContact} onUpdateContact={onUpdateContact} />}
       {tab === "contacts" && (

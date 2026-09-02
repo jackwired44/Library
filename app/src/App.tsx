@@ -57,6 +57,7 @@ import {
   setSequenceStatus,
   setSequenceOwner,
   setSequenceGroup,
+  setSequenceEmailAccount,
   duplicateSequence,
   resumeEnrollments,
   TERMINAL_DISPOSITIONS,
@@ -85,6 +86,14 @@ import {
   renameSequenceGroup,
   type SequenceGroup,
 } from "./lib/sequenceGroups";
+import {
+  loadEmailAccountsFromDB,
+  persistEmailAccount,
+  deleteEmailAccountFromDB,
+  createEmailAccount,
+  updateEmailAccount,
+  type EmailAccount,
+} from "./lib/emailAccounts";
 import { loadProfile } from "./lib/profile";
 import {
   loadWeeklyGoalsFromDB,
@@ -210,6 +219,10 @@ export default function App() {
   // lib/users.ts for why these are attribution, not credentials.
   const [users, setUsers] = useState<PlatformUser[]>([]);
   const [sequenceGroups, setSequenceGroups] = useState<SequenceGroup[]>([]);
+  // Email sending accounts — see lib/emailAccounts.ts for why "connected"
+  // stays false everywhere: no SendGrid key/backend exists yet, this only
+  // captures which sender identity a sequence should use once one does.
+  const [emailAccounts, setEmailAccounts] = useState<EmailAccount[]>([]);
 
   useEffect(() => {
     loadLibraryFromDB()
@@ -276,6 +289,7 @@ export default function App() {
       });
     loadWeeklyGoalsFromDB().then(setWeeklyGoals).catch(() => {});
     loadSequenceGroupsFromDB().then(setSequenceGroups).catch(() => {});
+    loadEmailAccountsFromDB().then(setEmailAccounts).catch(() => {});
     // The roster always has at least "you" — seeded from the local
     // Profile the first time, so sequences have someone to belong to
     // before any teammate is ever added.
@@ -369,12 +383,25 @@ export default function App() {
     setTasks((prev) => prev.filter((t) => t.id !== id));
     deleteTaskFromDB(id);
   }
+  // Generic patch for the two Home-notifications fields (see lib/tasks.ts)
+  // — which platform user a task is assigned to, and its manual "marked
+  // as replied" timestamp. Same safe functional-updater pattern as
+  // editTask, since either could fire in quick succession from the
+  // Calls/Emails tabs.
+  function updateTaskFields(id: string, patch: Partial<Pick<Task, "userId" | "repliedAt">>) {
+    setTasks((prev) => {
+      const next = prev.map((t) => (t.id === id ? { ...t, ...patch } : t));
+      const updated = next.find((t) => t.id === id);
+      if (updated) persistTask(updated);
+      return next;
+    });
+  }
 
   // Contacts page's "+ Task" action — same task store as the Board, just
   // pre-linked to a specific Contact and carrying a priority so sales reps
   // can see which contacts matter most (see CLAUDE.md "Contact tasks").
-  function addContactTask(contactId: string, date: string, priority: TaskPriority, text: string, channel?: "call" | "email", time?: string | null) {
-    const task = createContactTask(date, text, contactId, priority, channel, time);
+  function addContactTask(contactId: string, date: string, priority: TaskPriority, text: string, channel?: "call" | "email", time?: string | null, userId?: string | null) {
+    const task = createContactTask(date, text, contactId, priority, channel, time, userId);
     if (!task) return;
     setTasks((prev) => [...prev, task]);
     persistTask(task);
@@ -563,6 +590,39 @@ export default function App() {
     deleteSequenceGroupFromDB(id);
     sequences.filter((s) => s.groupId === id).forEach((s) => {
       const next = setSequenceGroup(s, null);
+      setSequences((prev) => prev.map((p) => (p.id === s.id ? next : p)));
+      persistSequence(next);
+    });
+  }
+  function assignSequenceEmailAccount(id: string, emailAccountId: string | null) {
+    const seq = sequences.find((s) => s.id === id);
+    if (!seq) return;
+    updateSequenceSteps(setSequenceEmailAccount(seq, emailAccountId));
+  }
+
+  // --- Email sending accounts (lib/emailAccounts.ts) — sender identity
+  // only, no key, no live SendGrid connection. See that file's header. ---
+  function addEmailAccount(label: string, fromName: string, fromEmail: string) {
+    const account = createEmailAccount(label, fromName, fromEmail);
+    if (!account) return;
+    setEmailAccounts((prev) => [...prev, account].sort((a, b) => a.label.localeCompare(b.label)));
+    persistEmailAccount(account);
+  }
+  function editEmailAccount(id: string, patch: Partial<Pick<EmailAccount, "label" | "fromName" | "fromEmail">>) {
+    const account = emailAccounts.find((a) => a.id === id);
+    if (!account) return;
+    const next = updateEmailAccount(account, patch);
+    setEmailAccounts((prev) => prev.map((a) => (a.id === id ? next : a)).sort((a, b) => a.label.localeCompare(b.label)));
+    persistEmailAccount(next);
+  }
+  // Removing an account never breaks a sequence that pointed at it — it
+  // just clears back to "None selected", same as removing a sequence
+  // owner (see removeUser below) or deleting a sequence group.
+  function deleteEmailAccount(id: string) {
+    setEmailAccounts((prev) => prev.filter((a) => a.id !== id));
+    deleteEmailAccountFromDB(id);
+    sequences.filter((s) => s.emailAccountId === id).forEach((s) => {
+      const next = setSequenceEmailAccount(s, null);
       setSequences((prev) => prev.map((p) => (p.id === s.id ? next : p)));
       persistSequence(next);
     });
@@ -933,6 +993,8 @@ export default function App() {
               onUpdateMetric={updateWeeklyMetric}
               onAddMetric={addWeeklyMetric}
               onRemoveMetric={removeWeeklyMetric}
+              users={users}
+              onUpdateTaskFields={updateTaskFields}
             />
           )}
           {view === "scanner" && (
@@ -1000,6 +1062,12 @@ export default function App() {
               onAddSequenceGroup={addSequenceGroup}
               onRenameSequenceGroup={renameSequenceGroupById}
               onDeleteSequenceGroup={deleteSequenceGroupById}
+              emailAccounts={emailAccounts}
+              onSetSequenceEmailAccount={assignSequenceEmailAccount}
+              onAddEmailAccount={addEmailAccount}
+              onEditEmailAccount={editEmailAccount}
+              onDeleteEmailAccount={deleteEmailAccount}
+              onUpdateTaskFields={updateTaskFields}
               leadLists={leadLists}
               leadListsLoading={leadListsLoading}
               leadListsError={leadListsError}

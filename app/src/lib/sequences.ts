@@ -91,6 +91,11 @@ export interface Sequence {
   // Optional folder (lib/sequenceGroups.ts) — null/undefined = ungrouped.
   groupId?: string | null;
   archivedAt?: string | null;
+  // Which email account (lib/emailAccounts.ts) this sequence's email
+  // steps will send from, once real sending exists. Purely a stored
+  // preference today — email steps still only ever generate a manual
+  // task (see taskTextFor below); nothing reads this to actually send.
+  emailAccountId?: string | null;
 }
 
 export function resolveStatus(seq: Sequence): SequenceStatus {
@@ -198,6 +203,9 @@ export function setSequenceOwner(seq: Sequence, ownerId: string | null): Sequenc
 export function setSequenceGroup(seq: Sequence, groupId: string | null): Sequence {
   return { ...seq, groupId };
 }
+export function setSequenceEmailAccount(seq: Sequence, emailAccountId: string | null): Sequence {
+  return { ...seq, emailAccountId };
+}
 
 // Per Jack: "copy which duplicates it exactly." Every step is deep-copied
 // with fresh ids (a step id is used as a React key and as the target of
@@ -217,6 +225,7 @@ export function duplicateSequence(seq: Sequence): Sequence {
     ownerId: seq.ownerId ?? null,
     groupId: seq.groupId ?? null,
     archivedAt: null,
+    emailAccountId: seq.emailAccountId ?? null,
   };
 }
 

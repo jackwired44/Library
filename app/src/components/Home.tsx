@@ -3,12 +3,13 @@
 // nothing under Modules" — navigation lives entirely in the sidebar
 // (App.tsx), so Home no longer duplicates it as a tile grid. Reads only
 // its own Profile (for the greeting) beyond the counts it's handed.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { loadProfile, type Profile } from "../lib/profile";
 import { computeAutoActual, countCompletedChannelTasks, type WeeklyGoals } from "../lib/weeklyGoals";
 import { compareByTimeThenCreated, formatTaskTime, startOfWeek, todayDateKey, weekRangeLabel, type Task } from "../lib/tasks";
 import type { Contact } from "../lib/contacts";
 import { resolveStatus, type Sequence, type SequenceEnrollment } from "../lib/sequences";
+import { SELF_USER_ID, userLabel, type PlatformUser } from "../lib/users";
 
 interface HomeProps {
   tasks: Task[];
@@ -20,6 +21,8 @@ interface HomeProps {
   onUpdateMetric: (id: string, patch: Partial<{ label: string; target: number; actual: number }>) => void;
   onAddMetric: (label: string) => void;
   onRemoveMetric: (id: string) => void;
+  users: PlatformUser[];
+  onUpdateTaskFields: (id: string, patch: Partial<Pick<Task, "userId" | "repliedAt">>) => void;
 }
 
 const PRIORITY_META: Record<string, { label: string; color: string; bg: string; rank: number }> = {
@@ -40,12 +43,38 @@ export default function Home({
   onUpdateMetric,
   onAddMetric,
   onRemoveMetric,
+  users,
+  onUpdateTaskFields,
 }: HomeProps) {
   const [profile, setProfile] = useState<Profile | null>(null);
   useEffect(() => {
     loadProfile().then(setProfile);
   }, []);
   const firstName = profile?.name?.trim().split(/\s+/)[0] || "Jack";
+
+  // "Viewing as" — per Jack: "when they click it at a high level they can
+  // see anything they need to act on and can see whats fully on their
+  // plate for that user." Defaults to "you" (the local profile's own
+  // roster entry), with an "Everyone" option for the all-up view Home
+  // originally showed. A task with no userId set (every task created
+  // before this field existed, or left unassigned on purpose) stays
+  // visible under ANY selected user rather than silently disappearing —
+  // same "don't orphan legacy data" rule used elsewhere in this app
+  // (see StoredRow.__isGoogleToMicrosoft etc. in CLAUDE.md).
+  const [viewingUserId, setViewingUserId] = useState<string>(SELF_USER_ID);
+  const scopedTasks = useMemo(
+    () => (viewingUserId === "all" ? tasks : tasks.filter((t) => !t.userId || t.userId === viewingUserId)),
+    [tasks, viewingUserId]
+  );
+  const scopedSequences = useMemo(
+    () => (viewingUserId === "all" ? sequences : sequences.filter((s) => !s.ownerId || s.ownerId === viewingUserId)),
+    [sequences, viewingUserId]
+  );
+  const scopedSequenceIds = useMemo(() => new Set(scopedSequences.map((s) => s.id)), [scopedSequences]);
+  const scopedEnrollments = useMemo(
+    () => (viewingUserId === "all" ? enrollments : enrollments.filter((e) => scopedSequenceIds.has(e.sequenceId))),
+    [enrollments, viewingUserId, scopedSequenceIds]
+  );
 
   // Start-of-day dashboard — per Jack, this is the screen you land on to
   // start the day: today's date, what's due today, and the day's numbers.
@@ -60,11 +89,11 @@ export default function Home({
   });
   const contactById = useMemo(() => new Map(contacts.map((c) => [c.id, c])), [contacts]);
   const todaysTasks = useMemo(
-    () => tasks.filter((t) => t.date === today && !t.done).sort(compareByTimeThenCreated),
-    [tasks, today]
+    () => scopedTasks.filter((t) => t.date === today && !t.done).sort(compareByTimeThenCreated),
+    [scopedTasks, today]
   );
-  const callsToday = useMemo(() => countCompletedChannelTasks(tasks, "call", today, today), [tasks, today]);
-  const emailsToday = useMemo(() => countCompletedChannelTasks(tasks, "email", today, today), [tasks, today]);
+  const callsToday = useMemo(() => countCompletedChannelTasks(scopedTasks, "call", today, today), [scopedTasks, today]);
+  const emailsToday = useMemo(() => countCompletedChannelTasks(scopedTasks, "email", today, today), [scopedTasks, today]);
   const meetingsBooked = useMemo(() => contacts.filter((c) => c.disposition === "meeting-booked").length, [contacts]);
 
   // The banner's headline numbers, per Jack: assigned tasks, active
@@ -76,12 +105,15 @@ export default function Home({
   }, []);
   // Assigned = an open task tied to a specific contact (someone is on the
   // hook for it), as opposed to a loose personal to-do on the Board.
-  const assignedTasks = useMemo(() => tasks.filter((t) => !t.done && t.contactId).length, [tasks]);
-  const activeSequences = useMemo(() => sequences.filter((s) => resolveStatus(s) === "active").length, [sequences]);
-  const activeEnrollments = useMemo(() => enrollments.filter((e) => e.status === "active").length, [enrollments]);
-  // Scoped to this week via the meetingBookedAt stamp (lib/contacts.ts) —
-  // disposition alone carries no date, so before that field this could
-  // only ever be an all-time number.
+  const assignedTasks = useMemo(() => scopedTasks.filter((t) => !t.done && t.contactId).length, [scopedTasks]);
+  const activeSequences = useMemo(() => scopedSequences.filter((s) => resolveStatus(s) === "active").length, [scopedSequences]);
+  const activeEnrollments = useMemo(() => scopedEnrollments.filter((e) => e.status === "active").length, [scopedEnrollments]);
+  // Meetings booked has no per-rep attribution anywhere in this app
+  // (disposition lives on the Contact, not tied to a user) — stays a
+  // whole-team number regardless of who's being viewed, rather than
+  // guessing at an owner. Scoped to this week via the meetingBookedAt
+  // stamp (lib/contacts.ts) — disposition alone carries no date, so
+  // before that field this could only ever be an all-time number.
   const meetingsThisWeek = useMemo(
     () => contacts.filter((c) => c.disposition === "meeting-booked" && (c.meetingBookedAt || "").slice(0, 10) >= weekStartKey).length,
     [contacts, weekStartKey]
@@ -89,8 +121,8 @@ export default function Home({
   // A lead with an open follow-up scheduled — distinct people, not tasks,
   // so two tasks on one lead count once.
   const followUpLeads = useMemo(
-    () => new Set(tasks.filter((t) => !t.done && t.contactId).map((t) => t.contactId)).size,
-    [tasks]
+    () => new Set(scopedTasks.filter((t) => !t.done && t.contactId).map((t) => t.contactId)).size,
+    [scopedTasks]
   );
 
   return (
@@ -114,10 +146,24 @@ export default function Home({
             {todayLabel}
           </div>
           <h1 style={{ margin: "0 0 3px", fontSize: 19 }}>Welcome, {firstName}.</h1>
-          <p style={{ margin: 0, maxWidth: 560, fontSize: 12.5, lineHeight: 1.5, color: "var(--muted)" }}>
+          <p style={{ margin: "0 0 8px", maxWidth: 560, fontSize: 12.5, lineHeight: 1.5, color: "var(--muted)" }}>
             The <strong style={{ color: "var(--ink)" }}>Lead Library</strong> is the single source of truth for every qualified
             lead — the first step toward a lighter-weight, self-hosted CRM built solely for outbound sales.
           </p>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--muted)", fontWeight: 700 }}>
+            Viewing as
+            <select
+              value={viewingUserId}
+              onChange={(e) => setViewingUserId(e.target.value)}
+              title="Scope this page's tasks and numbers to one person's plate, or everyone's"
+              style={{ border: "1px solid var(--border)", borderRadius: 7, padding: "4px 8px", fontSize: 12, fontWeight: 700, color: "var(--ink)" }}
+            >
+              {users.map((u) => (
+                <option key={u.id} value={u.id}>{u.isSelf ? `${u.name} (you)` : u.name}</option>
+              ))}
+              <option value="all">Everyone</option>
+            </select>
+          </label>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {[
@@ -156,6 +202,16 @@ export default function Home({
       />
 
       <WeeklyGoalsPanel goals={weeklyGoals} tasks={tasks} onUpdateMetric={onUpdateMetric} onAddMetric={onAddMetric} onRemoveMetric={onRemoveMetric} />
+
+      <NotificationsPanel
+        tasks={scopedTasks}
+        allTasks={tasks}
+        contactById={contactById}
+        users={users}
+        today={today}
+        onToggleTask={onToggleTask}
+        onUpdateTaskFields={onUpdateTaskFields}
+      />
     </div>
   );
 }
@@ -275,6 +331,198 @@ function TodayPanel({
 // manually-tracked running count, since there's no other data source for
 // those yet. Deliberately minimal per Jack's own "little functionalities
 // yet" — no charts, no history view, just the current week's numbers.
+// Notifications — "what's on my plate" for the currently-viewed user. Per
+// Jack: "flag emails scheduled for delivery also emails sent today by
+// each user // emails replied to//any outstanding tasks or missed dates
+// for sequences or their tasks add a notification button also for tasks
+// to update to and anything set follow ups," combined with the follow-up
+// "at a high level they can see anything they need to act on and can see
+// whats fully on their plate for that user" — the "Viewing as" picker
+// above scopes `tasks` here to one person's (or everyone's) plate.
+//
+// "Emails replied to" has NO real data source anywhere in this app — no
+// send integration, no inbox, nothing that could detect a reply (see
+// lib/tasks.ts's Task.repliedAt comment) — so this reads a purely manual
+// flag toggled from the Calls/Emails tabs (ChannelTasks.tsx's "Mark
+// replied" button), never anything auto-detected. Flagged here plainly,
+// same honesty as every other manually-tracked signal in this app.
+function NotificationsPanel({
+  tasks,
+  allTasks,
+  contactById,
+  users,
+  today,
+  onToggleTask,
+  onUpdateTaskFields,
+}: {
+  tasks: Task[]; // already scoped to the viewed user (or everyone)
+  allTasks: Task[]; // unscoped — needed for the "by each user" breakdown
+  contactById: Map<string, Contact>;
+  users: PlatformUser[];
+  today: string;
+  onToggleTask: (id: string) => void;
+  onUpdateTaskFields: (id: string, patch: Partial<Pick<Task, "userId" | "repliedAt">>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const scheduledEmails = useMemo(
+    () => tasks.filter((t) => t.channel === "email" && !t.done && t.date > today).sort((a, b) => a.date.localeCompare(b.date)),
+    [tasks, today]
+  );
+  // Deliberately reads from allTasks, not the viewing-scoped list — the
+  // whole point of this row is a per-user breakdown, so it always shows
+  // every user regardless of who's currently being viewed.
+  const emailsSentTodayByUser = useMemo(() => {
+    const counts = new Map<string, number>();
+    allTasks.forEach((t) => {
+      if (t.channel === "email" && t.done && t.date === today) {
+        const key = t.userId || "unassigned";
+        counts.set(key, (counts.get(key) || 0) + 1);
+      }
+    });
+    return [...counts.entries()]
+      .map(([userId, count]) => ({ userId, count, label: userId === "unassigned" ? "Unassigned" : userLabel(users, userId) }))
+      .sort((a, b) => b.count - a.count);
+  }, [allTasks, today, users]);
+  const repliedEmails = useMemo(
+    () => tasks.filter((t) => t.channel === "email" && t.repliedAt).sort((a, b) => (b.repliedAt || "").localeCompare(a.repliedAt || "")),
+    [tasks]
+  );
+  const overdueTasks = useMemo(
+    () => tasks.filter((t) => !t.done && t.date < today).sort((a, b) => a.date.localeCompare(b.date)),
+    [tasks, today]
+  );
+  const missedSequenceSteps = useMemo(() => overdueTasks.filter((t) => t.sequenceEnrollmentId), [overdueTasks]);
+  const upcomingFollowUps = useMemo(
+    () => tasks.filter((t) => !t.done && t.contactId && t.date > today).sort((a, b) => a.date.localeCompare(b.date)),
+    [tasks, today]
+  );
+
+  const actionableCount = overdueTasks.length;
+
+  function contactLine(t: Task) {
+    const c = t.contactId ? contactById.get(t.contactId) : undefined;
+    if (!c) return null;
+    return `${c.fullName || "(no name)"}${c.company ? ` — ${c.company}` : ""}`;
+  }
+
+  return (
+    <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "14px 18px", marginBottom: 18 }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", border: "none", background: "none", cursor: "pointer", textAlign: "left", padding: 0 }}
+      >
+        <span style={{ fontSize: 12, color: "var(--muted)" }}>{open ? "▾" : "▸"}</span>
+        <h2 style={{ margin: 0, fontSize: 14, flex: 1 }}>🔔 Notifications</h2>
+        {actionableCount > 0 && (
+          <span style={{ fontSize: 10.5, fontWeight: 700, color: "#B5443B", background: "#FBE4E1", borderRadius: 999, padding: "2px 9px" }}>
+            {actionableCount} overdue
+          </span>
+        )}
+        {!open && <span style={{ fontSize: 11.5, color: "var(--muted)" }}>Click to expand</span>}
+      </button>
+
+      {open && (
+        <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 16 }}>
+          <NotificationSection title="⏰ Outstanding & overdue tasks" empty="Nothing overdue — you're caught up.">
+            {overdueTasks.map((t) => (
+              <NotificationRow key={t.id} task={t} contactLine={contactLine(t)} onToggleTask={onToggleTask} accent="#B5443B" />
+            ))}
+          </NotificationSection>
+
+          <NotificationSection title="📡 Missed sequence steps" empty="No sequence-generated tasks are overdue.">
+            {missedSequenceSteps.map((t) => (
+              <NotificationRow key={t.id} task={t} contactLine={contactLine(t)} onToggleTask={onToggleTask} accent="#9A5B22" />
+            ))}
+          </NotificationSection>
+
+          <NotificationSection title="📅 Upcoming follow-ups" empty="Nothing scheduled ahead of today.">
+            {upcomingFollowUps.map((t) => (
+              <NotificationRow key={t.id} task={t} contactLine={contactLine(t)} onToggleTask={onToggleTask} accent="var(--accent-blue, #0A66C2)" />
+            ))}
+          </NotificationSection>
+
+          <NotificationSection title="✉️ Emails scheduled for delivery" empty="No upcoming email tasks queued.">
+            {scheduledEmails.map((t) => (
+              <NotificationRow key={t.id} task={t} contactLine={contactLine(t)} onToggleTask={onToggleTask} accent="var(--accent-blue, #0A66C2)" />
+            ))}
+          </NotificationSection>
+
+          <NotificationSection title="📤 Emails sent today, by user" empty="No completed email tasks yet today.">
+            {emailsSentTodayByUser.length > 0 && (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {emailsSentTodayByUser.map((row) => (
+                  <div key={row.userId} style={{ background: "var(--surface-sunken)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 12px", textAlign: "center", minWidth: 68 }}>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: "var(--ink)" }}>{row.count}</div>
+                    <div style={{ fontSize: 9.5, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase" }}>{row.label}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </NotificationSection>
+
+          <NotificationSection title="↩️ Emails replied to" empty='No replies marked yet — use "Mark replied" on an email task in Engage → Emails (manual: this app has no inbox to detect a real reply).'>
+            {repliedEmails.map((t) => (
+              <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, background: "var(--surface-sunken)", border: "1px solid var(--border)", borderRadius: 9, padding: "7px 12px" }}>
+                <span style={{ fontSize: 12, flex: 1, color: "var(--ink)" }}>{t.text}</span>
+                {contactLine(t) && <span style={{ fontSize: 11.5, color: "var(--muted)", whiteSpace: "nowrap" }}>{contactLine(t)}</span>}
+                <span style={{ fontSize: 11, color: "var(--muted)", whiteSpace: "nowrap" }}>{new Date(t.repliedAt as string).toLocaleDateString()}</span>
+                <button
+                  onClick={() => onUpdateTaskFields(t.id, { repliedAt: null })}
+                  title="Unmark replied"
+                  style={{ border: "none", background: "none", color: "#B5443B", fontSize: 12, cursor: "pointer" }}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </NotificationSection>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NotificationSection({ title, empty, children }: { title: string; empty: string; children: ReactNode }) {
+  const hasContent = Array.isArray(children) ? children.some((c) => c) : Boolean(children);
+  return (
+    <div>
+      <div style={{ fontSize: 11.5, fontWeight: 700, color: "var(--muted)", marginBottom: 6 }}>{title}</div>
+      {!hasContent ? (
+        <div style={{ fontSize: 12, color: "var(--muted)", border: "1px dashed var(--border)", borderRadius: 9, padding: "10px 12px" }}>{empty}</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>{children}</div>
+      )}
+    </div>
+  );
+}
+
+function NotificationRow({
+  task,
+  contactLine,
+  onToggleTask,
+  accent,
+}: {
+  task: Task;
+  contactLine: string | null;
+  onToggleTask: (id: string) => void;
+  accent: string;
+}) {
+  const timeLabel = formatTaskTime(task.time);
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, background: "var(--surface-sunken)", border: "1px solid var(--border)", borderLeft: `3px solid ${accent}`, borderRadius: 9, padding: "7px 12px" }}>
+      <input type="checkbox" checked={task.done} onChange={() => onToggleTask(task.id)} title="Mark done" />
+      <span style={{ fontSize: 11.5, color: "var(--muted)", whiteSpace: "nowrap" }}>
+        {task.date}
+        {timeLabel ? ` · ${timeLabel}` : ""}
+      </span>
+      {task.channel && <span title={task.channel} style={{ fontSize: 12 }}>{CHANNEL_ICON[task.channel]}</span>}
+      <span style={{ fontSize: 12.5, flex: 1, color: "var(--ink)" }}>{task.text}</span>
+      {contactLine && <span style={{ fontSize: 11.5, color: "var(--muted)", whiteSpace: "nowrap" }}>{contactLine}</span>}
+    </div>
+  );
+}
+
 function WeeklyGoalsPanel({
   goals,
   tasks,

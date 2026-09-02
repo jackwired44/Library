@@ -10,6 +10,7 @@ import type { Task } from "../lib/tasks";
 import { resolveWaitHours, resolveStatus, isSequenceRunnable, MIN_WAIT_HOURS, MAX_WAIT_HOURS, type Sequence, type SequenceEnrollment, type SequenceChannel, type SequenceStep, type SequenceStatus } from "../lib/sequences";
 import { userLabel, type PlatformUser } from "../lib/users";
 import { type SequenceGroup } from "../lib/sequenceGroups";
+import { emailAccountLabel, type EmailAccount } from "../lib/emailAccounts";
 import { resolveListContacts, type LeadList } from "../lib/leadLists";
 
 interface SequencesProps {
@@ -39,6 +40,11 @@ interface SequencesProps {
   onAddGroup: (name: string) => void;
   onRenameGroup: (id: string, name: string) => void;
   onDeleteGroup: (id: string) => void;
+  emailAccounts: EmailAccount[];
+  onSetEmailAccount: (id: string, emailAccountId: string | null) => void;
+  onAddEmailAccount: (label: string, fromName: string, fromEmail: string) => void;
+  onEditEmailAccount: (id: string, patch: Partial<Pick<EmailAccount, "label" | "fromName" | "fromEmail">>) => void;
+  onDeleteEmailAccount: (id: string) => void;
 }
 
 // Sequence lifecycle badge colors — distinct from STATUS_META further
@@ -120,6 +126,11 @@ export default function SequencesView({
   onAddGroup,
   onRenameGroup,
   onDeleteGroup,
+  emailAccounts,
+  onSetEmailAccount,
+  onAddEmailAccount,
+  onEditEmailAccount,
+  onDeleteEmailAccount,
 }: SequencesProps) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
@@ -134,6 +145,10 @@ export default function SequencesView({
   const [ownerFilter, setOwnerFilter] = useState<string>("all");
   const [newGroupName, setNewGroupName] = useState("");
   const [managingGroups, setManagingGroups] = useState(false);
+  const [managingEmailAccounts, setManagingEmailAccounts] = useState(false);
+  const [newAccountLabel, setNewAccountLabel] = useState("");
+  const [newAccountFromName, setNewAccountFromName] = useState("");
+  const [newAccountFromEmail, setNewAccountFromEmail] = useState("");
 
   const contactById = useMemo(() => new Map(contacts.map((c) => [c.id, c])), [contacts]);
   const taskById = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
@@ -197,8 +212,9 @@ export default function SequencesView({
       <p style={{ margin: "4px 0 16px", fontSize: 12.5, color: "var(--muted)", maxWidth: 640 }}>
         Build multi-step outbound sequences — call, email, and (eventually) LinkedIn steps, each with a wait period.
         <strong> Email and LinkedIn steps generate a task to work by hand</strong> — there's no send/connect
-        integration wired up yet, so nothing fires automatically. A contact's enrollment finishes on its own once
-        their disposition lands on Meeting booked or Not interested; restart or remove it any time.
+        integration wired up yet, so nothing fires automatically. "Email accounts" below records which sender
+        identity a sequence should use once a real SendGrid connection lands. A contact's enrollment finishes on
+        its own once their disposition lands on Meeting booked or Not interested; restart or remove it any time.
       </p>
       {error && <div style={{ color: "#B5443B", marginBottom: 12, fontSize: 12.5 }}>{error}</div>}
 
@@ -219,7 +235,96 @@ export default function SequencesView({
         >
           🗂 Groups ({groups.length})
         </button>
+        <button
+          onClick={() => setManagingEmailAccounts((v) => !v)}
+          style={{ border: "1px solid var(--border)", background: "var(--surface)", borderRadius: 8, padding: "8px 14px", fontSize: 12.5, fontWeight: 700 }}
+        >
+          ✉️ Email accounts ({emailAccounts.length})
+        </button>
       </div>
+
+      {managingEmailAccounts && (
+        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "12px 16px", marginBottom: 16 }}>
+          <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>Email sending accounts</div>
+          <div style={{ fontSize: 11.5, color: "#9A5B22", background: "#FBEBDD", border: "1px solid #F0DCC0", borderRadius: 8, padding: "8px 12px", marginBottom: 10, lineHeight: 1.5 }}>
+            <strong>Not a live connection yet.</strong> This just records which sender identity (name + address) a
+            sequence's email steps should use — there's no SendGrid API key or backend here to actually send through
+            (a key like that has to live on a server, never in this browser). Email steps still only ever generate a
+            task you work by hand until that's built.
+          </div>
+          {emailAccounts.length === 0 && <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 8 }}>No accounts yet — add one below, then pick it as a sequence's "Send from."</div>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 10 }}>
+            {emailAccounts.map((a) => (
+              <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <input
+                  defaultValue={a.label}
+                  onBlur={(e) => { if (e.target.value.trim() && e.target.value !== a.label) onEditEmailAccount(a.id, { label: e.target.value }); }}
+                  placeholder="Label"
+                  style={{ flex: "1 1 140px", border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 12.5, fontWeight: 600 }}
+                />
+                <input
+                  defaultValue={a.fromName}
+                  onBlur={(e) => { if (e.target.value !== a.fromName) onEditEmailAccount(a.id, { fromName: e.target.value }); }}
+                  placeholder="From name"
+                  style={{ flex: "1 1 140px", border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 12.5 }}
+                />
+                <input
+                  defaultValue={a.fromEmail}
+                  onBlur={(e) => { if (e.target.value.trim() && e.target.value !== a.fromEmail) onEditEmailAccount(a.id, { fromEmail: e.target.value }); }}
+                  placeholder="From email"
+                  style={{ flex: "1 1 180px", border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 12.5 }}
+                />
+                <span title="No live connection — see the note above" style={{ fontSize: 9.5, fontWeight: 700, color: "#9A5B22", background: "#FBEBDD", borderRadius: 999, padding: "2px 8px", whiteSpace: "nowrap" }}>
+                  Not connected
+                </span>
+                <button
+                  onClick={() => {
+                    if (window.confirm(`Delete "${a.label}"? Any sequence using it as its Send-from account reverts to "None selected."`)) onDeleteEmailAccount(a.id);
+                  }}
+                  title="Delete account"
+                  style={{ border: "none", background: "none", color: "#B5443B", fontSize: 13, cursor: "pointer" }}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <input
+              value={newAccountLabel}
+              onChange={(e) => setNewAccountLabel(e.target.value)}
+              placeholder="Label (e.g. Wired CIO Outbound)"
+              style={{ flex: "1 1 160px", border: "1px solid var(--border)", borderRadius: 7, padding: "6px 8px", fontSize: 12.5 }}
+            />
+            <input
+              value={newAccountFromName}
+              onChange={(e) => setNewAccountFromName(e.target.value)}
+              placeholder="From name (e.g. Jack at Wired CIO)"
+              style={{ flex: "1 1 160px", border: "1px solid var(--border)", borderRadius: 7, padding: "6px 8px", fontSize: 12.5 }}
+            />
+            <input
+              value={newAccountFromEmail}
+              onChange={(e) => setNewAccountFromEmail(e.target.value)}
+              placeholder="From email"
+              style={{ flex: "1 1 180px", border: "1px solid var(--border)", borderRadius: 7, padding: "6px 8px", fontSize: 12.5 }}
+            />
+            <button
+              onClick={() => {
+                if (newAccountLabel.trim() && newAccountFromEmail.trim()) {
+                  onAddEmailAccount(newAccountLabel, newAccountFromName, newAccountFromEmail);
+                  setNewAccountLabel("");
+                  setNewAccountFromName("");
+                  setNewAccountFromEmail("");
+                }
+              }}
+              disabled={!newAccountLabel.trim() || !newAccountFromEmail.trim()}
+              style={{ border: "none", background: "#2CC295", color: "#081E22", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 700, opacity: newAccountLabel.trim() && newAccountFromEmail.trim() ? 1 : 0.5 }}
+            >
+              Add account
+            </button>
+          </div>
+        </div>
+      )}
 
       {managingGroups && (
         <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "12px 16px", marginBottom: 16 }}>
@@ -361,6 +466,7 @@ export default function SequencesView({
                               {activeCount} active enrollment{activeCount === 1 ? "" : "s"}
                               {" · owner: "}
                               {userLabel(users, seq.ownerId)}
+                              {seq.emailAccountId && ` · sends from: ${emailAccountLabel(emailAccounts, seq.emailAccountId)}`}
                             </div>
                           </div>
                         </button>
@@ -430,6 +536,19 @@ export default function SequencesView({
                               <option value="">Ungrouped</option>
                               {groups.map((g) => (
                                 <option key={g.id} value={g.id}>{g.name}</option>
+                              ))}
+                            </select>
+                            <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase" }}>Send from</span>
+                            <select
+                              title="Which email account this sequence's email steps will send from once real sending exists — not a live connection yet"
+                              aria-label="Send from"
+                              value={seq.emailAccountId || ""}
+                              onChange={(e) => onSetEmailAccount(seq.id, e.target.value || null)}
+                              style={{ border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 12.5 }}
+                            >
+                              <option value="">None selected</option>
+                              {emailAccounts.map((a) => (
+                                <option key={a.id} value={a.id}>{a.label}</option>
                               ))}
                             </select>
                             {!runnable && (

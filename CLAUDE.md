@@ -2854,6 +2854,137 @@ tasks / Uploads) to what the day actually looks like:
 - **Follow-up leads** — distinct contacts with an open follow-up, so two
   tasks on one lead count once.
 
+## Home: per-user "what's on my plate" view + a Notifications panel (app/ only)
+
+Per Jack, two asks in the same thread: "On the home page flag emails
+scheduled for delivery also emails sent today by each user // emails
+replied to//any outstanding tasks or missed dates for sequences or their
+tasks add a notification button also for tasks to update to and anything
+set follow ups," then the reframing that decided the shape of the build:
+"I want to make the home page esentially a welcome everyday people log on
+and when they click it at a high level they can see anything they need to
+act on and can see whats fully on their plate for that user."
+
+- **"Emails replied to" has no real data source — built as a manual flag,
+  stated plainly.** This app has no email send/inbox integration anywhere
+  (see the Roadmap's SendGrid item and the new Email accounts feature
+  below) — nothing here could ever detect a real reply. `Task` gained
+  `repliedAt?: string | null` (`lib/tasks.ts`) and `userId?: string | null`
+  (which platform user, `lib/users.ts`, a task is assigned to) — both
+  optional/additive, so every task before these fields existed is
+  unaffected. A new "Mark replied" / "✓ Replied" toggle button on
+  email-channel task rows in Engage → Emails (`ChannelTasks.tsx`) is the
+  ONLY way `repliedAt` is ever set — never inferred, never auto-detected.
+  Same honesty pattern as `Contact.outreachStatus`/disposition elsewhere
+  in this app.
+- **"Assign to" on Calls/Emails tasks.** `ChannelTasks.tsx`'s "+ Call"/
+  "+ Email" quick-add form gained a user picker (defaults to the self
+  user), threaded through `createContactTask`'s new optional trailing
+  `userId` param → `App.tsx`'s `addContactTask` → `onAddContactTask`. An
+  assigned task shows a small blue name badge on its row. A generic
+  `App.tsx` handler, `updateTaskFields(id, patch)`, was added for both
+  `userId` and `repliedAt` — same safe functional-updater pattern as the
+  existing `editTask`.
+- **"Viewing as" — Home's per-user scoping.** A new selector in Home's
+  banner (`Home.tsx`), defaulting to the local self user (`SELF_USER_ID`,
+  `lib/users.ts`), with an "Everyone" option for the original all-up view.
+  Scopes `tasks`/`sequences`/`enrollments` used everywhere on the page —
+  the banner's Assigned tasks/Active sequences/Follow-up leads stats, the
+  Today panel, and the Notifications panel below. **A task or sequence
+  with no `userId`/`ownerId` set stays visible under ANY selected
+  person** rather than silently disappearing — same "don't orphan legacy
+  data" rule this app already applies elsewhere (e.g. `StoredRow`'s
+  optional View-tab flags) — since every task/sequence created before
+  these fields existed has neither. "Meetings booked" stays a whole-team
+  number regardless of who's viewed — there's no per-rep attribution on
+  `Contact.disposition` anywhere in this app, and guessing at one would
+  be worse than being honest that it's not scoped.
+- **`NotificationsPanel`** (new, bottom of `Home.tsx`, per Jack's own
+  follow-up instruction to place it "towards the bottom half" of the
+  page) — a collapsible 🔔 card (closed by default, an "N overdue" badge
+  when there's something actionable) with six sections, all reading off
+  the same "Viewing as"-scoped task list:
+  - **Outstanding & overdue tasks** — any channel, `date < today`, open.
+  - **Missed sequence steps** — the subset of the above carrying a
+    `sequenceEnrollmentId`, called out separately since a stalled
+    sequence step is a different kind of problem than a personal to-do
+    slipping.
+  - **Upcoming follow-ups** — any open, contact-linked task dated after
+    today (not just today's, which the existing Today panel already
+    covers) — directly answers "anything set follow ups."
+  - **Emails scheduled for delivery** — open email-channel tasks dated
+    after today.
+  - **Emails sent today, by user** — deliberately reads from the
+    UNSCOPED task list regardless of which person "Viewing as" has
+    selected, since the entire point of this one row is the per-rep
+    breakdown Jack asked for ("by each user"). Grouped by `userId`
+    (an "Unassigned" bucket catches tasks with none).
+  - **Emails replied to** — the manually-flagged tasks from the "Mark
+    replied" feature above, each with an inline "✕" to unmark it.
+- Checking a task off from any Notifications row reuses the exact same
+  `onToggleTask` App.tsx already passes everywhere else (Board/Calls/
+  Emails/the existing Today panel), so a sequence-generated task
+  completed from here still advances its enrollment.
+- Verified live (Playwright, preview build, real IndexedDB, 17/18 checks
+  — the one non-pass was a font/favicon load blocked by this sandbox's
+  own network egress policy, unrelated to the app): seeded a contact via
+  a Scanner CSV upload; added an email task assigned to the self user and
+  confirmed the assignment badge renders with the real profile name;
+  marked it done and confirmed it appears under "Emails sent today, by
+  user" with the correct per-user count; used "Mark replied" and
+  confirmed it moved into "Emails replied to"; added a second, future-
+  dated email task and confirmed it appears under "Emails scheduled for
+  delivery" with the right date; confirmed switching "Viewing as" to
+  "Everyone" doesn't blank or error the page.
+
+## Email sending accounts — sender-identity scaffolding for Sequences (app/ only, not a live connection)
+
+Per Jack: "Add in an ability to connect emails so we can fire sequences
+will loop in sengrid eventually and go that route to build it out." This
+is a new network-dependency-shaped ask (Working style's standing rule),
+so it's built exactly as narrow as that phrasing supports: SendGrid is
+confirmed as the intended direction, but nothing here calls SendGrid or
+stores anything capable of doing so — read the warning below before
+extending it.
+
+- **Why there's no API key field, deliberately.** This app has no backend
+  (see Access & ownership — one shared password, no server). A SendGrid
+  API key is a secret that can send email as Jack's own domain; a key
+  like that has to live on a server that keeps it out of client-visible
+  code. Storing one in this app's IndexedDB would put it in plain text,
+  readable by anyone with the shared password (or just this browser) via
+  devtools — a real security regression, not a shortcut worth taking.
+  So "connecting" an account here captures ONLY a sender identity — a
+  label, a from name, a from email — never a credential.
+- **`lib/emailAccounts.ts`** (new, `STORE_EMAIL_ACCOUNTS`, `DB_VERSION`
+  bumped 11→12) — `EmailAccount {id, label, fromName, fromEmail,
+  provider: "sendgrid", connected, createdAt}`. `connected` is a real
+  field, always `false` today, kept (not hardcoded in the UI) so
+  flipping it to `true` is the one place that changes once a backend
+  relay to hold the key server-side actually exists.
+- **`Sequence` gained `emailAccountId?: string | null`** (`lib/
+  sequences.ts`) — which account a sequence's email steps should send
+  from once real sending exists. Purely a stored preference: email steps
+  still only ever generate a manual task exactly as before (`taskTextFor`
+  is untouched), same "captured now, wired in later" pattern already
+  used for the AI system/user prompt fields and the channel Manual/
+  Automated badges. Carried over by `duplicateSequence`'s "copy which
+  duplicates it exactly."
+- **UI, in `Sequences.tsx`** — a "✉️ Email accounts (N)" button next to
+  the existing "🗂 Groups" button opens a management panel (add/edit/
+  delete accounts, same inline-edit pattern as Groups) that leads with an
+  explicit, un-missable note: *"Not a live connection yet... there's no
+  SendGrid API key or backend here to actually send through."* Every
+  account row also carries a small "Not connected" badge. Each expanded
+  sequence's Owner/Group row gained a third "Send from" selector; deleting
+  an account clears any sequence pointing at it back to "None selected"
+  rather than leaving a dangling id (same rule `deleteUserFromDB`/
+  `deleteSequenceGroupById` already follow).
+- Verified live: added an account ("Wired CIO Outbound" / "Jack at Wired
+  CIO" / a from-email), confirmed it lists with the "Not connected" badge;
+  created a sequence, set its "Send from" to that account, and confirmed
+  the sequence's summary line reads "· sends from: Wired CIO Outbound."
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool
@@ -2901,7 +3032,10 @@ rather than trusting memory of it.
 - User accounts/login policies as a real precursor to any of the above
   (today's single shared password gate, per Access & ownership, isn't that).
 - SendGrid tie-in for sending + monitoring outbound email, and a view of
-  emails actually sent per lead.
+  emails actually sent per lead. The sender-identity scaffolding (which
+  account a sequence should send from) is built — see "Email sending
+  accounts" above — but no backend relay exists yet to hold a real
+  SendGrid API key or make an actual send call; that's still this item.
 - Filtering/segmenting companies by size, industry, etc. — richer company-
   level data than what a lead CSV export alone carries today (Jack's named
   fields so far: estimated employees, industry, website).

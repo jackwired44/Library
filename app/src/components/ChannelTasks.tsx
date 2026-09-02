@@ -8,14 +8,20 @@
 import { useMemo, useState } from "react";
 import type { Contact } from "../lib/contacts";
 import { formatTaskTime, type Task, type TaskPriority } from "../lib/tasks";
+import { SELF_USER_ID, userLabel, type PlatformUser } from "../lib/users";
 
 interface ChannelTasksProps {
   channel: "call" | "email";
   contacts: Contact[];
   tasks: Task[];
-  onAddContactTask: (contactId: string, date: string, priority: TaskPriority, text: string, channel: "call" | "email", time?: string | null) => void;
+  users: PlatformUser[];
+  onAddContactTask: (contactId: string, date: string, priority: TaskPriority, text: string, channel: "call" | "email", time?: string | null, userId?: string | null) => void;
   onToggleTask: (id: string) => void;
   onDeleteTask: (id: string) => void;
+  // Manual "mark as replied" (email only — see lib/tasks.ts, this app has
+  // no real inbox to detect a reply from) and the "Assign to" picker both
+  // write through this one generic task-patch handler.
+  onUpdateTaskFields: (id: string, patch: Partial<Pick<Task, "userId" | "repliedAt">>) => void;
 }
 
 const PRIORITY_META: Record<TaskPriority, { label: string; color: string; bg: string; rank: number }> = {
@@ -34,7 +40,7 @@ function todayKey(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-export default function ChannelTasks({ channel, contacts, tasks, onAddContactTask, onToggleTask, onDeleteTask }: ChannelTasksProps) {
+export default function ChannelTasks({ channel, contacts, tasks, users, onAddContactTask, onToggleTask, onDeleteTask, onUpdateTaskFields }: ChannelTasksProps) {
   const meta = CHANNEL_META[channel];
   const [showAdd, setShowAdd] = useState(false);
   const [hideDone, setHideDone] = useState(true);
@@ -49,10 +55,10 @@ export default function ChannelTasks({ channel, contacts, tasks, onAddContactTas
     [tasks, contactById, channel, hideDone]
   );
 
-  function submit(contact: Contact, date: string, priority: TaskPriority, note: string, time: string) {
+  function submit(contact: Contact, date: string, priority: TaskPriority, note: string, time: string, userId: string) {
     const base = `${meta.verb} ${contact.fullName || contact.company}${contact.company && contact.fullName ? ` (${contact.company})` : ""}`;
     const text = note.trim() ? `${base} — ${note.trim()}` : base;
-    onAddContactTask(contact.id, date, priority, text, channel, time || null);
+    onAddContactTask(contact.id, date, priority, text, channel, time || null, userId || null);
     setShowAdd(false);
   }
 
@@ -81,7 +87,7 @@ export default function ChannelTasks({ channel, contacts, tasks, onAddContactTas
         </label>
       </div>
 
-      {showAdd && <AddChannelTaskForm channel={channel} contacts={contacts} onSubmit={submit} onCancel={() => setShowAdd(false)} />}
+      {showAdd && <AddChannelTaskForm channel={channel} contacts={contacts} users={users} onSubmit={submit} onCancel={() => setShowAdd(false)} />}
 
       {channelTasks.length === 0 ? (
         <div style={{ fontSize: 12.5, color: "var(--muted)", border: "1px dashed var(--border)", borderRadius: 10, padding: "14px 16px" }}>
@@ -104,6 +110,30 @@ export default function ChannelTasks({ channel, contacts, tasks, onAddContactTas
                   {t.text}
                 </span>
                 {contact && <span style={{ fontSize: 11.5, color: "var(--muted)" }}>{contact.company}</span>}
+                {t.userId && (
+                  <span title="Assigned to" style={{ fontSize: 10.5, fontWeight: 700, color: "#0A66C2", background: "#EAF3FC", borderRadius: 999, padding: "2px 8px", whiteSpace: "nowrap" }}>
+                    {userLabel(users, t.userId)}
+                  </span>
+                )}
+                {channel === "email" && (
+                  <button
+                    onClick={() => onUpdateTaskFields(t.id, { repliedAt: t.repliedAt ? null : new Date().toISOString() })}
+                    title={t.repliedAt ? `Marked replied ${new Date(t.repliedAt).toLocaleString()} — click to unmark` : "Mark as replied (manual — this app has no inbox to detect a real reply)"}
+                    style={{
+                      border: `1px solid ${t.repliedAt ? "#B7E4CE" : "var(--border)"}`,
+                      background: t.repliedAt ? "#E7F1EA" : "var(--surface)",
+                      color: t.repliedAt ? "#2CC295" : "var(--muted)",
+                      borderRadius: 999,
+                      padding: "2px 9px",
+                      fontSize: 10.5,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {t.repliedAt ? "✓ Replied" : "Mark replied"}
+                  </button>
+                )}
                 <button onClick={() => onDeleteTask(t.id)} title="Delete task" style={{ border: "none", background: "none", color: "#B5443B", fontSize: 13, cursor: "pointer" }}>✕</button>
               </div>
             );
@@ -117,12 +147,14 @@ export default function ChannelTasks({ channel, contacts, tasks, onAddContactTas
 function AddChannelTaskForm({
   channel,
   contacts,
+  users,
   onSubmit,
   onCancel,
 }: {
   channel: "call" | "email";
   contacts: Contact[];
-  onSubmit: (contact: Contact, date: string, priority: TaskPriority, note: string, time: string) => void;
+  users: PlatformUser[];
+  onSubmit: (contact: Contact, date: string, priority: TaskPriority, note: string, time: string, userId: string) => void;
   onCancel: () => void;
 }) {
   const [contactId, setContactId] = useState("");
@@ -132,6 +164,9 @@ function AddChannelTaskForm({
   const [time, setTime] = useState("");
   const [priority, setPriority] = useState<TaskPriority>("medium");
   const [note, setNote] = useState("");
+  // Defaults to "you" (SELF_USER_ID) rather than unassigned — most tasks
+  // created here are the current person's own work.
+  const [userId, setUserId] = useState(SELF_USER_ID);
   const meta = CHANNEL_META[channel];
   const sorted = useMemo(() => [...contacts].sort((a, b) => a.fullName.localeCompare(b.fullName)), [contacts]);
 
@@ -159,6 +194,12 @@ function AddChannelTaskForm({
         <option value="medium">Medium priority</option>
         <option value="low">Low priority</option>
       </select>
+      <select value={userId} onChange={(e) => setUserId(e.target.value)} title="Assign to" style={{ border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 12.5 }}>
+        <option value="">Unassigned</option>
+        {users.map((u) => (
+          <option key={u.id} value={u.id}>{u.isSelf ? `${u.name} (you)` : u.name}</option>
+        ))}
+      </select>
       <input
         value={note}
         onChange={(e) => setNote(e.target.value)}
@@ -168,7 +209,7 @@ function AddChannelTaskForm({
       <button
         onClick={() => {
           const contact = contacts.find((c) => c.id === contactId);
-          if (contact) onSubmit(contact, date, priority, note, time);
+          if (contact) onSubmit(contact, date, priority, note, time, userId);
         }}
         disabled={!contactId}
         style={{ border: "none", background: "#2CC295", color: "#081E22", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 700, opacity: contactId ? 1 : 0.5 }}
