@@ -33,6 +33,10 @@ const PRIORITY_META: Record<string, { label: string; color: string; bg: string; 
 
 const CHANNEL_ICON: Record<string, string> = { call: "📞", email: "✉️" };
 
+function dateKeyOf(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 export default function Home({
   tasks,
   contacts,
@@ -94,15 +98,20 @@ export default function Home({
   );
   const callsToday = useMemo(() => countCompletedChannelTasks(scopedTasks, "call", today, today), [scopedTasks, today]);
   const emailsToday = useMemo(() => countCompletedChannelTasks(scopedTasks, "email", today, today), [scopedTasks, today]);
-  const meetingsBooked = useMemo(() => contacts.filter((c) => c.disposition === "meeting-booked").length, [contacts]);
+  // Booked TODAY — the Today panel is a day view, so an all-time count of
+  // every meeting-booked contact (what this tile used to show) read as a
+  // number that never moves. Per Jack's "meetings booked should be for
+  // the week," nothing on this page shows an untimed all-time booking
+  // count any more: this is today's bookings, the banner tile above is
+  // the week's (and navigable back week over week).
+  const meetingsBookedToday = useMemo(
+    () => contacts.filter((c) => c.disposition === "meeting-booked" && (c.meetingBookedAt || "").slice(0, 10) === today).length,
+    [contacts, today]
+  );
 
   // The banner's headline numbers, per Jack: assigned tasks, active
   // sequences, meetings booked this week, follow-up leads — the sales
   // motion, not how much data is sitting in the system.
-  const weekStartKey = useMemo(() => {
-    const d = startOfWeek(new Date());
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  }, []);
   // Assigned = an open task tied to a specific contact (someone is on the
   // hook for it), as opposed to a loose personal to-do on the Board.
   const assignedTasks = useMemo(() => scopedTasks.filter((t) => !t.done && t.contactId).length, [scopedTasks]);
@@ -111,12 +120,33 @@ export default function Home({
   // Meetings booked has no per-rep attribution anywhere in this app
   // (disposition lives on the Contact, not tied to a user) — stays a
   // whole-team number regardless of who's being viewed, rather than
-  // guessing at an owner. Scoped to this week via the meetingBookedAt
-  // stamp (lib/contacts.ts) — disposition alone carries no date, so
-  // before that field this could only ever be an all-time number.
-  const meetingsThisWeek = useMemo(
-    () => contacts.filter((c) => c.disposition === "meeting-booked" && (c.meetingBookedAt || "").slice(0, 10) >= weekStartKey).length,
-    [contacts, weekStartKey]
+  // guessing at an owner. Reads the meetingBookedAt stamp (lib/
+  // contacts.ts) — the date the disposition BECAME Meeting booked, not
+  // any date the meeting itself is scheduled/held for (there is no
+  // "meeting date" field anywhere in this app; per Jack's explicit
+  // correction, this metric is and stays about the booking event, not
+  // the meeting itself). Week-navigable — see bookedWeekOffset below —
+  // rather than locked to the current week only.
+  const [bookedWeekOffset, setBookedWeekOffset] = useState(0);
+  const bookedWeekStart = useMemo(() => {
+    const d = startOfWeek(new Date());
+    d.setDate(d.getDate() + bookedWeekOffset * 7);
+    return d;
+  }, [bookedWeekOffset]);
+  const bookedWeekStartKey = useMemo(() => dateKeyOf(bookedWeekStart), [bookedWeekStart]);
+  const bookedWeekEndKey = useMemo(() => {
+    const d = new Date(bookedWeekStart);
+    d.setDate(d.getDate() + 6);
+    return dateKeyOf(d);
+  }, [bookedWeekStart]);
+  const meetingsBookedInWeek = useMemo(
+    () =>
+      contacts.filter((c) => {
+        if (c.disposition !== "meeting-booked") return false;
+        const key = (c.meetingBookedAt || "").slice(0, 10);
+        return key >= bookedWeekStartKey && key <= bookedWeekEndKey;
+      }).length,
+    [contacts, bookedWeekStartKey, bookedWeekEndKey]
   );
   // A lead with an open follow-up scheduled — distinct people, not tasks,
   // so two tasks on one lead count once.
@@ -166,28 +196,19 @@ export default function Home({
           </label>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {[
-            { label: "Assigned tasks", value: assignedTasks, hint: "Open tasks tied to a specific contact" },
-            { label: "Active sequences", value: activeSequences, hint: `${activeEnrollments} active enrollment${activeEnrollments === 1 ? "" : "s"} across them` },
-            { label: "Booked this week", value: meetingsThisWeek, hint: "Contacts whose disposition became Meeting booked since Monday" },
-            { label: "Follow-up leads", value: followUpLeads, hint: "Distinct contacts with an open follow-up scheduled" },
-          ].map((s) => (
-            <div
-              key={s.label}
-              title={s.hint}
-              style={{
-                background: "var(--surface-sunken)",
-                border: "1px solid var(--border)",
-                borderRadius: 8,
-                padding: "6px 12px",
-                textAlign: "center",
-                minWidth: 68,
-              }}
-            >
-              <div style={{ fontSize: 16, fontWeight: 700, color: "var(--ink)", lineHeight: 1.2 }}>{s.value}</div>
-              <div style={{ fontSize: 9.5, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>{s.label}</div>
-            </div>
-          ))}
+          <StatTile label="Assigned tasks" value={assignedTasks} hint="Open tasks tied to a specific contact" />
+          <StatTile
+            label="Active sequences"
+            value={activeSequences}
+            hint={`${activeEnrollments} active enrollment${activeEnrollments === 1 ? "" : "s"} across them`}
+          />
+          <BookedThisWeekTile
+            count={meetingsBookedInWeek}
+            offset={bookedWeekOffset}
+            onOffsetChange={setBookedWeekOffset}
+            weekStart={bookedWeekStart}
+          />
+          <StatTile label="Follow-up leads" value={followUpLeads} hint="Distinct contacts with an open follow-up scheduled" />
         </div>
       </div>
 
@@ -198,7 +219,7 @@ export default function Home({
         onToggleTask={onToggleTask}
         callsToday={callsToday}
         emailsToday={emailsToday}
-        meetingsBooked={meetingsBooked}
+        meetingsBookedToday={meetingsBookedToday}
       />
 
       <WeeklyGoalsPanel goals={weeklyGoals} tasks={tasks} onUpdateMetric={onUpdateMetric} onAddMetric={onAddMetric} onRemoveMetric={onRemoveMetric} />
@@ -212,6 +233,98 @@ export default function Home({
         onToggleTask={onToggleTask}
         onUpdateTaskFields={onUpdateTaskFields}
       />
+    </div>
+  );
+}
+
+function StatTile({ label, value, hint }: { label: string; value: number; hint: string }) {
+  return (
+    <div
+      title={hint}
+      style={{
+        background: "var(--surface-sunken)",
+        border: "1px solid var(--border)",
+        borderRadius: 8,
+        padding: "6px 12px",
+        textAlign: "center",
+        minWidth: 68,
+      }}
+    >
+      <div style={{ fontSize: 16, fontWeight: 700, color: "var(--ink)", lineHeight: 1.2 }}>{value}</div>
+      <div style={{ fontSize: 9.5, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>{label}</div>
+    </div>
+  );
+}
+
+// Meetings booked, week by week. Per Jack: "meetings booked should be for
+// the week and can filter back week over week for when the meetings were
+// booked not held." Two things that says, both load-bearing:
+//   1. The week is navigable — ◀/▶ step through Monday-start weeks (the
+//      same boundary every other week in this app uses), so any past
+//      week's booked count is readable, not just the current one.
+//      Forward is capped at the current week: meetingBookedAt is stamped
+//      at the moment the disposition flips, so it can never be a future
+//      date and a "next week" view would always read 0.
+//   2. It counts the BOOKING event, not the meeting. There is no
+//      meeting-date/held-date field anywhere in this app (nothing here
+//      integrates with a calendar), so "when the meeting is actually
+//      held" isn't data this app has — the label and tooltip say
+//      "booked" explicitly rather than leaving that ambiguous.
+function BookedThisWeekTile({
+  count,
+  offset,
+  onOffsetChange,
+  weekStart,
+}: {
+  count: number;
+  offset: number;
+  onOffsetChange: (next: number) => void;
+  weekStart: Date;
+}) {
+  const isCurrentWeek = offset === 0;
+  const rangeLabel = weekRangeLabel(weekStart);
+  const arrowStyle = {
+    border: "none",
+    background: "none",
+    color: "var(--muted)",
+    fontSize: 11,
+    lineHeight: 1,
+    padding: "2px 3px",
+    cursor: "pointer",
+  } as const;
+
+  return (
+    <div
+      title={`Contacts whose disposition became Meeting booked during ${rangeLabel} — the date it was booked, not the date the meeting is held (this app has no meeting-date field).`}
+      style={{
+        background: "var(--surface-sunken)",
+        border: "1px solid var(--border)",
+        borderRadius: 8,
+        padding: "6px 10px",
+        textAlign: "center",
+        minWidth: 118,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
+        <button onClick={() => onOffsetChange(offset - 1)} title="Previous week" style={arrowStyle}>
+          ◀
+        </button>
+        <div style={{ fontSize: 16, fontWeight: 700, color: "var(--ink)", lineHeight: 1.2, minWidth: 18 }}>{count}</div>
+        <button
+          onClick={() => onOffsetChange(Math.min(0, offset + 1))}
+          disabled={isCurrentWeek}
+          title={isCurrentWeek ? "Already on the current week" : "Next week"}
+          style={{ ...arrowStyle, cursor: isCurrentWeek ? "default" : "pointer", opacity: isCurrentWeek ? 0.3 : 1 }}
+        >
+          ▶
+        </button>
+      </div>
+      <div style={{ fontSize: 9.5, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+        Booked {isCurrentWeek ? "this week" : ""}
+      </div>
+      {!isCurrentWeek && (
+        <div style={{ fontSize: 9, color: "var(--muted)", marginTop: 1, whiteSpace: "nowrap" }}>{rangeLabel}</div>
+      )}
     </div>
   );
 }
@@ -233,7 +346,7 @@ function TodayPanel({
   onToggleTask,
   callsToday,
   emailsToday,
-  meetingsBooked,
+  meetingsBookedToday,
 }: {
   todayLabel: string;
   tasks: Task[];
@@ -241,13 +354,13 @@ function TodayPanel({
   onToggleTask: (id: string) => void;
   callsToday: number;
   emailsToday: number;
-  meetingsBooked: number;
+  meetingsBookedToday: number;
 }) {
   const metrics = [
     { label: "Calls made today", value: callsToday, hint: "Completed call tasks dated today" },
     { label: "Emails sent today", value: emailsToday, hint: "Completed email tasks dated today" },
     { label: "Follow-ups due today", value: tasks.length, hint: "Open tasks dated today" },
-    { label: "Meetings booked", value: meetingsBooked, hint: "Contacts whose disposition is Meeting booked" },
+    { label: "Booked today", value: meetingsBookedToday, hint: "Contacts whose disposition became Meeting booked today — the booking date, not the date the meeting is held" },
   ];
 
   return (

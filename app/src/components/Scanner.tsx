@@ -801,43 +801,49 @@ export default function Scanner({
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
-        <div style={{ fontSize: 11.5, color: "#8B93A0" }}>
-          {uploadedFiles.map((f) => `${f.name} (${f.rows})`).join("  ·  ")}
+      <div className="page-bar">
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <h2 style={{ margin: 0, fontSize: 16 }}>Scan results</h2>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {uploadedFiles.map((f) => (
+              <span key={f.name} className="file-chip">
+                <b>{f.name}</b> · {f.rows.toLocaleString()} rows
+              </span>
+            ))}
+          </div>
         </div>
-        <button onClick={reset} style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 9, padding: "8px 14px" }}>
+        <button onClick={reset} className="btn btn-secondary">
           Start over
         </button>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "12px 16px", marginBottom: 16 }}>
-        <span style={{ fontSize: 13, fontWeight: 600 }}>Save this batch's Strong Signal leads to the Lead Library</span>
-        <select
-          value={uploadMonthKey}
-          disabled={libraryFiledForBatch}
-          onChange={(e) => setUploadMonthKey(e.target.value)}
-          style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "7px 10px", fontWeight: 700, background: libraryFiledForBatch ? "var(--surface-sunken)" : "var(--surface)", color: libraryFiledForBatch ? "#B7BEC4" : "var(--ink)" }}
-        >
-          {getMonthOptionsForFiling().map((o) => (
-            <option key={o.key} value={o.key}>{o.label}</option>
-          ))}
-        </select>
-        <button
-          onClick={saveStrongSignalToLibrary}
-          disabled={libraryFiledForBatch}
-          style={{
-            border: "none",
-            borderRadius: 8,
-            padding: "8px 16px",
-            fontWeight: 700,
-            fontSize: 12.5,
-            background: libraryFiledForBatch ? "var(--surface-sunken)" : "var(--accent)",
-            color: libraryFiledForBatch ? "#B7BEC4" : "#081E22",
-            cursor: libraryFiledForBatch ? "not-allowed" : "pointer",
-          }}
-        >
-          {libraryFiledForBatch ? "✓ Filed" : "Save to Lead Library"}
-        </button>
+      <div className="panel">
+        <div className="panel-head">
+          <div>
+            <div className="panel-title">Save to Lead Library</div>
+            <div className="panel-sub">Files this batch's Strong Signal leads into the selected month folder.</div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <select
+              value={uploadMonthKey}
+              disabled={libraryFiledForBatch}
+              onChange={(e) => setUploadMonthKey(e.target.value)}
+              className="field"
+              style={{ fontWeight: 600 }}
+            >
+              {getMonthOptionsForFiling().map((o) => (
+                <option key={o.key} value={o.key}>{o.label}</option>
+              ))}
+            </select>
+            <button
+              onClick={saveStrongSignalToLibrary}
+              disabled={libraryFiledForBatch}
+              className="btn btn-primary"
+            >
+              {libraryFiledForBatch ? "✓ Filed" : "Save to Lead Library"}
+            </button>
+          </div>
+        </div>
       </div>
 
       {error && <div style={{ marginBottom: 16, color: "#9A5B22" }}>{error}</div>}
@@ -853,68 +859,64 @@ export default function Scanner({
           a row came in some other way (e.g. History's "Load into Scanner",
           which sets `results` directly rather than through this
           component's own scan calls). */}
+      <div className="kpi-row">
+        {[
+          { label: "Rows scanned", value: lastScanStats?.rowsScanned ?? results.length, color: "var(--ink)" },
+          { label: "Strong Signal", value: tierCounts.signal, color: "#2CC295" },
+          { label: "Needs review", value: tierCounts.mention, color: "#9A5B22" },
+          { label: "Bad leads", value: tierCounts.dq, color: "#B5443B" },
+        ].map((s) => (
+          <div key={s.label} className="kpi" style={{ borderLeftColor: s.color }}>
+            <div className="kpi-label">{s.label}</div>
+            <div className="kpi-value" style={{ color: s.color }}>{s.value.toLocaleString()}</div>
+          </div>
+        ))}
+      </div>
+
       {lastScanStats && (
-        <div style={{ marginBottom: 16, fontSize: 12.5, color: "#5B6B72", background: "#F4F6F7", border: "1px solid #E4E7EC", borderRadius: 10, padding: "8px 14px" }}>
-          <strong style={{ color: "#1B2430" }}>{lastScanStats.rowsScanned.toLocaleString()}</strong> rows read
+        <div className="scan-note">
+          <strong>{lastScanStats.rowsScanned.toLocaleString()}</strong> rows read
           {lastScanStats.duplicatesRemoved > 0 && (
             <>
               {" · "}
-              <strong style={{ color: "#1B2430" }}>{lastScanStats.duplicatesRemoved.toLocaleString()}</strong> recognized as
+              <strong>{lastScanStats.duplicatesRemoved.toLocaleString()}</strong> recognized as
               duplicates and merged into their matching contact
               {lastScanStats.largestDuplicateGroup > 2 && ` (one lead appeared ${lastScanStats.largestDuplicateGroup} times)`}
             </>
           )}
           {" · "}
-          <strong style={{ color: "#1B2430" }}>
+          <strong>
             {Math.max(0, lastScanStats.rowsScanned - lastScanStats.duplicatesRemoved - results.length).toLocaleString()}
           </strong>{" "}
           had no Dynamics 365/M365/Azure/licensing signal (not shown below) ·{" "}
-          <strong style={{ color: "#1B2430" }}>{results.length.toLocaleString()}</strong> processed below
+          <strong>{results.length.toLocaleString()}</strong> processed below
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 18 }}>
-        {[
-          { label: "Rows scanned", value: lastScanStats?.rowsScanned ?? results.length, color: "#1B2430" },
-          { label: "Strong Signal", value: tierCounts.signal, color: "#2CC295" },
-          { label: "Needs review", value: tierCounts.mention, color: "#9A5B22" },
-          { label: "Bad leads", value: tierCounts.dq, color: "#B5443B" },
-        ].map((s) => (
-          <div key={s.label} style={{ background: "#fff", border: "1px solid #E4E7EC", borderLeft: `3px solid ${s.color}`, borderRadius: 13, padding: "15px 16px" }}>
-            <div style={{ fontSize: 11.5, color: "#7C8590", fontWeight: 700, textTransform: "uppercase" }}>{s.label}</div>
-            <div style={{ fontSize: 26, fontWeight: 700, color: s.color }}>{s.value}</div>
+      <div className="panel">
+        <div className="panel-head">
+          <div>
+            <div className="panel-title">Final downloads</div>
+            <div className="panel-sub">One file per product line — every Strong Signal lead lands in exactly one.</div>
           </div>
-        ))}
-      </div>
-
-      <div style={{ background: "#fff", border: "1px solid #E4E7EC", borderRadius: 13, padding: "18px 19px", marginBottom: 20 }}>
-        <div style={{ fontWeight: 700, marginBottom: 12 }}>Final downloads — exactly three, every lead in exactly one</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        </div>
+        <div className="panel-body" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {ACTIVE_BUCKET_KEYS.map((bk) => {
             const count = bucketRowsFor(bk).length;
             return (
               <div key={bk} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                <span style={{ fontWeight: 700, minWidth: 190, color: count ? "#081E22" : "#9AA6A5" }}>{BUCKET_META[bk].label} ({count})</span>
+                <span style={{ fontWeight: 600, fontSize: 12.5, minWidth: 170, color: count ? "var(--ink)" : "var(--muted)" }}>
+                  {BUCKET_META[bk].label}
+                  <span style={{ color: "var(--muted)", fontWeight: 600 }}> · {count}</span>
+                </span>
                 <input
                   value={bucketFileNames[bk]}
                   onChange={(e) => setBucketFileNames((prev) => ({ ...prev, [bk]: e.target.value }))}
                   placeholder={defaultBucketFileName(bk)}
-                  style={{ flex: "1 1 220px", border: "1px solid #E1E4E9", borderRadius: 8, padding: "8px 11px", fontSize: 12.5 }}
+                  className="field"
+                  style={{ flex: "1 1 220px" }}
                 />
-                <button
-                  disabled={count === 0}
-                  onClick={() => exportBucket(bk)}
-                  style={{
-                    background: count ? "#2CC295" : "#E1E5E4",
-                    color: count ? "#081E22" : "#9AA6A5",
-                    border: `2px solid ${count ? "#2CC295" : "#E1E5E4"}`,
-                    borderRadius: 999,
-                    padding: "8px 18px",
-                    fontWeight: 700,
-                    cursor: count ? "pointer" : "not-allowed",
-                    whiteSpace: "nowrap",
-                  }}
-                >
+                <button disabled={count === 0} onClick={() => exportBucket(bk)} className="btn btn-primary">
                   ⬇ Download CSV
                 </button>
               </div>
@@ -923,205 +925,198 @@ export default function Scanner({
         </div>
       </div>
 
-      <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 13, padding: "14px 16px 16px", marginBottom: 18 }}>
-      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
-        {(["signal", "mention", "dq"] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => { setTierFilter(t); setShowNoSignal(false); setPage(1); }}
-            style={{
-              border: "none",
-              borderRadius: 8,
-              padding: "7px 13px",
-              fontWeight: 600,
-              background: !showNoSignal && tierFilter === t ? "linear-gradient(90deg, var(--accent), var(--accent-blue))" : "var(--surface-sunken)",
-              color: !showNoSignal && tierFilter === t ? "#fff" : "var(--muted)",
-            }}
-          >
-            {t === "signal" ? `Strong Signal (${tierCounts.signal})` : t === "mention" ? `Needs review (${tierCounts.mention})` : `Bad Leads (${tierCounts.dq})`}
-          </button>
-        ))}
-        {noSignalRows.length > 0 && (
-          <button
-            onClick={() => setShowNoSignal(true)}
-            title="Rows with no Dynamics 365/M365/Azure/licensing signal at all — never scored, kept here for manual review only"
-            style={{
-              border: "none",
-              borderRadius: 8,
-              padding: "7px 13px",
-              fontWeight: 600,
-              background: showNoSignal ? "linear-gradient(90deg, var(--accent), var(--accent-blue))" : "var(--surface-sunken)",
-              color: showNoSignal ? "#fff" : "var(--muted)",
-            }}
-          >
-            Non Relevant ({noSignalRows.length})
-          </button>
+      {/* One filter toolbar, hairline-divided rows (see styles.css's
+          "Scanner UI kit") — previously four loosely-spaced rows across two
+          bordered containers. Every control below keeps its exact prior
+          handler and state; only the markup/classes changed. */}
+      <div className="toolbar">
+        <div className="toolbar-row">
+          <div className="seg">
+            {(["signal", "mention", "dq"] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => { setTierFilter(t); setShowNoSignal(false); setPage(1); }}
+                className={`seg-btn${!showNoSignal && tierFilter === t ? " active" : ""}`}
+              >
+                {t === "signal" ? `Strong Signal (${tierCounts.signal})` : t === "mention" ? `Needs review (${tierCounts.mention})` : `Bad Leads (${tierCounts.dq})`}
+              </button>
+            ))}
+            <button
+              onClick={() => { setTierFilter("all"); setShowNoSignal(false); setPage(1); }}
+              className={`seg-btn${!showNoSignal && tierFilter === "all" ? " active" : ""}`}
+            >
+              All ({tierCounts.total})
+            </button>
+          </div>
+          {noSignalRows.length > 0 && (
+            <button
+              onClick={() => setShowNoSignal(true)}
+              title="Rows with no Dynamics 365/M365/Azure/licensing signal at all — never scored, kept here for manual review only"
+              className={`chip-btn${showNoSignal ? " active" : ""}`}
+            >
+              Non Relevant ({noSignalRows.length})
+            </button>
+          )}
+          <div className="toolbar-spacer" />
+          {duplicateCount > 0 && (
+            <button
+              onClick={() => setDuplicatesOnly((v) => !v)}
+              className="btn btn-sm"
+              style={{
+                background: duplicatesOnly ? "#F7B955" : "#FBF3E7",
+                color: "#8A5A00",
+                borderColor: "#F0D9B5",
+                fontWeight: 700,
+              }}
+            >
+              {duplicatesOnly ? "Showing duplicates only" : `Duplicates (${duplicateCount})`}
+            </button>
+          )}
+          {priorityCount > 0 && (
+            <button
+              onClick={() => setPriorityOnly((v) => !v)}
+              className="btn btn-sm"
+              style={{
+                background: priorityOnly ? "#F7B955" : "#FFF7E5",
+                color: "#8A5A00",
+                borderColor: "#F5DFA0",
+                fontWeight: 700,
+              }}
+            >
+              {priorityOnly ? "Showing priority only" : `⭐ Priority (${priorityCount})`}
+            </button>
+          )}
+        </div>
+
+        {!showNoSignal && (
+          <>
+            <div className="toolbar-row">
+              <span className="toolbar-label">Product line</span>
+              <button
+                onClick={() => setCategoryFilter("all")}
+                className={`chip-btn${categoryFilter === "all" ? " active" : ""}`}
+              >
+                All ({categoryCounts.all})
+              </button>
+              {ACTIVE_CATEGORY_KEYS.map((k) => (
+                <button
+                  key={k}
+                  onClick={() => setCategoryFilter(k)}
+                  className={`chip-btn${categoryFilter === k ? " active" : ""}`}
+                >
+                  {CATEGORY_META[k].label} ({categoryCounts[k] || 0})
+                </button>
+              ))}
+              {categoryFilter === "dynamics365" && (
+                <select
+                  value={dynamicsSortDesc ? "desc" : "asc"}
+                  onChange={(e) => setDynamicsSortDesc(e.target.value === "desc")}
+                  title="Seat count order within each module block (ERP block always ranks above Sales/CRM, regardless of this setting)"
+                  className="field"
+                  style={{ fontWeight: 600, color: "var(--muted)" }}
+                >
+                  <option value="desc">Seat count: greatest to least</option>
+                  <option value="asc">Seat count: least to greatest</option>
+                </select>
+              )}
+              <input
+                value={search}
+                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+                placeholder="Search company, contact, or product line…"
+                className="field"
+                style={{ flex: "1 1 200px", minWidth: 180, marginLeft: "auto" }}
+              />
+            </div>
+
+            {categoryFilter === "m365Tenant" && (
+              <div className="toolbar-row">
+                <span className="toolbar-label">View</span>
+                {(
+                  [
+                    ["all", `All M365/Azure (${m365SubViewCounts.all})`],
+                    ["google", `Google → Microsoft (${m365SubViewCounts.google})`],
+                    ["other", `Everything else (${m365SubViewCounts.other})`],
+                  ] as const
+                ).map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => setM365SubView(key)}
+                    title="Still files/downloads as M365/Azure either way — this only changes what's shown here."
+                    className={`chip-btn${m365SubView === key ? " active" : ""}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {categoryFilter === "dynamics365" && (
+              <div className="toolbar-row">
+                <span className="toolbar-label">View</span>
+                {(
+                  [
+                    ["all", `All Dynamics 365 (${dynamicsSubViewCounts.all})`],
+                    ["businessCentral", `Business Central / ERP (${dynamicsSubViewCounts.businessCentral})`],
+                    ["salesCrm", `Sales / CRM (${dynamicsSubViewCounts.salesCrm})`],
+                    ["other", `Everything else (${dynamicsSubViewCounts.other})`],
+                  ] as const
+                ).map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => setDynamicsSubView(key)}
+                    title="Still files/downloads as Dynamics 365 either way — this only changes what's shown here."
+                    className={`chip-btn${dynamicsSubView === key ? " active" : ""}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
         )}
-        <button
-          onClick={() => { setTierFilter("all"); setShowNoSignal(false); setPage(1); }}
-          style={{
-            border: "none",
-            borderRadius: 8,
-            padding: "7px 13px",
-            fontWeight: 600,
-            background: !showNoSignal && tierFilter === "all" ? "linear-gradient(90deg, var(--accent), var(--accent-blue))" : "var(--surface-sunken)",
-            color: !showNoSignal && tierFilter === "all" ? "#fff" : "var(--muted)",
-          }}
-        >
-          All ({tierCounts.total})
-        </button>
-        {duplicateCount > 0 && (
-          <button
-            onClick={() => setDuplicatesOnly((v) => !v)}
-            style={{ background: duplicatesOnly ? "#F7B955" : "#FBF3E7", color: "#8A5A00", border: "1px solid #F0D9B5", borderRadius: 9, padding: "7px 13px", fontWeight: 700 }}
-          >
-            {duplicatesOnly ? "Showing duplicates only" : `Duplicates (${duplicateCount})`}
-          </button>
-        )}
-        {priorityCount > 0 && (
-          <button
-            onClick={() => setPriorityOnly((v) => !v)}
-            style={{ background: priorityOnly ? "#F7B955" : "#FFF7E5", color: "#8A5A00", border: "1px solid #F5DFA0", borderRadius: 9, padding: "7px 13px", fontWeight: 700 }}
-          >
-            {priorityOnly ? "Showing priority only" : `⭐ Priority (${priorityCount})`}
-          </button>
-        )}
-      </div>
       </div>
 
       {showNoSignal ? (
         <NonRelevantTable rows={noSignalRows} />
       ) : (
       <>
-      <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 13, padding: "14px 16px 16px", marginBottom: 18 }}>
-      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
-        <button
-          onClick={() => setCategoryFilter("all")}
-          style={{ border: "none", borderRadius: 8, padding: "7px 12px", background: categoryFilter === "all" ? "linear-gradient(90deg, var(--accent), var(--accent-blue))" : "var(--surface-sunken)", color: categoryFilter === "all" ? "#fff" : "var(--muted)" }}
-        >
-          All product lines ({categoryCounts.all})
-        </button>
-        {ACTIVE_CATEGORY_KEYS.map((k) => (
-          <button
-            key={k}
-            onClick={() => setCategoryFilter(k)}
-            style={{ border: "none", borderRadius: 8, padding: "7px 12px", background: categoryFilter === k ? "linear-gradient(90deg, var(--accent), var(--accent-blue))" : "var(--surface-sunken)", color: categoryFilter === k ? "#fff" : "var(--muted)" }}
-          >
-            {CATEGORY_META[k].label} ({categoryCounts[k] || 0})
-          </button>
-        ))}
-        {categoryFilter === "dynamics365" && (
-          <select
-            value={dynamicsSortDesc ? "desc" : "asc"}
-            onChange={(e) => setDynamicsSortDesc(e.target.value === "desc")}
-            title="Seat count order within each module block (ERP block always ranks above Sales/CRM, regardless of this setting)"
-            style={{ border: "1px solid #D5D9E0", borderRadius: 9, padding: "7px 10px", fontSize: 12.5, fontWeight: 600, color: "var(--muted)" }}
-          >
-            <option value="desc">Seat count: greatest to least</option>
-            <option value="asc">Seat count: least to greatest</option>
-          </select>
-        )}
-        <input
-          value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-          placeholder="Filter by company, contact, or product line"
-          style={{ flex: "1 1 200px", border: "1px solid #E1E4E9", borderRadius: 9, padding: "8px 12px" }}
-        />
-      </div>
-
-      {categoryFilter === "m365Tenant" && (
-        <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
-          <span style={{ fontSize: 11.5, color: "#8b93a0", fontWeight: 700, textTransform: "uppercase" }}>View:</span>
-          {(
-            [
-              ["all", `All M365/Azure (${m365SubViewCounts.all})`],
-              ["google", `Google → Microsoft (${m365SubViewCounts.google})`],
-              ["other", `Everything else (${m365SubViewCounts.other})`],
-            ] as const
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => setM365SubView(key)}
-              title="Still files/downloads as M365/Azure either way — this only changes what's shown here."
-              style={{
-                border: "none",
-                borderRadius: 8,
-                padding: "7px 12px",
-                fontSize: 12.5,
-                fontWeight: 600,
-                background: m365SubView === key ? "linear-gradient(90deg, var(--accent), var(--accent-blue))" : "var(--surface-sunken)",
-                color: m365SubView === key ? "#fff" : "var(--muted)",
-              }}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {categoryFilter === "dynamics365" && (
-        <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
-          <span style={{ fontSize: 11.5, color: "#8b93a0", fontWeight: 700, textTransform: "uppercase" }}>View:</span>
-          {(
-            [
-              ["all", `All Dynamics 365 (${dynamicsSubViewCounts.all})`],
-              ["businessCentral", `Business Central / ERP (${dynamicsSubViewCounts.businessCentral})`],
-              ["salesCrm", `Sales / CRM (${dynamicsSubViewCounts.salesCrm})`],
-              ["other", `Everything else (${dynamicsSubViewCounts.other})`],
-            ] as const
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => setDynamicsSubView(key)}
-              title="Still files/downloads as Dynamics 365 either way — this only changes what's shown here."
-              style={{
-                border: "none",
-                borderRadius: 8,
-                padding: "7px 12px",
-                fontSize: 12.5,
-                fontWeight: 600,
-                background: dynamicsSubView === key ? "linear-gradient(90deg, var(--accent), var(--accent-blue))" : "var(--surface-sunken)",
-                color: dynamicsSubView === key ? "#fff" : "var(--muted)",
-              }}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      )}
-      </div>
 
       {selected.size > 0 && (
-        <div style={{ display: "flex", gap: 10, alignItems: "center", background: "#EEF2FF", border: "1px solid #D6DEFA", borderRadius: 11, padding: "10px 17px", marginBottom: 14, flexWrap: "wrap" }}>
-          <span style={{ fontWeight: 700, color: "#3A4B8C" }}>{selected.size} lead{selected.size === 1 ? "" : "s"} selected</span>
-          <span>Move to:</span>
-          <select value={bulkTarget} onChange={(e) => setBulkTarget(e.target.value as CategoryKey)}>
+        <div className="bulkbar">
+          <span className="bulkbar-count">{selected.size} lead{selected.size === 1 ? "" : "s"} selected</span>
+          <div className="bulkbar-divider" />
+          <span className="bulkbar-label">Move to</span>
+          <select value={bulkTarget} onChange={(e) => setBulkTarget(e.target.value as CategoryKey)} className="field">
             {ACTIVE_CATEGORY_KEYS.map((k) => (
               <option key={k} value={k}>{CATEGORY_META[k].label}</option>
             ))}
           </select>
-          <button onClick={() => moveSelectedTo(bulkTarget)} style={{ background: "#2CC295", color: "#081E22", border: "none", borderRadius: 8, padding: "7px 14px", fontWeight: 700 }}>Apply</button>
-          <button onClick={() => setTierForSelected("signal")} style={{ background: "#2CC295", color: "#081E22", border: "none", borderRadius: 8, padding: "7px 12px", fontWeight: 700 }}>Strong Signal</button>
-          <button onClick={() => setTierForSelected("mention")} style={{ background: "#fff", color: "#9A5B22", border: "1px solid #E7C79A", borderRadius: 8, padding: "7px 12px" }}>Needs review</button>
-          <button onClick={() => setTierForSelected("dq")} style={{ background: "#fff", color: "#B5443B", border: "1px solid #F0C6C1", borderRadius: 8, padding: "7px 12px" }}>Bad lead</button>
-          <button onClick={() => setCrossedOutForSelected(true)} style={{ background: "#fff", border: "1px solid #D5D9E0", borderRadius: 8, padding: "7px 12px" }}>Cross out</button>
-          <button onClick={() => setCrossedOutForSelected(false)} style={{ background: "none", border: "none", textDecoration: "underline" }}>Restore</button>
-          <span style={{ width: 1, height: 20, background: "#D6DEFA" }} />
-          <span>Disposition:</span>
-          <select value={bulkDisposition} onChange={(e) => setBulkDisposition(e.target.value as Disposition)}>
+          <button onClick={() => moveSelectedTo(bulkTarget)} className="btn btn-sm btn-primary">Apply</button>
+          <div className="bulkbar-divider" />
+          <span className="bulkbar-label">Tier</span>
+          <button onClick={() => setTierForSelected("signal")} className="btn btn-sm btn-primary">Strong Signal</button>
+          <button onClick={() => setTierForSelected("mention")} className="btn btn-sm" style={{ color: "#9A5B22", borderColor: "#E7C79A" }}>Needs review</button>
+          <button onClick={() => setTierForSelected("dq")} className="btn btn-sm btn-danger">Bad lead</button>
+          <button onClick={() => setCrossedOutForSelected(true)} className="btn btn-sm btn-secondary">Cross out</button>
+          <button onClick={() => setCrossedOutForSelected(false)} className="btn btn-sm btn-ghost" style={{ textDecoration: "underline" }}>Restore</button>
+          <div className="bulkbar-divider" />
+          <span className="bulkbar-label">Disposition</span>
+          <select value={bulkDisposition} onChange={(e) => setBulkDisposition(e.target.value as Disposition)} className="field">
             {DISPOSITION_ORDER.map((d) => (
               <option key={d} value={d}>{DISPOSITION_META[d].label}</option>
             ))}
           </select>
-          <button onClick={() => setDispositionForSelected(bulkDisposition)} style={{ background: "#2CC295", color: "#081E22", border: "none", borderRadius: 8, padding: "7px 14px", fontWeight: 700 }}>Apply</button>
-          <button onClick={undoDispositionForSelected} title="Undo disposition on selected rows" style={{ background: "#fff", border: "1px solid #D5D9E0", borderRadius: 8, padding: "7px 12px" }}>↺ Undo disposition</button>
-          <button onClick={() => setPriorityForSelected(true)} style={{ background: "#FFF7E5", color: "#8A5A00", border: "1px solid #F5DFA0", borderRadius: 8, padding: "7px 12px", fontWeight: 700 }}>⭐ Mark Priority</button>
-          <button onClick={() => setPriorityForSelected(false)} style={{ background: "#fff", border: "1px solid #D5D9E0", borderRadius: 8, padding: "7px 12px" }}>Unmark Priority</button>
-          <input type="month" value={bulkPriorityMonth} onChange={(e) => setBulkPriorityMonth(e.target.value)} style={{ border: "1px solid #D5D9E0", borderRadius: 8, padding: "6px 8px" }} />
-          <button onClick={() => setPriorityMonthForSelected(bulkPriorityMonth)} style={{ background: "#fff", border: "1px solid #D5D9E0", borderRadius: 8, padding: "7px 12px" }}>Apply month</button>
-          <span style={{ width: 1, height: 20, background: "#D6DEFA" }} />
-          <span>Add to list:</span>
-          <select value={listPickerValue} onChange={(e) => setListPickerValue(e.target.value)} style={{ maxWidth: 160 }}>
+          <button onClick={() => setDispositionForSelected(bulkDisposition)} className="btn btn-sm btn-primary">Apply</button>
+          <button onClick={undoDispositionForSelected} title="Undo disposition on selected rows" className="btn btn-sm btn-secondary">↺ Undo</button>
+          <div className="bulkbar-divider" />
+          <span className="bulkbar-label">Priority</span>
+          <button onClick={() => setPriorityForSelected(true)} className="btn btn-sm btn-warn">⭐ Mark</button>
+          <button onClick={() => setPriorityForSelected(false)} className="btn btn-sm btn-secondary">Unmark</button>
+          <input type="month" value={bulkPriorityMonth} onChange={(e) => setBulkPriorityMonth(e.target.value)} className="field" />
+          <button onClick={() => setPriorityMonthForSelected(bulkPriorityMonth)} className="btn btn-sm btn-secondary">Apply month</button>
+          <div className="bulkbar-divider" />
+          <span className="bulkbar-label">Add to list</span>
+          <select value={listPickerValue} onChange={(e) => setListPickerValue(e.target.value)} className="field" style={{ maxWidth: 160 }}>
             <option value="">Choose a list…</option>
             {leadLists.map((l) => (
               <option key={l.id} value={l.id}>{l.name} ({l.rows.length})</option>
@@ -1134,39 +1129,41 @@ export default function Scanner({
               placeholder="List name"
               value={newListName}
               onChange={(e) => setNewListName(e.target.value)}
-              style={{ border: "1px solid #D5D9E0", borderRadius: 8, padding: "6px 8px", width: 130 }}
+              className="field"
+              style={{ width: 130 }}
             />
           )}
           <button
             onClick={addSelectedToList}
             disabled={!listPickerValue || (listPickerValue === "__new__" && !newListName.trim())}
-            style={{ background: "#2CC295", color: "#081E22", border: "none", borderRadius: 8, padding: "7px 14px", fontWeight: 700, opacity: !listPickerValue || (listPickerValue === "__new__" && !newListName.trim()) ? 0.5 : 1 }}
+            className="btn btn-sm btn-primary"
           >
             Add
           </button>
           {listNotice && <span style={{ fontSize: 12, color: "#3A4B8C" }}>{listNotice}</span>}
-          <button onClick={() => { setSelected(new Set()); setListNotice(null); }} style={{ background: "none", border: "none", textDecoration: "underline" }}>Clear selection</button>
+          <div className="toolbar-spacer" />
+          <button onClick={() => { setSelected(new Set()); setListNotice(null); }} className="btn btn-sm btn-ghost" style={{ textDecoration: "underline" }}>Clear selection</button>
         </div>
       )}
 
-      <div style={{ background: "#fff", border: "1px solid #E4E7EC", borderRadius: 13, overflow: "auto", maxHeight: "65vh" }}>
-        <table>
+      <div className="table-card">
+        <table className="data-table">
           <thead>
-            <tr style={{ background: "#F9FAFB" }}>
+            <tr>
               <th style={{ width: 32 }}></th>
-              <th style={{ textAlign: "left", padding: "11px 14px" }}>Company</th>
-              <th style={{ textAlign: "left", padding: "11px 14px" }}>Contact</th>
-              <th style={{ textAlign: "left", padding: "11px 14px" }}>Detected</th>
-              <th style={{ textAlign: "left", padding: "11px 14px" }}>Matched snippet</th>
-              <th style={{ textAlign: "left", padding: "11px 14px" }}>Tier</th>
-              <th style={{ textAlign: "left", padding: "11px 14px" }}>Product line</th>
-              <th style={{ textAlign: "left", padding: "11px 14px" }}>Status</th>
+              <th>Company</th>
+              <th>Contact</th>
+              <th>Detected</th>
+              <th>Matched snippet</th>
+              <th>Tier</th>
+              <th>Product line</th>
+              <th>Status</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {pageItems.length === 0 ? (
-              <tr><td colSpan={9} style={{ padding: 36, textAlign: "center", color: "#9AA1AC" }}>No rows match this filter.</td></tr>
+              <tr><td colSpan={9} className="cell-empty">No rows match this filter.</td></tr>
             ) : (
               pageItems.map((r) => {
                 const f = r.row.__f;
@@ -1193,14 +1190,14 @@ export default function Scanner({
                     <td style={{ textAlign: "center" }}>
                       <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleSelectRow(r.id)} />
                     </td>
-                    <td style={{ padding: "10px 14px", fontWeight: 600 }}>
+                    <td style={{ padding: "10px 11px", fontWeight: 600, minWidth: 128 }}>
                       {r.disposition === "meeting-booked" && <BookedStamp />}
                       <div style={strike}>{f.company || "—"}</div>
                     </td>
-                    <td style={{ padding: "10px 14px", ...strike }}>
+                    <td style={{ padding: "10px 11px", minWidth: 104, whiteSpace: "nowrap", ...strike }}>
                       {getFullName(f) || f.email || "—"} {matchedContact?.onCrm && <OnCrmBadge />}
                     </td>
-                    <td style={{ padding: "10px 14px" }}>
+                    <td style={{ padding: "10px 11px" }}>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                         {r.isDuplicate && <span style={{ fontSize: 10.5, background: "#F7B955", color: "#5C3A00", padding: "2px 7px", borderRadius: 20, fontWeight: 700 }}>DUPLICATE</span>}
                         {r.licensing && <span style={{ fontSize: 10.5, background: "#FBF0DC", color: "#8A5A00", padding: "2px 7px", borderRadius: 20 }}>{r.licensing.skus[0]}{r.licensing.count ? ` · ${r.licensing.count}` : ""}</span>}
@@ -1219,19 +1216,21 @@ export default function Scanner({
                         ))}
                       </div>
                     </td>
-                    <td style={{ padding: "10px 14px", color: "var(--muted)", fontSize: 12.5, maxWidth: 300 }}>{r.notesSummary}</td>
-                    <td style={{ padding: "10px 14px" }}>
-                      <button onClick={() => toggleTier(r.id)} style={{ border: "none", borderRadius: 20, padding: "4px 10px", fontWeight: 700, color: tierColor, background: tierBg }}>{tierLabel}</button>
+                    <td style={{ padding: "10px 11px", color: "var(--muted)", fontSize: 12.5, minWidth: 190, maxWidth: 280 }}>
+                      <span className="clamp-3" title={r.notesSummary}>{r.notesSummary}</span>
                     </td>
-                    <td style={{ padding: "10px 14px" }}>
+                    <td style={{ padding: "10px 11px" }}>
+                      <button onClick={() => toggleTier(r.id)} style={{ border: "none", borderRadius: 20, padding: "4px 10px", fontWeight: 700, fontSize: 11.5, whiteSpace: "nowrap", color: tierColor, background: tierBg }}>{tierLabel}</button>
+                    </td>
+                    <td style={{ padding: "10px 11px" }}>
                       <select value={r.category} onChange={(e) => reassignRow(r.id, e.target.value as CategoryKey)} style={{ background: meta.bg, color: meta.color, fontWeight: 600, border: "1px solid #D8DBE1", borderRadius: 7, padding: "6px 8px" }}>
                         {ACTIVE_CATEGORY_KEYS.map((k) => (
                           <option key={k} value={k}>{CATEGORY_META[k].label}</option>
                         ))}
                       </select>
                     </td>
-                    <td style={{ padding: "10px 14px" }}>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 150 }}>
+                    <td style={{ padding: "10px 11px" }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 132 }}>
                         <div style={{ display: "flex", gap: 4 }}>
                           <select
                             value={r.disposition}
@@ -1279,7 +1278,7 @@ export default function Scanner({
                         </div>
                       </div>
                     </td>
-                    <td style={{ padding: "10px 14px", textAlign: "center" }}>
+                    <td style={{ padding: "10px 11px", textAlign: "center" }}>
                       <button
                         onClick={() => toggleCrossedOut(r.id)}
                         title={r.crossedOut ? "Restore" : "Cross out"}
@@ -1297,11 +1296,11 @@ export default function Scanner({
       </div>
 
       {filtered.length > 0 && (
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 15, alignItems: "center" }}>
-          <span style={{ fontSize: 12.5 }}>Showing {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length}</span>
-          <button disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)}>Prev</button>
+        <div className="pager">
+          <span>Showing {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length}</span>
+          <button className="btn btn-sm btn-secondary" disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)}>Prev</button>
           <span>Page {currentPage} of {totalPages}</span>
-          <button disabled={currentPage >= totalPages} onClick={() => setPage(currentPage + 1)}>Next</button>
+          <button className="btn btn-sm btn-secondary" disabled={currentPage >= totalPages} onClick={() => setPage(currentPage + 1)}>Next</button>
         </div>
       )}
       </>
@@ -1322,22 +1321,22 @@ function NonRelevantTable({ rows }: { rows: NoSignalRow[] }) {
       <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 12 }}>
         {rows.length} row{rows.length === 1 ? "" : "s"} matched no Dynamics 365/M365/Azure/licensing signal at all — never scored, so there's no tier or product line to show. For manual review only; not downloaded, filed, or kept in History.
       </div>
-      <div style={{ overflowX: "auto", maxHeight: 560, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 12 }}>
-        <table>
+      <div className="table-card" style={{ maxHeight: 560 }}>
+        <table className="data-table">
           <thead>
-            <tr style={{ background: "var(--bg)", textAlign: "left", position: "sticky", top: 0 }}>
-              <th style={{ padding: "9px 12px" }}>Company</th>
-              <th style={{ padding: "9px 12px" }}>Contact</th>
-              <th style={{ padding: "9px 12px" }}>Title</th>
-              <th style={{ padding: "9px 12px" }}>Email</th>
-              <th style={{ padding: "9px 12px" }}>Phone</th>
-              <th style={{ padding: "9px 12px" }}>Notes</th>
-              <th style={{ padding: "9px 12px" }}>Source file</th>
+            <tr>
+              <th>Company</th>
+              <th>Contact</th>
+              <th>Title</th>
+              <th>Email</th>
+              <th>Phone</th>
+              <th>Notes</th>
+              <th>Source file</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.id} style={{ borderTop: "1px solid var(--border)" }}>
+              <tr key={r.id}>
                 <td style={{ padding: "9px 12px", fontWeight: 600 }}>{r.company || "—"}</td>
                 <td style={{ padding: "9px 12px" }}>{r.contact || "—"}</td>
                 <td style={{ padding: "9px 12px", color: "var(--muted)" }}>{r.title || "—"}</td>
