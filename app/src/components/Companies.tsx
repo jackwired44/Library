@@ -16,6 +16,10 @@ import { CATEGORY_META, DISPOSITION_META } from "../lib/detection";
 import ContactDetail from "./ContactDetail";
 import BookedStamp from "./BookedStamp";
 import OnCrmBadge from "./OnCrmBadge";
+import type { Task } from "../lib/tasks";
+import type { LeadList } from "../lib/leadLists";
+import type { Sequence, SequenceEnrollment } from "../lib/sequences";
+import type { PlatformUser } from "../lib/users";
 
 // Same page size Scanner and Contacts use.
 const PAGE_SIZE = 25;
@@ -24,11 +28,18 @@ interface CompaniesProps {
   contacts: Contact[];
   onAddContact: (input: ManualContactInput) => void;
   onUpdateContact: (id: string, patch: Partial<Contact>) => void;
+  // Passed straight through to the shared contact detail modal — see
+  // components/ContactDetail.tsx's record-details section.
+  users: PlatformUser[];
+  tasks: Task[];
+  leadLists: LeadList[];
+  sequences: Sequence[];
+  enrollments: SequenceEnrollment[];
 }
 
 type SortKey = "recent" | "name" | "contactCount";
 
-export default function Companies({ contacts, onAddContact, onUpdateContact }: CompaniesProps) {
+export default function Companies({ contacts, onAddContact, onUpdateContact, users, tasks, leadLists, sequences, enrollments }: CompaniesProps) {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("recent");
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
@@ -221,6 +232,11 @@ export default function Companies({ contacts, onAddContact, onUpdateContact }: C
           contact={contactById.get(detailId)!}
           onClose={() => setDetailId(null)}
           onUpdate={(patch) => onUpdateContact(detailId, patch)}
+          users={users}
+          tasks={tasks}
+          leadLists={leadLists}
+          sequences={sequences}
+          enrollments={enrollments}
         />
       )}
     </div>

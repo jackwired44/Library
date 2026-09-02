@@ -2985,6 +2985,103 @@ extending it.
   created a sequence, set its "Send from" to that account, and confirmed
   the sequence's summary line reads "· sends from: Wired CIO Outbound."
 
+## Scanner UI redesign + one sans type system (app/ only)
+
+Per Jack: "lets check the ui and deep dive functions commands button
+builds how it looks use more hubspot inspirations and apollo for
+inteface," then narrowed to "lets attempt to redesign the ui for the
+scanner and make this more defined and built out // change no
+functions." **Styling only — every handler, prop and piece of state in
+Scanner.tsx is byte-for-byte unchanged**, confirmed by a 15-check live
+functional pass (tier tabs, product-line chips, both View-tab sets, the
+seat-count sort, search, row selection, every bulk action, the Non
+Relevant tab, per-row controls) after the rework.
+
+**Honest limitation, again**: apollo.io is blocked by this environment's
+network egress (same as the earlier Apollo restyle pass), so this is
+built from HubSpot/Apollo's established interface conventions plus a
+screenshot sweep of this app's own screens — not from a live look at
+either product.
+
+- **One sans type system, app-wide.** Headings used a serif display face
+  ("Fraunces"), which is the single biggest reason the app read as an
+  editorial page rather than a working tool. `index.html` now loads Inter
+  instead of Fraunces/Hanken Grotesk, `styles.css` sets one sans stack
+  for body AND headings (weight/tracking carry hierarchy instead), and
+  `font-variant-numeric: tabular-nums` is global so every table column,
+  KPI tile and count badge lines up. The `.app-mark`/`.account-avatar`
+  serif references went with it.
+- **A real UI kit in `styles.css`** (`.panel`/`.panel-head`/`.panel-body`,
+  `.btn` + `-primary`/`-secondary`/`-ghost`/`-danger`/`-warn`/`-sm`,
+  `.field`, `.kpi`, `.toolbar`/`.toolbar-row`, `.seg`/`.seg-btn`,
+  `.chip-btn`, `.bulkbar`, `.table-card`/`.data-table`, `.pager`) so
+  buttons and tables stop being a dozen one-off inline styles. Brand
+  hues, the green→blue "wire" gradient on active tabs/chips, and every
+  documented View-tab set are unchanged.
+- **Scanner specifically**: a page bar (title + per-file chips + Start
+  over) replacing a bare filename line; Save-to-Lead-Library and Final
+  downloads as titled panels with subtitles instead of loose rows; a
+  denser KPI rail strip; **the four stacked filter rows across two
+  bordered containers consolidated into one hairline-divided toolbar**
+  (tier segmented control + Non Relevant + Duplicates/Priority toggles on
+  row 1, product line + sort + search on row 2, View tabs on row 3);
+  the bulk-action bar regrouped with labeled sections and dividers; and
+  a real data table with a sticky uppercase header, even row heights (a
+  3-line clamp on the matched snippet), non-wrapping contact/tier cells
+  and no clipped columns at 1440px.
+- Verified live at 1440px with screenshots before/after plus the 15-check
+  functional pass; also confirmed the Non Relevant table picked up the
+  same table styling.
+
+## Contacts: Record Details (app/ only)
+
+Per Jack: "Build out for contacts // Record Details with the matched
+snippet or notes, lists theyre attached to and sequences plus the user
+owner and last activity dat with the date and how many days ago it was
+email call or however communication was mad the product lines and
+cetegorys associated." Built into the existing `ContactDetail.tsx`
+modal as one "Record details" panel above the existing scan/website/
+LinkedIn/outreach sections.
+
+- **Owner** — `Contact.ownerId?: string | null` (`lib/contacts.ts`), the
+  only writable field in the panel. Set by hand only; never inferred
+  from a scan, an upload or a task assignment, since none of those carry
+  real ownership. Optional, so every contact captured before it existed
+  reads as unowned rather than being attributed by guesswork.
+- **Last activity** — the most recent COMPLETED task for that contact
+  (`lastActivityForContact`, `lib/tasks.ts`), showing the date, how many
+  days ago, the channel (📞 Call / ✉️ Email / plain Task), and the task
+  text. Open tasks don't count: something scheduled for next week isn't
+  activity that happened.
+  - **Bug found and fixed during verification**: it first read "-1 days
+    ago." A task's `date` is when it was SCHEDULED — a sequence step due
+    tomorrow can be completed today — so scheduling date can't answer
+    "when was this contact last worked." `Task.completedAt?: string |
+    null` was added (`lib/tasks.ts`), stamped by `App.tsx`'s `toggleTask`
+    when a task is marked done and cleared when it's un-done; last
+    activity reads that stamp, falling back to `date` for any task
+    completed before the field existed, and clamps days-ago at 0.
+- **Product lines & categories** — the union of the scan-derived
+  `Contact.category` and the categories carried by that contact's rows on
+  any Custom Lead List, plus their tier and disposition badges. Plural,
+  per Jack's wording, without inventing a new field.
+- **Lists** — every Custom Lead List the contact is on
+  (`listsForContact`, `lib/leadLists.ts` — the inverse of the existing
+  `resolveListContacts`, same email-first/name+company-fallback matching
+  used everywhere else).
+- **Sequences** — every enrollment for that contact with the sequence
+  name, enrollment status badge, step N of M, and a note when the
+  sequence itself is paused/archived.
+- Plumbed as read-only props (`users`, `tasks`, `leadLists`, `sequences`,
+  `enrollments`) from `App.tsx` → `Engage.tsx` → `Contacts.tsx`/
+  `Companies.tsx` → `ContactDetail.tsx`; both places that open the modal
+  pass the same set, so the record reads identically from either.
+- Verified live, 11/11: seeded a contact, added it to a new Lead List
+  from Scanner's bulk bar, enrolled it in a sequence, completed the
+  generated call task, then confirmed the panel showed the list, the
+  enrollment, the Dynamics 365 + Strong Signal badges, a non-negative
+  days-ago reading, and an owner that survived a full page reload.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

@@ -228,7 +228,18 @@ export default function Engage({
       {tab === "emails" && (
         <ChannelTasks channel="email" contacts={contacts} tasks={tasks} users={users} onAddContactTask={onAddContactTask} onToggleTask={onToggleTask} onDeleteTask={onDeleteTask} onUpdateTaskFields={onUpdateTaskFields} />
       )}
-      {tab === "companies" && <CompaniesView contacts={contacts} onAddContact={onAddContact} onUpdateContact={onUpdateContact} />}
+      {tab === "companies" && (
+        <CompaniesView
+          contacts={contacts}
+          onAddContact={onAddContact}
+          onUpdateContact={onUpdateContact}
+          users={users}
+          tasks={tasks}
+          leadLists={leadLists}
+          sequences={sequences}
+          enrollments={enrollments}
+        />
+      )}
       {tab === "contacts" && (
         <ContactsView
           contacts={contacts}
@@ -239,6 +250,10 @@ export default function Engage({
           onToggleTask={onToggleTask}
           onDeleteTask={onDeleteTask}
           onUpdateContact={onUpdateContact}
+          users={users}
+          leadLists={leadLists}
+          sequences={sequences}
+          enrollments={enrollments}
           initialSearch={initialContactsSearch}
         />
       )}

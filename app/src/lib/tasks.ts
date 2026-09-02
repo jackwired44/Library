@@ -59,6 +59,13 @@ export interface Task {
   // outreach field in this app (Contact.outreachStatus, disposition,
   // etc.) — never auto-set, only ever toggled by hand on an email task.
   repliedAt?: string | null;
+  // When this task was actually marked done (set by App.tsx's toggleTask,
+  // cleared if it's un-done). A task's `date` is when it was SCHEDULED,
+  // which can sit in the future — a sequence step due tomorrow can be
+  // completed today — so scheduling date alone can't answer "when was
+  // this contact last actually worked." Optional/additive: a task
+  // completed before this field existed falls back to its `date`.
+  completedAt?: string | null;
 }
 
 function newId() {
@@ -192,4 +199,51 @@ export function compareByTimeThenCreated(a: Task, b: Task): number {
 
 export function tasksForDay(tasks: Task[], dayKey: string): Task[] {
   return tasks.filter((t) => t.date === dayKey).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+}
+
+// Whole days between two YYYY-MM-DD keys (positive when `to` is later).
+// Parsed at local noon so a DST shift can never make a same-day pair read
+// as 1 day apart.
+export function daysBetween(fromKey: string, toKey: string): number {
+  const a = new Date(`${fromKey}T12:00:00`).getTime();
+  const b = new Date(`${toKey}T12:00:00`).getTime();
+  if (Number.isNaN(a) || Number.isNaN(b)) return 0;
+  return Math.round((b - a) / 86400000);
+}
+
+export interface LastActivity {
+  date: string;
+  channel: "call" | "email" | null;
+  text: string;
+  daysAgo: number;
+}
+
+// The most recent COMPLETED task for one contact — "last activity date
+// with the date and how many days ago it was, email call or however
+// communication was made" (Jack). Deliberately only counts completed
+// tasks: an open task scheduled for next week isn't activity that
+// happened. A task with no channel (a plain contact task) still counts as
+// activity, just with no channel to name — reported as null rather than
+// guessed at. Returns null when nothing has been completed for them yet.
+export function lastActivityForContact(tasks: Task[], contactId: string, today: string = todayDateKey()): LastActivity | null {
+  const done = tasks.filter((t) => t.contactId === contactId && t.done);
+  if (!done.length) return null;
+  // The day the work happened: the completion stamp when there is one,
+  // otherwise the task's scheduled date (all this app had before that
+  // field existed).
+  const activityDay = (t: Task) => (t.completedAt ? t.completedAt.slice(0, 10) : t.date);
+  const latest = done.reduce((best, t) => {
+    const a = activityDay(t);
+    const b = activityDay(best);
+    return a > b || (a === b && t.createdAt > best.createdAt) ? t : best;
+  });
+  const day = activityDay(latest);
+  return {
+    date: day,
+    channel: latest.channel ?? null,
+    text: latest.text,
+    // Never negative: a task completed today but dated for later is still
+    // activity that happened today, not "-1 days ago".
+    daysAgo: Math.max(0, daysBetween(day, today)),
+  };
 }

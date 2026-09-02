@@ -17,6 +17,9 @@ import ContactDetail from "./ContactDetail";
 import BookedStamp from "./BookedStamp";
 import OnCrmBadge from "./OnCrmBadge";
 import type { Task, TaskPriority } from "../lib/tasks";
+import type { LeadList } from "../lib/leadLists";
+import type { Sequence, SequenceEnrollment } from "../lib/sequences";
+import type { PlatformUser } from "../lib/users";
 
 const MAX_ENRICH_BATCH = 10;
 // Same page size Scanner's results table uses — see the pagination note
@@ -39,6 +42,12 @@ interface ContactsProps {
   onToggleTask: (id: string) => void;
   onDeleteTask: (id: string) => void;
   onUpdateContact: (id: string, patch: Partial<Contact>) => void;
+  // Record-details cross-references for the contact detail modal (owner,
+  // lists, sequences) — see components/ContactDetail.tsx.
+  users: PlatformUser[];
+  leadLists: LeadList[];
+  sequences: Sequence[];
+  enrollments: SequenceEnrollment[];
   // Seeds the search box on mount — set when arriving here from the header
   // search (see App.tsx/HeaderSearch.tsx). This component remounts fresh
   // each time Engage's Contacts tab is selected, so an initial-only state
@@ -59,7 +68,7 @@ function todayKey(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-export default function Contacts({ contacts, loading, error, tasks, onAddContactTask, onToggleTask, onDeleteTask, onUpdateContact, initialSearch }: ContactsProps) {
+export default function Contacts({ contacts, loading, error, tasks, onAddContactTask, onToggleTask, onDeleteTask, onUpdateContact, users, leadLists, sequences, enrollments, initialSearch }: ContactsProps) {
   const [search, setSearch] = useState(initialSearch || "");
   const [sort, setSort] = useState<SortKey>("recent");
   // Disposition-grouped view — per Jack: a place to see where every lead
@@ -592,6 +601,11 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
           contact={contactById.get(detailId)!}
           onClose={() => setDetailId(null)}
           onUpdate={(patch) => onUpdateContact(detailId, patch)}
+          users={users}
+          tasks={tasks}
+          leadLists={leadLists}
+          sequences={sequences}
+          enrollments={enrollments}
         />
       )}
     </div>

@@ -726,3 +726,13 @@ button:disabled {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* Contact record-details field label. */
+.rd-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}

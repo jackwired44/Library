@@ -352,7 +352,11 @@ export default function App() {
     const task = tasks.find((t) => t.id === id);
     if (!task) return;
     const done = !task.done;
-    const updatedTask: Task = { ...task, done };
+    // Stamp when it was actually completed — a task's `date` is when it was
+    // scheduled, which can be in the future (a sequence step due tomorrow,
+    // worked today). Contacts' "last activity" reads this. Cleared when a
+    // task is un-completed so the stamp never outlives the completion.
+    const updatedTask: Task = { ...task, done, completedAt: done ? new Date().toISOString() : null };
     setTasks((prev) => prev.map((t) => (t.id === id ? updatedTask : t)));
     persistTask(updatedTask);
 

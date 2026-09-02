@@ -126,3 +126,32 @@ export function resolveListContacts(list: LeadList, contacts: Contact[]): { reso
   });
   return { resolved, unresolvedCount };
 }
+
+// Which lists a given contact is on, and which product-line categories
+// their rows carry in each — the inverse of resolveListContacts above,
+// for the contact record-details view (per Jack: "lists they're attached
+// to ... the product lines and categories associated"). Same email-first/
+// name+company-fallback matching, so a list row and a live Contact line
+// up exactly the way they do everywhere else in this app.
+export function listsForContact(
+  lists: LeadList[],
+  contacts: Contact[],
+  contactId: string
+): { list: LeadList; categories: CategoryKey[] }[] {
+  const index = buildContactIndex(contacts);
+  const out: { list: LeadList; categories: CategoryKey[] }[] = [];
+  lists.forEach((list) => {
+    const categories = new Set<CategoryKey>();
+    let onList = false;
+    list.rows.forEach((r) => {
+      const fullName = `${r["First Name"] || ""} ${r["Last Name"] || ""}`.trim();
+      const match = lookupContact(index, fullName, r["Company Name"] || "", r["Email"] || "");
+      if (match && match.id === contactId) {
+        onList = true;
+        categories.add(r.__category);
+      }
+    });
+    if (onList) out.push({ list, categories: [...categories] });
+  });
+  return out;
+}

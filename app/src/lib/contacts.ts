@@ -82,6 +82,13 @@ export interface Contact {
   callCount?: number;
   emailCount?: number;
   outreachStatus?: OutreachStatus;
+  // Which platform user (lib/users.ts) owns this record — per Jack's
+  // "record details ... plus the user owner." Set only by hand from the
+  // contact detail view; never inferred from a scan, an upload or a task
+  // assignment, since none of those carry real ownership. Optional, so
+  // every contact captured before this field existed simply reads as
+  // unowned rather than being attributed to someone by guesswork.
+  ownerId?: string | null;
   // Manually pasted in once found — see components/ContactDetail.tsx's
   // "Search LinkedIn" link, which opens a LinkedIn people-search prefilled
   // with name+company (no automatic verified match — see CLAUDE.md
