@@ -9,7 +9,8 @@
 // status — a separate, directly-editable concept from the scan-derived
 // `disposition` field, see lib/contacts.ts).
 import { useMemo, useState } from "react";
-import { CATEGORY_META, DISPOSITION_META, type Tier } from "../lib/detection";
+import { CATEGORY_META, type Tier } from "../lib/detection";
+import { dispositionMetaFor, type CustomDisposition } from "../lib/dispositions";
 import { OUTREACH_STATUS_META, OUTREACH_STATUS_ORDER, type Contact, type OutreachStatus } from "../lib/contacts";
 import { lastActivityForContact, type Task } from "../lib/tasks";
 import { listsForContact, type LeadList } from "../lib/leadLists";
@@ -37,9 +38,10 @@ interface ContactDetailProps {
   leadLists: LeadList[];
   sequences: Sequence[];
   enrollments: SequenceEnrollment[];
+  dispositions: CustomDisposition[];
 }
 
-export default function ContactDetail({ contact, onClose, onUpdate, users, tasks, leadLists, sequences, enrollments }: ContactDetailProps) {
+export default function ContactDetail({ contact, onClose, onUpdate, users, tasks, leadLists, sequences, enrollments, dispositions }: ContactDetailProps) {
   const [linkedinDraft, setLinkedinDraft] = useState(contact.linkedinUrl || "");
   const [websiteDraft, setWebsiteDraft] = useState(contact.companyWebsite || "");
   const linkedinSearchUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent([contact.fullName, contact.company].filter(Boolean).join(" "))}`;
@@ -170,9 +172,9 @@ export default function ContactDetail({ contact, onClose, onUpdate, users, tasks
                 {contact.disposition && contact.disposition !== "none" && (
                   <span
                     title={contact.dispositionNote || undefined}
-                    style={{ fontSize: 10.5, fontWeight: 700, color: DISPOSITION_META[contact.disposition].color, background: DISPOSITION_META[contact.disposition].bg, borderRadius: 999, padding: "2px 9px" }}
+                    style={{ fontSize: 10.5, fontWeight: 700, color: dispositionMetaFor(contact.disposition, dispositions).color, background: dispositionMetaFor(contact.disposition, dispositions).bg, borderRadius: 999, padding: "2px 9px" }}
                   >
-                    {DISPOSITION_META[contact.disposition].label}
+                    {dispositionMetaFor(contact.disposition, dispositions).label}
                   </span>
                 )}
               </div>
@@ -239,9 +241,9 @@ export default function ContactDetail({ contact, onClose, onUpdate, users, tasks
               {contact.disposition && contact.disposition !== "none" && (
                 <span
                   title={contact.dispositionNote || undefined}
-                  style={{ fontSize: 10.5, fontWeight: 700, color: DISPOSITION_META[contact.disposition].color, background: DISPOSITION_META[contact.disposition].bg, borderRadius: 999, padding: "2px 9px" }}
+                  style={{ fontSize: 10.5, fontWeight: 700, color: dispositionMetaFor(contact.disposition, dispositions).color, background: dispositionMetaFor(contact.disposition, dispositions).bg, borderRadius: 999, padding: "2px 9px" }}
                 >
-                  {DISPOSITION_META[contact.disposition].label}
+                  {dispositionMetaFor(contact.disposition, dispositions).label}
                 </span>
               )}
             </div>

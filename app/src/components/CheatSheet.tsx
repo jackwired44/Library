@@ -18,9 +18,10 @@ interface CheatSheetProps {
   // can flip back to Notes without closing. Absent = no tab strip, same as
   // before this shared shell existed.
   onSwitchToNotes?: () => void;
+  onSwitchToDispositions?: () => void;
 }
 
-export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrides, onSwitchToNotes }: CheatSheetProps) {
+export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrides, onSwitchToNotes, onSwitchToDispositions }: CheatSheetProps) {
   return (
     <div
       onClick={onClose}
@@ -38,6 +39,11 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
             <button disabled style={{ border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 13, fontWeight: 700, background: "linear-gradient(90deg, var(--accent), var(--accent-blue))", color: "#fff" }}>
               Cheat Sheet
             </button>
+            {onSwitchToDispositions && (
+              <button onClick={onSwitchToDispositions} style={{ border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 13, fontWeight: 700, background: "#F4F6F7", color: "#5b6b72", cursor: "pointer" }}>
+                Dispositions
+              </button>
+            )}
           </div>
         )}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>

@@ -12,7 +12,8 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { groupContactsByCompany, searchCompanies } from "../lib/companies";
 import { OUTREACH_STATUS_META, type Contact, type ManualContactInput } from "../lib/contacts";
-import { CATEGORY_META, DISPOSITION_META } from "../lib/detection";
+import { CATEGORY_META } from "../lib/detection";
+import { dispositionMetaFor, type CustomDisposition } from "../lib/dispositions";
 import ContactDetail from "./ContactDetail";
 import BookedStamp from "./BookedStamp";
 import OnCrmBadge from "./OnCrmBadge";
@@ -35,11 +36,12 @@ interface CompaniesProps {
   leadLists: LeadList[];
   sequences: Sequence[];
   enrollments: SequenceEnrollment[];
+  dispositions: CustomDisposition[];
 }
 
 type SortKey = "recent" | "name" | "contactCount";
 
-export default function Companies({ contacts, onAddContact, onUpdateContact, users, tasks, leadLists, sequences, enrollments }: CompaniesProps) {
+export default function Companies({ contacts, onAddContact, onUpdateContact, users, tasks, leadLists, sequences, enrollments, dispositions }: CompaniesProps) {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("recent");
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
@@ -152,9 +154,9 @@ export default function Companies({ contacts, onAddContact, onUpdateContact, use
                                   borderRadius: 6,
                                   background:
                                     p.disposition === "meeting-booked"
-                                      ? DISPOSITION_META["meeting-booked"].bg
+                                      ? dispositionMetaFor("meeting-booked", dispositions).bg
                                       : p.disposition === "not-interested"
-                                        ? DISPOSITION_META["not-interested"].bg
+                                        ? dispositionMetaFor("not-interested", dispositions).bg
                                         : undefined,
                                 }}
                               >
@@ -181,9 +183,9 @@ export default function Companies({ contacts, onAddContact, onUpdateContact, use
                                 {p.disposition && p.disposition !== "none" && (
                                   <span
                                     title={p.dispositionNote || undefined}
-                                    style={{ fontSize: 10, fontWeight: 700, color: DISPOSITION_META[p.disposition].color, background: DISPOSITION_META[p.disposition].bg, borderRadius: 999, padding: "2px 8px", whiteSpace: "nowrap" }}
+                                    style={{ fontSize: 10, fontWeight: 700, color: dispositionMetaFor(p.disposition, dispositions).color, background: dispositionMetaFor(p.disposition, dispositions).bg, borderRadius: 999, padding: "2px 8px", whiteSpace: "nowrap" }}
                                   >
-                                    {DISPOSITION_META[p.disposition].label}
+                                    {dispositionMetaFor(p.disposition, dispositions).label}
                                   </span>
                                 )}
                               </div>
@@ -237,6 +239,7 @@ export default function Companies({ contacts, onAddContact, onUpdateContact, use
           leadLists={leadLists}
           sequences={sequences}
           enrollments={enrollments}
+          dispositions={dispositions}
         />
       )}
     </div>

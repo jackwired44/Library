@@ -10,9 +10,10 @@ import { addPlatformNote, dayKeyOf, deletePlatformNote, loadPlatformNotes, type 
 interface PlatformNotesProps {
   onClose: () => void;
   onSwitchToCheatSheet: () => void;
+  onSwitchToDispositions?: () => void;
 }
 
-export default function PlatformNotes({ onClose, onSwitchToCheatSheet }: PlatformNotesProps) {
+export default function PlatformNotes({ onClose, onSwitchToCheatSheet, onSwitchToDispositions }: PlatformNotesProps) {
   const [entries, setEntries] = useState<PlatformNoteEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [dayFilter, setDayFilter] = useState("");
@@ -51,6 +52,7 @@ export default function PlatformNotes({ onClose, onSwitchToCheatSheet }: Platfor
           <div style={{ display: "flex", gap: 6 }}>
             <TabButton active label="Platform Notes" />
             <TabButton label="Cheat Sheet" onClick={onSwitchToCheatSheet} />
+            {onSwitchToDispositions && <TabButton label="Dispositions" onClick={onSwitchToDispositions} />}
           </div>
           <button onClick={onClose} style={{ border: "none", background: "none", fontSize: 20, color: "var(--muted)", cursor: "pointer" }}>✕</button>
         </div>

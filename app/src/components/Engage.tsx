@@ -20,6 +20,7 @@ import type { PlatformUser } from "../lib/users";
 import type { SequenceGroup } from "../lib/sequenceGroups";
 import type { EmailAccount } from "../lib/emailAccounts";
 import type { LeadList } from "../lib/leadLists";
+import type { CustomDisposition } from "../lib/dispositions";
 
 interface EngageProps {
   tasks: Task[];
@@ -66,6 +67,9 @@ interface EngageProps {
   onAddEmailAccount: (label: string, fromName: string, fromEmail: string) => void;
   onEditEmailAccount: (id: string, patch: Partial<Pick<EmailAccount, "label" | "fromName" | "fromEmail">>) => void;
   onDeleteEmailAccount: (id: string) => void;
+
+  dispositions: CustomDisposition[];
+  onManageDispositions: () => void;
 
   leadLists: LeadList[];
   leadListsLoading: boolean;
@@ -137,6 +141,8 @@ export default function Engage({
   onAddEmailAccount,
   onEditEmailAccount,
   onDeleteEmailAccount,
+  dispositions,
+  onManageDispositions,
   leadLists,
   leadListsLoading,
   leadListsError,
@@ -223,10 +229,10 @@ export default function Engage({
         />
       )}
       {tab === "calls" && (
-        <ChannelTasks channel="call" contacts={contacts} tasks={tasks} users={users} onAddContactTask={onAddContactTask} onToggleTask={onToggleTask} onDeleteTask={onDeleteTask} onUpdateTaskFields={onUpdateTaskFields} />
+        <ChannelTasks channel="call" contacts={contacts} tasks={tasks} users={users} dispositions={dispositions} onAddContactTask={onAddContactTask} onToggleTask={onToggleTask} onDeleteTask={onDeleteTask} onUpdateTaskFields={onUpdateTaskFields} />
       )}
       {tab === "emails" && (
-        <ChannelTasks channel="email" contacts={contacts} tasks={tasks} users={users} onAddContactTask={onAddContactTask} onToggleTask={onToggleTask} onDeleteTask={onDeleteTask} onUpdateTaskFields={onUpdateTaskFields} />
+        <ChannelTasks channel="email" contacts={contacts} tasks={tasks} users={users} dispositions={dispositions} onAddContactTask={onAddContactTask} onToggleTask={onToggleTask} onDeleteTask={onDeleteTask} onUpdateTaskFields={onUpdateTaskFields} />
       )}
       {tab === "companies" && (
         <CompaniesView
@@ -238,6 +244,7 @@ export default function Engage({
           leadLists={leadLists}
           sequences={sequences}
           enrollments={enrollments}
+          dispositions={dispositions}
         />
       )}
       {tab === "contacts" && (
@@ -254,6 +261,8 @@ export default function Engage({
           leadLists={leadLists}
           sequences={sequences}
           enrollments={enrollments}
+          dispositions={dispositions}
+          onManageDispositions={onManageDispositions}
           initialSearch={initialContactsSearch}
         />
       )}

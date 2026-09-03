@@ -9,6 +9,7 @@ import PlatformNotes from "./components/PlatformNotes";
 import Home from "./components/Home";
 import Engage, { type EngageTab } from "./components/Engage";
 import AccountPanel from "./components/AccountPanel";
+import DispositionManager from "./components/DispositionManager";
 import type { ParsedFile, ResultRow, RuleOverrides } from "./lib/detection";
 import { scanParsedFiles, DEFAULT_RULE_OVERRIDES } from "./lib/detection";
 import { loadLibraryFromDB, ensureMonthFoldersExist, persistGroup, type LibraryEntry, type LibraryGroup } from "./lib/library";
@@ -94,6 +95,13 @@ import {
   updateEmailAccount,
   type EmailAccount,
 } from "./lib/emailAccounts";
+import {
+  loadDispositionsFromDB,
+  persistDisposition,
+  deleteDispositionFromDB,
+  createCustomDisposition,
+  type CustomDisposition,
+} from "./lib/dispositions";
 import { loadProfile } from "./lib/profile";
 import {
   loadWeeklyGoalsFromDB,
@@ -165,7 +173,7 @@ export default function App() {
   // Shared Platform Notes/Cheat Sheet panel (see CLAUDE.md "Cheat Sheet
   // relocation + dated Platform Notes") — one panel, two tabs, replacing
   // the old separate floating Cheat Sheet button + notes popover.
-  const [notesPanelTab, setNotesPanelTab] = useState<"notes" | "cheatsheet" | null>(null);
+  const [notesPanelTab, setNotesPanelTab] = useState<"notes" | "cheatsheet" | "dispositions" | null>(null);
   const [results, setResults] = useState<ResultRow[] | null>(null);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   // Set only when results are loaded in from History (see
@@ -223,6 +231,9 @@ export default function App() {
   // stays false everywhere: no SendGrid key/backend exists yet, this only
   // captures which sender identity a sequence should use once one does.
   const [emailAccounts, setEmailAccounts] = useState<EmailAccount[]>([]);
+  // Jack's own call dispositions, on top of the six built-ins — see
+  // lib/dispositions.ts for why a custom one is a label+color only.
+  const [dispositions, setDispositions] = useState<CustomDisposition[]>([]);
 
   useEffect(() => {
     loadLibraryFromDB()
@@ -290,6 +301,7 @@ export default function App() {
     loadWeeklyGoalsFromDB().then(setWeeklyGoals).catch(() => {});
     loadSequenceGroupsFromDB().then(setSequenceGroups).catch(() => {});
     loadEmailAccountsFromDB().then(setEmailAccounts).catch(() => {});
+    loadDispositionsFromDB().then(setDispositions).catch(() => {});
     // The roster always has at least "you" — seeded from the local
     // Profile the first time, so sequences have someone to belong to
     // before any teammate is ever added.
@@ -630,6 +642,24 @@ export default function App() {
       setSequences((prev) => prev.map((p) => (p.id === s.id ? next : p)));
       persistSequence(next);
     });
+  }
+
+  // --- Custom call dispositions (lib/dispositions.ts) ---
+  // Returns false when the label is blank or collides with an existing
+  // disposition (built-in or custom), so the manager UI can say why.
+  function addDisposition(label: string): boolean {
+    const created = createCustomDisposition(label, dispositions);
+    if (!created) return false;
+    setDispositions((prev) => [...prev, created]);
+    persistDisposition(created);
+    return true;
+  }
+  // Leads already stamped with this disposition keep their value — it
+  // renders as "<label> (removed)" via dispositionMetaFor rather than
+  // being silently rewritten or crashing (see lib/dispositions.ts).
+  function removeDisposition(id: string) {
+    setDispositions((prev) => prev.filter((d) => d.id !== id));
+    deleteDispositionFromDB(id);
   }
 
   // --- Platform users (attribution only — see lib/users.ts) ---
@@ -1026,6 +1056,7 @@ export default function App() {
               loadedScanStats={loadedScanStats}
               leadLists={leadLists}
               onAddSelectedToList={addSelectedToList}
+              dispositions={dispositions}
             />
           )}
           {view === "engage" && (
@@ -1078,6 +1109,8 @@ export default function App() {
               onRenameList={renameList}
               onDeleteList={deleteList}
               onRemoveLeadFromList={removeLeadFromList}
+              dispositions={dispositions}
+              onManageDispositions={() => setNotesPanelTab("dispositions")}
               initialTab={engageEntry.tab}
               initialContactsSearch={engageEntry.contactsQuery}
             />
@@ -1106,6 +1139,7 @@ export default function App() {
               onLoadIntoScanner={loadParsedFilesIntoScanner}
               onRecordHistory={recordHistory}
               ruleOverrides={ruleOverrides}
+              dispositions={dispositions}
             />
           )}
         </main>
@@ -1117,10 +1151,34 @@ export default function App() {
           ruleOverrides={ruleOverrides}
           onChangeRuleOverrides={updateRuleOverrides}
           onSwitchToNotes={() => setNotesPanelTab("notes")}
+          onSwitchToDispositions={() => setNotesPanelTab("dispositions")}
         />
       )}
       {notesPanelTab === "notes" && (
-        <PlatformNotes onClose={() => setNotesPanelTab(null)} onSwitchToCheatSheet={() => setNotesPanelTab("cheatsheet")} />
+        <PlatformNotes onClose={() => setNotesPanelTab(null)} onSwitchToCheatSheet={() => setNotesPanelTab("cheatsheet")} onSwitchToDispositions={() => setNotesPanelTab("dispositions")} />
+      )}
+      {notesPanelTab === "dispositions" && (
+        <div
+          onClick={() => setNotesPanelTab(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(8,30,34,0.45)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 20px", zIndex: 50, overflowY: "auto" }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: "var(--surface)", borderRadius: 14, maxWidth: 560, width: "100%", padding: "22px 24px", boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}
+          >
+            <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+              <button onClick={() => setNotesPanelTab("notes")} className="btn btn-sm btn-secondary">Platform Notes</button>
+              <button onClick={() => setNotesPanelTab("cheatsheet")} className="btn btn-sm btn-secondary">Cheat Sheet</button>
+              <button disabled className="btn btn-sm" style={{ background: "linear-gradient(90deg, var(--accent), var(--accent-blue))", color: "#fff", fontWeight: 700 }}>
+                Dispositions
+              </button>
+              <span style={{ flex: 1 }} />
+              <button onClick={() => setNotesPanelTab(null)} className="btn btn-sm btn-ghost">✕</button>
+            </div>
+            <h2 style={{ margin: "0 0 10px", fontSize: 17 }}>Call dispositions</h2>
+            <DispositionManager dispositions={dispositions} onAdd={addDisposition} onRemove={removeDisposition} />
+          </div>
+        </div>
       )}
     </div>
   );

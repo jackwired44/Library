@@ -947,8 +947,17 @@ export function getFullName(f: ResolvedFields): string {
 
 // Manual, per-lead status tracking — entirely separate from the detection
 // engine above (nothing here is auto-set). See CLAUDE.md "Lead status".
-export type Disposition = "none" | "meeting-booked" | "no-answer" | "not-interested" | "no-contact" | "other";
-export const DISPOSITION_META: Record<Disposition, { label: string; color: string; bg: string }> = {
+// The six built-ins ship with the app and are the only ones wired into real
+// behavior: "not-interested" auto-crosses a row out, "meeting-booked" tints
+// the row / stamps BOOKED / auto-finishes sequence enrollments. Jack can add
+// his own call dispositions on top of these (lib/dispositions.ts) — those are
+// a label + color only, deliberately with no automatic side effects.
+export type BuiltInDisposition = "none" | "meeting-booked" | "no-answer" | "not-interested" | "no-contact" | "other";
+// Widened to any string so a user-defined disposition id can be stored on a
+// row/contact. The literal union above is kept in the type so every existing
+// comparison (=== "meeting-booked", etc.) still autocompletes and typechecks.
+export type Disposition = BuiltInDisposition | (string & {});
+export const DISPOSITION_META: Record<BuiltInDisposition, { label: string; color: string; bg: string }> = {
   none: { label: "No disposition", color: "#9aa1ac", bg: "#F4F6F7" },
   // Blue for meeting booked, red for not interested — per Jack, "for now"
   // (the other dispositions may get their own row-tint colors later).
@@ -965,7 +974,10 @@ export const DISPOSITION_META: Record<Disposition, { label: string; color: strin
   "no-contact": { label: "No contact made", color: "#8A5A00", bg: "#FBF3E7" },
   other: { label: "Other", color: "#3A4B8C", bg: "#EEF2FF" },
 };
-export const DISPOSITION_ORDER: Disposition[] = ["none", "meeting-booked", "no-answer", "not-interested", "no-contact", "other"];
+export const DISPOSITION_ORDER: BuiltInDisposition[] = ["none", "meeting-booked", "no-answer", "not-interested", "no-contact", "other"];
+export function isBuiltInDisposition(key: string): key is BuiltInDisposition {
+  return (DISPOSITION_ORDER as string[]).includes(key);
+}
 
 export interface ResultRow {
   id: string;

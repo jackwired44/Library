@@ -11,7 +11,8 @@
 // people-match pass (see lib/apolloEnrich.ts) — never automatic.
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { OUTREACH_STATUS_META, type Contact, searchContacts } from "../lib/contacts";
-import { CATEGORY_META, DISPOSITION_META, DISPOSITION_ORDER, type Disposition, type Tier } from "../lib/detection";
+import { CATEGORY_META, type Tier } from "../lib/detection";
+import { dispositionMetaFor, dispositionOptions, type CustomDisposition } from "../lib/dispositions";
 import { checkApolloAvailability, enrichContactsViaApollo, type EnrichOutcome } from "../lib/apolloEnrich";
 import ContactDetail from "./ContactDetail";
 import BookedStamp from "./BookedStamp";
@@ -48,6 +49,8 @@ interface ContactsProps {
   leadLists: LeadList[];
   sequences: Sequence[];
   enrollments: SequenceEnrollment[];
+  dispositions: CustomDisposition[];
+  onManageDispositions: () => void;
   // Seeds the search box on mount — set when arriving here from the header
   // search (see App.tsx/HeaderSearch.tsx). This component remounts fresh
   // each time Engage's Contacts tab is selected, so an initial-only state
@@ -68,13 +71,16 @@ function todayKey(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-export default function Contacts({ contacts, loading, error, tasks, onAddContactTask, onToggleTask, onDeleteTask, onUpdateContact, users, leadLists, sequences, enrollments, initialSearch }: ContactsProps) {
+export default function Contacts({ contacts, loading, error, tasks, onAddContactTask, onToggleTask, onDeleteTask, onUpdateContact, users, leadLists, sequences, enrollments, dispositions, onManageDispositions, initialSearch }: ContactsProps) {
   const [search, setSearch] = useState(initialSearch || "");
   const [sort, setSort] = useState<SortKey>("recent");
   // Disposition-grouped view — per Jack: a place to see where every lead
   // stands (contacted, how many times, meeting booked/not interested/etc.)
   // at a glance. Filters on top of search/sort rather than replacing them.
-  const [dispositionFilter, setDispositionFilter] = useState<Disposition | "all">("all");
+  // Multi-select, per Jack: "make sure it can be filtered through in a
+  // check box way." An empty set means "no disposition filter" (show all)
+  // rather than "show nothing" — same convention as an untouched filter.
+  const [dispositionFilter, setDispositionFilter] = useState<Set<string>>(new Set());
   // Tier + date filtering — per Jack: "i do want to be able to filter by
   // dates as well as strong signal or not as well as needs review or bad
   // leads." Tier is a snapshot from the same scan pass that already sets
@@ -165,10 +171,17 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
   // too), but never the disposition filter itself — every bucket's count
   // needs to stay visible regardless of which one is currently selected.
   const dispositionCounts = useMemo(() => {
-    const counts: Record<Disposition, number> = { none: 0, "meeting-booked": 0, "no-answer": 0, "not-interested": 0, "no-contact": 0, other: 0 };
-    searched.forEach((c) => { counts[c.disposition || "none"]++; });
+    // Built dynamically rather than from a fixed literal, since Jack can
+    // add his own dispositions (lib/dispositions.ts) — an unknown/removed
+    // value still gets counted under its own key rather than dropped.
+    const counts: Record<string, number> = {};
+    dispositionOptions(dispositions).forEach((o) => { counts[o.key] = 0; });
+    searched.forEach((c) => {
+      const key = c.disposition || "none";
+      counts[key] = (counts[key] || 0) + 1;
+    });
     return counts;
-  }, [searched]);
+  }, [searched, dispositions]);
 
   const tierCounts = useMemo(() => {
     const counts: Record<Tier, number> = { signal: 0, mention: 0, dq: 0 };
@@ -178,7 +191,7 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
 
   const filtered = useMemo(() => {
     let list = searched;
-    if (dispositionFilter !== "all") list = list.filter((c) => (c.disposition || "none") === dispositionFilter);
+    if (dispositionFilter.size > 0) list = list.filter((c) => dispositionFilter.has(c.disposition || "none"));
     if (tierFilter !== "all") list = list.filter((c) => c.tier === tierFilter);
     if (dateFrom) list = list.filter((c) => c.lastSeenAt >= dateFrom);
     if (dateTo) list = list.filter((c) => c.lastSeenAt <= `${dateTo}T23:59:59.999Z`);
@@ -207,7 +220,7 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
   // contacted." Only shown once a specific disposition is picked, since
   // "All" summed together isn't a meaningful number on its own.
   const bucketSummary = useMemo(() => {
-    if (dispositionFilter === "all") return null;
+    if (dispositionFilter.size === 0) return null;
     return filtered.reduce(
       (acc, c) => ({ calls: acc.calls + (c.callCount || 0), emails: acc.emails + (c.emailCount || 0) }),
       { calls: 0, emails: 0 }
@@ -299,40 +312,51 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
       </div>
 
       {contacts.length > 0 && (
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
-          <button
-            onClick={() => setDispositionFilter("all")}
-            style={{
-              border: "1px solid var(--border)",
-              borderRadius: 999,
-              padding: "6px 14px",
-              fontSize: 12.5,
-              fontWeight: 700,
-              cursor: "pointer",
-              background: dispositionFilter === "all" ? "linear-gradient(90deg, var(--accent), var(--accent-blue))" : "var(--surface)",
-              color: dispositionFilter === "all" ? "#fff" : "var(--ink)",
-            }}
-          >
-            All ({searched.length})
-          </button>
-          {DISPOSITION_ORDER.map((d) => (
-            <button
-              key={d}
-              onClick={() => setDispositionFilter(d)}
-              style={{
-                border: `1px solid ${dispositionFilter === d ? DISPOSITION_META[d].color : "var(--border)"}`,
-                borderRadius: 999,
-                padding: "6px 14px",
-                fontSize: 12.5,
-                fontWeight: 700,
-                cursor: "pointer",
-                background: dispositionFilter === d ? DISPOSITION_META[d].bg : "var(--surface)",
-                color: dispositionFilter === d ? DISPOSITION_META[d].color : "var(--muted)",
-              }}
-            >
-              {DISPOSITION_META[d].label} ({dispositionCounts[d]})
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 16, border: "1px solid var(--border)", borderRadius: 10, padding: "9px 12px" }}>
+          <span className="rd-label" style={{ marginBottom: 0 }}>Disposition</span>
+          {dispositionOptions(dispositions).map((o) => {
+            const checked = dispositionFilter.has(o.key);
+            return (
+              <label
+                key={o.key}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  border: `1px solid ${checked ? o.color : "var(--border)"}`,
+                  background: checked ? o.bg : "var(--surface)",
+                  color: checked ? o.color : "var(--muted)",
+                  borderRadius: 999,
+                  padding: "4px 11px",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(e) => {
+                    setDispositionFilter((prev) => {
+                      const next = new Set(prev);
+                      if (e.target.checked) next.add(o.key); else next.delete(o.key);
+                      return next;
+                    });
+                  }}
+                />
+                {o.label} ({dispositionCounts[o.key] || 0})
+              </label>
+            );
+          })}
+          {dispositionFilter.size > 0 && (
+            <button onClick={() => setDispositionFilter(new Set())} className="btn btn-sm btn-ghost" style={{ textDecoration: "underline" }}>
+              Clear ({dispositionFilter.size})
             </button>
-          ))}
+          )}
+          <span style={{ flex: 1 }} />
+          <button onClick={onManageDispositions} className="btn btn-sm btn-secondary" title="Add or remove your own call dispositions">
+            ⚙ Manage
+          </button>
         </div>
       )}
 
@@ -389,7 +413,9 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
       ) : filtered.length === 0 ? (
         <div style={{ fontSize: 13, color: "var(--muted)", padding: "24px 0" }}>
           No contacts match{search ? ` "${search}"` : ""}
-          {dispositionFilter !== "all" ? ` with disposition "${DISPOSITION_META[dispositionFilter].label}"` : ""}
+          {dispositionFilter.size > 0
+            ? ` with disposition ${[...dispositionFilter].map((d) => `"${dispositionMetaFor(d, dispositions).label}"`).join(" or ")}`
+            : ""}
           {tierFilter !== "all" ? ` in tier "${TIER_META[tierFilter].label}"` : ""}
           {dateFrom || dateTo ? ` last seen ${dateFrom ? `on/after ${dateFrom}` : ""}${dateFrom && dateTo ? " and " : ""}${dateTo ? `on/before ${dateTo}` : ""}` : ""}.
         </div>
@@ -453,9 +479,9 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
                       borderTop: "1px solid var(--border)",
                       background:
                         c.disposition === "meeting-booked"
-                          ? DISPOSITION_META["meeting-booked"].bg
+                          ? dispositionMetaFor("meeting-booked", dispositions).bg
                           : c.disposition === "not-interested"
-                            ? DISPOSITION_META["not-interested"].bg
+                            ? dispositionMetaFor("not-interested", dispositions).bg
                             : undefined,
                     }}
                   >
@@ -521,9 +547,9 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
                       {c.disposition && c.disposition !== "none" ? (
                         <span
                           title={c.dispositionNote || undefined}
-                          style={{ fontSize: 10.5, fontWeight: 700, color: DISPOSITION_META[c.disposition].color, background: DISPOSITION_META[c.disposition].bg, borderRadius: 999, padding: "2px 9px", whiteSpace: "nowrap" }}
+                          style={{ fontSize: 10.5, fontWeight: 700, color: dispositionMetaFor(c.disposition, dispositions).color, background: dispositionMetaFor(c.disposition, dispositions).bg, borderRadius: 999, padding: "2px 9px", whiteSpace: "nowrap" }}
                         >
-                          {DISPOSITION_META[c.disposition].label}
+                          {dispositionMetaFor(c.disposition, dispositions).label}
                         </span>
                       ) : (
                         <span style={{ color: "var(--muted)" }}>—</span>
@@ -606,6 +632,7 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
           leadLists={leadLists}
           sequences={sequences}
           enrollments={enrollments}
+          dispositions={dispositions}
         />
       )}
     </div>

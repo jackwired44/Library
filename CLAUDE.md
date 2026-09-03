@@ -3082,6 +3082,61 @@ LinkedIn/outreach sections.
   enrollment, the Dynamics 365 + Strong Signal badges, a non-negative
   days-ago reading, and an owner that survived a full page reload.
 
+## Custom call dispositions + checkbox filtering (app/ only)
+
+Per Jack: "lets start building out a dispostion section i can manully add
+new ones for caling and remove them and make sure it can be filtered
+through in a check box way."
+
+- **The six built-ins are untouched and stay special.** Three of them
+  drive real behavior — "Not interested" auto-crosses a row out,
+  "Meeting booked" tints the row, stamps BOOKED and auto-finishes that
+  contact's sequence enrollments (`TERMINAL_DISPOSITIONS`). **A custom
+  disposition is deliberately a label + color only**, with none of those
+  side effects; the manager UI says so in plain text so "Left voicemail"
+  can't be mistaken for something that also crosses the lead out.
+- **`lib/dispositions.ts`** (new, `STORE_DISPOSITIONS`, `DB_VERSION`
+  bumped 12→13) — `CustomDisposition {id, label, color, bg, createdAt}`,
+  with `createCustomDisposition` rejecting a blank name or one whose slug
+  collides with an existing built-in or custom (so "No Answer" can't be
+  added next to the built-in "No answer"). Colors come from a fixed
+  7-entry palette cycled by how many already exist, so a new disposition
+  always reads as a real chip without asking Jack for hex codes.
+- **The type widened, carefully.** `Disposition` in `lib/detection.ts` is
+  now `BuiltInDisposition | (string & {})` — any string is storable, but
+  every existing `=== "meeting-booked"` comparison still typechecks and
+  autocompletes. `DISPOSITION_META` stays a `Record<BuiltInDisposition,
+  …>` and is **no longer indexed directly anywhere**: all 24 call sites
+  went through `dispositionMetaFor(key, dispositions)`, which never
+  returns undefined — that's what makes an unknown key safe.
+- **Deleting a disposition never orphans a lead.** A custom id is a slug
+  of its label (`custom:left-voicemail`), so a lead still stamped with a
+  deleted one renders as "Left voicemail (removed)" in muted grey rather
+  than a raw id or a crash — same "don't rewrite already-filed data"
+  rule the rest of the app follows. The delete confirm says exactly that.
+- **Checkbox filtering, per the ask.** Contacts' disposition filter went
+  from single-select pills to a **multi-select checkbox row** (empty set
+  = no filter, live per-bucket counts, a "Clear (N)" link, and a
+  "⚙ Manage" button that opens the manager). The same checkbox row was
+  added to Engage → **Calls and Emails**, where a task is filtered by its
+  linked *contact's* disposition (a task has no disposition of its own) —
+  and each task row now shows that contact's disposition chip.
+- **Where it's managed**: a third tab, "Dispositions", in the existing
+  shared Platform Notes / Cheat Sheet panel (`notesPanelTab` gained a
+  `"dispositions"` value), reachable from either of those tabs or
+  straight from Contacts' "⚙ Manage" button.
+- Every disposition dropdown in the app (Scanner per-row + bulk bar, Lead
+  Library's per-lead editor) now offers built-ins + customs from the same
+  `dispositionOptions()` source, so the sets can't drift apart.
+- Verified live, 15/15: added two customs, confirmed a duplicate name is
+  rejected with a message, set a lead to a custom disposition from
+  Scanner's per-row dropdown, confirmed the Contacts count went to 1 and
+  the checkbox filtered the table to that one lead, confirmed two boxes
+  checked shows both leads, confirmed the Calls tab carries the same
+  filter, reloaded and confirmed customs + the lead's value persisted,
+  then removed one and confirmed the lead reads "Left voicemail
+  (removed)" with no errors.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

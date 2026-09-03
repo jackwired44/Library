@@ -4,8 +4,6 @@ import {
   ACTIVE_BUCKET_KEYS,
   CATEGORY_META,
   BUCKET_META,
-  DISPOSITION_META,
-  DISPOSITION_ORDER,
   EXPORT_LABELS,
   exportRowsForBucket,
   getFullName,
@@ -21,6 +19,7 @@ import {
   type BucketKey,
   type NoSignalRow,
 } from "../lib/detection";
+import { dispositionMetaFor, dispositionOptions, type CustomDisposition } from "../lib/dispositions";
 import { downloadCSV, parseCSVFile, parseCSVText } from "../lib/csv";
 import type { LeadList } from "../lib/leadLists";
 import BookedStamp from "./BookedStamp";
@@ -94,6 +93,8 @@ interface ScannerProps {
   // bar's "+ Add to list" reads existing lists from here and creates/adds
   // through these two, same pattern as every other bulk action.
   leadLists: LeadList[];
+  // User-defined call dispositions on top of the built-ins (lib/dispositions.ts).
+  dispositions: CustomDisposition[];
   onAddSelectedToList: (rows: ResultRow[], opts: { existingId?: string; newName?: string }) => { listId: string; added: number } | null;
 }
 
@@ -117,6 +118,7 @@ export default function Scanner({
   loadedScanStats,
   leadLists,
   onAddSelectedToList,
+  dispositions,
 }: ScannerProps) {
   // Per-bucket download file name — editable, defaults to the standard
   // wired-cio-<bucket>-leads.csv name until Jack renames it. Reset on
@@ -1102,8 +1104,8 @@ export default function Scanner({
           <div className="bulkbar-divider" />
           <span className="bulkbar-label">Disposition</span>
           <select value={bulkDisposition} onChange={(e) => setBulkDisposition(e.target.value as Disposition)} className="field">
-            {DISPOSITION_ORDER.map((d) => (
-              <option key={d} value={d}>{DISPOSITION_META[d].label}</option>
+            {dispositionOptions(dispositions).map((o) => (
+              <option key={o.key} value={o.key}>{o.label}</option>
             ))}
           </select>
           <button onClick={() => setDispositionForSelected(bulkDisposition)} className="btn btn-sm btn-primary">Apply</button>
@@ -1181,9 +1183,9 @@ export default function Scanner({
                       background: r.isDuplicate
                         ? "#FFFBF2"
                         : r.disposition === "meeting-booked"
-                          ? DISPOSITION_META["meeting-booked"].bg
+                          ? dispositionMetaFor("meeting-booked", dispositions).bg
                           : r.disposition === "not-interested"
-                            ? DISPOSITION_META["not-interested"].bg
+                            ? dispositionMetaFor("not-interested", dispositions).bg
                             : undefined,
                     }}
                   >
@@ -1235,10 +1237,10 @@ export default function Scanner({
                           <select
                             value={r.disposition}
                             onChange={(e) => setDisposition(r.id, e.target.value as Disposition)}
-                            style={{ flex: 1, background: DISPOSITION_META[r.disposition].bg, color: DISPOSITION_META[r.disposition].color, fontWeight: 600, border: "1px solid #D8DBE1", borderRadius: 7, padding: "5px 7px", fontSize: 12 }}
+                            style={{ flex: 1, background: dispositionMetaFor(r.disposition, dispositions).bg, color: dispositionMetaFor(r.disposition, dispositions).color, fontWeight: 600, border: "1px solid #D8DBE1", borderRadius: 7, padding: "5px 7px", fontSize: 12 }}
                           >
-                            {DISPOSITION_ORDER.map((d) => (
-                              <option key={d} value={d}>{DISPOSITION_META[d].label}</option>
+                            {dispositionOptions(dispositions).map((o) => (
+                              <option key={o.key} value={o.key}>{o.label}</option>
                             ))}
                           </select>
                           {r.disposition !== "none" && (

@@ -3,8 +3,6 @@ import {
   ACTIVE_BUCKET_KEYS,
   BUCKET_META,
   CATEGORY_META,
-  DISPOSITION_META,
-  DISPOSITION_ORDER,
   EXPORT_LABELS,
   PERSONAL_PROSPECT_LABEL,
   scanParsedFiles,
@@ -15,6 +13,7 @@ import {
   type ResultRow,
   type RuleOverrides,
 } from "../lib/detection";
+import { dispositionMetaFor, dispositionOptions, type CustomDisposition } from "../lib/dispositions";
 import { parseCSVFile, parseCSVText, downloadBlob } from "../lib/csv";
 import type { HistoryEntry } from "../lib/history";
 import {
@@ -52,6 +51,9 @@ const EDITABLE_FIELDS = EXPORT_LABELS.filter((f) => f !== "Product Area");
 const ROW_EDITOR_CAP = 400;
 
 interface LibraryProps {
+  // User-defined call dispositions, passed down to each file card's
+  // per-lead editor so its dropdown offers the same set as everywhere else.
+  dispositions: CustomDisposition[];
   entries: LibraryEntry[];
   setEntries: React.Dispatch<React.SetStateAction<LibraryEntry[]>>;
   groups: LibraryGroup[];
@@ -67,7 +69,7 @@ interface LibraryProps {
   ruleOverrides: RuleOverrides;
 }
 
-export default function LibraryView({ entries, setEntries, groups, setGroups, loading, error, onLoadIntoScanner, onRecordHistory, ruleOverrides }: LibraryProps) {
+export default function LibraryView({ entries, setEntries, groups, setGroups, loading, error, onLoadIntoScanner, onRecordHistory, ruleOverrides, dispositions }: LibraryProps) {
   const [openFolderId, setOpenFolderId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [showNewGroupForm, setShowNewGroupForm] = useState(false);
@@ -284,6 +286,7 @@ export default function LibraryView({ entries, setEntries, groups, setGroups, lo
         onRowStatus={handleRowStatus}
         onRowDelete={handleRowDelete}
         onRowMove={handleRowMove}
+        dispositions={dispositions}
         onSetPrivate={(password) => handleSetPrivate(openFolder.id, password)}
         onSetPublic={() => handleSetPublic(openFolder.id)}
         onUpload={(files) => handleUploadIntoFolder(openFolder.id, files)}
@@ -408,6 +411,7 @@ interface FolderContentsProps {
   onUpload: (files: FileList | null) => void;
   uploadNotice: string | null;
   uploadError: string | null;
+  dispositions: CustomDisposition[];
 }
 
 function FolderContents({
@@ -431,6 +435,7 @@ function FolderContents({
   onUpload,
   uploadNotice,
   uploadError,
+  dispositions,
 }: FolderContentsProps) {
   const folderEntries = getFolderEntries(entries, folder.id);
   const combined = getCombinedFolderExport(entries, folder.id);
@@ -494,6 +499,7 @@ function FolderContents({
               onRowStatus={(rowKey, patch) => onRowStatus(entry.id, rowKey, patch)}
               onRowDelete={(rowKey) => onRowDelete(entry.id, rowKey)}
               onRowMove={(rowKey, bk) => onRowMove(entry.id, rowKey, bk)}
+              dispositions={dispositions}
             />
           ))}
 
@@ -521,9 +527,10 @@ interface CategoryFileCardProps {
   onRowStatus: (rowKey: string, patch: Partial<Pick<StoredRow, "__disposition" | "__dispositionNote" | "__priority" | "__priorityMonth">>) => void;
   onRowDelete: (rowKey: string) => void;
   onRowMove: (rowKey: string, newBucket: BucketKey) => void;
+  dispositions: CustomDisposition[];
 }
 
-function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownload, onLoad, onReceivedDate, onRename, onRowField, onRowStatus, onRowDelete, onRowMove }: CategoryFileCardProps) {
+function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownload, onLoad, onReceivedDate, onRename, onRowField, onRowStatus, onRowDelete, onRowMove, dispositions }: CategoryFileCardProps) {
   const meta = CATEGORY_META[Object.keys(CATEGORY_META).find((k) => CATEGORY_META[k as keyof typeof CATEGORY_META].bucket === entry.bucketKey) as keyof typeof CATEGORY_META];
   const isDynamics = entry.bucketKey === "dynamics";
   const isM365 = entry.bucketKey === "m365Tenant";
@@ -653,10 +660,10 @@ function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownl
                               <select
                                 value={disposition}
                                 onChange={(ev) => onRowStatus(rowKey, { __disposition: ev.target.value as Disposition })}
-                                style={{ flex: 1, background: DISPOSITION_META[disposition].bg, color: DISPOSITION_META[disposition].color, fontWeight: 600, border: "1px solid #D8DBE1", borderRadius: 6, padding: "4px 6px", fontSize: 11.5 }}
+                                style={{ flex: 1, background: dispositionMetaFor(disposition, dispositions).bg, color: dispositionMetaFor(disposition, dispositions).color, fontWeight: 600, border: "1px solid #D8DBE1", borderRadius: 6, padding: "4px 6px", fontSize: 11.5 }}
                               >
-                                {DISPOSITION_ORDER.map((d) => (
-                                  <option key={d} value={d}>{DISPOSITION_META[d].label}</option>
+                                {dispositionOptions(dispositions).map((o) => (
+                                  <option key={o.key} value={o.key}>{o.label}</option>
                                 ))}
                               </select>
                               {disposition !== "none" && (

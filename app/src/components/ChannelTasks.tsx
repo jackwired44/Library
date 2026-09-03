@@ -9,12 +9,16 @@ import { useMemo, useState } from "react";
 import type { Contact } from "../lib/contacts";
 import { formatTaskTime, type Task, type TaskPriority } from "../lib/tasks";
 import { SELF_USER_ID, userLabel, type PlatformUser } from "../lib/users";
+import { dispositionOptions, dispositionMetaFor, type CustomDisposition } from "../lib/dispositions";
 
 interface ChannelTasksProps {
   channel: "call" | "email";
   contacts: Contact[];
   tasks: Task[];
   users: PlatformUser[];
+  // For the disposition checkbox filter below — a call task is filtered by
+  // its linked CONTACT's disposition (a task has no disposition of its own).
+  dispositions: CustomDisposition[];
   onAddContactTask: (contactId: string, date: string, priority: TaskPriority, text: string, channel: "call" | "email", time?: string | null, userId?: string | null) => void;
   onToggleTask: (id: string) => void;
   onDeleteTask: (id: string) => void;
@@ -40,10 +44,13 @@ function todayKey(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-export default function ChannelTasks({ channel, contacts, tasks, users, onAddContactTask, onToggleTask, onDeleteTask, onUpdateTaskFields }: ChannelTasksProps) {
+export default function ChannelTasks({ channel, contacts, tasks, users, dispositions, onAddContactTask, onToggleTask, onDeleteTask, onUpdateTaskFields }: ChannelTasksProps) {
   const meta = CHANNEL_META[channel];
   const [showAdd, setShowAdd] = useState(false);
   const [hideDone, setHideDone] = useState(true);
+  // Multi-select, per Jack: "make sure it can be filtered through in a
+  // check box way." Empty set = no filter (show everything).
+  const [dispositionFilter, setDispositionFilter] = useState<Set<string>>(new Set());
 
   const contactById = useMemo(() => new Map(contacts.map((c) => [c.id, c])), [contacts]);
   const channelTasks = useMemo(
@@ -51,9 +58,28 @@ export default function ChannelTasks({ channel, contacts, tasks, users, onAddCon
       tasks
         .filter((t): t is Task & { contactId: string; priority: TaskPriority } => t.channel === channel && Boolean(t.contactId && t.priority && contactById.has(t.contactId)))
         .filter((t) => !hideDone || !t.done)
+        .filter((t) => {
+          if (dispositionFilter.size === 0) return true;
+          const c = contactById.get(t.contactId);
+          return dispositionFilter.has(c?.disposition || "none");
+        })
         .sort((a, b) => PRIORITY_META[a.priority].rank - PRIORITY_META[b.priority].rank || a.date.localeCompare(b.date)),
-    [tasks, contactById, channel, hideDone]
+    [tasks, contactById, channel, hideDone, dispositionFilter]
   );
+
+  // Counts per disposition across this channel's tasks (before the
+  // disposition filter itself, so every bucket stays visible).
+  const dispositionCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    tasks.forEach((t) => {
+      if (t.channel !== channel || !t.contactId) return;
+      if (hideDone && t.done) return;
+      const c = contactById.get(t.contactId);
+      const key = c?.disposition || "none";
+      counts[key] = (counts[key] || 0) + 1;
+    });
+    return counts;
+  }, [tasks, channel, hideDone, contactById]);
 
   function submit(contact: Contact, date: string, priority: TaskPriority, note: string, time: string, userId: string) {
     const base = `${meta.verb} ${contact.fullName || contact.company}${contact.company && contact.fullName ? ` (${contact.company})` : ""}`;
@@ -87,6 +113,49 @@ export default function ChannelTasks({ channel, contacts, tasks, users, onAddCon
         </label>
       </div>
 
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", border: "1px solid var(--border)", borderRadius: 10, padding: "9px 12px", marginBottom: 14 }}>
+        <span className="rd-label" style={{ marginBottom: 0 }}>Disposition</span>
+        {dispositionOptions(dispositions).map((o) => {
+          const checked = dispositionFilter.has(o.key);
+          return (
+            <label
+              key={o.key}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: "pointer",
+                border: `1px solid ${checked ? o.color : "var(--border)"}`,
+                background: checked ? o.bg : "var(--surface)",
+                color: checked ? o.color : "var(--muted)",
+                borderRadius: 999,
+                padding: "4px 11px",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={(e) => {
+                  setDispositionFilter((prev) => {
+                    const next = new Set(prev);
+                    if (e.target.checked) next.add(o.key); else next.delete(o.key);
+                    return next;
+                  });
+                }}
+              />
+              {o.label} ({dispositionCounts[o.key] || 0})
+            </label>
+          );
+        })}
+        {dispositionFilter.size > 0 && (
+          <button onClick={() => setDispositionFilter(new Set())} className="btn btn-sm btn-ghost" style={{ textDecoration: "underline" }}>
+            Clear ({dispositionFilter.size})
+          </button>
+        )}
+      </div>
+
       {showAdd && <AddChannelTaskForm channel={channel} contacts={contacts} users={users} onSubmit={submit} onCancel={() => setShowAdd(false)} />}
 
       {channelTasks.length === 0 ? (
@@ -110,6 +179,14 @@ export default function ChannelTasks({ channel, contacts, tasks, users, onAddCon
                   {t.text}
                 </span>
                 {contact && <span style={{ fontSize: 11.5, color: "var(--muted)" }}>{contact.company}</span>}
+                {contact && (contact.disposition || "none") !== "none" && (
+                  <span
+                    title="The linked contact's current disposition"
+                    style={{ fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap", borderRadius: 999, padding: "2px 8px", color: dispositionMetaFor(contact.disposition, dispositions).color, background: dispositionMetaFor(contact.disposition, dispositions).bg }}
+                  >
+                    {dispositionMetaFor(contact.disposition, dispositions).label}
+                  </span>
+                )}
                 {t.userId && (
                   <span title="Assigned to" style={{ fontSize: 10.5, fontWeight: 700, color: "#0A66C2", background: "#EAF3FC", borderRadius: 999, padding: "2px 8px", whiteSpace: "nowrap" }}>
                     {userLabel(users, t.userId)}
