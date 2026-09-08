@@ -241,29 +241,6 @@
     .card-title { white-space: normal; max-width: 60vw; }
   }
 
-  /* ---------------- certificate ---------------- */
-
-  .cert-card {
-    border: 2px double var(--border);
-    border-radius: 14px;
-    padding: 38px 28px;
-    max-width: 560px;
-    margin: 20px auto 0;
-    background: var(--surface);
-    text-align: center;
-  }
-  .cert-seal { font-size: 38px; margin-bottom: 6px; }
-  .cert-title { font-family: "Archivo", sans-serif; font-weight: 800; font-size: 22px; margin: 6px 0 14px; letter-spacing: -0.01em; }
-  .cert-body { color: var(--muted); font-size: 14px; line-height: 1.65; max-width: 50ch; margin: 0 auto 26px; }
-  .cert-form { display: flex; gap: 8px; max-width: 420px; margin: 0 auto; }
-  .cert-signed-name { font-family: "Archivo", sans-serif; font-weight: 800; font-size: 21px; margin: 0 0 4px; color: var(--accent); }
-  .cert-signed-sub { color: var(--muted); font-size: 12.5px; margin: 0 0 20px; font-style: italic; }
-  .cert-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
-
-  @media (max-width: 500px) {
-    .cert-form { flex-direction: column; }
-  }
-
   /* ---------------- ask view ---------------- */
 
   .ask-content { max-width: 700px; margin: 0 auto; padding: 30px clamp(18px, 4vw, 44px) 30px; display: flex; flex-direction: column; gap: 18px; }
@@ -478,7 +455,7 @@
   #printAll .print-cover h1 { font-family: "Archivo", sans-serif; font-size: 30px; font-weight: 800; }
 
   @media print {
-    .topbar, .legend-strip, .track-filters, .index-hero, .detail-bar, .doc-footer-nav, .cert-form, .cert-actions { display: none !important; }
+    .topbar, .legend-strip, .track-filters, .index-hero, .detail-bar, .doc-footer-nav { display: none !important; }
     body.print-all-mode .index-view, body.print-all-mode .detail-view { display: none !important; }
     body:not(.print-all-mode) #printAll { display: none !important; }
     .block { break-inside: avoid; }
@@ -519,10 +496,9 @@
   <div class="index-hero">
     <span class="eyebrow" style="color:var(--accent)">Internal &middot; Outbound Sales</span>
     <h1>The Outbound Playbook</h1>
-    <p class="tagline">&ldquo;When your technology works, so do your people.&rdquo; Read it front to back like a book &mdash; each page turns to the next &mdash; or jump straight to what you need below. Finish all thirteen and there&rsquo;s a certificate waiting at the end.</p>
+    <p class="tagline">&ldquo;When your technology works, so do your people.&rdquo; Read it front to back like a reference manual &mdash; each page turns to the next &mdash; or jump straight to what you need below.</p>
     <div class="hero-actions">
       <a class="btn primary" href="#company-profile">Start Reading &rarr;</a>
-      <a class="btn" href="#certificate">Skip to the Certificate &#127891;</a>
     </div>
   </div>
   <div class="track-filters" id="trackFilters"></div>
@@ -556,37 +532,6 @@
       <input class="ask-input" id="askInput" type="text" placeholder="e.g. what do I say if they already have an ERP?" autocomplete="off">
       <button class="ask-send" type="submit">Ask</button>
     </form>
-  </div>
-</div>
-
-<div class="detail-view" id="certificateView" hidden>
-  <div class="detail-bar">
-    <button class="back-link" id="certBackLink">&larr; All sections</button>
-    <div class="detail-meta"><span class="eyebrow" style="color:var(--accent)">FINAL PAGE</span><span class="idx">14 / 14</span></div>
-    <div class="pager">
-      <button id="certPrevBtn" aria-label="Previous page">&larr;</button>
-      <button disabled aria-label="No further pages">&rarr;</button>
-    </div>
-  </div>
-  <div class="detail-content">
-    <div class="cert-card">
-      <div class="cert-seal">&#127942;</div>
-      <span class="eyebrow" style="color:var(--accent)">CERTIFICATE OF COMPLETION</span>
-      <h2 class="cert-title">The Wired CIO Wedge-Finder Award</h2>
-      <p class="cert-body">This certifies that the bearer has read all thirteen pages of the Outbound Playbook, can recite the Non-Negotiables from memory, knows never to book blind, and has sworn off pitching Business Central to a Sales/CRM lead. No further action required, except making quota.</p>
-      <div id="certSignedBlock" hidden>
-        <p class="cert-signed-name" id="certSignedName"></p>
-        <p class="cert-signed-sub">is hereby certified, until Jack changes the rules again.</p>
-        <div class="cert-actions">
-          <button class="btn" id="certPrintBtn">Print certificate</button>
-          <button class="btn" id="certResignBtn">Sign as someone else</button>
-        </div>
-      </div>
-      <form class="cert-form" id="certForm">
-        <input class="ask-input" id="certNameInput" type="text" placeholder="Type your name to sign" autocomplete="off">
-        <button class="ask-send" type="submit">Sign &amp; Get Certified</button>
-      </form>
-    </div>
   </div>
 </div>
 
@@ -771,6 +716,55 @@
       crossSell: {
         heading: "Handoff &mdash; What a Booked Discovery Call Needs",
         text: "Company name, contact, the product-line category (Dynamics 365 / M365-Azure / MSP / Custom App Dev / etc.), the tier you qualified them at, and the specific trigger language they used on the call. That&rsquo;s what becomes the account team&rsquo;s opening line in Discovery &mdash; don&rsquo;t let it get lost in a generic handoff note.",
+      },
+    },
+    {
+      key: "platform-reference", track: "foundations", kicker: "REFERENCE",
+      title: "Platform Reference",
+      subtitle: "Every Microsoft platform and SKU Wired CIO works with, in plain language.",
+      overview: [
+        "This page is a glossary, not a script &mdash; use it when a prospect names a specific SKU or product and you need a one-line, accurate answer for what it actually is. Discovery questions and buying signals for each area live on their own pages; this page is just the reference.",
+      ],
+      snapshot: {
+        heading: "Microsoft 365 Licensing SKUs",
+        headers: ["SKU", "What It Is"],
+        rows: [
+          ["M365 Business Basic", "Cloud-only: Exchange email, Teams, OneDrive, SharePoint. No installed desktop Office apps."],
+          ["M365 Business Standard", "Business Basic plus installed desktop Office apps (Word, Excel, PowerPoint, Outlook)."],
+          ["M365 Business Premium", "Business Standard plus advanced security (Defender for Business), device management (Intune), and Entra ID P1."],
+          ["O365/M365 E1", "Enterprise-tier cloud services (email, Teams, SharePoint) without desktop apps &mdash; for orgs larger than the Business tiers support."],
+          ["M365 E3", "E1 plus desktop Office apps, device management, and baseline security/compliance."],
+          ["M365 E5", "E3 plus advanced security, compliance, voice (Phone System), and Power BI Pro included."],
+          ["F1 / F3 (Frontline)", "Licensed for frontline/shift workers; F3 adds desktop-app access rights."],
+          ["EMS", "Enterprise Mobility + Security &mdash; Entra ID P1/P2 plus Intune, bundled for identity and device management."],
+          ["Power BI Pro / Premium", "Business analytics and reporting; Premium adds larger capacity and dedicated compute for bigger orgs."],
+          ["M365 Copilot", "AI assistant embedded across Word, Excel, Outlook, and Teams &mdash; licensed per user on top of an existing M365 plan."],
+          ["Defender (variants)", "Microsoft&rsquo;s security product family &mdash; Defender for Business, Office 365, Endpoint, etc. &mdash; covering email, endpoint, and identity threat protection."],
+          ["Entra ID P1 / P2", "Identity and access management; P1 adds conditional access, P2 adds identity protection and risk-based access."],
+          ["Teams Phone", "Turns Teams into a business phone system with calling plans (PSTN)."],
+          ["Intune", "Device management (MDM/MAM) for company-owned and personal devices."],
+        ],
+      },
+      facts: {
+        heading: "Dynamics 365 Modules We Support",
+        items: [
+          "<b>Business Central</b> &mdash; SMB-tier cloud ERP: finance, supply chain, inventory, manufacturing, project accounting. Wired CIO&rsquo;s ERP practice.",
+          "<b>Dynamics 365 Sales / CRM</b> &mdash; sales pipeline, customer engagement, marketing, field service.",
+          "<b>Project Operations</b> &mdash; project-based business management: resourcing, time/expense, project accounting.",
+          "<b>Not supported: Dynamics 365 Finance and Operations.</b> Separate, larger enterprise-tier ERP &mdash; outside our practice and outside our SMB ICP.",
+        ],
+      },
+      icp: {
+        heading: "Azure Services",
+        items: [
+          "<b>Azure Document Intelligence</b> &mdash; AI-powered document data extraction, always built into a custom app, never sold standalone.",
+          "<b>Custom app hosting</b> &mdash; Azure-hosted custom applications Wired CIO builds and/or supports.",
+          "<b>Azure Partner/CSP billing</b> &mdash; consolidated billing and cost management for a client&rsquo;s Azure spend, routed through Wired CIO as the CSP.",
+        ],
+      },
+      crossSell: {
+        heading: "Where to Go Next",
+        text: "Each platform has its own page with discovery questions, buying signals, and objection handling: Business Central/ERP, Dynamics 365 Sales/CRM, Project Operations, Custom Application Development, Azure Document Intelligence, Azure Partner/CSP Billing, and Microsoft Licensing Support/CSP.",
       },
     },
     {
@@ -1390,7 +1384,6 @@
   const indexView = document.getElementById("indexView");
   const detailView = document.getElementById("detailView");
   const askView = document.getElementById("askView");
-  const certificateView = document.getElementById("certificateView");
   const detailContent = document.getElementById("detailContent");
   const detailKicker = document.getElementById("detailKicker");
   const detailIdx = document.getElementById("detailIdx");
@@ -1399,15 +1392,14 @@
 
   function neighborButton(key, dir) {
     if (!key) return `<span></span>`;
-    const title = key === "certificate" ? "Certificate of Completion 🎓" : byKey[key].title;
-    return `<button class="foot-nav-btn ${dir}" data-goto="${key}"><span class="dir">${dir === "next" ? "Next" : "Previous"}</span><span>${title}</span></button>`;
+    const s = byKey[key];
+    return `<button class="foot-nav-btn ${dir}" data-goto="${key}"><span class="dir">${dir === "next" ? "Next" : "Previous"}</span><span>${s.title}</span></button>`;
   }
 
   function setView(which) {
     indexView.hidden = which !== "index";
     detailView.hidden = which !== "detail";
     askView.hidden = which !== "ask";
-    certificateView.hidden = which !== "certificate";
   }
 
   function showDetail(key) {
@@ -1420,14 +1412,14 @@
     detailView.style.setProperty("--track-color", t.color);
     detailKicker.textContent = section.kicker;
     detailKicker.style.color = t.color;
-    detailIdx.textContent = `${String(idx + 1).padStart(2, "0")} / ${SECTIONS.length + 1}`;
+    detailIdx.textContent = `${String(idx + 1).padStart(2, "0")} / ${SECTIONS.length}`;
 
     const prevKey = orderedKeys[idx - 1] || null;
-    const nextKey = idx === orderedKeys.length - 1 ? "certificate" : orderedKeys[idx + 1];
+    const nextKey = orderedKeys[idx + 1] || null;
     prevBtn.disabled = !prevKey;
-    nextBtn.disabled = false;
+    nextBtn.disabled = !nextKey;
     prevBtn.onclick = () => prevKey && (location.hash = prevKey);
-    nextBtn.onclick = () => (location.hash = nextKey);
+    nextBtn.onclick = () => nextKey && (location.hash = nextKey);
 
     detailContent.style.setProperty("--track-color", t.color);
     detailContent.innerHTML =
@@ -1452,15 +1444,9 @@
     if (!askThread.children.length) askInput.focus();
   }
 
-  function showCertificate() {
-    setView("certificate");
-    renderCertState();
-  }
-
   function routeFromHash() {
     const raw = location.hash.replace(/^#/, "");
     if (raw === "ask") { showAsk(); return; }
-    if (raw === "certificate") { showCertificate(); return; }
     if (raw && byKey[raw]) { showDetail(raw); return; }
     showIndex();
   }
@@ -1468,58 +1454,8 @@
   window.addEventListener("hashchange", routeFromHash);
   document.getElementById("backLink").addEventListener("click", () => { location.hash = ""; });
   document.getElementById("askBackLink").addEventListener("click", () => { location.hash = ""; });
-  document.getElementById("certBackLink").addEventListener("click", () => { location.hash = ""; });
-  document.getElementById("certPrevBtn").addEventListener("click", () => { location.hash = orderedKeys[orderedKeys.length - 1]; });
   document.getElementById("brandHome").addEventListener("click", () => { location.hash = ""; });
   document.getElementById("askBtn").addEventListener("click", () => { location.hash = "ask"; });
-
-  // ---------------------------------------------------------------------
-  // Certificate of Completion (a joke, but a real localStorage signature
-  // per viewer -- wrapped in try/catch since storage access can throw in
-  // some contexts, e.g. a private window or blocked site data).
-  // ---------------------------------------------------------------------
-  const certSignedBlock = document.getElementById("certSignedBlock");
-  const certSignedName = document.getElementById("certSignedName");
-  const certForm = document.getElementById("certForm");
-  const certNameInput = document.getElementById("certNameInput");
-
-  function loadSignature() {
-    try { return localStorage.getItem("wiredcio-playbook-signature") || ""; }
-    catch (e) { return ""; }
-  }
-  function saveSignature(name) {
-    try { localStorage.setItem("wiredcio-playbook-signature", name); }
-    catch (e) { /* private window or blocked storage -- signature just won't persist */ }
-  }
-
-  function renderCertState() {
-    const name = loadSignature();
-    if (name) {
-      certSignedName.textContent = name;
-      certSignedBlock.hidden = false;
-      certForm.hidden = true;
-    } else {
-      certSignedBlock.hidden = true;
-      certForm.hidden = false;
-      certNameInput.focus();
-    }
-  }
-
-  certForm.addEventListener("submit", (e) => {
-    e.preventDefault();
-    const name = certNameInput.value.trim();
-    if (!name) return;
-    saveSignature(name);
-    renderCertState();
-  });
-
-  document.getElementById("certResignBtn").addEventListener("click", () => {
-    saveSignature("");
-    certNameInput.value = "";
-    renderCertState();
-  });
-
-  document.getElementById("certPrintBtn").addEventListener("click", () => { window.print(); });
   routeFromHash();
 
   // ---------------------------------------------------------------------
