@@ -6,6 +6,7 @@
 // the seed of that (see CLAUDE.md Roadmap's "richer company-level data"
 // item) — start with the roll-up, layer in real company fields later.
 import type { Contact } from "./contacts";
+import { mostCommonZone, resolveContactTimeZone } from "./timezones";
 
 export interface Company {
   name: string; // first-seen casing/spelling
@@ -23,6 +24,12 @@ export interface Company {
   totalEmails: number;
   contactedCount: number; // outreachStatus set to anything but "not-contacted"/unset
   meetingBookedCount: number;
+  // The most common resolved time zone among this company's contacts
+  // (lib/timezones.ts — manual override, else phone area code). There is
+  // no company location field yet, so this IS the company's zone until
+  // Apollo company enrichment lands an HQ location to read instead. Null
+  // when no contact resolves.
+  timeZone: string | null;
 }
 
 function normalizeCompanyKey(name: string): string {
@@ -66,10 +73,15 @@ export function groupContactsByCompany(contacts: Contact[]): Company[] {
         totalEmails: c.emailCount || 0,
         contactedCount: contacted ? 1 : 0,
         meetingBookedCount: meetingBooked ? 1 : 0,
+        timeZone: null,
       });
     }
   });
-  return Array.from(byKey.values());
+  const companies = Array.from(byKey.values());
+  companies.forEach((co) => {
+    co.timeZone = mostCommonZone(co.contacts.map((c) => resolveContactTimeZone(c).zone));
+  });
+  return companies;
 }
 
 export function searchCompanies(companies: Company[], query: string): Company[] {

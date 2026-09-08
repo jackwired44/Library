@@ -17,6 +17,8 @@ import { dispositionMetaFor, type CustomDisposition } from "../lib/dispositions"
 import ContactDetail from "./ContactDetail";
 import BookedStamp from "./BookedStamp";
 import OnCrmBadge from "./OnCrmBadge";
+import LocalTime from "./LocalTime";
+import { useNow } from "../lib/useNow";
 import type { Task } from "../lib/tasks";
 import type { LeadList } from "../lib/leadLists";
 import type { Sequence, SequenceEnrollment } from "../lib/sequences";
@@ -48,6 +50,7 @@ export default function Companies({ contacts, onAddContact, onUpdateContact, use
   const [addingForKey, setAddingForKey] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  const now = useNow();
   const contactById = useMemo(() => new Map(contacts.map((c) => [c.id, c])), [contacts]);
 
   const companies = useMemo(() => groupContactsByCompany(contacts), [contacts]);
@@ -139,6 +142,12 @@ export default function Companies({ contacts, onAddContact, onUpdateContact, use
                             <CompanyStat label="Emails sent" value={co.totalEmails} />
                             <CompanyStat label="Contacted" value={`${co.contactedCount} / ${co.contactCount}`} />
                             <CompanyStat label="Meetings booked" value={co.meetingBookedCount} />
+                            <div>
+                              <div style={{ fontSize: 10, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase" }}>Local time</div>
+                              <div style={{ fontSize: 13, fontWeight: 600, marginTop: 3 }}>
+                                <LocalTime zone={co.timeZone} source={co.timeZone ? "phone" : "unknown"} now={now} variant="full" />
+                              </div>
+                            </div>
                           </div>
                           <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
                             {co.contacts.map((p) => (

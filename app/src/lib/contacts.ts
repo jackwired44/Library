@@ -89,6 +89,11 @@ export interface Contact {
   // every contact captured before this field existed simply reads as
   // unowned rather than being attributed to someone by guesswork.
   ownerId?: string | null;
+  // Manual time zone override (IANA id). When unset, the zone is derived
+  // from the phone's area code at display time — see lib/timezones.ts for
+  // the full resolution order and why phone is the only real location
+  // signal this app has today.
+  timeZone?: string | null;
   // Manually pasted in once found — see components/ContactDetail.tsx's
   // "Search LinkedIn" link, which opens a LinkedIn people-search prefilled
   // with name+company (no automatic verified match — see CLAUDE.md

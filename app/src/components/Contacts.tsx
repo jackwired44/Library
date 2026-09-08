@@ -17,6 +17,9 @@ import { checkApolloAvailability, enrichContactsViaApollo, type EnrichOutcome } 
 import ContactDetail from "./ContactDetail";
 import BookedStamp from "./BookedStamp";
 import OnCrmBadge from "./OnCrmBadge";
+import LocalTime from "./LocalTime";
+import { useNow } from "../lib/useNow";
+import { resolveContactTimeZone } from "../lib/timezones";
 import type { Task, TaskPriority } from "../lib/tasks";
 import type { LeadList } from "../lib/leadLists";
 import type { Sequence, SequenceEnrollment } from "../lib/sequences";
@@ -81,6 +84,7 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
   // check box way." An empty set means "no disposition filter" (show all)
   // rather than "show nothing" — same convention as an untouched filter.
   const [dispositionFilter, setDispositionFilter] = useState<Set<string>>(new Set());
+  const now = useNow();
   // Tier + date filtering — per Jack: "i do want to be able to filter by
   // dates as well as strong signal or not as well as needs review or bad
   // leads." Tier is a snapshot from the same scan pass that already sets
@@ -462,6 +466,7 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
                 <th style={{ padding: "9px 12px" }}>Title</th>
                 <th style={{ padding: "9px 12px" }}>Email</th>
                 <th style={{ padding: "9px 12px" }}>Phone</th>
+                <th style={{ padding: "9px 12px" }} title="Their current local time — from a manual override or the phone's area code">Local time</th>
                 <th style={{ padding: "9px 12px" }}>Product line</th>
                 <th style={{ padding: "9px 12px" }}>Disposition</th>
                 <th style={{ padding: "9px 12px" }}>Matched snippet</th>
@@ -535,6 +540,9 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
                     </td>
                     <td style={{ padding: "9px 12px" }}>{c.workPhone || c.mobilePhone || "—"}</td>
                     <td style={{ padding: "9px 12px" }}>
+                      {(() => { const tz = resolveContactTimeZone(c); return <LocalTime zone={tz.zone} source={tz.source} now={now} />; })()}
+                    </td>
+                    <td style={{ padding: "9px 12px" }}>
                       {c.category ? (
                         <span style={{ fontSize: 10.5, fontWeight: 700, color: CATEGORY_META[c.category].color, background: CATEGORY_META[c.category].bg, borderRadius: 999, padding: "2px 9px", whiteSpace: "nowrap" }}>
                           {CATEGORY_META[c.category].label}
@@ -587,7 +595,7 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
                   </tr>
                   {addingForId === c.id && (
                     <tr style={{ background: "var(--bg)" }}>
-                      <td colSpan={13} style={{ padding: "10px 12px" }}>
+                      <td colSpan={14} style={{ padding: "10px 12px" }}>
                         <AddContactTaskForm contact={c} onSubmit={(date, priority, note, time) => submitContactTask(c, date, priority, note, time)} onCancel={() => setAddingForId(null)} />
                       </td>
                     </tr>

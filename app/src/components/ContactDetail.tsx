@@ -16,6 +16,9 @@ import { lastActivityForContact, type Task } from "../lib/tasks";
 import { listsForContact, type LeadList } from "../lib/leadLists";
 import { resolveStatus, type Sequence, type SequenceEnrollment } from "../lib/sequences";
 import { userLabel, type PlatformUser } from "../lib/users";
+import { resolveContactTimeZone, TIME_ZONE_CHOICES, zoneLabel } from "../lib/timezones";
+import { useNow } from "../lib/useNow";
+import LocalTime from "./LocalTime";
 
 // Same tier labels/colors Contacts.tsx's own filter row uses.
 const TIER_META: Record<Tier, { label: string; color: string; bg: string }> = {
@@ -47,6 +50,8 @@ export default function ContactDetail({ contact, onClose, onUpdate, users, tasks
   const linkedinSearchUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent([contact.fullName, contact.company].filter(Boolean).join(" "))}`;
 
   const lastActivity = useMemo(() => lastActivityForContact(tasks, contact.id), [tasks, contact.id]);
+  const now = useNow();
+  const tz = resolveContactTimeZone(contact);
   const listMemberships = useMemo(() => listsForContact(leadLists, [contact], contact.id), [leadLists, contact]);
   const contactEnrollments = useMemo(
     () =>
@@ -152,6 +157,31 @@ export default function ContactDetail({ contact, onClose, onUpdate, users, tasks
               ) : (
                 <div style={{ fontSize: 12.5, color: "var(--muted)" }}>
                   No completed call, email or task logged yet.
+                </div>
+              )}
+            </div>
+            <div style={{ gridColumn: "1 / -1" }}>
+              <div className="rd-label">Time zone &amp; local time</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <LocalTime zone={tz.zone} source={tz.source} now={now} variant="full" />
+                <select
+                  value={contact.timeZone || ""}
+                  onChange={(e) => onUpdate({ timeZone: e.target.value || null })}
+                  className="field"
+                  title="Override the time zone by hand. Leave on Auto to derive it from the phone number's area code."
+                  style={{ fontSize: 12 }}
+                >
+                  <option value="">
+                    {tz.source === "phone" ? `Auto — from area code (${zoneLabel(tz.zone as string)})` : "Auto — from phone area code"}
+                  </option>
+                  {TIME_ZONE_CHOICES.map((c) => (
+                    <option key={c.zone} value={c.zone}>{c.label}</option>
+                  ))}
+                </select>
+              </div>
+              {tz.source === "unknown" && (
+                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+                  No North American phone number to read an area code from — pick a zone above if you know it.
                 </div>
               )}
             </div>

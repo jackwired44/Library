@@ -11,6 +11,8 @@ import { useEffect, useState } from "react";
 import { loadProfile, saveProfile, type Profile } from "../lib/profile";
 import ProfileAccess from "./ProfileAccess";
 import type { PlatformUser, UserRole } from "../lib/users";
+import { formatTimeInZone, localTimeZone, zoneAbbrev, zoneLabel } from "../lib/timezones";
+import { useNow } from "../lib/useNow";
 
 interface AccountPanelProps {
   users: PlatformUser[];
@@ -22,6 +24,11 @@ interface AccountPanelProps {
 }
 
 export default function AccountPanel({ onOpenSettings, onOpenNotes, users, onAddUser, onEditUser, onRemoveUser }: AccountPanelProps) {
+  // The local user's own clock/zone — per Jack, shown "for the local user
+  // using the platform" as the reference every contact's offset is
+  // measured against (see lib/timezones.ts).
+  const now = useNow();
+  const localZone = localTimeZone();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
 
@@ -43,6 +50,9 @@ export default function AccountPanel({ onOpenSettings, onOpenNotes, users, onAdd
         <div className="account-info">
           <div className="account-name">{profile?.name || "Jack"}</div>
           <div className="account-org">{[profile?.role, profile?.org].filter(Boolean).join(" · ") || "Wired CIO"}</div>
+          <div className="account-org" title={`Your time zone, as this browser reports it: ${localZone}`}>
+            🕒 {formatTimeInZone(localZone, now)} {zoneAbbrev(localZone, now)} · {zoneLabel(localZone)}
+          </div>
         </div>
       </button>
       <button onClick={onOpenSettings} title="Cheat Sheet — how leads qualify, hot signals, product-line breakdown" className="account-gear account-gear-standalone">

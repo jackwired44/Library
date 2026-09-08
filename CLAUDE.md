@@ -3137,6 +3137,59 @@ through in a check box way."
   then removed one and confirmed the lead reads "Left voicemail
   (removed)" with no errors.
 
+## Time zones — contact, company, and the local user (app/ only)
+
+Per Jack: "lets add a feature for time zones and can show the time zones
+according to company location also for the contact but also the local
+user using the platform."
+
+**Where the data actually comes from — stated plainly.** This app has no
+location field on a Contact or Company: no city/state/country column is
+captured from any CSV, and company enrichment is still unbuilt. The one
+real location signal a contact might carry is a **phone number**, and a
+North American area code maps to a time zone deterministically. So
+(`lib/timezones.ts`, `resolveContactTimeZone`) a contact's zone resolves
+manual override → work-phone area code → mobile area code → unknown, and
+unknown is shown as "—", never guessed from a name or email. A company's
+zone (`Company.timeZone`, `lib/companies.ts`) is the most common resolved
+zone among its contacts — that IS the company's zone until Apollo
+enrichment lands an HQ location to read instead (see the Apollo bulk-
+enrichment prep). The local user's zone is what the browser reports
+(`Intl.DateTimeFormat().resolvedOptions().timeZone`) — the real answer
+for "the person using this."
+
+- **`lib/timezones.ts`** — a ~330-entry NANP area-code → IANA table
+  grouped by zone (Eastern/Central/Mountain/Pacific/Alaska/Hawaii plus
+  Arizona and Saskatchewan as no-DST zones, and Canada's Atlantic/
+  Newfoundland/Yukon). A handful of area codes straddle a zone line; each
+  is mapped to the zone covering most of it and is overridable. All clock
+  math goes through `Intl` with an explicit `timeZone`, so DST is always
+  right for the date in question. Also: `isBusinessHours` (weekday,
+  8:00–17:59 in THEIR zone — the actual reason to show a zone on an
+  outbound platform), `offsetFromLocalLabel` ("+2h from you"),
+  `TIME_ZONE_CHOICES` for the manual picker.
+- **`Contact.timeZone?: string | null`** (`lib/contacts.ts`) — manual
+  override, set only from the detail view. Optional; a contact with no
+  override just derives from phone at display time.
+- **`components/LocalTime.tsx`** — one shared chip: "2:45 PM CDT" with a
+  green dot inside business hours there, grey outside; `variant="full"`
+  adds the zone name and offset from you. Shown in Contacts (new "Local
+  time" column next to Phone), Companies (a Local time stat on the
+  expanded card), Engage → Calls/Emails (on each task row, since that's
+  where you decide whether to dial), and the contact detail view's Record
+  details (a "Time zone & local time" row with the manual override picker
+  and a hint when nothing resolved). `AccountPanel` shows the local
+  user's own clock and zone under their name.
+- **`lib/useNow.ts`** — one shared 30-second tick so every clock on the
+  page advances together instead of each running its own interval.
+- Verified live, 15/15, with the browser pinned to America/Chicago: 212 →
+  Eastern, 415 → Pacific, 602 → Arizona (MST, no DST), no phone → "—", a
+  UK number → "—"; manual override to London rendered a London time with
+  an offset-from-you label, showed up in the Contacts column, and
+  survived a reload; a company with two Eastern contacts rolled up to
+  Eastern; a call task row showed its contact's Pacific time; the account
+  panel read Central.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

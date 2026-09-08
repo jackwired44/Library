@@ -10,6 +10,9 @@ import type { Contact } from "../lib/contacts";
 import { formatTaskTime, type Task, type TaskPriority } from "../lib/tasks";
 import { SELF_USER_ID, userLabel, type PlatformUser } from "../lib/users";
 import { dispositionOptions, dispositionMetaFor, type CustomDisposition } from "../lib/dispositions";
+import LocalTime from "./LocalTime";
+import { useNow } from "../lib/useNow";
+import { resolveContactTimeZone } from "../lib/timezones";
 
 interface ChannelTasksProps {
   channel: "call" | "email";
@@ -51,6 +54,7 @@ export default function ChannelTasks({ channel, contacts, tasks, users, disposit
   // Multi-select, per Jack: "make sure it can be filtered through in a
   // check box way." Empty set = no filter (show everything).
   const [dispositionFilter, setDispositionFilter] = useState<Set<string>>(new Set());
+  const now = useNow();
 
   const contactById = useMemo(() => new Map(contacts.map((c) => [c.id, c])), [contacts]);
   const channelTasks = useMemo(
@@ -179,6 +183,7 @@ export default function ChannelTasks({ channel, contacts, tasks, users, disposit
                   {t.text}
                 </span>
                 {contact && <span style={{ fontSize: 11.5, color: "var(--muted)" }}>{contact.company}</span>}
+                {contact && (() => { const tz = resolveContactTimeZone(contact); return tz.zone ? <LocalTime zone={tz.zone} source={tz.source} now={now} /> : null; })()}
                 {contact && (contact.disposition || "none") !== "none" && (
                   <span
                     title="The linked contact's current disposition"
