@@ -21,6 +21,7 @@ import type { SequenceGroup } from "../lib/sequenceGroups";
 import type { EmailAccount } from "../lib/emailAccounts";
 import type { LeadList } from "../lib/leadLists";
 import type { CustomDisposition } from "../lib/dispositions";
+import type { CompanyProfile, ImportResult } from "../lib/companyProfiles";
 
 interface EngageProps {
   tasks: Task[];
@@ -70,6 +71,8 @@ interface EngageProps {
 
   dispositions: CustomDisposition[];
   onManageDispositions: () => void;
+  companyProfiles: CompanyProfile[];
+  onImportCompanyProfiles: (files: FileList | File[]) => Promise<ImportResult[]>;
 
   leadLists: LeadList[];
   leadListsLoading: boolean;
@@ -143,6 +146,8 @@ export default function Engage({
   onDeleteEmailAccount,
   dispositions,
   onManageDispositions,
+  companyProfiles,
+  onImportCompanyProfiles,
   leadLists,
   leadListsLoading,
   leadListsError,
@@ -245,6 +250,8 @@ export default function Engage({
           sequences={sequences}
           enrollments={enrollments}
           dispositions={dispositions}
+          companyProfiles={companyProfiles}
+          onImportCompanyProfiles={onImportCompanyProfiles}
         />
       )}
       {tab === "contacts" && (

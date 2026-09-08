@@ -1,3 +1,4 @@
+import { localDayKeyFromIso } from "./tasks";
 // Weekly Goals — a lightweight, self-serve metrics board for Home. Per
 // Jack: "weekly goals metrics that can be pulled and set how many
 // outbound calls call backs incoming voicemails etc... build this out
@@ -95,7 +96,16 @@ export function countCompletedChannelTasks(
   fromKey: string,
   toKey: string
 ): number {
-  return tasks.filter((t) => t.channel === channel && t.done && t.date >= fromKey && t.date <= toKey).length;
+  // Counted on the day the task was actually COMPLETED (Task.completedAt),
+  // not the day it was scheduled — a sequence step due tomorrow that gets
+  // worked today is a call made today. Falls back to `date` for tasks
+  // completed before completedAt existed. Found by the full-platform
+  // audit: Home's "Calls made today" read 0 right after completing a call.
+  return tasks.filter((t) => {
+    if (t.channel !== channel || !t.done) return false;
+    const day = t.completedAt ? localDayKeyFromIso(t.completedAt) : t.date;
+    return day >= fromKey && day <= toKey;
+  }).length;
 }
 
 export async function loadWeeklyGoalsFromDB(): Promise<WeeklyGoals[]> {

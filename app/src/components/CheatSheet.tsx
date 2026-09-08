@@ -87,7 +87,7 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
               min={0}
               value={ruleOverrides.qualifyThreshold}
               onChange={(e) => onChangeRuleOverrides(setQualifyThreshold(ruleOverrides, Number(e.target.value)))}
-              style={{ width: 70, border: "1px solid #D8DBE1", borderRadius: 7, padding: "5px 8px", fontSize: 13, fontWeight: 700 }}
+              style={{ width: 70, border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 13, fontWeight: 700 }}
             />
             <span style={{ fontSize: 11.5, color: "#9aa1ac" }}>seats/users — a confirmed count below this is a Bad Lead, not silently dropped</span>
           </div>
@@ -276,9 +276,9 @@ function KeywordEditor({
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && add()}
           placeholder="Add a trigger word or phrase"
-          style={{ flex: "1 1 200px", border: "1px solid #E1E4E9", borderRadius: 7, padding: "5px 9px", fontSize: 12 }}
+          style={{ flex: "1 1 200px", border: "1px solid var(--border)", borderRadius: 7, padding: "5px 9px", fontSize: 12 }}
         />
-        <button onClick={add} style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 7, padding: "5px 10px", fontSize: 12, fontWeight: 700 }}>Add</button>
+        <button onClick={add} style={{ border: "1px solid var(--border)", background: "#fff", borderRadius: 7, padding: "5px 10px", fontSize: 12, fontWeight: 700 }}>Add</button>
       </div>
     </div>
   );

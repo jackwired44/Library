@@ -244,7 +244,7 @@ export default function SequencesView({
       </div>
 
       {managingEmailAccounts && (
-        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "12px 16px", marginBottom: 16 }}>
+        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 16px", marginBottom: 16 }}>
           <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>Email sending accounts</div>
           <div style={{ fontSize: 11.5, color: "#9A5B22", background: "#FBEBDD", border: "1px solid #F0DCC0", borderRadius: 8, padding: "8px 12px", marginBottom: 10, lineHeight: 1.5 }}>
             <strong>Not a live connection yet.</strong> This just records which sender identity (name + address) a
@@ -327,7 +327,7 @@ export default function SequencesView({
       )}
 
       {managingGroups && (
-        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "12px 16px", marginBottom: 16 }}>
+        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 16px", marginBottom: 16 }}>
           <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>Sequence groups</div>
           {groups.length === 0 && <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 8 }}>No groups yet — name one below, then assign sequences to it.</div>}
           <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 10 }}>
@@ -413,11 +413,11 @@ export default function SequencesView({
       </div>
 
       {sequences.length === 0 ? (
-        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: 28, textAlign: "center", color: "var(--muted)", fontSize: 13 }}>
+        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 28, textAlign: "center", color: "var(--muted)", fontSize: 13 }}>
           No sequences yet — name one above to start building it.
         </div>
       ) : visible.length === 0 ? (
-        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: 28, textAlign: "center", color: "var(--muted)", fontSize: 13 }}>
+        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 28, textAlign: "center", color: "var(--muted)", fontSize: 13 }}>
           No sequences match this filter.
         </div>
       ) : (
@@ -443,7 +443,7 @@ export default function SequencesView({
                       style={{
                         background: "var(--surface)",
                         border: "1px solid var(--border)",
-                        borderRadius: 13,
+                        borderRadius: 10,
                         padding: "14px 18px",
                         // An archived sequence reads as set-aside without
                         // being hidden when you deliberately filter to it.

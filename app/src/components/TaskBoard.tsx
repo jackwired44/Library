@@ -38,9 +38,9 @@ export default function TaskBoard({ tasks, loading, error, onAddTask, onToggleTa
       {error && <div style={{ color: "#9A5B22", marginBottom: 12 }}>{error}</div>}
 
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
-        <button onClick={() => shiftWeek(-1)} style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 8, padding: "6px 12px", fontWeight: 700 }}>‹ Prev</button>
+        <button onClick={() => shiftWeek(-1)} style={{ border: "1px solid var(--border)", background: "#fff", borderRadius: 8, padding: "6px 12px", fontWeight: 700 }}>‹ Prev</button>
         <div style={{ fontWeight: 700, fontSize: 15 }}>{weekRangeLabel(weekStart)}</div>
-        <button onClick={() => shiftWeek(1)} style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 8, padding: "6px 12px", fontWeight: 700 }}>Next ›</button>
+        <button onClick={() => shiftWeek(1)} style={{ border: "1px solid var(--border)", background: "#fff", borderRadius: 8, padding: "6px 12px", fontWeight: 700 }}>Next ›</button>
         <button onClick={() => setWeekStart(startOfWeek(new Date()))} style={{ border: "none", background: "none", textDecoration: "underline", color: "#4c6167", fontSize: 12.5 }}>This week</button>
       </div>
 
@@ -88,7 +88,7 @@ function DayColumn({
   }
 
   return (
-    <div data-day-key={day.key} style={{ background: "#fff", border: `1px solid ${isToday ? "#2CC295" : "#E4E7EC"}`, borderRadius: 13, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8, minHeight: 180 }}>
+    <div data-day-key={day.key} style={{ background: "#fff", border: `1px solid ${isToday ? "#2CC295" : "#E4E7EC"}`, borderRadius: 10, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8, minHeight: 180 }}>
       <div style={{ fontWeight: 700, fontSize: 12.5, color: isToday ? "#2CC295" : "#1B2430" }}>{day.label}{isToday ? " · Today" : ""}</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
         {tasks.length === 0 && <div style={{ fontSize: 11.5, color: "#c3c9cf" }}>No tasks</div>}
@@ -118,7 +118,7 @@ function DayColumn({
         onKeyDown={(e) => e.key === "Enter" && submit()}
         onBlur={submit}
         placeholder="+ Add task"
-        style={{ border: "1px solid #E1E4E9", borderRadius: 7, padding: "6px 9px", fontSize: 12 }}
+        style={{ border: "1px solid var(--border)", borderRadius: 7, padding: "6px 9px", fontSize: 12 }}
       />
     </div>
   );

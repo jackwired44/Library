@@ -20,6 +20,7 @@ import {
   type NoSignalRow,
 } from "../lib/detection";
 import { dispositionMetaFor, dispositionOptions, type CustomDisposition } from "../lib/dispositions";
+import type { CompanyEnrichOutcome } from "../lib/apolloEnrich";
 import { downloadCSV, parseCSVFile, parseCSVText } from "../lib/csv";
 import type { LeadList } from "../lib/leadLists";
 import BookedStamp from "./BookedStamp";
@@ -95,6 +96,15 @@ interface ScannerProps {
   leadLists: LeadList[];
   // User-defined call dispositions on top of the built-ins (lib/dispositions.ts).
   dispositions: CustomDisposition[];
+  // Upload-time Apollo company enrichment (see App.tsx) — toggle, the
+  // companies in this batch with no profile yet, and the last run's
+  // per-domain outcomes.
+  autoEnrichCompanies: boolean;
+  onToggleAutoEnrichCompanies: (on: boolean) => void;
+  pendingEnrich: { companyName: string; domain: string }[];
+  companyEnrichOutcomes: CompanyEnrichOutcome[] | null;
+  companyEnriching: boolean;
+  onRunCompanyEnrichment: () => void;
   onAddSelectedToList: (rows: ResultRow[], opts: { existingId?: string; newName?: string }) => { listId: string; added: number } | null;
 }
 
@@ -119,6 +129,12 @@ export default function Scanner({
   leadLists,
   onAddSelectedToList,
   dispositions,
+  autoEnrichCompanies,
+  onToggleAutoEnrichCompanies,
+  pendingEnrich,
+  companyEnrichOutcomes,
+  companyEnriching,
+  onRunCompanyEnrichment,
 }: ScannerProps) {
   // Per-bucket download file name — editable, defaults to the standard
   // wired-cio-<bucket>-leads.csv name until Jack renames it. Reset on
@@ -634,7 +650,7 @@ export default function Scanner({
     return (
       <div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12, marginBottom: 16 }}>
-          <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "14px 16px" }}>
+          <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "14px 16px" }}>
             <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", marginBottom: 10 }}>Load from the Lead Library</div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               <select
@@ -711,7 +727,7 @@ export default function Scanner({
         {error && <div style={{ marginTop: 16, color: "#9A5B22" }}>{error}</div>}
 
         {recentUploads.length > 0 && (
-          <div style={{ marginTop: 24, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "14px 16px" }}>
+          <div style={{ marginTop: 24, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "14px 16px" }}>
             <button
               onClick={() => setRecentUploadsCollapsed((v) => !v)}
               style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", border: "none", background: "none", cursor: "pointer", padding: 0, marginBottom: recentUploadsCollapsed ? 0 : 10 }}
@@ -742,7 +758,7 @@ export default function Scanner({
         )}
 
         {priorityLeads.length > 0 && (
-          <div style={{ marginTop: 20, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "14px 16px" }}>
+          <div style={{ marginTop: 20, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "14px 16px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
               <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase" }}>⭐ High Priority Leads ({filteredPriorityLeads.length})</div>
               {priorityFileOptions.length > 1 && (
@@ -777,7 +793,7 @@ export default function Scanner({
                         type="month"
                         value={row.priorityMonth || ""}
                         onChange={(e) => onSyncToHistory({ ...row, priorityMonth: e.target.value || null })}
-                        style={{ border: "1px solid #D8DBE1", borderRadius: 6, padding: "4px 6px", fontSize: 11.5 }}
+                        style={{ border: "1px solid var(--border)", borderRadius: 6, padding: "4px 6px", fontSize: 11.5 }}
                       />
                       <button
                         onClick={() => onSyncToHistory({ ...row, priority: false })}
@@ -861,6 +877,58 @@ export default function Scanner({
           a row came in some other way (e.g. History's "Load into Scanner",
           which sets `results` directly rather than through this
           component's own scan calls). */}
+      <div className="panel">
+        <div className="panel-head">
+          <div>
+            <div className="panel-title">Apollo company data</div>
+            <div className="panel-sub">
+              Companies already covered by an imported Apollo export attach to new contacts automatically. Turn this on to also
+              offer a live Apollo look-up for companies that aren't covered yet, after each upload.
+            </div>
+          </div>
+          <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap" }}>
+            <input type="checkbox" checked={autoEnrichCompanies} onChange={(e) => onToggleAutoEnrichCompanies(e.target.checked)} />
+            Check Apollo for new companies on upload
+          </label>
+        </div>
+        {autoEnrichCompanies && (
+          <div className="panel-body" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {pendingEnrich.length > 0 ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", fontSize: 12.5 }}>
+                <span>
+                  <strong>{pendingEnrich.length}</strong> compan{pendingEnrich.length === 1 ? "y" : "ies"} in this upload {pendingEnrich.length === 1 ? "has" : "have"} no
+                  Apollo data yet. Enriching {pendingEnrich.length === 1 ? "it" : "them"} will consume up to{" "}
+                  <strong>{Math.min(pendingEnrich.length, 25)} credit{Math.min(pendingEnrich.length, 25) === 1 ? "" : "s"}</strong> (no charge for any not found
+                  {pendingEnrich.length > 25 ? "; first 25 per click" : ""}).
+                </span>
+                <button onClick={onRunCompanyEnrichment} disabled={companyEnriching} className="btn btn-primary">
+                  {companyEnriching ? "Enriching…" : `Enrich ${Math.min(pendingEnrich.length, 25)} now`}
+                </button>
+                <span style={{ fontSize: 11.5, color: "var(--muted)" }}>
+                  {pendingEnrich.slice(0, 6).map((p) => p.companyName).join(" · ")}{pendingEnrich.length > 6 ? ` · +${pendingEnrich.length - 6} more` : ""}
+                </span>
+              </div>
+            ) : (
+              <div style={{ fontSize: 12.5, color: "var(--muted)" }}>
+                {companyEnrichOutcomes ? "Every company in this upload has been checked." : "Every company in this upload already has Apollo data on file (or no work-email domain to look it up by)."}
+              </div>
+            )}
+            {companyEnrichOutcomes && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 12 }}>
+                {companyEnrichOutcomes.map((o) => (
+                  <div key={o.domain} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <span style={{ fontWeight: 600, minWidth: 180 }}>{o.domain}</span>
+                    {o.status === "found" && <span style={{ color: "#2CC295", fontWeight: 700 }}>✓ Found — {[o.fields?.industry, o.fields?.employees && `${o.fields.employees} employees`, [o.fields?.city, o.fields?.state].filter(Boolean).join(", ")].filter(Boolean).join(" · ") || "profile saved"}</span>}
+                    {o.status === "not-found" && <span style={{ color: "var(--muted)" }}>No Apollo record (0 credits)</span>}
+                    {o.status === "error" && <span style={{ color: "#B5443B" }}>Error — {o.errorMessage}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       <div className="kpi-row">
         {[
           { label: "Rows scanned", value: lastScanStats?.rowsScanned ?? results.length, color: "var(--ink)" },
@@ -1179,7 +1247,7 @@ export default function Scanner({
                   <tr
                     key={r.id}
                     style={{
-                      borderBottom: "1px solid #F0F1F4",
+                      borderBottom: "1px solid var(--border)",
                       background: r.isDuplicate
                         ? "#FFFBF2"
                         : r.disposition === "meeting-booked"
@@ -1225,7 +1293,7 @@ export default function Scanner({
                       <button onClick={() => toggleTier(r.id)} style={{ border: "none", borderRadius: 20, padding: "4px 10px", fontWeight: 700, fontSize: 11.5, whiteSpace: "nowrap", color: tierColor, background: tierBg }}>{tierLabel}</button>
                     </td>
                     <td style={{ padding: "10px 11px" }}>
-                      <select value={r.category} onChange={(e) => reassignRow(r.id, e.target.value as CategoryKey)} style={{ background: meta.bg, color: meta.color, fontWeight: 600, border: "1px solid #D8DBE1", borderRadius: 7, padding: "6px 8px" }}>
+                      <select value={r.category} onChange={(e) => reassignRow(r.id, e.target.value as CategoryKey)} style={{ background: meta.bg, color: meta.color, fontWeight: 600, border: "1px solid var(--border)", borderRadius: 7, padding: "6px 8px" }}>
                         {ACTIVE_CATEGORY_KEYS.map((k) => (
                           <option key={k} value={k}>{CATEGORY_META[k].label}</option>
                         ))}
@@ -1237,7 +1305,7 @@ export default function Scanner({
                           <select
                             value={r.disposition}
                             onChange={(e) => setDisposition(r.id, e.target.value as Disposition)}
-                            style={{ flex: 1, background: dispositionMetaFor(r.disposition, dispositions).bg, color: dispositionMetaFor(r.disposition, dispositions).color, fontWeight: 600, border: "1px solid #D8DBE1", borderRadius: 7, padding: "5px 7px", fontSize: 12 }}
+                            style={{ flex: 1, background: dispositionMetaFor(r.disposition, dispositions).bg, color: dispositionMetaFor(r.disposition, dispositions).color, fontWeight: 600, border: "1px solid var(--border)", borderRadius: 7, padding: "5px 7px", fontSize: 12 }}
                           >
                             {dispositionOptions(dispositions).map((o) => (
                               <option key={o.key} value={o.key}>{o.label}</option>
@@ -1247,7 +1315,7 @@ export default function Scanner({
                             <button
                               onClick={() => undoDisposition(r.id)}
                               title="Undo disposition (mistakenly selected)"
-                              style={{ border: "1px solid #D8DBE1", background: "#fff", borderRadius: 7, padding: "0 7px", fontSize: 13, cursor: "pointer" }}
+                              style={{ border: "1px solid var(--border)", background: "#fff", borderRadius: 7, padding: "0 7px", fontSize: 13, cursor: "pointer" }}
                             >
                               ↺
                             </button>
@@ -1258,7 +1326,7 @@ export default function Scanner({
                             defaultValue={r.dispositionNote}
                             onBlur={(e) => setDispositionNote(r.id, e.target.value)}
                             placeholder="Note"
-                            style={{ border: "1px solid #E1E4E9", borderRadius: 6, padding: "4px 6px", fontSize: 11.5 }}
+                            style={{ border: "1px solid var(--border)", borderRadius: 6, padding: "4px 6px", fontSize: 11.5 }}
                           />
                         )}
                         <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
@@ -1274,7 +1342,7 @@ export default function Scanner({
                               type="month"
                               value={r.priorityMonth || ""}
                               onChange={(e) => setPriorityMonth(r.id, e.target.value)}
-                              style={{ border: "1px solid #D8DBE1", borderRadius: 6, padding: "3px 5px", fontSize: 11 }}
+                              style={{ border: "1px solid var(--border)", borderRadius: 6, padding: "3px 5px", fontSize: 11 }}
                             />
                           )}
                         </div>

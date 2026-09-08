@@ -70,6 +70,14 @@ export interface EnrichOutcome {
   status: "matched" | "no-match" | "error";
   linkedinUrl?: string;
   title?: string;
+  // Company website as Apollo has it (organization.website_url /
+  // primary_domain), for cross-referencing against the email-domain
+  // derivation this app already does (lib/contacts.ts deriveCompanyWebsite).
+  website?: string;
+  // Person location, for the time-zone resolver (lib/timezones.ts).
+  city?: string;
+  state?: string;
+  country?: string;
   errorMessage?: string;
 }
 
@@ -135,7 +143,116 @@ export async function enrichContactsViaApollo(contacts: Contact[]): Promise<Enri
     if (!match) return { contactId: c.id, status: "no-match" as const };
     const linkedinUrl = typeof match.linkedin_url === "string" ? match.linkedin_url : undefined;
     const title = typeof match.title === "string" ? match.title : undefined;
-    if (!linkedinUrl) return { contactId: c.id, status: "no-match" as const, title };
-    return { contactId: c.id, status: "matched" as const, linkedinUrl, title };
+    const org = (match.organization && typeof match.organization === "object" ? match.organization : {}) as Record<string, unknown>;
+    const website =
+      typeof org.website_url === "string" ? org.website_url
+      : typeof org.primary_domain === "string" ? `https://${org.primary_domain}`
+      : undefined;
+    const city = typeof match.city === "string" ? match.city : undefined;
+    const state = typeof match.state === "string" ? match.state : undefined;
+    const country = typeof match.country === "string" ? match.country : undefined;
+    if (!linkedinUrl) return { contactId: c.id, status: "no-match" as const, title, website, city, state, country };
+    return { contactId: c.id, status: "matched" as const, linkedinUrl, title, website, city, state, country };
   });
+}
+
+
+// ---------------------------------------------------------------------
+// Company enrichment — per Jack: "keep data enriching as new contacts are
+// uploaded here if apollo has data on the company." Calls Apollo's
+// organization-enrich tool ({domain} → one org) for each NEW company at
+// upload time. Apollo's own contract for this tool: exactly 1 credit when
+// a company is found, 0 when not, and an explicit confirmation stating the
+// total count/credits before any batch — so the caller (Scanner) always
+// shows "N companies — up to N credits — enrich now?" and only runs on a
+// click, never silently. Every domain's outcome is reported individually.
+// Response fields below are the ones observed live earlier in this
+// project (industry, estimated_num_employees, city/state/country/
+// raw_address, short_description, website_url, linkedin_url, phone when
+// present, annual_revenue_printed, founded_year, keywords) — see
+// CLAUDE.md "Company enrichment."
+// ---------------------------------------------------------------------
+export interface CompanyEnrichFields {
+  name?: string;
+  website?: string;
+  industry?: string;
+  employees?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  phone?: string;
+  linkedinUrl?: string;
+  keywords?: string;
+  annualRevenue?: string;
+  foundedYear?: string;
+  description?: string;
+  apolloAccountId?: string;
+}
+export interface CompanyEnrichOutcome {
+  domain: string;
+  status: "found" | "not-found" | "error";
+  fields?: CompanyEnrichFields;
+  errorMessage?: string;
+}
+
+async function findApolloOrgTool(mcp: ClaudeMcpNamespace): Promise<{ server: string; tool: string } | null> {
+  const { servers } = await mcp.listTools();
+  for (const s of servers) {
+    if (!s.server.toLowerCase().includes("apollo")) continue;
+    const tool = s.tools.find((t) => t.name.toLowerCase().includes("organizations_enrich"));
+    if (tool) return { server: s.server, tool: tool.name };
+  }
+  return null;
+}
+
+const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : typeof v === "number" ? String(v) : undefined);
+
+function mapOrg(org: Record<string, unknown>): CompanyEnrichFields {
+  return {
+    name: str(org.name),
+    website: str(org.website_url) || (str(org.primary_domain) ? `https://${str(org.primary_domain)}` : undefined),
+    industry: str(org.industry),
+    employees: str(org.estimated_num_employees),
+    city: str(org.city),
+    state: str(org.state),
+    country: str(org.country),
+    phone: str(org.phone) || str(org.sanitized_phone) || str(org.primary_phone && (org.primary_phone as Record<string, unknown>).number),
+    linkedinUrl: str(org.linkedin_url),
+    keywords: Array.isArray(org.keywords) ? (org.keywords as unknown[]).map(String).join(", ") : str(org.keywords),
+    annualRevenue: str(org.annual_revenue_printed) || str(org.annual_revenue),
+    foundedYear: str(org.founded_year),
+    description: str(org.short_description) || str(org.seo_description),
+    apolloAccountId: str(org.id),
+  };
+}
+
+// Sequential on purpose: each call is a credit decision Jack has already
+// confirmed for THIS batch; running them one at a time keeps the outcome
+// list readable and means a failure part-way can't fan out.
+export const MAX_COMPANY_BATCH = 25;
+export async function enrichCompaniesViaApollo(domains: string[]): Promise<CompanyEnrichOutcome[]> {
+  const unique = Array.from(new Set(domains.map((d) => d.trim().toLowerCase()).filter(Boolean))).slice(0, MAX_COMPANY_BATCH);
+  if (unique.length === 0) return [];
+  const mcp = await getMcp();
+  if (!mcp) throw new Error("Apollo enrichment isn't available in this view.");
+  let handle: { server: string; tool: string } | null;
+  try {
+    handle = await findApolloOrgTool(mcp);
+  } catch (err) {
+    throw new Error(describeApolloError(err));
+  }
+  if (!handle) throw new Error("Apollo isn't connected — add it in claude.ai Settings → Connectors, then try again.");
+  const out: CompanyEnrichOutcome[] = [];
+  for (const domain of unique) {
+    try {
+      const result = await mcp.callTool(handle.server, handle.tool, { domain });
+      const payload = result.payload as { organization?: Record<string, unknown> | null } | Record<string, unknown> | undefined;
+      const org = (payload && "organization" in (payload as object) ? (payload as { organization?: Record<string, unknown> | null }).organization : payload) as Record<string, unknown> | null | undefined;
+      if (!org || !Object.keys(org).length) { out.push({ domain, status: "not-found" }); continue; }
+      out.push({ domain, status: "found", fields: mapOrg(org) });
+    } catch (err) {
+      out.push({ domain, status: "error", errorMessage: describeApolloError(err) });
+    }
+  }
+  return out;
 }

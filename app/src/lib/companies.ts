@@ -6,7 +6,8 @@
 // the seed of that (see CLAUDE.md Roadmap's "richer company-level data"
 // item) — start with the roll-up, layer in real company fields later.
 import type { Contact } from "./contacts";
-import { mostCommonZone, resolveContactTimeZone } from "./timezones";
+import { mostCommonZone, resolveContactTimeZone, timeZoneFromLocation } from "./timezones";
+import { profileForCompany, type CompanyProfile } from "./companyProfiles";
 
 export interface Company {
   name: string; // first-seen casing/spelling
@@ -30,6 +31,12 @@ export interface Company {
   // Apollo company enrichment lands an HQ location to read instead. Null
   // when no contact resolves.
   timeZone: string | null;
+  // "Known info" from a bulk Apollo export (lib/companyProfiles.ts) —
+  // null until one has been imported for this company.
+  profile: CompanyProfile | null;
+  // Where timeZone came from: the profile's HQ state/country when there is
+  // one, else the contacts' phone area codes, else nothing.
+  timeZoneSource: "hq" | "contacts" | "unknown";
 }
 
 function normalizeCompanyKey(name: string): string {
@@ -39,7 +46,7 @@ function normalizeCompanyKey(name: string): string {
 // Same exact-match normalization Contacts already uses for its own
 // name+company dedup fallback — no fuzzy matching, so "Adams Co" and
 // "Adams Co." group separately until/unless that's asked for.
-export function groupContactsByCompany(contacts: Contact[]): Company[] {
+export function groupContactsByCompany(contacts: Contact[], profiles: CompanyProfile[] = []): Company[] {
   const byKey = new Map<string, Company>();
   contacts.forEach((c) => {
     const name = c.company.trim();
@@ -74,12 +81,25 @@ export function groupContactsByCompany(contacts: Contact[]): Company[] {
         contactedCount: contacted ? 1 : 0,
         meetingBookedCount: meetingBooked ? 1 : 0,
         timeZone: null,
+        profile: null,
+        timeZoneSource: "unknown",
       });
     }
   });
   const companies = Array.from(byKey.values());
   companies.forEach((co) => {
-    co.timeZone = mostCommonZone(co.contacts.map((c) => resolveContactTimeZone(c).zone));
+    co.profile = profileForCompany(
+      profiles,
+      co.key,
+      co.contacts.flatMap((c) => [c.companyWebsite || "", c.email || ""]).filter(Boolean)
+    );
+    // HQ location is the better signal when we have it; contacts' phones
+    // are the fallback. Never guessed beyond those two.
+    const fromHq = co.profile ? timeZoneFromLocation(co.profile.state, co.profile.country) : null;
+    if (fromHq) { co.timeZone = fromHq; co.timeZoneSource = "hq"; return; }
+    const fromContacts = mostCommonZone(co.contacts.map((c) => resolveContactTimeZone(c).zone));
+    co.timeZone = fromContacts;
+    co.timeZoneSource = fromContacts ? "contacts" : "unknown";
   });
   return companies;
 }

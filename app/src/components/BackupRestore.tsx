@@ -57,14 +57,14 @@ export default function BackupRestore({ libraryEntries, libraryGroups, historyEn
       <button
         onClick={handleBackup}
         title="Download one JSON file covering every Lead Library file, folder, and History import"
-        style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 700, color: "#4c6167" }}
+        style={{ border: "1px solid var(--border)", background: "#fff", borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 700, color: "#4c6167" }}
       >
         ⬇ Backup everything
       </button>
       <button
         onClick={() => fileInputRef.current?.click()}
         title="Restore Lead Library files, folders, and History from a backup JSON file — merges in, never wipes existing data"
-        style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 700, color: "#4c6167" }}
+        style={{ border: "1px solid var(--border)", background: "#fff", borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 700, color: "#4c6167" }}
       >
         ⬆ Restore backup
       </button>

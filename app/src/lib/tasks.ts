@@ -201,6 +201,17 @@ export function tasksForDay(tasks: Task[], dayKey: string): Task[] {
   return tasks.filter((t) => t.date === dayKey).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 }
 
+// An ISO timestamp (UTC, e.g. Task.completedAt / Contact.meetingBookedAt)
+// as the LOCAL calendar day it happened on. Slicing the ISO string gives
+// the UTC date, which past ~6-7pm Central is already tomorrow — found by
+// the platform audit: a call completed "today" counted as 0 because its
+// completedAt sliced to the next UTC day. Every "which day did this
+// happen" comparison against a local YYYY-MM-DD key must go through this.
+export function localDayKeyFromIso(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso.slice(0, 10) : dateKey(d);
+}
+
 // Whole days between two YYYY-MM-DD keys (positive when `to` is later).
 // Parsed at local noon so a DST shift can never make a same-day pair read
 // as 1 day apart.
@@ -231,7 +242,7 @@ export function lastActivityForContact(tasks: Task[], contactId: string, today: 
   // The day the work happened: the completion stamp when there is one,
   // otherwise the task's scheduled date (all this app had before that
   // field existed).
-  const activityDay = (t: Task) => (t.completedAt ? t.completedAt.slice(0, 10) : t.date);
+  const activityDay = (t: Task) => (t.completedAt ? localDayKeyFromIso(t.completedAt) : t.date);
   const latest = done.reduce((best, t) => {
     const a = activityDay(t);
     const b = activityDay(best);

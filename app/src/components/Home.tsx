@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { loadProfile, type Profile } from "../lib/profile";
 import { computeAutoActual, countCompletedChannelTasks, type WeeklyGoals } from "../lib/weeklyGoals";
-import { compareByTimeThenCreated, formatTaskTime, startOfWeek, todayDateKey, weekRangeLabel, type Task } from "../lib/tasks";
+import { compareByTimeThenCreated, formatTaskTime, localDayKeyFromIso, startOfWeek, todayDateKey, weekRangeLabel, type Task } from "../lib/tasks";
 import type { Contact } from "../lib/contacts";
 import { resolveStatus, type Sequence, type SequenceEnrollment } from "../lib/sequences";
 import { SELF_USER_ID, userLabel, type PlatformUser } from "../lib/users";
@@ -105,7 +105,7 @@ export default function Home({
   // count any more: this is today's bookings, the banner tile above is
   // the week's (and navigable back week over week).
   const meetingsBookedToday = useMemo(
-    () => contacts.filter((c) => c.disposition === "meeting-booked" && (c.meetingBookedAt || "").slice(0, 10) === today).length,
+    () => contacts.filter((c) => c.disposition === "meeting-booked" && c.meetingBookedAt && localDayKeyFromIso(c.meetingBookedAt) === today).length,
     [contacts, today]
   );
 
@@ -143,7 +143,8 @@ export default function Home({
     () =>
       contacts.filter((c) => {
         if (c.disposition !== "meeting-booked") return false;
-        const key = (c.meetingBookedAt || "").slice(0, 10);
+        if (!c.meetingBookedAt) return false;
+        const key = localDayKeyFromIso(c.meetingBookedAt);
         return key >= bookedWeekStartKey && key <= bookedWeekEndKey;
       }).length,
     [contacts, bookedWeekStartKey, bookedWeekEndKey]

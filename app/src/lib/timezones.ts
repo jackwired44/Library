@@ -242,3 +242,58 @@ export const TIME_ZONE_CHOICES: { zone: string; label: string }[] = [
 export function zoneLabel(zone: string): string {
   return TIME_ZONE_CHOICES.find((c) => c.zone === zone)?.label || zone.replace(/_/g, " ");
 }
+
+// HQ location -> zone, for a Company with an imported Apollo profile (lib/
+// companyProfiles.ts). State/province is the deciding field; a country
+// alone only resolves when it's a single-zone country. Anything else stays
+// null rather than guessing — same rule as the phone path.
+const US_STATE_ZONE: Record<string, string> = {
+  CT: "America/New_York", DE: "America/New_York", DC: "America/New_York", FL: "America/New_York", GA: "America/New_York",
+  IN: "America/New_York", KY: "America/New_York", ME: "America/New_York", MD: "America/New_York", MA: "America/New_York",
+  MI: "America/New_York", NH: "America/New_York", NJ: "America/New_York", NY: "America/New_York", NC: "America/New_York",
+  OH: "America/New_York", PA: "America/New_York", RI: "America/New_York", SC: "America/New_York", VT: "America/New_York",
+  VA: "America/New_York", WV: "America/New_York",
+  AL: "America/Chicago", AR: "America/Chicago", IL: "America/Chicago", IA: "America/Chicago", KS: "America/Chicago",
+  LA: "America/Chicago", MN: "America/Chicago", MS: "America/Chicago", MO: "America/Chicago", NE: "America/Chicago",
+  ND: "America/Chicago", OK: "America/Chicago", SD: "America/Chicago", TN: "America/Chicago", TX: "America/Chicago",
+  WI: "America/Chicago",
+  CO: "America/Denver", ID: "America/Denver", MT: "America/Denver", NM: "America/Denver", UT: "America/Denver", WY: "America/Denver",
+  AZ: "America/Phoenix",
+  CA: "America/Los_Angeles", NV: "America/Los_Angeles", OR: "America/Los_Angeles", WA: "America/Los_Angeles",
+  AK: "America/Anchorage", HI: "Pacific/Honolulu",
+  // Canadian provinces
+  ON: "America/New_York", QC: "America/New_York", MB: "America/Chicago", SK: "America/Regina", AB: "America/Denver",
+  BC: "America/Los_Angeles", NS: "America/Halifax", NB: "America/Halifax", PE: "America/Halifax", NL: "America/St_Johns",
+  YT: "America/Whitehorse",
+};
+const US_STATE_NAMES: Record<string, string> = {
+  connecticut: "CT", delaware: "DE", "district of columbia": "DC", florida: "FL", georgia: "GA", indiana: "IN", kentucky: "KY",
+  maine: "ME", maryland: "MD", massachusetts: "MA", michigan: "MI", "new hampshire": "NH", "new jersey": "NJ", "new york": "NY",
+  "north carolina": "NC", ohio: "OH", pennsylvania: "PA", "rhode island": "RI", "south carolina": "SC", vermont: "VT",
+  virginia: "VA", "west virginia": "WV", alabama: "AL", arkansas: "AR", illinois: "IL", iowa: "IA", kansas: "KS",
+  louisiana: "LA", minnesota: "MN", mississippi: "MS", missouri: "MO", nebraska: "NE", "north dakota": "ND", oklahoma: "OK",
+  "south dakota": "SD", tennessee: "TN", texas: "TX", wisconsin: "WI", colorado: "CO", idaho: "ID", montana: "MT",
+  "new mexico": "NM", utah: "UT", wyoming: "WY", arizona: "AZ", california: "CA", nevada: "NV", oregon: "OR",
+  washington: "WA", alaska: "AK", hawaii: "HI", ontario: "ON", quebec: "QC", québec: "QC", manitoba: "MB",
+  saskatchewan: "SK", alberta: "AB", "british columbia": "BC", "nova scotia": "NS", "new brunswick": "NB",
+  "prince edward island": "PE", "newfoundland and labrador": "NL", yukon: "YT",
+};
+const SINGLE_ZONE_COUNTRIES: Record<string, string> = {
+  "united kingdom": "Europe/London", uk: "Europe/London", england: "Europe/London", ireland: "Europe/Dublin",
+  france: "Europe/Paris", germany: "Europe/Berlin", netherlands: "Europe/Amsterdam", belgium: "Europe/Brussels",
+  spain: "Europe/Madrid", italy: "Europe/Rome", switzerland: "Europe/Zurich", austria: "Europe/Vienna",
+  sweden: "Europe/Stockholm", norway: "Europe/Oslo", denmark: "Europe/Copenhagen", poland: "Europe/Warsaw",
+  india: "Asia/Kolkata", singapore: "Asia/Singapore", japan: "Asia/Tokyo", "united arab emirates": "Asia/Dubai",
+  israel: "Asia/Jerusalem", "south africa": "Africa/Johannesburg", "new zealand": "Pacific/Auckland",
+};
+
+export function timeZoneFromLocation(state?: string | null, country?: string | null): string | null {
+  const st = (state || "").trim();
+  if (st) {
+    const abbr = st.length === 2 ? st.toUpperCase() : US_STATE_NAMES[st.toLowerCase()];
+    if (abbr && US_STATE_ZONE[abbr]) return US_STATE_ZONE[abbr];
+  }
+  const co = (country || "").trim().toLowerCase();
+  if (co && SINGLE_ZONE_COUNTRIES[co]) return SINGLE_ZONE_COUNTRIES[co];
+  return null;
+}

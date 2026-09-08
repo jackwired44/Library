@@ -3190,6 +3190,220 @@ for "the person using this."
   Eastern; a call task row showed its contact's Pacific time; the account
   panel read Central.
 
+## Full-platform workflow audit + brand/structured-borders pass (app/ only)
+
+Per Jack: "Run a detailed prompt to check the workflows or any backend
+functions to make sure the entire platform works well and lets build the
+ui out a bit more with structured borders the wiredcio.com color scheme
+across the whole platform." Two halves, both shipped.
+
+**Audit.** `scratchpad/audit.js` (Playwright, preview build, real
+IndexedDB, browser pinned to America/Chicago) walks every module end to
+end and asserts on OUTCOMES — counts, persisted values, cross-module
+effects — not "the page rendered": lock screen (wrong/right password),
+Scanner upload → accounting line → tier cycling → Not-interested auto-
+cross-out → Save to Lead Library → bulk add-to-list, Lead Library folder/
+files, History badge + View reopen, Contacts (dedupe, local time, search,
+tier filter, detail record, website derivation, On CRM, Profile Agent
+honesty), Companies (roll-up, Apollo import, HQ time zone, Known info),
+Sequences (enroll → task, pause keeps card, copy, completion finishes
+enrollment), Calls/Emails (local time, disposition filter, Mark replied),
+Lists, Home (Today/Weekly Goals/Notifications/Booked week stepper),
+Cheat Sheet / Dispositions / Platform Notes shared panel, Profile &
+Access, persistence across reload, Lock. **Final: 53/53, zero page
+errors.** Two real bugs it caught, both fixed:
+- **Last activity read "-1 days ago" / Home "Calls made today" stayed 0
+  after completing a call.** Root causes: a task's `date` is when it was
+  SCHEDULED, not when it was worked (a sequence step due tomorrow can be
+  completed today) — added `Task.completedAt` (stamped by `App.tsx`'s
+  `toggleTask`, cleared on un-done; `lastActivityForContact` and
+  `countCompletedChannelTasks` read it, falling back to `date` for tasks
+  completed before the field existed). Then still 0: `completedAt.slice(0,
+  10)` is the UTC date, which past ~6-7pm Central is already tomorrow.
+  Added `localDayKeyFromIso()` (`lib/tasks.ts`) and routed every "which
+  local day did this happen" comparison through it (`weeklyGoals.ts`,
+  `tasks.ts`, Home's meeting-booked day/week checks).
+- Everything else the audit initially flagged was the audit's own
+  locator/fixture problem (tier pill cycles by design, Sequences list
+  prepends copies, unlock persists per-browser across reload), fixed in
+  the script — not the app.
+
+**Brand pass.** wiredcio.com is blocked by this environment's egress, so
+the palette comes from the recorded rebrand in `legacy/README.md`
+(green `#2CC295`, ink `#081E22`, hero `#0C4651`, light `#F6FAFA`) rather
+than a live look at the site — flagged, not hidden. `styles.css` gained a
+brand block: `--border #dbe4e6` / `--border-strong #c4d2d6` /
+`--surface-sunken #f3f8f8` / `--ink-2 #0c4651`, global `thead th`/`tbody
+td` styling so every table reads as the same structured grid, a green→blue
+rail before each `main h2`, and a consistent input focus ring. One-off
+grey border hexes across 11 components were mechanically replaced with
+`var(--border)`, and radii normalized to 10px. Styling only — no handler,
+prop or state changed anywhere; the 53-check audit ran against the
+restyled build.
+
+## Companies: Apollo bulk-dump import + company profiles (app/ only)
+
+Per Jack: "get ready to enrich data coming from apollo in a large dump
+process to build out companies and known info." This is the "known info"
+layer Companies has been missing since it was a pure Contacts roll-up.
+
+- **`lib/companyProfiles.ts`** (new) — `CompanyProfile` (website/domain/
+  industry/employees/city/state/country/phone/LinkedIn/keywords/revenue/
+  founded/description/technologies/Apollo account id + source files),
+  new IndexedDB store `STORE_COMPANY_PROFILES` (keyPath `key`,
+  `DB_VERSION` bumped 13→14). Keyed by the SAME normalized company name
+  `lib/companies.ts` groups contacts by, with website domain as a
+  secondary match — so a profile lines up with the roll-up it enriches.
+- **It is a CSV import, not a live API call, on purpose.** A large dump is
+  exactly where a file beats per-row credits, and it keeps Jack's
+  "explicit, nothing in the background" rule for every Apollo touchpoint.
+  Headers are matched by candidate list against Apollo's own export
+  headers ("Company", "# Employees", "Industry", "Company City/State/
+  Country", "Company Phone", "Website", "Company Linkedin Url",
+  "Keywords", "Annual Revenue", "Founded Year", "Short Description"/"SEO
+  Description", "Technologies", "Apollo Account Id") via the Scanner's
+  own tolerant `guessColumn`; the import summary lists any column that
+  went unmapped rather than guessing. Merging is additive (fillBlank) —
+  re-importing the same dump is a no-op and a sparser file never blanks a
+  richer one.
+- **Companies.tsx**: "⬆ Import Apollo export" button (hidden file input,
+  summary notice: N new / N updated / N skipped for no name / unmapped
+  columns), new Industry / Employees / HQ columns, and a "Known info"
+  panel inside the expanded company card. `groupContactsByCompany(contacts,
+  profiles)` attaches `Company.profile`; the HQ city/state/country is now
+  the preferred source for the company's time zone (`timeZoneSource`),
+  ahead of the contacts' phone area codes.
+
+## Contacts: Profile Agent (app/ only)
+
+Per Jack: "Create an agent to pull accurate website links with the
+contacts email domain and cross reference with linkedin and their name
+and email to pull a great profile with their accurate title and what's
+uploaded." Built as one explicit run over the SELECTED contacts (the same
+checkbox selection + 10-per-click cap the existing "Enrich via Apollo"
+button already had — `runEnrichment` in `Contacts.tsx` was rewritten into
+this):
+1. **Website from the email domain**, no network — `deriveCompanyWebsite`
+   re-applied to any selected contact still missing one.
+2. **Apollo people-match on name + company + email** — the ONLY
+   cross-reference source this app can actually reach. There is no
+   LinkedIn API here and LinkedIn can't be read from a browser page, so
+   "cross reference with LinkedIn" means Apollo's verified `linkedin_url`,
+   title, org website and person location — stated plainly in the report
+   panel, not implied to be a LinkedIn lookup.
+3. **Auto-apply only what's safe**: LinkedIn URL, a BLANK title, a BLANK
+   website (when the email domain couldn't derive one), a time zone from
+   Apollo's location when no manual override exists and the phone couldn't
+   resolve one. Anything that CONFLICTS with the upload — a different
+   title, a different website — is listed in a "Profile agent report"
+   with an explicit "Use Apollo's" button per field. Uploaded data is
+   never silently overwritten.
+- Without Apollo (or outside the Artifact viewer) it still does step 1,
+  then says exactly why steps 2-3 didn't run — the audit checks this
+  ("reports honestly and does not fake a match").
+
+## Upload-time Apollo company enrichment (app/ only, one explicit click per upload)
+
+Per Jack: "I want to keep data enriching as new contacts are uploaded
+here if apollo has data on the company." Built to satisfy two rules at
+once — Jack's own "nothing in the background I can't see" and Apollo's
+connector contract, which requires explicit user confirmation stating the
+total count before any credit-consuming batch.
+- **Scanner results screen gained an "Apollo company data" panel** with
+  a toggle, "Check Apollo for new companies on upload" (OFF by default;
+  persisted in `localStorage` as `autoEnrichCompanies`, a preference, not
+  data). Companies already covered by an imported profile attach to new
+  contacts automatically regardless of the toggle — that part costs
+  nothing.
+- With the toggle on, every upload (`App.tsx`'s `recordHistory`) computes
+  `pendingEnrich` via `companiesNeedingEnrichment()` — companies in this
+  batch with a work-email domain (free providers skipped) and no profile
+  on file — and the panel shows: "**N companies** in this upload have no
+  Apollo data yet. Enriching them will consume up to **N credits** (no
+  charge for any not found)" plus the names, and ONE button, "Enrich N
+  now." Nothing runs until it's clicked. Capped at 25 per click
+  (`MAX_COMPANY_BATCH`); a bigger batch says "first 25 per click" rather
+  than chunking silently.
+- **`enrichCompaniesViaApollo(domains)`** (`lib/apolloEnrich.ts`) calls
+  the viewer's Apollo connector's `organizations_enrich` tool (discovered
+  by name at call time, same as the people-match path) sequentially, one
+  domain at a time, and records a per-domain outcome — ✓ Found (industry
+  · employees · city, state) / No Apollo record (0 credits) / Error with
+  the real `McpError` message. Found results go through
+  `upsertProfileFromApollo` into the same `CompanyProfile` store the
+  bulk import uses (source label "Apollo (live enrich)"), fillBlank-merged.
+- The tool shape (`{domain}` in; `{organization: {...}}` out; 1 credit if
+  found, 0 if not) was rehearsed live earlier this session against
+  Apollo's own domain — not guessed. Verified live in preview: toggle off
+  shows no credit language; toggle on shows the count/credit banner (6 of
+  7 fixture companies, the free-email row excluded); clicking outside the
+  Artifact viewer yields one honest "isn't available in this view" line
+  per domain and never a fabricated ✓ Found. **The real Apollo round-trip
+  from inside the deployed Artifact is still unverified** (same caveat as
+  the people-match button) — first real test is Jack's.
+- **Republish note**: the Artifact's `capabilities.mcp.servers[].tools`
+  list must include `apollo_organizations_enrich` alongside the two
+  people-match tools, or `listTools()` never surfaces it and the button
+  reports Apollo as not connected.
+
+## Company Overview Agent — the export → research → import loop (app/ + `app/scripts/`)
+
+Per Jack: "an agent to run a brief overview on every company with their
+industry and what they do from scraping their website … or LinkedIn with
+employee count … more so when data cannot be pulled from Apollo." The
+published page cannot fetch arbitrary websites (the Artifact sandbox
+allows only connector calls), so the agent runs OUTSIDE the app and the
+app owns both ends of the hand-off:
+- **Companies → "⬇ Export missing info (N)"** — a CSV of every company
+  whose profile lacks industry, description or employee count, with the
+  best website we have (profile domain → a contact's company website → a
+  contact's work-email domain), in the exact header shape the importer
+  reads: `Company, Website, Industry, # Employees, Short Description`.
+- **`npm run company-overview -- companies-missing-info.csv`**
+  (`app/scripts/company-overview.cjs`, plain Node, fetches via `curl` so
+  OS proxy/CA settings apply). Per company with a website it fetches the
+  homepage plus a linked About page, reads `<title>`, meta/og description,
+  and JSON-LD `Organization` (description, `numberOfEmployees`), looks for
+  EXPLICIT headcount phrasing only ("250+ employees", "team of 40" — never
+  a bare number), and guesses an Industry from a small keyword table. A
+  `Source` column says where each field came from and labels the industry
+  "(guess)". Anything not found stays blank; an unreachable site or a
+  missing website is written as such, never filled in.
+- **LinkedIn is deliberately not consulted** — login wall and terms; the
+  script never requests linkedin.com and the run summary says so.
+  Employee counts come only from the company's own site or from Apollo.
+- **Import the output through the same "⬆ Import Apollo export" button.**
+  The importer is header-driven and fillBlank, so agent output never
+  overwrites something Apollo already supplied; `Source` simply reports
+  as an unmapped column. Verified: fixture sites (meta description +
+  JSON-LD headcount; a plain paragraph with "850+ employees") → correct
+  Industry/Employees/Description; an unreachable domain and a no-website
+  row → blank with the reason; the output CSV mapped 5/5 fields through
+  `mapProfileColumns` and imported cleanly.
+
+## Scanner 3×3 consistency run on Jack's three real files (app/ only)
+
+Per Jack: "Check the scanner and lets make sure we are processing the
+data right … run these 3 files 3 times each." `Book82626.csv`,
+`Book82126.csv`, `BookSheet83.csv`, each scanned three times headless
+through the exact `parseCSVText → scanParsedFiles` path the browser uses,
+plus a 9-upload UI pass. **Result: byte-identical per-row signatures
+(tier/category/DQ reasons) on every run — the pipeline is deterministic;
+no inconsistency exists.** Nothing in detection was changed.
+
+**One rule question surfaced and left for Jack, not decided here.** The
+"Low seat count" Auto-DQ only fires from the LICENSING engine (a
+confirmed M365 seat count under the 15 threshold). A Dynamics 365 lead
+with a stated count under 15 ("Dynamics 365 Business Central - 5 users")
+is NOT DQ'd — `dynamicsSeatCount` is a ranking key only. Across the three
+files that's **31 Dynamics Strong Signal rows with a stated count of
+3-12 seats** (list in the session report). A fix that DQ'd them was
+written, then reverted: Conrey Electric (BC, 10 users) is one of the 12
+companies Jack personally re-promoted to Strong Signal (see the glued-
+NULL fix above), so treating sub-15 Dynamics as a Bad Lead contradicts a
+call he already made. Whether Dynamics should share the 15-seat floor is
+his product decision.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool
@@ -3284,8 +3498,9 @@ rather than trusting memory of it.
   History's per-entry downloads, the audit trail export — all route
   through `saveViaClaudeDownloads` in `lib/csv.ts`, which is a total no-op
   without this capability) and `mcp: {servers: [{server: "Apollo.io",
-  tools: ["apollo_people_match", "apollo_people_bulk_match"]}]}` (Contacts'
-  "Enrich via Apollo"). **Bug that already happened once**: a republish
+  tools: ["apollo_people_match", "apollo_people_bulk_match",
+  "apollo_organizations_enrich"]}]}` (Contacts' "Enrich via Apollo"/Profile
+  Agent, and Scanner's upload-time company enrichment). **Bug that already happened once**: a republish
   that only passed `{mcp: {...}}}` (adding/confirming the Apollo grant)
   silently dropped `downloads`, breaking every CSV download in the
   deployed Artifact with no error shown anywhere — Jack had to report it

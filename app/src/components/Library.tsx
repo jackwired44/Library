@@ -309,7 +309,7 @@ export default function LibraryView({ entries, setEntries, groups, setGroups, lo
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         placeholder="Filter folders by name"
-        style={{ width: "100%", maxWidth: 360, border: "1px solid #E1E4E9", borderRadius: 9, padding: "8px 12px", marginBottom: 20 }}
+        style={{ width: "100%", maxWidth: 360, border: "1px solid var(--border)", borderRadius: 9, padding: "8px 12px", marginBottom: 20 }}
       />
 
       <FolderSection title="Month folders">
@@ -323,8 +323,8 @@ export default function LibraryView({ entries, setEntries, groups, setGroups, lo
           <FolderCard key={g.id} group={g} fileCount={fileCountFor(g.id)} onOpen={() => setOpenFolderId(g.id)} onDelete={() => handleDeleteGroup(g.id)} />
         ))}
         {showNewGroupForm ? (
-          <div style={{ border: "1px solid #D5D9E0", borderRadius: 13, padding: 14, display: "flex", flexDirection: "column", gap: 8, minWidth: 160 }}>
-            <input autoFocus placeholder="Folder name" value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} style={{ border: "1px solid #D8DBE1", borderRadius: 8, padding: "7px 10px" }} />
+          <div style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 14, display: "flex", flexDirection: "column", gap: 8, minWidth: 160 }}>
+            <input autoFocus placeholder="Folder name" value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "7px 10px" }} />
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={handleCreateGroup} style={{ background: "#2CC295", color: "#081E22", border: "none", borderRadius: 8, padding: "7px 12px", fontWeight: 700 }}>Create</button>
               <button onClick={() => setShowNewGroupForm(false)} style={{ background: "none", border: "none", textDecoration: "underline" }}>Cancel</button>
@@ -333,7 +333,7 @@ export default function LibraryView({ entries, setEntries, groups, setGroups, lo
         ) : (
           <button
             onClick={() => setShowNewGroupForm(true)}
-            style={{ border: "2px dashed #D8DCE2", borderRadius: 13, padding: 14, minWidth: 160, minHeight: 96, background: "#fff", color: "#4c6167", fontWeight: 600 }}
+            style={{ border: "2px dashed #D8DCE2", borderRadius: 10, padding: 14, minWidth: 160, minHeight: 96, background: "#fff", color: "#4c6167", fontWeight: 600 }}
           >
             + New folder
           </button>
@@ -347,14 +347,14 @@ export default function LibraryView({ entries, setEntries, groups, setGroups, lo
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {ungroupedEntries.map((entry) => (
-              <div key={entry.id} style={{ background: "#fff", border: "1px solid #E4E7EC", borderRadius: 13, padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+              <div key={entry.id} style={{ background: "#fff", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
                 <div>
                   <div style={{ fontWeight: 600 }}>{entry.fileName}</div>
                   <div style={{ fontSize: 11.5, color: "#9aa1ac" }}>{entry.rowCount} leads · {BUCKET_META[entry.bucketKey].label}</div>
                 </div>
                 <div style={{ display: "flex", gap: 6 }}>
-                  <button onClick={() => handleLoad(entry.fileName, entry.rawText)} style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 7, padding: "6px 10px" }}>Load</button>
-                  <button onClick={() => handleDownload(entry)} style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 7, padding: "6px 10px" }}>⬇ Download</button>
+                  <button onClick={() => handleLoad(entry.fileName, entry.rawText)} style={{ border: "1px solid var(--border)", background: "#fff", borderRadius: 7, padding: "6px 10px" }}>Load</button>
+                  <button onClick={() => handleDownload(entry)} style={{ border: "1px solid var(--border)", background: "#fff", borderRadius: 7, padding: "6px 10px" }}>⬇ Download</button>
                   <button onClick={() => handleDeleteEntry(entry.id)} title="Delete this file" style={{ border: "1px solid #F0D6D6", background: "#fff", borderRadius: 7, padding: "6px 8px", color: "#B5443B" }}>✕</button>
                 </div>
               </div>
@@ -377,7 +377,7 @@ function FolderSection({ title, children }: { title: string; children: React.Rea
 
 function FolderCard({ group, fileCount, onOpen, onDelete }: { group: LibraryGroup; fileCount: number; onOpen: () => void; onDelete?: () => void }) {
   return (
-    <div data-folder-id={group.id} style={{ position: "relative", border: "1px solid #E4E7EC", borderRadius: 13, background: "#fff" }}>
+    <div data-folder-id={group.id} style={{ position: "relative", border: "1px solid var(--border)", borderRadius: 10, background: "#fff" }}>
       <button onClick={onOpen} style={{ width: "100%", border: "none", background: "none", padding: 16, textAlign: "left", cursor: "pointer" }}>
         <div style={{ fontSize: 26, marginBottom: 6 }}>{group.isPrivate ? "🔒" : "🗂️"}</div>
         <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 2 }}>{group.name}</div>
@@ -454,7 +454,7 @@ function FolderContents({
         <button
           onClick={() => uploadInputRef.current?.click()}
           title="Scan a CSV and file its Strong Signal leads directly into this folder"
-          style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, color: "#4c6167", whiteSpace: "nowrap" }}
+          style={{ border: "1px solid var(--border)", background: "#fff", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, color: "#4c6167", whiteSpace: "nowrap" }}
         >
           ⬆ Upload CSV
         </button>
@@ -466,20 +466,20 @@ function FolderContents({
       {uploadError && <div style={{ color: "#9A5B22", fontSize: 13, marginBottom: 12 }}>{uploadError}</div>}
 
       {folderEntries.length === 0 ? (
-        <div style={{ padding: 40, textAlign: "center", color: "#9aa1ac", background: "#fff", border: "1px solid #E4E7EC", borderRadius: 13 }}>
+        <div style={{ padding: 40, textAlign: "center", color: "#9aa1ac", background: "#fff", border: "1px solid var(--border)", borderRadius: 10 }}>
           Nothing filed into {folder.name} yet. Check "Save this batch's Strong Signal leads to the Lead Library" on the Scanner's upload screen and pick this month to get started.
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div style={{ background: "#fff", border: "1px solid #E4E7EC", borderRadius: 13, padding: "14px 18px" }}>
+          <div style={{ background: "#fff", border: "1px solid var(--border)", borderRadius: 10, padding: "14px 18px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
               <div>
                 <div style={{ fontWeight: 700 }}>All Strong Signal Leads</div>
                 <div style={{ fontSize: 11.5, color: "#9aa1ac" }}>{combined.rowCount} leads combined from every category below — view/edit from the category file itself</div>
               </div>
               <div style={{ display: "flex", gap: 6 }}>
-                <button onClick={() => onLoad(combinedFileName, combined.rawText)} style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 7, padding: "6px 10px" }}>Load</button>
-                <button onClick={() => downloadBlob(combined.rawText, combinedFileName)} style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 7, padding: "6px 10px" }}>⬇ Download</button>
+                <button onClick={() => onLoad(combinedFileName, combined.rawText)} style={{ border: "1px solid var(--border)", background: "#fff", borderRadius: 7, padding: "6px 10px" }}>Load</button>
+                <button onClick={() => downloadBlob(combined.rawText, combinedFileName)} style={{ border: "1px solid var(--border)", background: "#fff", borderRadius: 7, padding: "6px 10px" }}>⬇ Download</button>
               </div>
             </div>
           </div>
@@ -504,7 +504,7 @@ function FolderContents({
           ))}
 
           {ACTIVE_BUCKET_KEYS.filter((bk) => !folderEntries.some((e) => e.bucketKey === bk)).map((bk) => (
-            <div key={bk} style={{ background: "#F9FAFB", border: "1px dashed #E4E7EC", borderRadius: 13, padding: "14px 18px", color: "#9aa1ac" }}>
+            <div key={bk} style={{ background: "#F9FAFB", border: "1px dashed #E4E7EC", borderRadius: 10, padding: "14px 18px", color: "#9aa1ac" }}>
               <strong style={{ color: "#4c6167" }}>{BUCKET_META[bk].label}</strong> — no leads filed yet.
             </div>
           ))}
@@ -569,7 +569,7 @@ function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownl
   // lower block rather than being treated as a count of 0.
   const displayRows = isDynamics ? sortDynamicsStoredRows(subFiltered) : subFiltered;
   return (
-    <div style={{ background: "#fff", border: "1px solid #E4E7EC", borderRadius: 13, overflow: "hidden" }}>
+    <div style={{ background: "#fff", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
       <div style={{ padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
         <div style={{ flex: "1 1 200px" }}>
           <span style={{ fontSize: 10.5, background: meta.bg, color: meta.color, padding: "2px 8px", borderRadius: 20, fontWeight: 700, marginRight: 8 }}>{meta.label}</span>
@@ -578,15 +578,15 @@ function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownl
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
           <label style={{ fontSize: 11.5, color: "#9aa1ac" }}>Received:</label>
-          <input type="date" defaultValue={entry.receivedAt || ""} onBlur={(e) => onReceivedDate(e.target.value)} style={{ border: "1px solid #D8DBE1", borderRadius: 7, padding: "5px 7px" }} />
-          <button onClick={onToggleExpanded} title={expanded ? "Hide leads" : "Edit leads"} style={{ border: "1px solid #D5D9E0", background: expanded ? "linear-gradient(90deg, var(--accent), var(--accent-blue))" : "#fff", color: expanded ? "#fff" : "#081E22", borderRadius: 7, padding: "6px 9px" }}>{expanded ? "▴" : "▾"}</button>
-          <button onClick={onLoad} style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 7, padding: "6px 10px" }}>Load</button>
-          <button onClick={onDownload} style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 7, padding: "6px 10px" }}>⬇</button>
+          <input type="date" defaultValue={entry.receivedAt || ""} onBlur={(e) => onReceivedDate(e.target.value)} style={{ border: "1px solid var(--border)", borderRadius: 7, padding: "5px 7px" }} />
+          <button onClick={onToggleExpanded} title={expanded ? "Hide leads" : "Edit leads"} style={{ border: "1px solid var(--border)", background: expanded ? "linear-gradient(90deg, var(--accent), var(--accent-blue))" : "#fff", color: expanded ? "#fff" : "#081E22", borderRadius: 7, padding: "6px 9px" }}>{expanded ? "▴" : "▾"}</button>
+          <button onClick={onLoad} style={{ border: "1px solid var(--border)", background: "#fff", borderRadius: 7, padding: "6px 10px" }}>Load</button>
+          <button onClick={onDownload} style={{ border: "1px solid var(--border)", background: "#fff", borderRadius: 7, padding: "6px 10px" }}>⬇</button>
           <button onClick={onDelete} title="Remove this file" style={{ border: "1px solid #F0D6D6", background: "#fff", borderRadius: 7, padding: "6px 8px", color: "#B5443B" }}>✕</button>
         </div>
       </div>
       {expanded && (
-        <div style={{ padding: "0 18px 16px", overflowX: "auto", borderTop: "1px solid #F0F1F4" }}>
+        <div style={{ padding: "0 18px 16px", overflowX: "auto", borderTop: "1px solid var(--border)" }}>
           {(isDynamics || isM365) && (
             <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", margin: "12px 0 4px" }}>
               <span style={{ fontSize: 10.5, color: "#8b93a0", fontWeight: 700, textTransform: "uppercase" }}>View:</span>
@@ -643,7 +643,7 @@ function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownl
                           </td>
                         ))}
                         <td style={{ padding: "4px 6px", whiteSpace: "nowrap" }}>
-                          <select value={entry.bucketKey} onChange={(ev) => onRowMove(rowKey, ev.target.value as BucketKey)} style={{ border: "1px solid #D8DBE1", borderRadius: 6, padding: "4px 6px", fontSize: 11.5, fontWeight: 600 }}>
+                          <select value={entry.bucketKey} onChange={(ev) => onRowMove(rowKey, ev.target.value as BucketKey)} style={{ border: "1px solid var(--border)", borderRadius: 6, padding: "4px 6px", fontSize: 11.5, fontWeight: 600 }}>
                             {ACTIVE_BUCKET_KEYS.map((bk) => (
                               <option key={bk} value={bk}>{BUCKET_META[bk].label}</option>
                             ))}
@@ -660,7 +660,7 @@ function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownl
                               <select
                                 value={disposition}
                                 onChange={(ev) => onRowStatus(rowKey, { __disposition: ev.target.value as Disposition })}
-                                style={{ flex: 1, background: dispositionMetaFor(disposition, dispositions).bg, color: dispositionMetaFor(disposition, dispositions).color, fontWeight: 600, border: "1px solid #D8DBE1", borderRadius: 6, padding: "4px 6px", fontSize: 11.5 }}
+                                style={{ flex: 1, background: dispositionMetaFor(disposition, dispositions).bg, color: dispositionMetaFor(disposition, dispositions).color, fontWeight: 600, border: "1px solid var(--border)", borderRadius: 6, padding: "4px 6px", fontSize: 11.5 }}
                               >
                                 {dispositionOptions(dispositions).map((o) => (
                                   <option key={o.key} value={o.key}>{o.label}</option>
@@ -670,7 +670,7 @@ function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownl
                                 <button
                                   onClick={() => onRowStatus(rowKey, { __disposition: "none", __dispositionNote: "" })}
                                   title="Undo disposition (mistakenly selected)"
-                                  style={{ border: "1px solid #D8DBE1", background: "#fff", borderRadius: 6, padding: "0 6px", fontSize: 12, cursor: "pointer" }}
+                                  style={{ border: "1px solid var(--border)", background: "#fff", borderRadius: 6, padding: "0 6px", fontSize: 12, cursor: "pointer" }}
                                 >
                                   ↺
                                 </button>
@@ -681,7 +681,7 @@ function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownl
                                 defaultValue={row.__dispositionNote || ""}
                                 onBlur={(ev) => onRowStatus(rowKey, { __dispositionNote: ev.target.value })}
                                 placeholder="Note"
-                                style={{ border: "1px solid #E1E4E9", borderRadius: 5, padding: "3px 5px", fontSize: 11 }}
+                                style={{ border: "1px solid var(--border)", borderRadius: 5, padding: "3px 5px", fontSize: 11 }}
                               />
                             )}
                             <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
@@ -697,7 +697,7 @@ function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownl
                                   type="month"
                                   value={row.__priorityMonth || ""}
                                   onChange={(ev) => onRowStatus(rowKey, { __priorityMonth: ev.target.value || null })}
-                                  style={{ border: "1px solid #D8DBE1", borderRadius: 5, padding: "2px 4px", fontSize: 10.5 }}
+                                  style={{ border: "1px solid var(--border)", borderRadius: 5, padding: "2px 4px", fontSize: 10.5 }}
                                 />
                               )}
                             </div>
@@ -760,7 +760,7 @@ function PrivacyControls({ folder, onSetPrivate, onSetPublic }: { folder: Librar
       <button
         onClick={() => setShowForm(true)}
         title="Make this folder private — requires a password to open going forward"
-        style={{ border: "1px solid #D5D9E0", background: "#fff", color: "#4c6167", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" }}
+        style={{ border: "1px solid var(--border)", background: "#fff", color: "#4c6167", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" }}
       >
         🔓 Public — make private
       </button>
@@ -769,8 +769,8 @@ function PrivacyControls({ folder, onSetPrivate, onSetPublic }: { folder: Librar
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-      <input type="password" placeholder="New folder password" value={password} onChange={(e) => setPassword(e.target.value)} style={{ border: "1px solid #D8DBE1", borderRadius: 7, padding: "6px 9px", fontSize: 12.5 }} />
-      <input type="password" placeholder="Confirm" value={confirm} onChange={(e) => setConfirm(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} style={{ border: "1px solid #D8DBE1", borderRadius: 7, padding: "6px 9px", fontSize: 12.5 }} />
+      <input type="password" placeholder="New folder password" value={password} onChange={(e) => setPassword(e.target.value)} style={{ border: "1px solid var(--border)", borderRadius: 7, padding: "6px 9px", fontSize: 12.5 }} />
+      <input type="password" placeholder="Confirm" value={confirm} onChange={(e) => setConfirm(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} style={{ border: "1px solid var(--border)", borderRadius: 7, padding: "6px 9px", fontSize: 12.5 }} />
       <button onClick={submit} style={{ background: "#2CC295", color: "#081E22", border: "none", borderRadius: 7, padding: "6px 12px", fontWeight: 700, fontSize: 12.5 }}>Set</button>
       <button onClick={() => { setShowForm(false); setPassword(""); setConfirm(""); setError(null); }} style={{ background: "none", border: "none", textDecoration: "underline", fontSize: 12 }}>Cancel</button>
       {error && <span style={{ color: "#B5443B", fontSize: 11.5 }}>{error}</span>}
@@ -813,7 +813,7 @@ function FolderPasswordGate({ folder, onBack, onUnlock }: { folder: LibraryGroup
           onChange={(e) => setPassword(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && submit()}
           placeholder="Folder password"
-          style={{ width: "100%", padding: "11px 13px", fontSize: 15, border: "1px solid #D5D9E0", borderRadius: 9, boxSizing: "border-box", marginBottom: 10 }}
+          style={{ width: "100%", padding: "11px 13px", fontSize: 15, border: "1px solid var(--border)", borderRadius: 9, boxSizing: "border-box", marginBottom: 10 }}
         />
         <button
           onClick={submit}

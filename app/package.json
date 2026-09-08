@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "typecheck": "tsc -b --noEmit",
-    "hash-password": "node scripts/hash-password.cjs"
+    "hash-password": "node scripts/hash-password.cjs",
+    "company-overview": "node scripts/company-overview.cjs"
   },
   "dependencies": {
     "papaparse": "^5.4.1",

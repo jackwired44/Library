@@ -61,7 +61,7 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
       {error && <div style={{ color: "#B5443B", marginBottom: 12, fontSize: 12.5 }}>{error}</div>}
 
       {lists.length === 0 ? (
-        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: 28, textAlign: "center", color: "var(--muted)", fontSize: 13 }}>
+        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 28, textAlign: "center", color: "var(--muted)", fontSize: 13 }}>
           No lists yet. Select leads in Scanner's results table and use "+ Add to list" to start one.
         </div>
       ) : (
@@ -69,7 +69,7 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
           {lists.map((list) => {
             const expanded = expandedId === list.id;
             return (
-              <div key={list.id} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 13, padding: "14px 18px" }}>
+              <div key={list.id} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "14px 18px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
                     <button

@@ -102,7 +102,7 @@ export default function HistoryView({ history, loading, error, onLoadIntoScanner
 
   if (history.length === 0) {
     return (
-      <div style={{ padding: 40, textAlign: "center", color: "#9aa1ac", background: "#fff", border: "1px solid #E4E7EC", borderRadius: 13 }}>
+      <div style={{ padding: 40, textAlign: "center", color: "#9aa1ac", background: "#fff", border: "1px solid var(--border)", borderRadius: 10 }}>
         Every scan and reload gets kept here automatically — nothing's been imported yet. Upload a file on the Scanner to get started.
       </div>
     );
@@ -122,12 +122,12 @@ export default function HistoryView({ history, loading, error, onLoadIntoScanner
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search by company, contact, tag, or file name"
-          style={{ flex: "1 1 320px", maxWidth: 420, border: "1px solid #E1E4E9", borderRadius: 9, padding: "8px 12px" }}
+          style={{ flex: "1 1 320px", maxWidth: 420, border: "1px solid var(--border)", borderRadius: 9, padding: "8px 12px" }}
         />
         <button
           onClick={downloadAuditTrail}
           title="Download a CSV audit log — one row per import, with the exact date/time it was scanned"
-          style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 700, color: "#4c6167", whiteSpace: "nowrap" }}
+          style={{ border: "1px solid var(--border)", background: "#fff", borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 700, color: "#4c6167", whiteSpace: "nowrap" }}
         >
           ⬇ Export audit trail
         </button>
@@ -172,7 +172,7 @@ export default function HistoryView({ history, loading, error, onLoadIntoScanner
       </div>
 
       {selected.size > 0 && (
-        <div style={{ display: "flex", gap: 10, alignItems: "center", background: "#EEF2FF", border: "1px solid #D6DEFA", borderRadius: 11, padding: "10px 17px", marginBottom: 14, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", background: "#EEF2FF", border: "1px solid var(--border)", borderRadius: 11, padding: "10px 17px", marginBottom: 14, flexWrap: "wrap" }}>
           <span style={{ fontWeight: 700, color: "#3A4B8C" }}>{selected.size} import{selected.size === 1 ? "" : "s"} selected</span>
           <button
             onClick={() => { onLoadIntoScanner([...selected]); setSelected(new Set()); }}
@@ -186,7 +186,7 @@ export default function HistoryView({ history, loading, error, onLoadIntoScanner
       )}
 
       {visibleEntries.length === 0 ? (
-        <div style={{ padding: 40, textAlign: "center", color: "#9aa1ac", background: "#fff", border: "1px solid #E4E7EC", borderRadius: 13 }}>No imports match this filter.</div>
+        <div style={{ padding: 40, textAlign: "center", color: "#9aa1ac", background: "#fff", border: "1px solid var(--border)", borderRadius: 10 }}>No imports match this filter.</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {visibleEntries.map((h) => (
@@ -236,10 +236,10 @@ function OverrideModal({ message, onConfirm, onCancel }: { message: string; onCo
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && ready && onConfirm()}
           placeholder="override"
-          style={{ width: "100%", border: "1px solid #D5D9E0", borderRadius: 8, padding: "8px 12px", fontSize: 13, marginBottom: 16 }}
+          style={{ width: "100%", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", fontSize: 13, marginBottom: 16 }}
         />
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-          <button onClick={onCancel} style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 8, padding: "8px 14px", fontWeight: 600 }}>Cancel</button>
+          <button onClick={onCancel} style={{ border: "1px solid var(--border)", background: "#fff", borderRadius: 8, padding: "8px 14px", fontWeight: 600 }}>Cancel</button>
           <button
             onClick={onConfirm}
             disabled={!ready}
@@ -306,7 +306,7 @@ function HistoryCard({
     .filter(Boolean);
 
   return (
-    <div data-history-entry-id={entry.id} style={{ background: "#fff", border: "1px solid #E4E7EC", borderRadius: 13, padding: "14px 18px" }}>
+    <div data-history-entry-id={entry.id} style={{ background: "#fff", border: "1px solid var(--border)", borderRadius: 10, padding: "14px 18px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
         <div style={{ display: "flex", gap: 10 }}>
           <input type="checkbox" checked={selected} onChange={onToggleSelect} style={{ marginTop: 4 }} />
@@ -347,9 +347,9 @@ function HistoryCard({
           </div>
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          <button onClick={onView} style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 7, padding: "6px 10px" }}>View / edit</button>
+          <button onClick={onView} style={{ border: "1px solid var(--border)", background: "#fff", borderRadius: 7, padding: "6px 10px" }}>View / edit</button>
           {ACTIVE_BUCKET_KEYS.map((bk) => (
-            <button key={bk} onClick={() => onDownloadBucket(bk)} title={`Download ${BUCKET_META[bk].label} leads from this import`} style={{ border: "1px solid #D5D9E0", background: "#fff", borderRadius: 7, padding: "6px 10px", fontSize: 12 }}>
+            <button key={bk} onClick={() => onDownloadBucket(bk)} title={`Download ${BUCKET_META[bk].label} leads from this import`} style={{ border: "1px solid var(--border)", background: "#fff", borderRadius: 7, padding: "6px 10px", fontSize: 12 }}>
               ⬇ {BUCKET_META[bk].label}
             </button>
           ))}
@@ -367,13 +367,13 @@ function HistoryCard({
           defaultValue={entry.tag}
           onBlur={(e) => onUpdateTag(e.target.value)}
           placeholder="Tag (e.g. Apollo export, cold list…)"
-          style={{ border: "1px solid #E1E4E9", borderRadius: 8, padding: "6px 10px", fontSize: 12.5, flex: "1 1 180px" }}
+          style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "6px 10px", fontSize: 12.5, flex: "1 1 180px" }}
         />
         <input
           defaultValue={entry.notes}
           onBlur={(e) => onUpdateNotes(e.target.value)}
           placeholder="Notes"
-          style={{ border: "1px solid #E1E4E9", borderRadius: 8, padding: "6px 10px", fontSize: 12.5, flex: "2 1 260px" }}
+          style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "6px 10px", fontSize: 12.5, flex: "2 1 260px" }}
         />
       </div>
     </div>

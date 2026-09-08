@@ -9,8 +9,11 @@
 // (estimated employees, industry, website) and closer to an actual Apollo
 // down the road" — a future LinkedIn integration and richer company
 // profiles beyond this roll-up are direction, not built yet.
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { groupContactsByCompany, searchCompanies } from "../lib/companies";
+import { profileLocationLabel, PROFILE_FIELD_DEFS, type CompanyProfile, type ImportResult } from "../lib/companyProfiles";
+import { downloadBlob, toCSV } from "../lib/csv";
+import { getEmailDomain, isFreeEmailDomain } from "../lib/detection";
 import { OUTREACH_STATUS_META, type Contact, type ManualContactInput } from "../lib/contacts";
 import { CATEGORY_META } from "../lib/detection";
 import { dispositionMetaFor, type CustomDisposition } from "../lib/dispositions";
@@ -39,11 +42,14 @@ interface CompaniesProps {
   sequences: Sequence[];
   enrollments: SequenceEnrollment[];
   dispositions: CustomDisposition[];
+  // Bulk Apollo export import — see lib/companyProfiles.ts.
+  companyProfiles: CompanyProfile[];
+  onImportCompanyProfiles: (files: FileList | File[]) => Promise<ImportResult[]>;
 }
 
 type SortKey = "recent" | "name" | "contactCount";
 
-export default function Companies({ contacts, onAddContact, onUpdateContact, users, tasks, leadLists, sequences, enrollments, dispositions }: CompaniesProps) {
+export default function Companies({ contacts, onAddContact, onUpdateContact, users, tasks, leadLists, sequences, enrollments, dispositions, companyProfiles, onImportCompanyProfiles }: CompaniesProps) {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("recent");
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
@@ -52,8 +58,60 @@ export default function Companies({ contacts, onAddContact, onUpdateContact, use
   const [page, setPage] = useState(1);
   const now = useNow();
   const contactById = useMemo(() => new Map(contacts.map((c) => [c.id, c])), [contacts]);
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const [importNotice, setImportNotice] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
 
-  const companies = useMemo(() => groupContactsByCompany(contacts), [contacts]);
+  const companies = useMemo(() => groupContactsByCompany(contacts, companyProfiles), [contacts, companyProfiles]);
+  const enrichedCount = useMemo(() => companies.filter((c) => c.profile).length, [companies]);
+
+  // Companies still missing an overview/industry/size — the hand-off file
+  // for the Company Overview Agent (see CLAUDE.md): export these, run the
+  // agent over their domains outside the app (the published page can't
+  // fetch arbitrary websites), and import the resulting CSV through the
+  // same "Import Apollo export" button above. Domain comes from the
+  // profile's website, else a contact's company website, else a contact's
+  // work-email domain (free providers skipped).
+  const missingInfo = useMemo(
+    () =>
+      companies
+        .filter((c) => !c.profile || !c.profile.industry || !c.profile.description || !c.profile.employees)
+        .map((c) => {
+          const fromProfile = c.profile?.domain || "";
+          const fromSite = c.contacts.map((p) => p.companyWebsite || "").find(Boolean) || "";
+          const fromEmail = c.contacts.map((p) => getEmailDomain(p.email)).find((d) => d && !isFreeEmailDomain(d)) || "";
+          const domain = fromProfile || fromSite.replace(/^https?:\/\/(www\.)?/, "").split("/")[0] || fromEmail;
+          return { Company: c.name, Website: domain ? `https://${domain}` : "", Industry: c.profile?.industry || "", "# Employees": c.profile?.employees || "", "Short Description": c.profile?.description || "" };
+        }),
+    [companies]
+  );
+  function exportMissingInfo() {
+    if (!missingInfo.length) return;
+    const cols = ["Company", "Website", "Industry", "# Employees", "Short Description"] as const;
+    void downloadBlob(toCSV(missingInfo as unknown as Record<string, unknown>[], cols), "companies-missing-info.csv");
+  }
+
+  async function handleImport(files: FileList | null) {
+    if (!files || !files.length) return;
+    setImporting(true);
+    try {
+      const results = await onImportCompanyProfiles(files);
+      const created = results.reduce((n, r) => n + r.created, 0);
+      const updated = results.reduce((n, r) => n + r.updated, 0);
+      const rows = results.reduce((n, r) => n + r.rowsRead, 0);
+      const skipped = results.reduce((n, r) => n + r.skippedNoName, 0);
+      const unmapped = Array.from(new Set(results.flatMap((r) => r.mapping.unmapped)));
+      const unmappedLabels = unmapped.map((k) => PROFILE_FIELD_DEFS.find((d) => d.key === k)?.label || k);
+      const parts = [`Read ${rows.toLocaleString()} rows`, `${created} new compan${created === 1 ? "y" : "ies"}`, `${updated} updated`];
+      if (skipped) parts.push(`${skipped} skipped (no company name)`);
+      if (unmappedLabels.length) parts.push(`no column found for: ${unmappedLabels.join(", ")}`);
+      setImportNotice(parts.join(" · ") + ".");
+    } catch (e) {
+      setImportNotice(`Import failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setImporting(false);
+    }
+  }
   const filtered = useMemo(() => {
     const list = searchCompanies(companies, search);
     const sorted = [...list];
@@ -95,7 +153,42 @@ export default function Companies({ contacts, onAddContact, onUpdateContact, use
           <option value="name">Name (A–Z)</option>
           <option value="contactCount">Most contacts</option>
         </select>
+        <span style={{ flex: 1 }} />
+        <button
+          onClick={() => importInputRef.current?.click()}
+          disabled={importing}
+          className="btn btn-secondary"
+          title="Import an Apollo companies or people export (CSV). Matches on company name, then website domain; never blanks a field that's already filled in."
+        >
+          {importing ? "Importing…" : "⬆ Import Apollo export"}
+        </button>
+        <button
+          onClick={exportMissingInfo}
+          disabled={!missingInfo.length}
+          className="btn btn-secondary"
+          title="Download the companies still missing an industry / overview / employee count, with the best domain we have for each — the hand-off file for the overview agent. Import its output with the button to the left."
+        >
+          ⬇ Export missing info ({missingInfo.length})
+        </button>
+        <input
+          ref={importInputRef}
+          type="file"
+          accept=".csv"
+          multiple
+          style={{ display: "none" }}
+          onChange={(e) => { handleImport(e.target.files); e.target.value = ""; }}
+        />
       </div>
+      {importNotice && (
+        <div className="scan-note" style={{ marginTop: -6 }}>
+          {importNotice}
+        </div>
+      )}
+      {enrichedCount > 0 && (
+        <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 10 }}>
+          {enrichedCount} of {companies.length} compan{companies.length === 1 ? "y has" : "ies have"} Apollo "known info" on file.
+        </div>
+      )}
 
       {companies.length === 0 ? (
         <div style={{ fontSize: 13, color: "var(--muted)", padding: "24px 0" }}>
@@ -104,12 +197,15 @@ export default function Companies({ contacts, onAddContact, onUpdateContact, use
       ) : filtered.length === 0 ? (
         <div style={{ fontSize: 13, color: "var(--muted)", padding: "24px 0" }}>No companies match "{search}".</div>
       ) : (
-        <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 12 }}>
+        <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 10 }}>
           <table>
             <thead>
               <tr style={{ background: "var(--bg)", textAlign: "left" }}>
                 <th style={{ padding: "9px 12px" }}></th>
                 <th style={{ padding: "9px 12px" }}>Company</th>
+                <th style={{ padding: "9px 12px" }}>Industry</th>
+                <th style={{ padding: "9px 12px" }}>Employees</th>
+                <th style={{ padding: "9px 12px" }}>HQ</th>
                 <th style={{ padding: "9px 12px" }}>Contacts</th>
                 <th style={{ padding: "9px 12px" }}>Times seen</th>
                 <th style={{ padding: "9px 12px" }}>Last seen</th>
@@ -124,6 +220,9 @@ export default function Companies({ contacts, onAddContact, onUpdateContact, use
                     <tr style={{ borderTop: "1px solid var(--border)", cursor: "pointer" }} onClick={() => setExpandedKey(expanded ? null : co.key)}>
                       <td style={{ padding: "9px 12px", color: "var(--muted)" }}>{expanded ? "▾" : "▸"}</td>
                       <td style={{ padding: "9px 12px", fontWeight: 600 }}>{co.name}</td>
+                      <td style={{ padding: "9px 12px", color: "var(--muted)", fontSize: 12 }}>{co.profile?.industry || "—"}</td>
+                      <td style={{ padding: "9px 12px", color: "var(--muted)", fontSize: 12 }}>{co.profile?.employees || "—"}</td>
+                      <td style={{ padding: "9px 12px", color: "var(--muted)", fontSize: 12 }}>{profileLocationLabel(co.profile) || "—"}</td>
                       <td style={{ padding: "9px 12px" }}>{co.contactCount}</td>
                       <td style={{ padding: "9px 12px" }}>{co.totalTimesSeen}×</td>
                       <td style={{ padding: "9px 12px", whiteSpace: "nowrap" }} title={new Date(co.lastSeenAt).toLocaleString()}>
@@ -136,7 +235,7 @@ export default function Companies({ contacts, onAddContact, onUpdateContact, use
                     {expanded && (
                       <tr style={{ background: "var(--bg)" }}>
                         <td></td>
-                        <td colSpan={5} style={{ padding: "6px 12px 12px" }}>
+                        <td colSpan={8} style={{ padding: "6px 12px 12px" }}>
                           <div style={{ display: "flex", gap: 16, flexWrap: "wrap", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 14px", marginBottom: 10 }}>
                             <CompanyStat label="Calls made" value={co.totalCalls} />
                             <CompanyStat label="Emails sent" value={co.totalEmails} />
@@ -147,8 +246,56 @@ export default function Companies({ contacts, onAddContact, onUpdateContact, use
                               <div style={{ fontSize: 13, fontWeight: 600, marginTop: 3 }}>
                                 <LocalTime zone={co.timeZone} source={co.timeZone ? "phone" : "unknown"} now={now} variant="full" />
                               </div>
+                              <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 2 }}>
+                                {co.timeZoneSource === "hq" ? "from HQ location (Apollo)" : co.timeZoneSource === "contacts" ? "from contacts' phone area codes" : "no location or NANP phone on file"}
+                              </div>
                             </div>
                           </div>
+                          {co.profile && (
+                            <div className="panel" style={{ marginBottom: 10 }}>
+                              <div className="panel-head">
+                                <div className="panel-title">Known info</div>
+                                <div className="panel-sub">From Apollo export{co.profile.sourceFiles.length === 1 ? "" : "s"}: {co.profile.sourceFiles.join(", ")}</div>
+                              </div>
+                              <div className="panel-body" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, fontSize: 12.5 }}>
+                                {[
+                                  ["Website", co.profile.website],
+                                  ["Industry", co.profile.industry],
+                                  ["Employees", co.profile.employees],
+                                  ["HQ", profileLocationLabel(co.profile)],
+                                  ["Phone", co.profile.phone],
+                                  ["Revenue", co.profile.annualRevenue],
+                                  ["Founded", co.profile.foundedYear],
+                                  ["LinkedIn", co.profile.linkedinUrl],
+                                ].filter(([, v]) => v).map(([k, v]) => (
+                                  <div key={k}>
+                                    <div className="rd-label">{k}</div>
+                                    {/^https?:\/\//.test(v) ? (
+                                      <a href={v} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent-blue)", wordBreak: "break-all" }}>{v.replace(/^https?:\/\//, "")}</a>
+                                    ) : (
+                                      <div>{v}</div>
+                                    )}
+                                  </div>
+                                ))}
+                                {co.profile.description && (
+                                  <div style={{ gridColumn: "1 / -1" }}>
+                                    <div className="rd-label">About</div>
+                                    <div style={{ color: "var(--muted)", lineHeight: 1.5 }}>{co.profile.description}</div>
+                                  </div>
+                                )}
+                                {co.profile.keywords && (
+                                  <div style={{ gridColumn: "1 / -1" }}>
+                                    <div className="rd-label">Keywords</div>
+                                    <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                                      {co.profile.keywords.split(",").map((k) => k.trim()).filter(Boolean).slice(0, 20).map((k) => (
+                                        <span key={k} className="file-chip">{k}</span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
                           <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
                             {co.contacts.map((p) => (
                               <div

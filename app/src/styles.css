@@ -736,3 +736,90 @@ button:disabled {
   letter-spacing: 0.05em;
   margin-bottom: 4px;
 }
+
+/* ------------------------------------------------------------------ */
+/* Structured borders + brand scheme, app-wide — per Jack: "build the  */
+/* ui out a bit more with structured borders the wiredcio.com color     */
+/* scheme across the whole platform." wiredcio.com itself is blocked by */
+/* this environment's egress, so the palette is the one recorded from   */
+/* the live site in legacy/README.md ("Rebrand pass"): brand green       */
+/* #2CC295, dark ink #081E22 / hero #0C4651, light ground #F6FAFA.       */
+/* Element-level rules below give EVERY table and section the same       */
+/* crisp, ink-tinted structure without per-component edits.             */
+/* ------------------------------------------------------------------ */
+:root {
+  /* Ink-tinted hairlines instead of neutral grey — reads as the brand,
+     not a default. */
+  --border: #dbe4e6;
+  --border-strong: #c4d2d6;
+  --surface-sunken: #f3f8f8;
+  --ink-2: #0c4651;
+}
+
+/* Every data table in the app, not just the Scanner's. */
+table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+table thead th {
+  background: var(--surface-sunken);
+  border-bottom: 1px solid var(--border-strong);
+  text-align: left;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--ink-2);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+table tbody td {
+  border-bottom: 1px solid var(--border);
+}
+table tbody tr:last-child td {
+  border-bottom: none;
+}
+table tbody tr:hover td {
+  background: var(--surface-sunken);
+}
+
+/* Section headings carry a short brand rail so every view opens the
+   same way. */
+main h2 {
+  position: relative;
+  padding-left: 12px;
+}
+main h2::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 3px;
+  bottom: 3px;
+  width: 3px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--accent), var(--accent-blue));
+}
+
+/* Inputs/selects everywhere get the same hairline + focus ring. */
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+select,
+textarea {
+  border-color: var(--border-strong);
+}
+input:not([type="checkbox"]):not([type="radio"]):focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid rgba(44, 194, 149, 0.35);
+  outline-offset: 0;
+  border-color: var(--accent);
+}
+
+/* Sidebar + account panel pick up the ink-2 tint for structure. */
+.side-nav-btn.active {
+  box-shadow: inset 3px 0 0 0 var(--accent), 0 0 0 1px var(--border);
+}
+.account-panel {
+  border-top: 1px solid var(--border-strong);
+}

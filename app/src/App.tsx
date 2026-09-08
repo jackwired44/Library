@@ -102,6 +102,9 @@ import {
   createCustomDisposition,
   type CustomDisposition,
 } from "./lib/dispositions";
+import { loadCompanyProfilesFromDB, persistCompanyProfile, importCompanyRows, companiesNeedingEnrichment, upsertProfileFromApollo, type CompanyProfile, type ImportResult } from "./lib/companyProfiles";
+import { enrichCompaniesViaApollo, type CompanyEnrichOutcome } from "./lib/apolloEnrich";
+import { parseCSVFile } from "./lib/csv";
 import { loadProfile } from "./lib/profile";
 import {
   loadWeeklyGoalsFromDB,
@@ -234,6 +237,21 @@ export default function App() {
   // Jack's own call dispositions, on top of the six built-ins — see
   // lib/dispositions.ts for why a custom one is a label+color only.
   const [dispositions, setDispositions] = useState<CustomDisposition[]>([]);
+  // Company "known info" from bulk Apollo exports — see lib/companyProfiles.ts.
+  const [companyProfiles, setCompanyProfiles] = useState<CompanyProfile[]>([]);
+  // Upload-time company enrichment — per Jack: "keep data enriching as new
+  // contacts are uploaded here if apollo has data on the company." A
+  // per-browser preference (not data), so localStorage rather than a
+  // store. When on, every upload computes which of its companies have no
+  // Apollo profile yet and Scanner offers ONE button to enrich them — with
+  // the exact count/credit cost stated first, because Apollo's own tool
+  // contract requires explicit confirmation before spending credits.
+  const [autoEnrichCompanies, setAutoEnrichCompanies] = useState<boolean>(() => {
+    try { return localStorage.getItem("autoEnrichCompanies") === "1"; } catch { return false; }
+  });
+  const [pendingEnrich, setPendingEnrich] = useState<{ companyName: string; domain: string }[]>([]);
+  const [companyEnrichOutcomes, setCompanyEnrichOutcomes] = useState<CompanyEnrichOutcome[] | null>(null);
+  const [companyEnriching, setCompanyEnriching] = useState(false);
 
   useEffect(() => {
     loadLibraryFromDB()
@@ -302,6 +320,7 @@ export default function App() {
     loadSequenceGroupsFromDB().then(setSequenceGroups).catch(() => {});
     loadEmailAccountsFromDB().then(setEmailAccounts).catch(() => {});
     loadDispositionsFromDB().then(setDispositions).catch(() => {});
+    loadCompanyProfilesFromDB().then(setCompanyProfiles).catch(() => {});
     // The roster always has at least "you" — seeded from the local
     // Profile the first time, so sequences have someone to belong to
     // before any teammate is ever added.
@@ -644,6 +663,54 @@ export default function App() {
     });
   }
 
+  function toggleAutoEnrichCompanies(on: boolean) {
+    setAutoEnrichCompanies(on);
+    try { localStorage.setItem("autoEnrichCompanies", on ? "1" : "0"); } catch { /* preference only */ }
+  }
+  // One explicit click per upload — never automatic — see the state comment
+  // above. Sequential, capped, every domain's outcome kept for Scanner.
+  async function runPendingCompanyEnrichment() {
+    if (!pendingEnrich.length || companyEnriching) return;
+    setCompanyEnriching(true);
+    try {
+      const outcomes = await enrichCompaniesViaApollo(pendingEnrich.map((p) => p.domain));
+      let working = companyProfiles;
+      outcomes.forEach((o) => {
+        if (o.status !== "found" || !o.fields) return;
+        const target = pendingEnrich.find((p) => p.domain === o.domain);
+        working = upsertProfileFromApollo(working, target?.companyName || o.fields.name || o.domain, o.domain, o.fields);
+      });
+      setCompanyProfiles(working);
+      working.forEach((pr) => persistCompanyProfile(pr));
+      setCompanyEnrichOutcomes(outcomes);
+      const done = new Set(outcomes.map((o) => o.domain));
+      setPendingEnrich((prev) => prev.filter((p) => !done.has(p.domain)));
+    } catch (e) {
+      setCompanyEnrichOutcomes(pendingEnrich.map((p) => ({ domain: p.domain, status: "error" as const, errorMessage: e instanceof Error ? e.message : String(e) })));
+    } finally {
+      setCompanyEnriching(false);
+    }
+  }
+
+  // --- Company profiles: bulk Apollo export import (lib/companyProfiles.ts) ---
+  // Explicit, file-driven, nothing in the background — same rule as every
+  // other Apollo touchpoint. Parses through the same CSV path the Scanner
+  // uses, folds rows into the existing profile set, persists only the
+  // touched profiles, and hands the caller a summary to show.
+  async function importCompanyProfilesFromFiles(files: FileList | File[]): Promise<ImportResult[]> {
+    const results: ImportResult[] = [];
+    let working = companyProfiles;
+    for (const file of Array.from(files)) {
+      const parsed = await parseCSVFile(file);
+      const result = importCompanyRows(parsed.name, parsed.fields, parsed.data, working);
+      working = result.profiles;
+      results.push(result);
+    }
+    setCompanyProfiles(working);
+    working.forEach((p) => persistCompanyProfile(p));
+    return results;
+  }
+
   // --- Custom call dispositions (lib/dispositions.ts) ---
   // Returns false when the label is blank or collides with an existing
   // disposition (built-in or custom), so the manager UI can say why.
@@ -773,6 +840,16 @@ export default function App() {
     setHistoryEntries((prev) => [entry, ...prev]);
     persistHistoryEntry(entry);
     mergeContacts(parsedFiles, scanned);
+    // Which of this batch's companies still have no Apollo profile — the
+    // list the "enrich now?" prompt is built from. Computed from the raw
+    // rows so it covers every company in the upload, not just detection
+    // hits. Always computed (cheap, local); only SHOWN when the toggle is on.
+    const rows = parsedFiles.flatMap((pf) => pf.data.map((r) => ({
+      company: String(r["Company Name"] ?? r["companyname"] ?? r["Company"] ?? r["company"] ?? "").trim(),
+      email: String(r["Email"] ?? r["emailaddress1"] ?? r["email"] ?? "").trim(),
+    })));
+    setPendingEnrich(companiesNeedingEnrichment(rows, companyProfiles));
+    setCompanyEnrichOutcomes(null);
     return entry;
   }
 
@@ -1057,6 +1134,12 @@ export default function App() {
               leadLists={leadLists}
               onAddSelectedToList={addSelectedToList}
               dispositions={dispositions}
+              autoEnrichCompanies={autoEnrichCompanies}
+              onToggleAutoEnrichCompanies={toggleAutoEnrichCompanies}
+              pendingEnrich={pendingEnrich}
+              companyEnrichOutcomes={companyEnrichOutcomes}
+              companyEnriching={companyEnriching}
+              onRunCompanyEnrichment={runPendingCompanyEnrichment}
             />
           )}
           {view === "engage" && (
@@ -1111,6 +1194,8 @@ export default function App() {
               onRemoveLeadFromList={removeLeadFromList}
               dispositions={dispositions}
               onManageDispositions={() => setNotesPanelTab("dispositions")}
+              companyProfiles={companyProfiles}
+              onImportCompanyProfiles={importCompanyProfilesFromFiles}
               initialTab={engageEntry.tab}
               initialContactsSearch={engageEntry.contactsQuery}
             />

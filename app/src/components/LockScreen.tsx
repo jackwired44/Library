@@ -41,7 +41,7 @@ export default function LockScreen({ onUnlock }: { onUnlock: () => void }) {
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && tryUnlock()}
           placeholder="Password"
-          style={{ width: "100%", marginTop: 16, padding: "11px 13px", fontSize: 15, border: "1px solid #D5D9E0", borderRadius: 9, boxSizing: "border-box" }}
+          style={{ width: "100%", marginTop: 16, padding: "11px 13px", fontSize: 15, border: "1px solid var(--border)", borderRadius: 9, boxSizing: "border-box" }}
         />
         <button
           onClick={tryUnlock}

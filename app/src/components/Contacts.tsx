@@ -19,7 +19,8 @@ import BookedStamp from "./BookedStamp";
 import OnCrmBadge from "./OnCrmBadge";
 import LocalTime from "./LocalTime";
 import { useNow } from "../lib/useNow";
-import { resolveContactTimeZone } from "../lib/timezones";
+import { resolveContactTimeZone, timeZoneFromLocation, zoneLabel } from "../lib/timezones";
+import { deriveCompanyWebsite } from "../lib/contacts";
 import type { Task, TaskPriority } from "../lib/tasks";
 import type { LeadList } from "../lib/leadLists";
 import type { Sequence, SequenceEnrollment } from "../lib/sequences";
@@ -117,29 +118,68 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
     });
   }
 
+  // Profile Agent — per Jack: "pull accurate website links with the
+  // contacts email domain and cross reference with linkedin and their
+  // name and email to pull a great profile with their accurate title and
+  // whats uploaded." One explicit run over the selected contacts:
+  //   1. website from the email domain (deriveCompanyWebsite — already
+  //      how companyWebsite is auto-filled; re-applied here for any
+  //      contact still missing one),
+  //   2. Apollo people-match on name + company + email — the ONLY
+  //      cross-reference source this app can actually reach (there is no
+  //      LinkedIn API here, and LinkedIn can't be scraped from a browser
+  //      page), which returns the verified LinkedIn URL, Apollo's title,
+  //      the org's website and the person's location,
+  //   3. auto-apply what's safe (LinkedIn URL, a blank website, a time zone
+  //      when no manual override exists) and put anything that CONFLICTS
+  //      with the upload — a different title, a different website — in
+  //      front of Jack with an explicit "Use Apollo's" button, never
+  //      silently overwriting what was uploaded.
   async function runEnrichment() {
     const targets = contacts.filter((c) => selected.has(c.id));
     if (targets.length === 0 || targets.length > MAX_ENRICH_BATCH) return;
     setEnriching(true);
     setEnrichError(null);
     setEnrichOutcomes(null);
+    // Step 1 needs no network: fill any blank website from the email domain.
+    targets.forEach((c) => {
+      if (!c.companyWebsite) {
+        const derived = deriveCompanyWebsite(c.email);
+        if (derived) onUpdateContact(c.id, { companyWebsite: derived });
+      }
+    });
     try {
       const availability = await checkApolloAvailability();
       if (availability !== "available") {
         setEnrichError(
           availability === "not-connected"
-            ? "Apollo isn't connected — add it in claude.ai Settings → Connectors, then try again."
-            : "Apollo enrichment isn't available in this view."
+            ? "Websites were filled from email domains. Apollo isn't connected for the LinkedIn/title cross-reference — add it in claude.ai Settings → Connectors, then run again."
+            : "Websites were filled from email domains. The Apollo cross-reference isn't available in this view."
         );
         return;
       }
       const outcomes = await enrichContactsViaApollo(targets);
       outcomes.forEach((o) => {
-        if (o.status === "matched") onUpdateContact(o.contactId, { linkedinUrl: o.linkedinUrl });
+        const c = contactById.get(o.contactId);
+        if (!c) return;
+        const patch: Partial<Contact> = {};
+        if (o.status === "matched" && o.linkedinUrl) patch.linkedinUrl = o.linkedinUrl;
+        // Title: fill a blank, never overwrite an uploaded one silently —
+        // a conflict is shown in the report with an accept button.
+        if (o.title && !c.title.trim()) patch.title = o.title;
+        // Website: same rule.
+        if (o.website && !c.companyWebsite && !deriveCompanyWebsite(c.email)) patch.companyWebsite = o.website;
+        // Time zone from Apollo's location, only when there's no manual
+        // override and the phone couldn't resolve one.
+        if (!c.timeZone && resolveContactTimeZone(c).zone == null) {
+          const z = timeZoneFromLocation(o.state, o.country);
+          if (z) patch.timeZone = z;
+        }
+        if (Object.keys(patch).length) onUpdateContact(o.contactId, patch);
       });
       setEnrichOutcomes(outcomes);
     } catch (err) {
-      setEnrichError(err instanceof Error ? err.message : "Apollo enrichment failed.");
+      setEnrichError(err instanceof Error ? err.message : "Profile agent failed.");
     } finally {
       setEnriching(false);
     }
@@ -431,10 +471,10 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
             <button
               onClick={runEnrichment}
               disabled={enriching || selected.size > MAX_ENRICH_BATCH}
-              title={selected.size > MAX_ENRICH_BATCH ? `Select ${MAX_ENRICH_BATCH} or fewer to enrich at once` : undefined}
+              title={selected.size > MAX_ENRICH_BATCH ? `Select ${MAX_ENRICH_BATCH} or fewer to enrich at once` : "Website from email domain, then Apollo cross-reference on name + company + email for LinkedIn, title and location. Conflicts with what was uploaded are shown for you to accept, never overwritten silently."}
               style={{ border: "none", borderRadius: 8, padding: "7px 14px", fontWeight: 700, fontSize: 12.5, background: enriching || selected.size > MAX_ENRICH_BATCH ? "#CFE3F7" : "#0A66C2", color: "#fff", cursor: enriching || selected.size > MAX_ENRICH_BATCH ? "not-allowed" : "pointer" }}
             >
-              {enriching ? "Enriching…" : "Enrich via Apollo"}
+              {enriching ? "Running profile agent…" : "▶ Run profile agent"}
             </button>
             {selected.size > MAX_ENRICH_BATCH && <span style={{ fontSize: 11.5, color: "#8A5A00" }}>Select {MAX_ENRICH_BATCH} or fewer at once.</span>}
             <button onClick={() => setSelected(new Set())} style={{ background: "none", border: "none", textDecoration: "underline", fontSize: 12 }}>Clear selection</button>
@@ -442,21 +482,72 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
         )}
         {enrichError && <div style={{ marginBottom: 12, color: "#B5443B", fontSize: 12.5 }}>{enrichError}</div>}
         {enrichOutcomes && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 12 }}>
-            {enrichOutcomes.map((o) => {
-              const c = contactById.get(o.contactId);
-              return (
-                <div key={o.contactId} style={{ fontSize: 12, display: "flex", gap: 8, alignItems: "center" }}>
-                  <span style={{ fontWeight: 600, minWidth: 160 }}>{c?.fullName || c?.company || o.contactId}</span>
-                  {o.status === "matched" && <span style={{ color: "#2CC295", fontWeight: 700 }}>✓ Matched — LinkedIn saved</span>}
-                  {o.status === "no-match" && <span style={{ color: "var(--muted)" }}>No confident match</span>}
-                  {o.status === "error" && <span style={{ color: "#B5443B" }}>Error — {o.errorMessage}</span>}
-                </div>
-              );
-            })}
+          <div className="panel" style={{ marginBottom: 12 }}>
+            <div className="panel-head">
+              <div className="panel-title">Profile agent report</div>
+              <div className="panel-sub">Uploaded vs. found. Auto-applied: LinkedIn, blank titles/websites, time zone from location. Conflicts wait for you.</div>
+            </div>
+            <div className="panel-body" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {enrichOutcomes.map((o) => {
+                const c = contactById.get(o.contactId);
+                if (!c) return null;
+                const titleConflict = Boolean(o.title && c.title.trim() && o.title.trim().toLowerCase() !== c.title.trim().toLowerCase());
+                const emailSite = deriveCompanyWebsite(c.email);
+                const apolloSite = o.website || "";
+                const siteConflict = Boolean(apolloSite && c.companyWebsite && apolloSite.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "") !== c.companyWebsite.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, ""));
+                const zoneFromLoc = timeZoneFromLocation(o.state, o.country);
+                return (
+                  <div key={o.contactId} style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", fontSize: 12 }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 4 }}>
+                      <span style={{ fontWeight: 700 }}>{c.fullName || c.company}</span>
+                      <span style={{ color: "var(--muted)" }}>{c.company}</span>
+                      {o.status === "matched" && <span style={{ color: "#2CC295", fontWeight: 700 }}>✓ Apollo match — LinkedIn saved</span>}
+                      {o.status === "no-match" && <span style={{ color: "var(--muted)" }}>No confident Apollo match</span>}
+                      {o.status === "error" && <span style={{ color: "#B5443B" }}>Error — {o.errorMessage}</span>}
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "110px 1fr 1fr auto", gap: "4px 12px", alignItems: "center" }}>
+                      <span className="rd-label" style={{ marginBottom: 0 }}></span>
+                      <span className="rd-label" style={{ marginBottom: 0 }}>Uploaded</span>
+                      <span className="rd-label" style={{ marginBottom: 0 }}>Found</span>
+                      <span></span>
+
+                      <span style={{ color: "var(--muted)" }}>Title</span>
+                      <span>{c.title || <em style={{ color: "var(--muted)" }}>blank</em>}</span>
+                      <span style={{ fontWeight: titleConflict ? 700 : 400 }}>{o.title || "—"}</span>
+                      <span>
+                        {titleConflict && (
+                          <button onClick={() => onUpdateContact(c.id, { title: o.title! })} className="btn btn-sm btn-secondary">Use Apollo's</button>
+                        )}
+                        {o.title && !titleConflict && c.title && <span style={{ color: "#2CC295", fontSize: 11 }}>agrees</span>}
+                      </span>
+
+                      <span style={{ color: "var(--muted)" }}>Website</span>
+                      <span style={{ wordBreak: "break-all" }}>{c.companyWebsite || <em style={{ color: "var(--muted)" }}>{emailSite ? "filled from email domain" : "no domain to derive"}</em>}</span>
+                      <span style={{ wordBreak: "break-all", fontWeight: siteConflict ? 700 : 400 }}>{apolloSite || "—"}</span>
+                      <span>
+                        {siteConflict && (
+                          <button onClick={() => onUpdateContact(c.id, { companyWebsite: apolloSite })} className="btn btn-sm btn-secondary">Use Apollo's</button>
+                        )}
+                        {apolloSite && !siteConflict && c.companyWebsite && <span style={{ color: "#2CC295", fontSize: 11 }}>agrees</span>}
+                      </span>
+
+                      <span style={{ color: "var(--muted)" }}>LinkedIn</span>
+                      <span style={{ wordBreak: "break-all" }}>{c.linkedinUrl ? c.linkedinUrl.replace(/^https?:\/\/(www\.)?/, "") : <em style={{ color: "var(--muted)" }}>none</em>}</span>
+                      <span style={{ wordBreak: "break-all" }}>{o.linkedinUrl ? o.linkedinUrl.replace(/^https?:\/\/(www\.)?/, "") : "—"}</span>
+                      <span></span>
+
+                      <span style={{ color: "var(--muted)" }}>Location</span>
+                      <span>{resolveContactTimeZone(c).zone ? zoneLabel(resolveContactTimeZone(c).zone as string) : <em style={{ color: "var(--muted)" }}>unknown</em>}</span>
+                      <span>{[o.city, o.state, o.country].filter(Boolean).join(", ") || "—"}{zoneFromLoc ? ` → ${zoneLabel(zoneFromLoc)}` : ""}</span>
+                      <span></span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
-        <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 12 }}>
+        <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 10 }}>
           <table>
             <thead>
               <tr style={{ background: "var(--bg)", textAlign: "left" }}>
