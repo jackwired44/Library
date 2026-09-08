@@ -84,9 +84,20 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
             <label style={{ fontWeight: 700, fontSize: 12.5 }}>Qualify threshold:</label>
             <input
               type="number"
-              min={0}
+              min={1}
               value={ruleOverrides.qualifyThreshold}
-              onChange={(e) => onChangeRuleOverrides(setQualifyThreshold(ruleOverrides, Number(e.target.value)))}
+              // An empty field is a mid-edit state, not a value. Writing
+              // Number("") === 0 here persisted a threshold of 0, which
+              // silently disqualifies every licensing hit with any stated
+              // count and kills the sub-threshold Bad Lead route, with
+              // nothing on screen saying the rule changed.
+              onChange={(e) => {
+                const raw = e.target.value.trim();
+                if (raw === "") return;
+                const n = Number(raw);
+                if (!Number.isFinite(n) || n < 1) return;
+                onChangeRuleOverrides(setQualifyThreshold(ruleOverrides, n));
+              }}
               style={{ width: 70, border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 13, fontWeight: 700 }}
             />
             <span style={{ fontSize: 11.5, color: "#9aa1ac" }}>seats/users — a confirmed count below this is a Bad Lead, not silently dropped</span>

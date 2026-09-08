@@ -203,7 +203,14 @@ export default function LibraryView({ contacts, entries, setEntries, groups, set
     deleteGroupFromDB(id);
     nextEntries.filter((e) => e.groupId === null).forEach((e) => persistLibraryEntry(e));
   }
+  // Confirmed at the choke point rather than at each button, so BOTH the
+  // category-file ✕ and the ungrouped-file ✕ are covered. This deletes a
+  // whole filed file and every Strong Signal lead in it, and its button
+  // sits inches from Download/Load — it was the only destructive control
+  // in the app with no confirmation at all.
   function handleDeleteEntry(id: string) {
+    const entry = entries.find((e) => e.id === id);
+    if (entry && !window.confirm(`Delete "${entry.fileName}" and all ${entry.rows.length} filed lead${entry.rows.length === 1 ? "" : "s"} in it? This cannot be undone.`)) return;
     setEntries((prev) => prev.filter((e) => e.id !== id));
     deleteLibraryEntryFromDB(id);
   }
@@ -259,6 +266,9 @@ export default function LibraryView({ contacts, entries, setEntries, groups, set
     });
   }
   function handleRowDelete(entryId: string, rowKey: string) {
+    // A filed lead is permanent data; the ✕ that removes it sits in a row
+    // of small icon buttons. Confirm before destroying it.
+    if (!window.confirm("Delete this lead from the filed file? This cannot be undone.")) return;
     setEntries((prev) => {
       const next = deleteLibraryRow(prev, entryId, rowKey);
       const stillThere = next.find((e) => e.id === entryId);
@@ -335,7 +345,7 @@ export default function LibraryView({ contacts, entries, setEntries, groups, set
 
       <FolderSection title="Custom folders">
         {filterFolders(customFolders).map((g) => (
-          <FolderCard key={g.id} group={g} fileCount={fileCountFor(g.id)} onOpen={() => setOpenFolderId(g.id)} onDelete={() => handleDeleteGroup(g.id)} />
+          <FolderCard key={g.id} group={g} fileCount={fileCountFor(g.id)} onOpen={() => setOpenFolderId(g.id)} onDelete={() => { if (window.confirm(`Delete the folder "${g.name}"? Its ${fileCountFor(g.id)} file(s) are kept and become ungrouped.`)) handleDeleteGroup(g.id); }} />
         ))}
         {showNewGroupForm ? (
           <div style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 14, display: "flex", flexDirection: "column", gap: 8, minWidth: 160 }}>

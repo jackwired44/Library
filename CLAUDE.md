@@ -3604,6 +3604,128 @@ inside its own functional updater. All list keys are stable.
 no defects found; `tasks.ts` was singled out as the one file that gets
 local-vs-UTC day handling right throughout and should be the reference.
 
+## Interface remodel — design tokens, dark theme, and a new shell (app/ only)
+
+Per Jack: "the track 3 interface remodel of the build plan is to be
+executed now." Apollo's information architecture wearing HubSpot's
+restraint, in Wired CIO's teal. Steps 1 through 3 of the build plan
+(tokens, primitives, shell). **No component's behaviour, props or state
+changed** — the full platform audit (53/53), the disposition suite (12/12)
+and the audit-fix suite (8/8) all still pass against the remodelled build.
+
+**The token layer, and why the old names survive.** `styles.css` now opens
+with the full canonical set: brand/ground/ink/line/semantic/elevation/
+radius/space/layout/type. Crucially the ELEVEN legacy names (`--ink`,
+`--muted`, `--bg`, `--surface`, `--border`, `--accent` …) are kept as
+aliases onto the new values. That is deliberate: ~970 inline styles across
+the components still reference them, so aliasing restyles the entire
+product in one move instead of requiring every file to change at once.
+New code uses the canonical names; the inline styles get converted screen
+by screen from here.
+
+**The green rule, now enforced by the tokens themselves.** Wired CIO is
+teal AND green, and green is also the universal success signal — if both
+are interactive, a green badge stops meaning anything. So `--accent` (the
+alias every existing component uses for its interactive colour) now
+resolves to **teal** `#0E7A72`, and green survives only as `--success` and
+as `--brand-accent` for non-interactive marks. Nothing green is clickable.
+Every ratio in the set was verified by computation, not assumed: 13 of 13
+claimed values check out exactly.
+
+**Dark theme, both states.** Tokens are redefined under
+`@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) }`
+AND `:root[data-theme="dark"]`, so the unstamped system default and the
+explicit toggle both work in both directions. No component rule lives
+inside a theme block, so it is impossible to render one theme's text on
+the other theme's ground. A new toggle in the top bar cycles it,
+persisted in `localStorage` as a display preference (never data).
+
+**The shell.** A 56px top bar (brand mark, product name, theme toggle,
+Lock) plus a **dark teal sidebar** (`--bg-sidebar` `#12312F`), flat and
+grouped, replacing the old light sidebar with its collapsible Engage
+group:
+- **(ungrouped)** Home
+- **Pipeline** — Scanner, Lead library, Lists, History
+- **Work** — Tasks, Calls
+- **Outreach** — Sequences, Emails
+- **Records** — Contacts, Companies
+
+Every Engage sub-tab is now its own top-level destination, one click
+instead of nav-then-dropdown. This is navigation PRESENTATION only: those
+entries still set `view="engage"` plus an `engageEntry.tab` and render the
+exact same `<Engage>` they always did, and Engage's own in-page dropdown
+is untouched. The **Pipeline group is the addition to the reference
+design**, which has six destinations where this product has eleven —
+Scanner, Lead library, Lists and History had nowhere to live in it.
+Sidebar items carry live counts (library files, history entries, lists,
+open tasks, open calls) in mono.
+
+**The active-rail colour is deliberately NOT `--brand`.** Brand teal on
+the dark sidebar measures 2.07:1 where a control needs 3:1 — it fails the
+spec's own acceptance checklist, and it is the primary wayfinding signal
+in the whole shell. `--sidebar-rail` `#4CBFB3` clears 4.83:1 against the
+hover fill and 6.25:1 against the ground, and reads as the same family.
+Verified live: the computed active border is `rgb(76, 191, 179)`.
+
+**Bug found and fixed while building it.** Two stale `.side-nav-btn.active`
+rules from earlier visual passes were still setting a pale
+`--accent-soft` background with dark ink, which on the new dark sidebar
+rendered the active item nearly unreadable. Caught by screenshotting
+rather than by trusting the CSS, and removed.
+
+**Fonts** moved to IBM Plex Sans + IBM Plex Mono (from Inter), per the
+build prompt.
+
+**Deliberately NOT done in this pass**, so it is not mistaken for
+finished: the reference design's page-header pattern (title + single
+primary CTA + control strip) is not applied per screen yet, so
+Backup/Restore still floats at the top of `main`; there is no filter
+rail, no saved views, no skeletons, no right-hand drawers; the ~970
+inline styles are still inline; and the contact record is still a modal
+rather than a three-column page. Those are step 4 onward, screen by
+screen, starting with Tasks.
+
+**Test-harness note.** `scratchpad/audit.js`'s navigation helpers were
+updated for the flat nav (an Engage tab is now one sidebar click, and
+"Lead Library" is now sentence-case "Lead library"). That is a legitimate
+harness update, not a masked failure — every assertion in all three
+suites is unchanged and still passes.
+
+## Audit findings fixed (app/ only)
+
+The remaining items flagged but not changed in the previous audit pass,
+now fixed:
+- **Weekly Goals dropped every Sunday call.** `computeAutoActual` parsed
+  its week end from a bare `YYYY-MM-DD`, which JS reads as UTC midnight;
+  adding six days with local getters landed on Saturday for anyone west
+  of UTC. Now parsed at local noon, the same convention `lib/history.ts`
+  and `lib/tasks.ts` already use.
+- **Contacts' date-range filter excluded evening uploads.** It compared a
+  local calendar date against the UTC `lastSeenAt` stamp, so a contact
+  merged at 8pm Central on the 8th read as the 9th and fell outside a
+  "to the 8th" filter. Both ends now go through `localDayKeyFromIso`.
+- **Clearing the qualify-threshold field wrote `0` instantly.** `Number("")`
+  is 0, and 0 was accepted, which silently disqualifies every licensing
+  hit with any stated count and kills the sub-threshold Bad Lead route
+  with nothing on screen saying the rule changed. Empty and sub-1 values
+  are now ignored as mid-edit states.
+- **Deleting a sequence-generated task stranded its enrollment
+  permanently.** Nothing cleared `currentTaskId`, so the enrollment could
+  never advance (no task left to complete) and `resumeEnrollments`
+  explicitly skips anything that still has one — reactivating the
+  sequence would not regenerate it either. `deleteTask` now clears the
+  back-pointer first.
+- **A second disposition literally named "Other" could be added.**
+  `createCustomDisposition` built its collision list from
+  `DISPOSITION_ORDER`, which deliberately omits the two RETIRED built-ins.
+  Now checked against every key in `DISPOSITION_META`.
+- **The Lead Library was the only place in the app deleting persisted data
+  with no confirmation** — four controls, including one that removes an
+  entire filed file from a button sitting beside Download. Deleting a
+  file, a folder, and an individual filed lead now each confirm, naming
+  what is being destroyed and how many leads it holds. (Folder deletion
+  still only ungroups its files, and the prompt says so.)
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

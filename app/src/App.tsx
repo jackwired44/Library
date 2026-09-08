@@ -119,33 +119,50 @@ import {
 } from "./lib/weeklyGoals";
 
 type View = "home" | "scanner" | "history" | "library" | "engage";
-const NAV_ITEMS: { key: View; label: string; icon: string }[] = [
-  { key: "home", label: "Home", icon: "🏠" },
-  { key: "scanner", label: "Scanner", icon: "🔎" },
-  // (Engage's own sub-nav — Sequences/Tasks/Calls/Emails/Companies/
-  // Contacts/Lists — is inserted right after the Engage row below, see
-  // ENGAGE_SUB_ITEMS.)
-  { key: "engage", label: "Engage", icon: "🤝" },
-  { key: "library", label: "Lead Library", icon: "📚" },
-  { key: "history", label: "History", icon: "🕘" },
+// Sidebar destinations, flat and grouped — Apollo's model: no nesting,
+// no collapsible group, every destination one click away. The Engage
+// sub-tabs are surfaced here as top-level entries; they still render the
+// same <Engage tab=…> they always did, so this is navigation presentation
+// only, not an IA change to the components underneath.
+//
+// The Pipeline group is the addition to the reference design: it has six
+// destinations, this product has eleven, and Scanner/Lead Library/Lists/
+// History had nowhere to live in it.
+type NavDest = { key: View; tab?: EngageTab; label: string; icon: string; count?: "library" | "history" | "lists" | "tasks" | "calls" };
+const NAV_GROUPS: { group: string | null; items: NavDest[] }[] = [
+  { group: null, items: [{ key: "home", label: "Home", icon: "\u{1F3E0}" }] },
+  {
+    group: "Pipeline",
+    items: [
+      { key: "scanner", label: "Scanner", icon: "\u{1F50E}" },
+      { key: "library", label: "Lead library", icon: "\u{1F4DA}", count: "library" },
+      { key: "engage", tab: "lists", label: "Lists", icon: "\u{1F5C2}\uFE0F", count: "lists" },
+      { key: "history", label: "History", icon: "\u{1F558}", count: "history" },
+    ],
+  },
+  {
+    group: "Work",
+    items: [
+      { key: "engage", tab: "tasks", label: "Tasks", icon: "\u2705", count: "tasks" },
+      { key: "engage", tab: "calls", label: "Calls", icon: "\u{1F4DE}", count: "calls" },
+    ],
+  },
+  {
+    group: "Outreach",
+    items: [
+      { key: "engage", tab: "sequences", label: "Sequences", icon: "\u{1F4E1}" },
+      { key: "engage", tab: "emails", label: "Emails", icon: "\u2709\uFE0F" },
+    ],
+  },
+  {
+    group: "Records",
+    items: [
+      { key: "engage", tab: "contacts", label: "Contacts", icon: "\u{1F464}" },
+      { key: "engage", tab: "companies", label: "Companies", icon: "\u{1F3E2}" },
+    ],
+  },
 ];
 
-// Engage's own sub-nav, shown nested under the Engage row in the sidebar
-// — per Jack: "a tab on the left hand side like Apollo's Engage for
-// tasks, calls, emails... add a sequence tab also," then "add companies
-// under emails and reorganize it top to bottom properly... move lists
-// under there also." Same order as Engage's own in-page dropdown
-// (Engage.tsx's TAB_OPTIONS) — Lists moved here from its own top-level
-// nav item, no longer a separate View.
-const ENGAGE_SUB_ITEMS: { key: EngageTab; label: string; icon: string }[] = [
-  { key: "sequences", label: "Sequences", icon: "📡" },
-  { key: "tasks", label: "Tasks", icon: "✅" },
-  { key: "calls", label: "Calls", icon: "📞" },
-  { key: "emails", label: "Emails", icon: "✉️" },
-  { key: "companies", label: "Companies", icon: "🏢" },
-  { key: "contacts", label: "Contacts", icon: "👤" },
-  { key: "lists", label: "Lists", icon: "🗂️" },
-];
 
 export interface UploadedFile {
   name: string;
@@ -167,6 +184,29 @@ export default function App() {
   // sub-nav or a Home tile — reset when Engage is opened any other way
   // so a stale seed doesn't linger.
   const [engageEntry, setEngageEntry] = useState<{ tab?: EngageTab; contactsQuery?: string }>({});
+  // Theme: "system" leaves the root unstamped so prefers-color-scheme
+  // decides; an explicit choice stamps data-theme and wins in both
+  // directions. Persisted per browser like the unlock flag — a display
+  // preference, not data.
+  const [theme, setTheme] = useState<"light" | "dark" | "system">(() => {
+    try {
+      const v = localStorage.getItem("theme");
+      return v === "dark" || v === "light" ? v : "system";
+    } catch { return "system"; }
+  });
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === "system") root.removeAttribute("data-theme");
+    else root.setAttribute("data-theme", theme);
+    try {
+      if (theme === "system") localStorage.removeItem("theme");
+      else localStorage.setItem("theme", theme);
+    } catch { /* preference only */ }
+  }, [theme]);
+  function toggleTheme() {
+    const dark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    setTheme(dark ? "light" : "dark");
+  }
   // The History entry a Scanner batch was reopened from — see
   // loadHistoryIntoScanner. Null for a fresh upload (Scanner tracks its
   // own id then) and for a multi-entry combine.
@@ -177,7 +217,6 @@ export default function App() {
   // — navigating into Engage (sidebar click, header search, a sub-item
   // itself) also auto-expands it so the sub-nav isn't hidden right when
   // you're using it.
-  const [engageNavExpanded, setEngageNavExpanded] = useState(false);
   // Shared Platform Notes/Cheat Sheet panel (see CLAUDE.md "Cheat Sheet
   // relocation + dated Platform Notes") — one panel, two tabs, replacing
   // the old separate floating Cheat Sheet button + notes popover.
@@ -420,6 +459,22 @@ export default function App() {
     });
   }
   function deleteTask(id: string) {
+    // Clear the enrollment's back-pointer first. Without this the
+    // enrollment kept a currentTaskId aiming at a task that no longer
+    // exists: it could never advance (nothing left to complete) and
+    // resumeEnrollments explicitly skips any enrollment that still has
+    // one, so reactivating the sequence would not regenerate it either.
+    // The contact was stuck mid-cadence with no way out but Restart.
+    setEnrollments((prev) => {
+      let changed = false;
+      const next = prev.map((e) => {
+        if (e.currentTaskId !== id) return e;
+        changed = true;
+        return { ...e, currentTaskId: null };
+      });
+      if (changed) next.forEach((e) => { if (e.currentTaskId === null) persistEnrollment(e); });
+      return changed ? next : prev;
+    });
     setTasks((prev) => prev.filter((t) => t.id !== id));
     deleteTaskFromDB(id);
   }
@@ -1008,109 +1063,79 @@ export default function App() {
 
   if (!unlocked) return <LockScreen onUnlock={() => setUnlockedState(true)} />;
 
+  const openTaskCount = tasks.filter((t) => !t.done).length;
+  const openCallCount = tasks.filter((t) => !t.done && t.channel === "call").length;
+  const countFor = (c: NavDest["count"]) =>
+    c === "library" ? libraryEntries.length
+    : c === "history" ? historyEntries.length
+    : c === "lists" ? leadLists.length
+    : c === "tasks" ? openTaskCount
+    : c === "calls" ? openCallCount
+    : null;
+
   return (
-    <div style={{ maxWidth: 1320, margin: "0 auto", padding: "0 24px 40px" }}>
-      <header className="app-header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div className="app-mark" aria-hidden="true">W</div>
-          <div>
-            <h1 style={{ fontSize: 26, margin: 0, lineHeight: 1.15, letterSpacing: "-0.01em" }}>Wired Sales Outbound</h1>
-            <div style={{ fontSize: 11, color: "#8b93a0", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Lead Scanner</div>
-          </div>
+    <div className="app-shell">
+      <header className="topbar">
+        <div className="topbar-brand">
+          <span className="topbar-mark" aria-hidden="true">W</span>
+          <span>The Library</span>
+          <span className="topbar-sub">Wired Sales Outbound</span>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
-          <button
-            onClick={() => { setUnlocked(false); setUnlockedState(false); }}
-            title="Lock this page again"
-            className="nav-btn"
-            style={{ textTransform: "none", letterSpacing: "normal" }}
-          >
-            Lock
-          </button>
-        </div>
+        <div className="topbar-spacer" />
+        <button
+          className="icon-btn"
+          onClick={toggleTheme}
+          title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+        >
+          {theme === "dark" ? "☀️" : "🌙"}
+        </button>
+        <button
+          onClick={() => { setUnlocked(false); setUnlockedState(false); }}
+          title="Lock this page again"
+          className="icon-btn"
+        >
+          🔒 Lock
+        </button>
       </header>
 
-      <div style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
-        <aside
-          style={{
-            width: 178,
-            flexShrink: 0,
-            position: "sticky",
-            top: 76,
-            height: "calc(100vh - 92px)",
-            display: "flex",
-            flexDirection: "column",
-          }}
-        >
-          <nav style={{ display: "flex", flexDirection: "column", gap: 2, overflowY: "auto", minHeight: 0 }}>
-            {NAV_ITEMS.map((item) => (
-              <div key={item.key}>
-                <div style={{ display: "flex", alignItems: "center", gap: 0 }}>
+      <aside className="sidebar">
+        <nav className="sidebar-nav">
+          {NAV_GROUPS.map((grp, gi) => (
+            <div key={grp.group || `g${gi}`}>
+              {grp.group && <div className="sidebar-group">{grp.group}</div>}
+              {grp.items.map((item) => {
+                const active = view === item.key && (!item.tab || engageEntry.tab === item.tab);
+                const n = countFor(item.count);
+                return (
                   <button
+                    key={`${item.key}:${item.tab || ""}`}
                     onClick={() => {
                       setView(item.key);
-                      if (item.key === "engage") {
-                        setEngageEntry({});
-                        setEngageNavExpanded(true);
-                      }
+                      if (item.tab) setEngageEntry({ tab: item.tab });
                     }}
-                    className={`side-nav-btn${view === item.key ? " active" : ""}`}
-                    style={{ flex: 1 }}
+                    className={`side-nav-btn${active ? " active" : ""}`}
                   >
                     <span aria-hidden="true">{item.icon}</span>
-                    <span>
-                      {item.label}
-                      {item.key === "library"
-                        ? ` (${libraryEntries.length})`
-                        : item.key === "history"
-                          ? ` (${historyEntries.length})`
-                          : ""}
-                    </span>
+                    <span className="side-nav-label">{item.label}</span>
+                    {n !== null && <span className="side-nav-count">{n}</span>}
                   </button>
-                  {item.key === "engage" && (
-                    <button
-                      onClick={() => setEngageNavExpanded((v) => !v)}
-                      title={engageNavExpanded ? "Collapse Engage" : "Expand Engage"}
-                      style={{ border: "none", background: "none", cursor: "pointer", padding: "0 8px", color: "var(--muted)", fontSize: 10 }}
-                    >
-                      {engageNavExpanded ? "▾" : "▸"}
-                    </button>
-                  )}
-                </div>
-                {item.key === "engage" && engageNavExpanded && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 1, marginLeft: 20, borderLeft: "1px solid var(--border)", paddingLeft: 6 }}>
-                    {ENGAGE_SUB_ITEMS.map((sub) => (
-                      <button
-                        key={sub.key}
-                        onClick={() => { setEngageEntry({ tab: sub.key }); setView("engage"); }}
-                        className={`side-nav-btn${view === "engage" && engageEntry.tab === sub.key ? " active" : ""}`}
-                        style={{ fontSize: 12, padding: "5px 8px" }}
-                      >
-                        <span aria-hidden="true">{sub.icon}</span>
-                        <span>
-                          {sub.label}
-                          {sub.key === "lists" ? ` (${leadLists.length})` : ""}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-          </nav>
-          <div style={{ marginTop: "auto" }}>
-            <AccountPanel
-              onOpenSettings={() => setNotesPanelTab("cheatsheet")}
-              onOpenNotes={() => setNotesPanelTab("notes")}
-              users={users}
-              onAddUser={addUser}
-              onEditUser={editUser}
-              onRemoveUser={removeUser}
-            />
-          </div>
-        </aside>
+                );
+              })}
+            </div>
+          ))}
+        </nav>
+        <AccountPanel
+          onOpenSettings={() => setNotesPanelTab("cheatsheet")}
+          onOpenNotes={() => setNotesPanelTab("notes")}
+          users={users}
+          onAddUser={addUser}
+          onEditUser={editUser}
+          onRemoveUser={removeUser}
+        />
+      </aside>
 
-        <main style={{ flex: 1, minWidth: 0 }}>
+      <main className="app-main">
+
           <div style={{ marginBottom: 16 }}>
             <BackupRestore
               libraryEntries={libraryEntries}
@@ -1259,8 +1284,7 @@ export default function App() {
               dispositions={dispositions}
             />
           )}
-        </main>
-      </div>
+      </main>
 
       {notesPanelTab === "cheatsheet" && (
         <CheatSheet

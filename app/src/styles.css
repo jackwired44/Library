@@ -1,53 +1,178 @@
-/* Light-only, deliberately: matches the legacy app and the wiredcio.com
-   brand this was designed against (see legacy/README.md "Rebrand pass") —
-   there's no dark variant of that brand to honor, so this doesn't invent one.
-   Density pass (see CLAUDE.md "Shell — denser, product-grade pass"): the
-   brand hues (--ink, --accent) are unchanged on purpose, only the canvas
-   got cooler/flatter and paddings tighter, closer to a real SaaS product
-   (HubSpot/Apollo) than the original airy, pastel first draft. */
+/* ============================================================
+   DESIGN TOKENS — the single source of colour, space, radius
+   and elevation for the whole app. Nothing else should invent
+   a value. See CLAUDE.md "Interface remodel".
+
+   Wired CIO is teal AND green, and green is also the universal
+   success signal. If both are interactive, a green badge stops
+   meaning anything. So: TEAL carries every interactive and brand
+   moment (primary buttons, links, active nav, selected rows,
+   focus rings). GREEN means success and nothing else. Nothing
+   green is ever clickable.
+
+   The legacy token names (--ink, --muted, --bg, --surface,
+   --border, --accent …) are kept as ALIASES onto the new set.
+   That is deliberate: ~970 inline styles across the components
+   still reference them, so aliasing restyles the entire product
+   at once instead of requiring every file to change in one go.
+   New code should use the canonical names below.
+   ============================================================ */
 :root {
   color-scheme: light;
-  --ink: #081e22;
-  --muted: #5b6b72;
-  /* Apollo-style white ground, per Jack: "white background with the green
-     blue wired lining coming through separating pages sections tabs."
-     The canvas is plain white and definition comes from hairline borders
-     and the accent "wire" below — not from a tinted backdrop. */
-  --bg: #ffffff;
-  --surface: #ffffff;
-  --surface-sunken: #f6f8f9;
-  --border: #e4e9ed;
-  --border-strong: #d3dae0;
-  /* The two brand hues the "wire" is drawn from — the green is the
-     existing Wired CIO accent, the blue is the one already used for
-     LinkedIn/meeting-booked, promoted to a real token. */
-  --accent: #2cc295;
-  --accent-blue: #0a66c2;
-  --accent-soft: #eaf6f1;
+
+  /* Brand — teal is the only interactive colour. 5.19:1 on white. */
+  --brand: #0e7a72;
+  --brand-hover: #0a6660;
+  --brand-active: #084f4a;
+  --brand-subtle: #e1f0ee;
+  /* Brand green — NON-INTERACTIVE only (marks, charts). 5.35:1. */
+  --brand-accent: #1f7a45;
+
+  /* Ground and surface */
+  --bg-app: #f2f6f6;
+  --bg-surface: #ffffff;
+  --bg-subtle: #f7fafa;
+  --bg-hover: #eaf1f1;
+  --bg-selected: var(--brand-subtle);
+
+  /* Dark sidebar */
+  --bg-sidebar: #12312f;
+  --sidebar-ink: #bcd2cf;
+  --sidebar-ink-strong: #ffffff;
+  --sidebar-hover: #1b4441;
+  --sidebar-group: #7fa5a0;
+  /* The active-item rail. NOT --brand: brand teal on the dark
+     sidebar measures 2.07:1 where a control needs 3. This clears
+     4.83:1 against the hover fill and 6.25:1 against the ground. */
+  --sidebar-rail: #4cbfb3;
+
+  /* Ink — 15.42 / 7.36 / 5.02 on white */
+  --ink-1: #17272b;
+  --ink-2: #46595f;
+  --ink-3: #5c7379;
+  --ink-inverse: #ffffff;
+
+  /* Lines. --line is decorative and may sit low-contrast;
+     anything that reads as a control uses --line-strong (3.12:1). */
+  --line: #e2eaeb;
+  --line-strong: #7e969b;
+
+  /* Semantic — each checked against its own background */
+  --success: #0a7a43;  --success-bg: #e7f4ec;
+  --warning: #96590a;  --warning-bg: #fbf0dc;
+  --danger:  #b3261e;  --danger-bg:  #fbeae8;
+  --info:    #12628f;  --info-bg:    #e5f0f7;
+  --neutral: #5a6b72;  --neutral-bg: #edf1f2;
+
+  /* Elevation — exactly three, tinted not black */
+  --sh-sm: 0 1px 2px rgba(23, 39, 43, 0.06);
+  --sh-md: 0 2px 8px rgba(23, 39, 43, 0.1);
+  --sh-lg: 0 10px 30px rgba(23, 39, 43, 0.16);
+
+  /* Radius */
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 10px;
+  --r-full: 999px;
+
+  /* Space — closed vocabulary */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
+
+  /* Layout */
+  --sidebar-w: 232px;
+  --topbar-h: 56px;
+  --row-h: 44px;
+
+  /* Type */
+  --font: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+
+  /* ---- Legacy aliases (see header) ---- */
+  --ink: var(--ink-1);
+  --muted: var(--ink-3);
+  --bg: var(--bg-app);
+  --surface: var(--bg-surface);
+  --surface-sunken: var(--bg-subtle);
+  --border: var(--line);
+  --border-strong: var(--line-strong);
+  --accent: var(--brand);
+  --accent-blue: var(--info);
+  --accent-soft: var(--brand-subtle);
 }
 
-/* The signature lining: a hairline green -> blue rule used to separate
-   pages, sections and tab rows. One definition, reused everywhere, so the
-   treatment can't drift between views. */
+/* Dark theme. Only tokens are redefined — no component rule lives
+   inside a theme block, so nothing can render one theme's text on
+   the other theme's ground. Both the system default (unstamped)
+   and the explicit toggle are handled. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --brand: #4cbfb3;
+    --brand-hover: #6fd8cc;
+    --brand-active: #8ee3d9;
+    --brand-subtle: #17383a;
+    --brand-accent: #4fbe7c;
+    --bg-app: #0e1a1c;
+    --bg-surface: #152426;
+    --bg-subtle: #1a2c2e;
+    --bg-hover: #1f3436;
+    --ink-1: #e8efef;
+    --ink-2: #b4c6c7;
+    --ink-3: #8ca3a5;
+    --line: #26393b;
+    --line-strong: #5e7a7c;
+    --success: #4fbe7c; --success-bg: #12301f;
+    --warning: #d69b3f; --warning-bg: #2f2410;
+    --danger:  #e97a70; --danger-bg:  #331613;
+    --info:    #63b0dd; --info-bg:    #12242f;
+    --neutral: #9fb2b4; --neutral-bg: #1e2c2e;
+    --sh-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --sh-md: 0 2px 8px rgba(0, 0, 0, 0.5);
+    --sh-lg: 0 10px 30px rgba(0, 0, 0, 0.6);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --brand: #4cbfb3;
+  --brand-hover: #6fd8cc;
+  --brand-active: #8ee3d9;
+  --brand-subtle: #17383a;
+  --brand-accent: #4fbe7c;
+  --bg-app: #0e1a1c;
+  --bg-surface: #152426;
+  --bg-subtle: #1a2c2e;
+  --bg-hover: #1f3436;
+  --ink-1: #e8efef;
+  --ink-2: #b4c6c7;
+  --ink-3: #8ca3a5;
+  --line: #26393b;
+  --line-strong: #5e7a7c;
+  --success: #4fbe7c; --success-bg: #12301f;
+  --warning: #d69b3f; --warning-bg: #2f2410;
+  --danger:  #e97a70; --danger-bg:  #331613;
+  --info:    #63b0dd; --info-bg:    #12242f;
+  --neutral: #9fb2b4; --neutral-bg: #1e2c2e;
+  --sh-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --sh-md: 0 2px 8px rgba(0, 0, 0, 0.5);
+  --sh-lg: 0 10px 30px rgba(0, 0, 0, 0.6);
+}
+
+/* The wire rule stays, now drawn teal -> brand green. Decorative
+   only; it is never a control. */
 .wire-rule {
   height: 2px;
   border: none;
   margin: 0;
-  background: linear-gradient(90deg, var(--accent), var(--accent-blue));
+  background: linear-gradient(90deg, var(--brand), var(--brand-accent));
   border-radius: 2px;
 }
-/* A panel with the wire along its top edge — for section cards that
-   should read as their own區 block without a heavy border. */
-.wire-top {
-  position: relative;
-  overflow: hidden;
-}
+.wire-top { position: relative; overflow: hidden; }
 .wire-top::before {
   content: "";
   position: absolute;
   inset: 0 0 auto 0;
   height: 2px;
-  background: linear-gradient(90deg, var(--accent), var(--accent-blue));
+  background: linear-gradient(90deg, var(--brand), var(--brand-accent));
 }
 
 * {
@@ -56,7 +181,7 @@
 
 body {
   margin: 0;
-  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font);
   background: var(--bg);
   color: var(--ink);
   line-height: 1.45;
@@ -168,18 +293,8 @@ button:disabled {
   background: var(--surface-sunken);
   border-color: var(--border);
 }
-/* Active nav reads as a lit rail rather than a heavy dark pill — the
-   same green/blue lining, applied vertically. */
-.side-nav-btn.active {
-  background: var(--accent-soft);
-  color: var(--ink);
-  font-weight: 700;
-  border-color: transparent;
-  box-shadow: inset 3px 0 0 0 var(--accent);
-}
-.side-nav-btn.active:hover {
-  background: var(--accent-soft);
-}
+/* Superseded by the app-shell block at the end of this file — the nav
+   now lives on a dark ground, so its active state is defined there. */
 .side-nav-btn span:first-child {
   font-size: 14px;
   flex-shrink: 0;
@@ -854,10 +969,179 @@ textarea:focus {
   border-color: var(--accent);
 }
 
-/* Sidebar + account panel pick up the ink-2 tint for structure. */
-.side-nav-btn.active {
-  box-shadow: inset 3px 0 0 0 var(--accent), 0 0 0 1px var(--border);
-}
 .account-panel {
   border-top: 1px solid var(--border-strong);
+}
+
+
+/* ============================================================
+   APP SHELL — top bar + dark grouped sidebar.
+   Apollo's information architecture, HubSpot's restraint.
+   Presentational only: every destination routes through the
+   same setView/setEngageEntry handlers the old nav used.
+   ============================================================ */
+.app-shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) 1fr;
+  min-height: 100vh;
+}
+.topbar {
+  grid-column: 1 / -1;
+  height: var(--topbar-h);
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: 0 var(--s4);
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+.topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink-1);
+  letter-spacing: -0.01em;
+}
+.topbar-mark {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-md);
+  background: var(--brand);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.topbar-sub {
+  font-size: 10px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 600;
+  padding-left: var(--s2);
+  border-left: 1px solid var(--line);
+  margin-left: var(--s1);
+}
+.topbar-spacer { flex: 1; }
+.icon-btn {
+  border: 1px solid var(--line-strong);
+  background: var(--bg-surface);
+  color: var(--ink-2);
+  border-radius: var(--r-md);
+  height: 30px;
+  min-width: 30px;
+  padding: 0 var(--s2);
+  font-family: var(--font);
+  font-size: 13px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.icon-btn:hover { background: var(--bg-hover); }
+
+/* --- sidebar --- */
+.sidebar {
+  background: var(--bg-sidebar);
+  display: flex;
+  flex-direction: column;
+  padding: var(--s3) 0 var(--s2);
+  position: sticky;
+  top: var(--topbar-h);
+  height: calc(100vh - var(--topbar-h));
+  overflow: hidden;
+}
+.sidebar-nav {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 var(--s2);
+}
+.sidebar-group {
+  font-size: 9.5px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--sidebar-group);
+  font-weight: 600;
+  padding: var(--s3) var(--s2) var(--s1);
+}
+.side-nav-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: 7px var(--s2);
+  border: none;
+  border-left: 3px solid transparent;
+  background: none;
+  color: var(--sidebar-ink);
+  font-family: var(--font);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 0 var(--r-md) var(--r-md) 0;
+  text-transform: none;
+  letter-spacing: normal;
+}
+.side-nav-btn:hover { background: var(--sidebar-hover); color: var(--sidebar-ink-strong); }
+.side-nav-btn.active {
+  background: var(--sidebar-hover);
+  color: var(--sidebar-ink-strong);
+  border-left-color: var(--sidebar-rail);
+  font-weight: 500;
+  box-shadow: none;
+}
+.side-nav-label { flex: 1; min-width: 0; }
+.side-nav-count {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--sidebar-group);
+}
+.side-nav-btn.active .side-nav-count { color: var(--sidebar-ink-strong); }
+
+/* Account block sits on the dark ground, so it needs its own inks. */
+.sidebar .account-panel {
+  border-top: 1px solid var(--sidebar-hover);
+  padding: var(--s3) var(--s3) 0;
+  margin: 0;
+}
+.sidebar .account-name { color: var(--sidebar-ink-strong); }
+.sidebar .account-org { color: var(--sidebar-group); }
+.sidebar .account-row-btn:hover { background: var(--sidebar-hover); }
+.sidebar .account-avatar { background: var(--brand); color: #fff; }
+.sidebar .account-gear,
+.sidebar .notes-trigger {
+  background: none;
+  border: 1px solid var(--sidebar-hover);
+  color: var(--sidebar-ink);
+}
+.sidebar .account-gear:hover,
+.sidebar .notes-trigger:hover { background: var(--sidebar-hover); color: var(--sidebar-ink-strong); }
+.sidebar .tz-cheat {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--sidebar-hover);
+}
+.sidebar .tz-cheat-label { color: var(--sidebar-group); }
+.sidebar .tz-cheat-time { color: var(--sidebar-ink-strong); }
+.sidebar .tz-cheat-abbr { color: var(--sidebar-rail); }
+
+.app-main {
+  min-width: 0;
+  padding: var(--s5) var(--s5) 64px;
+  background: var(--bg-app);
+}
+
+@media (max-width: 860px) {
+  .app-shell { grid-template-columns: 1fr; }
+  .sidebar { position: static; height: auto; }
+  .sidebar-nav { display: flex; flex-wrap: wrap; overflow: visible; }
+  .sidebar-group { width: 100%; }
 }

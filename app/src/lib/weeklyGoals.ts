@@ -80,7 +80,11 @@ export function currentWeekKey(): string {
 // (Monday through Sunday). Every other metric's actual is just the
 // manually-entered number on WeeklyMetricEntry itself.
 export function computeAutoActual(tasks: Task[], weekKey: string): number {
-  const end = new Date(weekKey);
+  // Parsed at local NOON, not as a bare date string. `new Date("2026-09-07")`
+  // is UTC midnight, so adding six days with local getters landed on
+  // Saturday for anyone west of UTC — every Sunday call was dropped from
+  // the metric. Same convention lib/history.ts and lib/tasks.ts already use.
+  const end = new Date(`${weekKey}T12:00:00`);
   end.setDate(end.getDate() + 6);
   return countCompletedChannelTasks(tasks, "call", weekKey, dateKey(end));
 }

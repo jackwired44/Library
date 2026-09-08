@@ -107,7 +107,10 @@ export function createCustomDisposition(
   const trimmed = label.trim();
   const slug = slugify(trimmed);
   if (!trimmed || !slug) return null;
-  const builtInSlugs = DISPOSITION_ORDER.map((k) => slugify(DISPOSITION_META[k].label));
+  // Every built-in, INCLUDING the retired ones — DISPOSITION_ORDER omits
+  // those, so without this a second chip literally reading "Other" could
+  // be added alongside the legacy value, indistinguishable in any picker.
+  const builtInSlugs = Object.keys(DISPOSITION_META).map((k) => slugify(DISPOSITION_META[k as keyof typeof DISPOSITION_META].label));
   if (builtInSlugs.includes(slug)) return null;
   if (existing.some((d) => d.id === `${CUSTOM_PREFIX}${slug}`)) return null;
   const palette = PALETTE[existing.length % PALETTE.length];

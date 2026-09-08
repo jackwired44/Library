@@ -21,6 +21,7 @@ import LocalTime from "./LocalTime";
 import { useNow } from "../lib/useNow";
 import { resolveContactTimeZone, timeZoneFromLocation, zoneLabel } from "../lib/timezones";
 import { deriveCompanyWebsite } from "../lib/contacts";
+import { localDayKeyFromIso } from "../lib/tasks";
 import type { Task, TaskPriority } from "../lib/tasks";
 import type { LeadList } from "../lib/leadLists";
 import type { Sequence, SequenceEnrollment } from "../lib/sequences";
@@ -237,8 +238,12 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
     let list = searched;
     if (dispositionFilter.size > 0) list = list.filter((c) => dispositionFilter.has(c.disposition || "none"));
     if (tierFilter !== "all") list = list.filter((c) => c.tier === tierFilter);
-    if (dateFrom) list = list.filter((c) => c.lastSeenAt >= dateFrom);
-    if (dateTo) list = list.filter((c) => c.lastSeenAt <= `${dateTo}T23:59:59.999Z`);
+    // Compare LOCAL calendar days on both ends. lastSeenAt is a UTC ISO
+    // stamp, so a contact merged at 8pm Central on the 8th reads as the
+    // 9th in UTC and used to fall outside a "to the 8th" filter — every
+    // evening upload landed outside its own day.
+    if (dateFrom) list = list.filter((c) => localDayKeyFromIso(c.lastSeenAt) >= dateFrom);
+    if (dateTo) list = list.filter((c) => localDayKeyFromIso(c.lastSeenAt) <= dateTo);
     return list;
   }, [searched, dispositionFilter, tierFilter, dateFrom, dateTo]);
 
