@@ -2,14 +2,20 @@
 // disposition section i can manully add new ones for caling and remove
 // them and make sure it can be filtered through in a check box way."
 //
-// The six built-in dispositions (lib/detection.ts's DISPOSITION_META) stay
-// exactly as they are, because three of them are wired into real behavior:
-// "not-interested" auto-crosses a row out, and "meeting-booked" tints the
-// row, stamps BOOKED, and auto-finishes a contact's sequence enrollments.
-// A custom disposition added here is deliberately JUST a label + color —
-// it never triggers any of that. That's stated in the manager UI too, so
-// adding "Left voicemail" can't be mistaken for something that also
-// crosses the lead out.
+// The built-in dispositions (lib/detection.ts's DISPOSITION_META) carry
+// real behavior: "not-interested" auto-crosses a row out, "meeting-booked"
+// tints the row and stamps BOOKED, "do-not-contact" blocks future sequence
+// enrollment, and ANY disposition marked connected finishes a contact's
+// active enrollments.
+//
+// A custom disposition added here is a label, a colour, and one real
+// choice: whether it counts as having REACHED the person. That flag is the
+// only behavior a custom carries, and it's the same flag the built-ins
+// use, so a custom "Connected - callback next quarter" stops a cadence
+// exactly like a built-in would. It never crosses a row out or stamps
+// anything; that stays built-in only, and the manager UI says so.
+// A custom saved before the flag existed reads as not-connected, which is
+// the safe default — it can't silently start ending sequences.
 //
 // A custom disposition's id doubles as a human-readable slug of its label
 // ("custom:left-voicemail"), so a lead still stamped with a disposition
@@ -17,7 +23,13 @@
 // id — same "don't orphan already-filed data" rule the rest of this app
 // follows (see CLAUDE.md).
 import { dbGetAll, dbPut, dbDelete, STORE_DISPOSITIONS } from "./db";
-import { DISPOSITION_META, DISPOSITION_ORDER, isBuiltInDisposition, type Disposition } from "./detection";
+import {
+  DISPOSITION_META,
+  DISPOSITION_ORDER,
+  isBuiltInDisposition,
+  type Disposition,
+  type DispositionGroup,
+} from "./detection";
 
 export interface CustomDisposition {
   id: string; // "custom:<slug>"
@@ -25,6 +37,10 @@ export interface CustomDisposition {
   color: string;
   bg: string;
   createdAt: string;
+  // Whether this outcome means the rep actually reached the person.
+  // Optional so a custom saved before this existed still loads; absent
+  // reads as false everywhere, which is the safe default (see header).
+  connected?: boolean;
 }
 
 export interface DispositionOption {
@@ -33,6 +49,8 @@ export interface DispositionOption {
   color: string;
   bg: string;
   custom: boolean;
+  connected: boolean;
+  group: DispositionGroup;
 }
 
 export const CUSTOM_PREFIX = "custom:";
@@ -81,7 +99,11 @@ export async function deleteDispositionFromDB(id: string) {
 // Returns null for a blank label, or one that collides with a built-in or an
 // existing custom disposition (checked on the slug, so "No Answer" can't be
 // added alongside the built-in "No answer").
-export function createCustomDisposition(label: string, existing: CustomDisposition[]): CustomDisposition | null {
+export function createCustomDisposition(
+  label: string,
+  existing: CustomDisposition[],
+  connected = false
+): CustomDisposition | null {
   const trimmed = label.trim();
   const slug = slugify(trimmed);
   if (!trimmed || !slug) return null;
@@ -95,11 +117,13 @@ export function createCustomDisposition(label: string, existing: CustomDispositi
     color: palette.color,
     bg: palette.bg,
     createdAt: new Date().toISOString(),
+    connected,
   };
 }
 
-// Every disposition a dropdown/filter should offer: the six built-ins in
-// their fixed order, then customs in the order they were added.
+// Every disposition a dropdown/filter should offer: the selectable
+// built-ins in their fixed order, then customs in the order they were
+// added. Retired built-ins are never included (see DISPOSITION_ORDER).
 export function dispositionOptions(custom: CustomDisposition[]): DispositionOption[] {
   const builtIns: DispositionOption[] = DISPOSITION_ORDER.map((k) => ({
     key: k,
@@ -107,6 +131,8 @@ export function dispositionOptions(custom: CustomDisposition[]): DispositionOpti
     color: DISPOSITION_META[k].color,
     bg: DISPOSITION_META[k].bg,
     custom: false,
+    connected: DISPOSITION_META[k].connected,
+    group: DISPOSITION_META[k].group,
   }));
   const customs: DispositionOption[] = custom.map((d) => ({
     key: d.id,
@@ -114,8 +140,35 @@ export function dispositionOptions(custom: CustomDisposition[]): DispositionOpti
     color: d.color,
     bg: d.bg,
     custom: true,
+    connected: Boolean(d.connected),
+    group: (d.connected ? "reached" : "not-reached") as DispositionGroup,
   }));
   return [...builtIns, ...customs];
+}
+
+// The same options split into the two buckets Jack works in, for a grouped
+// <select> or a two-section filter row. "none" is returned separately since
+// it's the empty state, not an outcome.
+export function groupedDispositionOptions(custom: CustomDisposition[]): {
+  none: DispositionOption[];
+  reached: DispositionOption[];
+  notReached: DispositionOption[];
+} {
+  const all = dispositionOptions(custom);
+  return {
+    none: all.filter((o) => o.group === "none"),
+    reached: all.filter((o) => o.group === "reached"),
+    notReached: all.filter((o) => o.group === "not-reached"),
+  };
+}
+
+// Did this disposition mean we actually reached the person? The single
+// source of truth for the advancement rule — never hardcode a key list
+// against this question anywhere else.
+export function isConnectedDisposition(key: Disposition | undefined | null, custom: CustomDisposition[]): boolean {
+  const k = (key || "none") as string;
+  if (isBuiltInDisposition(k)) return DISPOSITION_META[k].connected;
+  return Boolean(custom.find((d) => d.id === k)?.connected);
 }
 
 // Safe lookup for ANY disposition value, including one whose custom record

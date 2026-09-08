@@ -28,7 +28,7 @@ interface SequencesProps {
   onUpdateStep: (id: string, stepId: string, patch: Partial<Pick<SequenceStep, "note" | "systemPrompt" | "userPrompt">>) => void;
   onMoveStep: (id: string, stepId: string, direction: -1 | 1) => void;
   onDelete: (id: string) => void;
-  onEnroll: (sequenceId: string, contactIds: string[]) => number;
+  onEnroll: (sequenceId: string, contactIds: string[]) => { enrolled: number; blocked: number };
   onRestart: (enrollmentId: string) => void;
   onRemoveEnrollment: (enrollmentId: string) => void;
   users: PlatformUser[];
@@ -620,7 +620,7 @@ function SequenceDetail({
   onRemoveStep: (stepId: string) => void;
   onUpdateStep: (stepId: string, patch: Partial<Pick<SequenceStep, "note" | "systemPrompt" | "userPrompt">>) => void;
   onMoveStep: (stepId: string, dir: -1 | 1) => void;
-  onEnroll: (contactIds: string[]) => number;
+  onEnroll: (contactIds: string[]) => { enrolled: number; blocked: number };
   onRestart: (enrollmentId: string) => void;
   onRemoveEnrollment: (enrollmentId: string) => void;
 }) {
@@ -650,9 +650,12 @@ function SequenceDetail({
   function submitEnroll() {
     const ids = [...enrollPicker];
     if (!ids.length) return;
-    const added = onEnroll(ids);
-    const skipped = ids.length - added;
-    setEnrollNotice(`Enrolled ${added} contact${added === 1 ? "" : "s"}${skipped > 0 ? ` (${skipped} already active in this sequence)` : ""}.`);
+    const { enrolled, blocked } = onEnroll(ids);
+    const skipped = ids.length - enrolled - blocked;
+    const parts = [`Enrolled ${enrolled} contact${enrolled === 1 ? "" : "s"}`];
+    if (skipped > 0) parts.push(`${skipped} already active in this sequence`);
+    if (blocked > 0) parts.push(`${blocked} skipped as Do not contact`);
+    setEnrollNotice(`${parts.join(" — ")}.`);
     setEnrollPicker(new Set());
   }
   function submitEnrollFromList() {
@@ -663,10 +666,11 @@ function SequenceDetail({
       setEnrollNotice(`None of "${list.name}"'s ${list.rows.length} lead(s) matched a known Contact yet.`);
       return;
     }
-    const added = onEnroll(resolved.map((c) => c.id));
-    const skipped = resolved.length - added;
-    const parts = [`Enrolled ${added} contact${added === 1 ? "" : "s"} from "${list.name}"`];
+    const { enrolled, blocked } = onEnroll(resolved.map((c) => c.id));
+    const skipped = resolved.length - enrolled - blocked;
+    const parts = [`Enrolled ${enrolled} contact${enrolled === 1 ? "" : "s"} from "${list.name}"`];
     if (skipped > 0) parts.push(`${skipped} already active in this sequence`);
+    if (blocked > 0) parts.push(`${blocked} skipped as Do not contact`);
     if (unresolvedCount > 0) parts.push(`${unresolvedCount} of the list's leads had no matching Contact`);
     setEnrollNotice(`${parts.join(" — ")}.`);
     setListPickerId("");

@@ -947,36 +947,112 @@ export function getFullName(f: ResolvedFields): string {
 
 // Manual, per-lead status tracking — entirely separate from the detection
 // engine above (nothing here is auto-set). See CLAUDE.md "Lead status".
-// The six built-ins ship with the app and are the only ones wired into real
-// behavior: "not-interested" auto-crosses a row out, "meeting-booked" tints
-// the row / stamps BOOKED / auto-finishes sequence enrollments. Jack can add
-// his own call dispositions on top of these (lib/dispositions.ts) — those are
-// a label + color only, deliberately with no automatic side effects.
-export type BuiltInDisposition = "none" | "meeting-booked" | "no-answer" | "not-interested" | "no-contact" | "other";
+// Call dispositions — Jack's own two-bucket taxonomy, which mirrors the
+// Engage build spec's `call_disposition.connected` flag: did we actually
+// reach the person, or not.
+//
+//   Reached them   — Meeting Booked, Call Back Scheduled, Info Requested,
+//                    Not Interested, Do Not Contact
+//   Didn't reach   — Gatekeeper / Front Desk, Left Voicemail, No Answer,
+//                    Wrong Number
+//
+// `connected` is not decorative: it drives sequence advancement. Reaching
+// someone finishes their active enrollments (see lib/sequences.ts's
+// isTerminalDisposition), because once a real conversation has happened
+// the cadence must stop rather than keep automating at them. That rule
+// matters more the moment real email sending exists, which is the
+// direction this is being built toward.
+//
+// Two dispositions that shipped earlier ("No contact made", "Other") are
+// RETIRED rather than deleted: they stay in DISPOSITION_META with their
+// original labels and colours so any lead already stamped with one keeps
+// rendering correctly, but they're absent from DISPOSITION_ORDER so no
+// picker offers them again. Same "don't rewrite already-filed data" rule
+// the rest of this app follows.
+export type BuiltInDisposition =
+  | "none"
+  | "meeting-booked"
+  | "call-back-scheduled"
+  | "info-requested"
+  | "not-interested"
+  | "do-not-contact"
+  | "gatekeeper"
+  | "left-voicemail"
+  | "no-answer"
+  | "wrong-number"
+  // Retired — never offered, still rendered.
+  | "no-contact"
+  | "other";
 // Widened to any string so a user-defined disposition id can be stored on a
 // row/contact. The literal union above is kept in the type so every existing
 // comparison (=== "meeting-booked", etc.) still autocompletes and typechecks.
 export type Disposition = BuiltInDisposition | (string & {});
-export const DISPOSITION_META: Record<BuiltInDisposition, { label: string; color: string; bg: string }> = {
-  none: { label: "No disposition", color: "#9aa1ac", bg: "#F4F6F7" },
-  // Blue for meeting booked, red for not interested — per Jack, "for now"
-  // (the other dispositions may get their own row-tint colors later).
-  // Reuses the same blue already established elsewhere in the app (the
-  // "Search LinkedIn" button) rather than inventing a new one.
-  "meeting-booked": { label: "Meeting booked", color: "#0A66C2", bg: "#EAF3FC" },
-  // Added alongside the native Calls tab — a real, distinct call outcome
-  // (not the same as "No contact made" below, which means no attempt was
-  // logged at all) and the same value Apollo's own call outcomes use, so
-  // a future pull-in of Apollo call data maps straight onto this field
-  // instead of needing its own parallel taxonomy.
-  "no-answer": { label: "No answer", color: "#8A5A00", bg: "#FBF3E7" },
-  "not-interested": { label: "Not interested", color: "#B5443B", bg: "#FBEAE8" },
-  "no-contact": { label: "No contact made", color: "#8A5A00", bg: "#FBF3E7" },
-  other: { label: "Other", color: "#3A4B8C", bg: "#EEF2FF" },
+
+export type DispositionGroup = "none" | "reached" | "not-reached";
+export const DISPOSITION_GROUP_LABEL: Record<DispositionGroup, string> = {
+  none: "",
+  reached: "Reached them",
+  "not-reached": "Didn't reach them",
 };
-export const DISPOSITION_ORDER: BuiltInDisposition[] = ["none", "meeting-booked", "no-answer", "not-interested", "no-contact", "other"];
+
+export interface DispositionMeta {
+  label: string;
+  color: string;
+  bg: string;
+  // True when the rep actually spoke to the person. Drives enrollment
+  // finishing — see the note above.
+  connected: boolean;
+  group: DispositionGroup;
+  // Retired built-ins render but are never offered in a picker.
+  retired?: boolean;
+}
+
+export const DISPOSITION_META: Record<BuiltInDisposition, DispositionMeta> = {
+  none: { label: "No disposition", color: "#9aa1ac", bg: "#F4F6F7", connected: false, group: "none" },
+
+  // --- Reached them -------------------------------------------------
+  // Blue for meeting booked, kept from the original set because the row
+  // tint and the BOOKED stamp are already built on this exact colour.
+  "meeting-booked": { label: "Meeting booked", color: "#0A66C2", bg: "#EAF3FC", connected: true, group: "reached" },
+  "call-back-scheduled": { label: "Call back scheduled", color: "#0F7A72", bg: "#DFF3F1", connected: true, group: "reached" },
+  "info-requested": { label: "Info requested", color: "#3A4B8C", bg: "#EEF2FF", connected: true, group: "reached" },
+  // Red, kept from the original set — this one auto-crosses the row out.
+  "not-interested": { label: "Not interested", color: "#B5443B", bg: "#FBEAE8", connected: true, group: "reached" },
+  // A harder red than Not interested: this is a real opt-out, and it also
+  // blocks any future sequence enrollment (lib/sequences.ts).
+  "do-not-contact": { label: "Do not contact", color: "#7A2E28", bg: "#F7E3E1", connected: true, group: "reached" },
+
+  // --- Didn't reach them --------------------------------------------
+  gatekeeper: { label: "Gatekeeper / front desk", color: "#4C6167", bg: "#EEF1F2", connected: false, group: "not-reached" },
+  "left-voicemail": { label: "Left voicemail", color: "#7A3E8C", bg: "#F4EAF7", connected: false, group: "not-reached" },
+  "no-answer": { label: "No answer", color: "#8A5A00", bg: "#FBF3E7", connected: false, group: "not-reached" },
+  "wrong-number": { label: "Wrong number", color: "#6B5B4A", bg: "#F2EEE9", connected: false, group: "not-reached" },
+
+  // --- Retired (rendered, never offered) ----------------------------
+  "no-contact": { label: "No contact made", color: "#8A5A00", bg: "#FBF3E7", connected: false, group: "not-reached", retired: true },
+  other: { label: "Other", color: "#3A4B8C", bg: "#EEF2FF", connected: false, group: "not-reached", retired: true },
+};
+
+// Only the selectable built-ins, in display order. Retired keys are
+// deliberately absent — every picker and filter row iterates this.
+export const DISPOSITION_ORDER: BuiltInDisposition[] = [
+  "none",
+  "meeting-booked",
+  "call-back-scheduled",
+  "info-requested",
+  "not-interested",
+  "do-not-contact",
+  "gatekeeper",
+  "left-voicemail",
+  "no-answer",
+  "wrong-number",
+];
+
+// Checks DISPOSITION_META, not DISPOSITION_ORDER, so a retired built-in
+// still resolves to its real label/colour instead of falling through to
+// dispositionMetaFor's "(removed)" path.
 export function isBuiltInDisposition(key: string): key is BuiltInDisposition {
-  return (DISPOSITION_ORDER as string[]).includes(key);
+  return Object.prototype.hasOwnProperty.call(DISPOSITION_META, key);
 }
 
 export interface ResultRow {

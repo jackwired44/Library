@@ -13,7 +13,8 @@ import {
   type ResultRow,
   type RuleOverrides,
 } from "../lib/detection";
-import { dispositionMetaFor, dispositionOptions, type CustomDisposition } from "../lib/dispositions";
+import { dispositionMetaFor, type CustomDisposition } from "../lib/dispositions";
+import DispositionOptions from "./DispositionOptions";
 import { parseCSVFile, parseCSVText, downloadBlob } from "../lib/csv";
 import type { HistoryEntry } from "../lib/history";
 import {
@@ -662,9 +663,7 @@ function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownl
                                 onChange={(ev) => onRowStatus(rowKey, { __disposition: ev.target.value as Disposition })}
                                 style={{ flex: 1, background: dispositionMetaFor(disposition, dispositions).bg, color: dispositionMetaFor(disposition, dispositions).color, fontWeight: 600, border: "1px solid var(--border)", borderRadius: 6, padding: "4px 6px", fontSize: 11.5 }}
                               >
-                                {dispositionOptions(dispositions).map((o) => (
-                                  <option key={o.key} value={o.key}>{o.label}</option>
-                                ))}
+                                <DispositionOptions dispositions={dispositions} />
                               </select>
                               {disposition !== "none" && (
                                 <button

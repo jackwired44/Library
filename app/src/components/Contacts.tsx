@@ -11,7 +11,7 @@
 // people-match pass (see lib/apolloEnrich.ts) — never automatic.
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { OUTREACH_STATUS_META, type Contact, searchContacts } from "../lib/contacts";
-import { CATEGORY_META, type Tier } from "../lib/detection";
+import { CATEGORY_META, DISPOSITION_GROUP_LABEL, type Tier } from "../lib/detection";
 import { dispositionMetaFor, dispositionOptions, type CustomDisposition } from "../lib/dispositions";
 import { checkApolloAvailability, enrichContactsViaApollo, type EnrichOutcome } from "../lib/apolloEnrich";
 import ContactDetail from "./ContactDetail";
@@ -358,11 +358,20 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
       {contacts.length > 0 && (
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 16, border: "1px solid var(--border)", borderRadius: 10, padding: "9px 12px" }}>
           <span className="rd-label" style={{ marginBottom: 0 }}>Disposition</span>
-          {dispositionOptions(dispositions).map((o) => {
+          {dispositionOptions(dispositions).map((o, i, arr) => {
             const checked = dispositionFilter.has(o.key);
+            // A small divider label wherever the bucket changes, so the
+            // reached/not-reached split is visible while filtering — the
+            // same split that decides whether an outcome ends a sequence.
+            const groupStart = o.group !== "none" && (i === 0 || arr[i - 1].group !== o.group);
             return (
+              <span key={o.key} style={{ display: "contents" }}>
+              {groupStart && (
+                <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: "var(--muted)" }}>
+                  {DISPOSITION_GROUP_LABEL[o.group]}
+                </span>
+              )}
               <label
-                key={o.key}
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -390,6 +399,7 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
                 />
                 {o.label} ({dispositionCounts[o.key] || 0})
               </label>
+              </span>
             );
           })}
           {dispositionFilter.size > 0 && (

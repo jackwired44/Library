@@ -3419,6 +3419,85 @@ Arizona's year-round MST. Pure display, no data. Verified live with the
 browser pinned to Chicago: Eastern +1h, Mountain -1h, Pacific -2h from the
 local clock, correct DST abbreviations, no console errors.
 
+## Call dispositions: Jack's two-bucket taxonomy + the connected rule (app/ only)
+
+Per Jack, giving his real call-outcome list split into two groups, in the
+course of comparing this app against an Engage build spec that rebuilds
+Apollo's sequences/emails/calls/tasks. This replaces the earlier six-value
+set and, more importantly, makes the split *behavioral* rather than
+cosmetic.
+
+- **The nine outcomes, in two buckets.** Reached them: Meeting booked,
+  Call back scheduled, Info requested, Not interested, Do not contact.
+  Didn't reach them: Gatekeeper / front desk, Left voicemail, No answer,
+  Wrong number. Three keys carry over untouched (`meeting-booked`,
+  `not-interested`, `no-answer`) so nothing already filed is rewritten.
+- **`connected` drives sequence advancement, and that is the point.**
+  `DispositionMeta` (`lib/detection.ts`) gained `connected: boolean` and a
+  `group`, and `isTerminalDisposition` (`lib/sequences.ts`) is now
+  literally `isConnectedDisposition` — ANY "reached them" outcome finishes
+  that contact's active enrollments, built-in or custom. The old
+  hardcoded `TERMINAL_DISPOSITIONS` set of two keys is gone.
+  **The reasoning changed mid-thread and it matters**: the first proposal
+  had Call back scheduled and Info requested keep someone active, argued
+  on the grounds that with no automatic email there's no risk of the
+  machine chasing someone you just spoke to. Jack then said SendGrid is
+  coming, which removes that premise entirely — so all five connected
+  outcomes now finish. Don't quietly revert this without re-reading that
+  argument.
+- **Do not contact is a hard opt-out.** `enrollmentBlockReason`
+  (`lib/sequences.ts`) refuses enrollment outright, checked inside
+  `enrollContact` itself so every path is covered, bulk list enrollment
+  included. `enrollContactsInSequence` (`App.tsx`) now returns
+  `{enrolled, blocked}` instead of a bare number so the UI reports
+  "N skipped as Do not contact" rather than lumping an opt-out in with
+  "already active in this sequence." Not interested stays re-enrollable on
+  purpose — that's a soft no you may re-approach next quarter.
+- **Retired, not deleted.** "No contact made" and "Other" stay in
+  `DISPOSITION_META` with their original labels and colours but are absent
+  from `DISPOSITION_ORDER`, so a lead already stamped with one still
+  renders correctly and no picker offers it again. `isBuiltInDisposition`
+  now tests `DISPOSITION_META` rather than `DISPOSITION_ORDER`, which is
+  what makes that work. Same "don't rewrite already-filed data" rule the
+  rest of this app follows.
+- **Customs carry the flag too.** `CustomDisposition.connected` is
+  optional, so one saved before this existed reads as not-connected, the
+  safe default — a pre-existing custom can't silently start ending
+  sequences. The manager UI has a Reached/Didn't-reach selector on the add
+  form and labels each custom with its bucket.
+- **Grouped everywhere it's picked.** New shared `DispositionOptions`
+  component renders `<optgroup>`s for both buckets, used by Scanner's
+  per-row and bulk selectors and the Lead Library's per-lead editor, so
+  the three pickers can't drift. Contacts' checkbox filter row shows a
+  small uppercase bucket header wherever the group changes.
+- Verified live, 12/12: dropdown grouping and all nine outcomes present
+  with the retired pair gone; enrolled a contact then set Do not contact
+  and confirmed the enrollment auto-finished; confirmed re-enrolling that
+  contact is refused with the visible reason and a zero count; confirmed
+  Left voicemail on a different enrolled contact leaves them Active;
+  added a custom in the Reached bucket and confirmed it and the opt-out
+  survived a full reload. Full platform audit re-run after: 53/53.
+
+**Not built, flagged deliberately.** A disposition still lives on the
+Contact as a single latest-outcome value, not on a per-call record — three
+voicemails leave one value, not a history of three. The spec puts
+disposition on a `call` row, and a dialer makes that necessary rather than
+nice-to-have. That's the next brick, not an oversight. Also skipped from
+the spec's version: `sentiment` and the contact-stage trigger, since Jack
+named neither and this app has no contact-stage concept at all.
+
+**Repo-layout correction found while checking this.** CLAUDE.md's own
+"Repo layout" section above describes `legacy/extension/`, `legacy/web/`
+and a `legacy/test-*.js` Playwright suite as existing. They do not, and
+git history confirms they never have been tracked in this repository.
+`legacy/` holds `unified-tool.js`, `build-unified.js`,
+`generate-perf-fixtures.js`, `package.json`, `README.md` and
+`wired-cio-crm-roadmap.md`. So "the legacy Playwright suite is the
+acceptance bar" is pointing at files that aren't there, and a future
+Chrome extension build starts from scratch rather than from a reference.
+Left the layout section itself alone rather than rewriting a section
+documenting someone else's intent, but do not trust it as a file listing.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

@@ -51,7 +51,7 @@ interface EngageProps {
   onUpdateSequenceStep: (id: string, stepId: string, patch: Partial<{ note: string; systemPrompt: string; userPrompt: string }>) => void;
   onMoveSequenceStep: (id: string, stepId: string, direction: -1 | 1) => void;
   onDeleteSequence: (id: string) => void;
-  onEnrollInSequence: (sequenceId: string, contactIds: string[]) => number;
+  onEnrollInSequence: (sequenceId: string, contactIds: string[]) => { enrolled: number; blocked: number };
   onRestartEnrollment: (enrollmentId: string) => void;
   onRemoveEnrollment: (enrollmentId: string) => void;
   users: PlatformUser[];

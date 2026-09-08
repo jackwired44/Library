@@ -19,7 +19,8 @@ import {
   type BucketKey,
   type NoSignalRow,
 } from "../lib/detection";
-import { dispositionMetaFor, dispositionOptions, type CustomDisposition } from "../lib/dispositions";
+import { dispositionMetaFor, type CustomDisposition } from "../lib/dispositions";
+import DispositionOptions from "./DispositionOptions";
 import type { CompanyEnrichOutcome } from "../lib/apolloEnrich";
 import { downloadCSV, parseCSVFile, parseCSVText } from "../lib/csv";
 import type { LeadList } from "../lib/leadLists";
@@ -1172,9 +1173,7 @@ export default function Scanner({
           <div className="bulkbar-divider" />
           <span className="bulkbar-label">Disposition</span>
           <select value={bulkDisposition} onChange={(e) => setBulkDisposition(e.target.value as Disposition)} className="field">
-            {dispositionOptions(dispositions).map((o) => (
-              <option key={o.key} value={o.key}>{o.label}</option>
-            ))}
+            <DispositionOptions dispositions={dispositions} />
           </select>
           <button onClick={() => setDispositionForSelected(bulkDisposition)} className="btn btn-sm btn-primary">Apply</button>
           <button onClick={undoDispositionForSelected} title="Undo disposition on selected rows" className="btn btn-sm btn-secondary">↺ Undo</button>
@@ -1307,9 +1306,7 @@ export default function Scanner({
                             onChange={(e) => setDisposition(r.id, e.target.value as Disposition)}
                             style={{ flex: 1, background: dispositionMetaFor(r.disposition, dispositions).bg, color: dispositionMetaFor(r.disposition, dispositions).color, fontWeight: 600, border: "1px solid var(--border)", borderRadius: 7, padding: "5px 7px", fontSize: 12 }}
                           >
-                            {dispositionOptions(dispositions).map((o) => (
-                              <option key={o.key} value={o.key}>{o.label}</option>
-                            ))}
+                            <DispositionOptions dispositions={dispositions} />
                           </select>
                           {r.disposition !== "none" && (
                             <button

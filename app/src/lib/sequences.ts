@@ -12,6 +12,7 @@
 // this isn't mistaken for real automation later.
 import { dbGetAll, dbPut, dbDelete, STORE_SEQUENCES, STORE_SEQUENCE_ENROLLMENTS } from "./db";
 import { createSequenceTask, type Task } from "./tasks";
+import { isConnectedDisposition, type CustomDisposition } from "./dispositions";
 import type { Contact } from "./contacts";
 import { getFullName } from "./detection";
 
@@ -254,6 +255,9 @@ export function enrollContact(seq: Sequence, contact: Contact): { enrollment: Se
   // the point of pausing one. The UI disables the enroll controls too, but
   // this is the real guard.
   if (!isSequenceRunnable(seq)) return null;
+  // A hard opt-out is never enrolled, by any path — bulk list enroll
+  // included. This is the real guard; the UI reports the count separately.
+  if (enrollmentBlockReason(contact)) return null;
   const nowIso = new Date().toISOString();
   const enrollment: SequenceEnrollment = {
     id: newId("enr"),
@@ -355,10 +359,37 @@ export function removeEnrollment(enrollment: SequenceEnrollment): SequenceEnroll
 }
 
 // Auto-finish every ACTIVE enrollment for a contact once their disposition
-// lands on a terminal value — per Jack: "each sequence will finish off how
-// their dispositions were selected." Doesn't touch already-created tasks
-// (nothing destructive) — just stops generating any further steps.
-export const TERMINAL_DISPOSITIONS = new Set(["meeting-booked", "not-interested"]);
+// says the conversation actually happened — per Jack: "each sequence will
+// finish off how their dispositions were selected." Doesn't touch
+// already-created tasks (nothing destructive) — just stops generating any
+// further steps.
+//
+// The rule is now the `connected` flag itself, not a hardcoded key list:
+// ANY outcome in the "Reached them" bucket ends the cadence, built-in or
+// custom. Once a rep has actually spoken to someone, the automation has
+// to stop rather than keep working at them — a rule that only gets more
+// important the moment real email sending exists. See
+// lib/dispositions.ts's isConnectedDisposition, the single source of
+// truth for that question.
+export function isTerminalDisposition(
+  disposition: string | undefined | null,
+  dispositions: CustomDisposition[]
+): boolean {
+  return isConnectedDisposition(disposition, dispositions);
+}
+
+// A hard opt-out: refuses future enrollment outright, rather than letting
+// someone quietly land back in a cadence on the next bulk enroll. Not
+// interested stays re-enrollable on purpose — that's a soft no you may
+// re-approach next quarter with a different angle.
+export const DO_NOT_CONTACT: string = "do-not-contact";
+
+// Why this contact can't be enrolled, or null when they can. Exported so
+// the UI can report a real reason instead of a silently smaller count.
+export function enrollmentBlockReason(contact: Contact): string | null {
+  if (contact.disposition === DO_NOT_CONTACT) return "do-not-contact";
+  return null;
+}
 export function finishActiveEnrollmentsForContact(enrollments: SequenceEnrollment[], contactId: string): SequenceEnrollment[] {
   const nowIso = new Date().toISOString();
   return enrollments.map((e) =>

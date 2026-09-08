@@ -61,7 +61,8 @@ import {
   setSequenceEmailAccount,
   duplicateSequence,
   resumeEnrollments,
-  TERMINAL_DISPOSITIONS,
+  isTerminalDisposition,
+  enrollmentBlockReason,
   type Sequence,
   type SequenceEnrollment,
   type SequenceChannel,
@@ -714,8 +715,8 @@ export default function App() {
   // --- Custom call dispositions (lib/dispositions.ts) ---
   // Returns false when the label is blank or collides with an existing
   // disposition (built-in or custom), so the manager UI can say why.
-  function addDisposition(label: string): boolean {
-    const created = createCustomDisposition(label, dispositions);
+  function addDisposition(label: string, connected = false): boolean {
+    const created = createCustomDisposition(label, dispositions, connected);
     if (!created) return false;
     setDispositions((prev) => [...prev, created]);
     persistDisposition(created);
@@ -756,16 +757,20 @@ export default function App() {
     });
   }
 
-  function enrollContactsInSequence(sequenceId: string, contactIds: string[]): number {
+  // Returns both counts so the UI can say "N enrolled, N blocked as do not
+  // contact" rather than lumping an opt-out in with "already active."
+  function enrollContactsInSequence(sequenceId: string, contactIds: string[]): { enrolled: number; blocked: number } {
     const seq = sequences.find((s) => s.id === sequenceId);
-    if (!seq) return 0;
+    if (!seq) return { enrolled: 0, blocked: 0 };
     const alreadyEnrolled = new Set(enrollments.filter((e) => e.sequenceId === sequenceId && e.status === "active").map((e) => e.contactId));
     const toEnroll = contactIds.filter((id) => !alreadyEnrolled.has(id));
     const newEnrollments: SequenceEnrollment[] = [];
     const newTasks: Task[] = [];
+    let blocked = 0;
     toEnroll.forEach((contactId) => {
       const contact = contacts.find((c) => c.id === contactId);
       if (!contact) return;
+      if (enrollmentBlockReason(contact)) { blocked++; return; }
       const result = enrollContact(seq, contact);
       if (!result) return;
       newEnrollments.push(result.enrollment);
@@ -779,7 +784,7 @@ export default function App() {
       setTasks((prev) => [...prev, ...newTasks]);
       newTasks.forEach((t) => persistTask(t));
     }
-    return newEnrollments.length;
+    return { enrolled: newEnrollments.length, blocked };
   }
   function restartSequenceEnrollment(enrollmentId: string) {
     const enrollment = enrollments.find((e) => e.id === enrollmentId);
@@ -881,7 +886,7 @@ export default function App() {
   // updater, unlike a plain closure read) — see CLAUDE.md "Native
   // Sequences."
   function finishTerminalEnrollments(touchedContacts: Contact[]) {
-    const terminalIds = touchedContacts.filter((c) => c.disposition && TERMINAL_DISPOSITIONS.has(c.disposition)).map((c) => c.id);
+    const terminalIds = touchedContacts.filter((c) => isTerminalDisposition(c.disposition, dispositions)).map((c) => c.id);
     if (!terminalIds.length) return;
     setEnrollments((prev) => {
       let next = prev;
