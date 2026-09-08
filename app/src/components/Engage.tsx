@@ -8,7 +8,8 @@
 // under there also."
 import { useEffect, useState } from "react";
 import TaskBoard from "./TaskBoard";
-import ContactsView from "./Contacts";
+import ContactsView, { type WorkedFilter } from "./Contacts";
+import type { Tier } from "../lib/detection";
 import CompaniesView from "./Companies";
 import ChannelTasks from "./ChannelTasks";
 import SequencesView from "./Sequences";
@@ -95,6 +96,8 @@ interface EngageProps {
   // initial state, not stay in sync afterward.
   initialTab?: EngageTab;
   initialContactsSearch?: string;
+  initialContactsTier?: Tier | "all";
+  initialContactsWorked?: WorkedFilter;
   // Reports the tab actually showing back up to App.tsx. Without this the
   // sidebar's own idea of the active tab goes stale the moment you use the
   // in-page dropdown, which broke BOTH the highlight and the sub-nav:
@@ -175,6 +178,8 @@ export default function Engage({
   onRemoveLeadFromList,
   initialTab,
   initialContactsSearch,
+  initialContactsTier,
+  initialContactsWorked,
   onTabChange,
 }: EngageProps) {
   const [tab, setTab] = useState<EngageTab>(initialTab || "sequences");
@@ -301,6 +306,8 @@ export default function Engage({
           onRemoveAttempt={onRemoveAttempt}
           onManageDispositions={onManageDispositions}
           initialSearch={initialContactsSearch}
+          initialTier={initialContactsTier}
+          initialWorkedFilter={initialContactsWorked}
         />
       )}
       {tab === "lists" && (

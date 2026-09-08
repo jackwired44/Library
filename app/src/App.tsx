@@ -195,7 +195,15 @@ export default function App() {
   // Seeds Engage's initial tab when navigating there from the sidebar
   // sub-nav or a Home tile — reset when Engage is opened any other way
   // so a stale seed doesn't linger.
-  const [engageEntry, setEngageEntry] = useState<{ tab?: EngageTab; contactsQuery?: string }>({});
+  const [engageEntry, setEngageEntry] = useState<{
+    tab?: EngageTab;
+    contactsQuery?: string;
+    // Seeded by Home's pipeline tiles so the count you clicked and the
+    // list you land on can never disagree. Both are seed-only, cleared
+    // whenever Engage is entered any other way.
+    contactsTier?: "signal" | "mention" | "dq";
+    contactsWorked?: "unworked" | "worked";
+  }>({});
   // Theme: "system" leaves the root unstamped so prefers-color-scheme
   // decides; an explicit choice stamps data-theme and wins in both
   // directions. Persisted per browser like the unlock flag — a display
@@ -1254,6 +1262,16 @@ export default function App() {
               sequences={sequences}
               onToggleTask={toggleTask}
               onNavigate={(tab) => { setEngageEntry({ tab }); setView("engage"); }}
+              onOpen={(dest) => {
+                if (dest.kind === "view") { setView(dest.view); return; }
+                setEngageEntry({
+                  tab: dest.tab,
+                  contactsQuery: dest.contactsQuery,
+                  contactsTier: dest.contactsTier,
+                  contactsWorked: dest.contactsWorked,
+                });
+                setView("engage");
+              }}
               weeklyGoals={getOrCreateCurrentWeekGoals()}
               onUpdateMetric={updateWeeklyMetric}
               onAddMetric={addWeeklyMetric}
@@ -1364,6 +1382,8 @@ export default function App() {
               onDeleteContacts={deleteContacts}
               initialTab={engageEntry.tab}
               initialContactsSearch={engageEntry.contactsQuery}
+              initialContactsTier={engageEntry.contactsTier}
+              initialContactsWorked={engageEntry.contactsWorked}
               onTabChange={(tab) => setEngageEntry((prev) => ({ ...prev, tab }))}
             />
           )}

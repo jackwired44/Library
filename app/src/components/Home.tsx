@@ -28,6 +28,11 @@ interface HomeProps {
   // The action band's single primary button needs somewhere to go. Home
   // has no router of its own, so App hands it a navigate callback.
   onNavigate?: (tab: "calls" | "sequences" | "contacts") => void;
+  // Every pipeline tile and every "needs you now" row is a real link.
+  // A destination is either a top-level view (Scanner, Lead library,
+  // History) or an Engage tab, optionally seeding a Contacts filter so
+  // the number you clicked and the list you land on always agree.
+  onOpen?: (dest: HomeDestination) => void;
   // Read-only counts and activity for the pipeline strip and the activity
   // feed. Everything here is already loaded by App — Home does not read
   // IndexedDB and does not introduce a data path of its own.
@@ -62,6 +67,7 @@ export default function Home({
   users,
   onUpdateTaskFields,
   onNavigate,
+  onOpen,
 }: HomeProps) {
   const [profile, setProfile] = useState<Profile | null>(null);
   useEffect(() => {
@@ -293,23 +299,6 @@ export default function Home({
     [contacts]
   );
 
-  // ---- Lead mix: this app's answer to the "deal stages" bar every other
-  // CRM home screen carries. There are no deal stages here — the closest
-  // real thing is the tier the detection engine assigned and the product
-  // line it landed in, both already on the Contact.
-  const leadMix = useMemo(() => {
-    const tiers = { signal: 0, mention: 0, dq: 0, none: 0 };
-    const lines: Record<string, number> = {};
-    contacts.forEach((c) => {
-      if (c.tier === "signal") tiers.signal += 1;
-      else if (c.tier === "mention") tiers.mention += 1;
-      else if (c.tier === "dq") tiers.dq += 1;
-      else tiers.none += 1;
-      if (c.tier === "signal" && c.category) lines[c.category] = (lines[c.category] || 0) + 1;
-    });
-    return { tiers, lines };
-  }, [contacts]);
-
   // ---- Recent activity: the last real outreach attempts, newest first.
   // Reads the attempt store (the only place with a per-attempt outcome and
   // timestamp), never a task's scheduled date.
@@ -386,57 +375,41 @@ export default function Home({
       {/* ---- Pipeline: what's in the system, not what happened today ---- */}
       <div className="section-label" style={{ marginTop: "var(--s5)" }}>Pipeline</div>
       <div className="metric-row">
-        <PipeMetric label="Contacts" value={contacts.length} hint="Everyone captured from every upload" />
-        <PipeMetric label="Companies" value={companyCount} hint="Distinct company names across contacts" />
-        <PipeMetric label="Strong Signal" value={strongSignalContacts} hint="Contacts whose last scan cleared Strong Signal" />
-        <PipeMetric label="Not worked yet" value={notYetWorked} hint="No call and no email logged against them" />
-        <PipeMetric label="Lead library files" value={libraryFileCount} hint="Filed category files across every folder" />
-        <PipeMetric label="Lists" value={listCount} hint="Custom lead lists" />
-        <PipeMetric label="Uploads" value={uploadCount} hint="CSV imports in History" />
-      </div>
-
-      <div className="lead-mix">
-        <div className="lead-mix-head">
-          <span className="lead-mix-title">Lead mix</span>
-          <span className="lead-mix-sub">
-            {contacts.length
-              ? `${contacts.length.toLocaleString()} contacts by the tier their last scan gave them`
-              : "No contacts yet — upload a CSV in Scanner"}
-          </span>
-        </div>
-        {contacts.length > 0 && (
-          <>
-            <div className="mix-bar" role="img" aria-label="Lead tiers">
-              {([
-                ["signal", leadMix.tiers.signal, "var(--success)"],
-                ["mention", leadMix.tiers.mention, "var(--warn, #C98A16)"],
-                ["dq", leadMix.tiers.dq, "#B5443B"],
-                ["none", leadMix.tiers.none, "var(--line-strong)"],
-              ] as const).map(([k, v, color]) =>
-                v > 0 ? (
-                  <span
-                    key={k}
-                    style={{ width: `${(v / contacts.length) * 100}%`, background: color }}
-                    title={`${v} ${TIER_MIX_LABEL[k]}`}
-                  />
-                ) : null
-              )}
-            </div>
-            <div className="mix-legend">
-              <MixKey color="var(--success)" label={TIER_MIX_LABEL.signal} value={leadMix.tiers.signal} />
-              <MixKey color="var(--warn, #C98A16)" label={TIER_MIX_LABEL.mention} value={leadMix.tiers.mention} />
-              <MixKey color="#B5443B" label={TIER_MIX_LABEL.dq} value={leadMix.tiers.dq} />
-              <MixKey color="var(--line-strong)" label={TIER_MIX_LABEL.none} value={leadMix.tiers.none} />
-              <span style={{ flex: 1 }} />
-              {Object.entries(leadMix.lines).map(([key, n]) => (
-                <span key={key} className="mix-line">
-                  {CATEGORY_META[key as keyof typeof CATEGORY_META]?.label || key}
-                  <b>{n}</b>
-                </span>
-              ))}
-            </div>
-          </>
-        )}
+        <PipeMetric
+          label="Contacts" value={contacts.length}
+          hint="Everyone captured from every upload — open the full directory"
+          onOpen={() => onOpen?.({ kind: "engage", tab: "contacts" })}
+        />
+        <PipeMetric
+          label="Companies" value={companyCount}
+          hint="Distinct company names across contacts — open Companies"
+          onOpen={() => onOpen?.({ kind: "engage", tab: "companies" })}
+        />
+        <PipeMetric
+          label="Strong Signal" value={strongSignalContacts}
+          hint="Contacts whose last scan cleared Strong Signal — open them filtered"
+          onOpen={() => onOpen?.({ kind: "engage", tab: "contacts", contactsTier: "signal" })}
+        />
+        <PipeMetric
+          label="Not worked yet" value={notYetWorked}
+          hint="No call and no email logged against them — open them filtered"
+          onOpen={() => onOpen?.({ kind: "engage", tab: "contacts", contactsWorked: "unworked" })}
+        />
+        <PipeMetric
+          label="Lead library files" value={libraryFileCount}
+          hint="Filed category files across every folder — open the Lead library"
+          onOpen={() => onOpen?.({ kind: "view", view: "library" })}
+        />
+        <PipeMetric
+          label="Lists" value={listCount}
+          hint="Custom lead lists — open Lists"
+          onOpen={() => onOpen?.({ kind: "engage", tab: "lists" })}
+        />
+        <PipeMetric
+          label="Uploads" value={uploadCount}
+          hint="CSV imports — open History"
+          onOpen={() => onOpen?.({ kind: "view", view: "history" })}
+        />
       </div>
 
       {/* ---- Tier 4: needs you now / this week ---- */}
@@ -477,6 +450,7 @@ export default function Home({
                       title={t.text}
                       meta={`${t.contactId ? contactById.get(t.contactId)?.company || "" : ""}${t.contactId && contactById.get(t.contactId)?.company ? " · " : ""}due ${relativeDay(t.date, today)}`}
                       onDone={() => onToggleTask(t.id)}
+                      onOpen={() => onOpen?.({ kind: "engage", tab: queueForTask(t) })}
                     />
                   ))}
                   {overdueTasks.length > 3 && <div className="needs-more">+{overdueTasks.length - 3} more</div>}
@@ -503,6 +477,7 @@ export default function Home({
                           .filter(Boolean)
                           .join(" · ")}
                         onDone={() => onToggleTask(t.id)}
+                        onOpen={() => onOpen?.({ kind: "engage", tab: queueForTask(t) })}
                       />
                     );
                   })}
@@ -522,6 +497,7 @@ export default function Home({
                       key={c.id}
                       title={c.fullName || `${c.firstName} ${c.lastName}`.trim() || c.company || "Unnamed contact"}
                       meta={[c.company, c.title].filter(Boolean).join(" · ")}
+                      onOpen={() => onOpen?.({ kind: "engage", tab: "contacts", contactsQuery: contactSearchKey(c) })}
                       action={
                         <button className="btn btn-sm btn-ghost" onClick={() => onNavigate?.("calls")}>
                           Call
@@ -545,8 +521,9 @@ export default function Home({
                       ]
                         .filter(Boolean)
                         .join(" · ")}
+                      onOpen={() => onOpen?.({ kind: "engage", tab: "contacts", contactsQuery: contactSearchKey(c) })}
                       action={
-                        <button className="btn btn-sm btn-ghost" onClick={() => onNavigate?.("contacts")}>
+                        <button className="btn btn-sm btn-ghost" onClick={() => onOpen?.({ kind: "engage", tab: "contacts", contactsQuery: contactSearchKey(c) })}>
                           Open
                         </button>
                       }
@@ -564,6 +541,7 @@ export default function Home({
                     const c = t.contactId ? contactById.get(t.contactId) : null;
                     return (
                       <NeedsRow
+                        onOpen={() => onOpen?.({ kind: "engage", tab: "emails" })}
                         key={t.id}
                         title={c ? c.fullName || c.company : t.text}
                         meta={[c?.company, t.repliedAt ? relativeDay(localDayKeyFromIso(t.repliedAt), today) : ""].filter(Boolean).join(" · ")}
@@ -702,14 +680,26 @@ function NeedsBlock({ title, pill, pillText, children }: { title: string; pill: 
     </div>
   );
 }
-function NeedsRow({ title, meta, onDone, action }: { title: string; meta?: string; onDone?: () => void; action?: ReactNode }) {
+function NeedsRow({ title, meta, onDone, action, onOpen }: { title: string; meta?: string; onDone?: () => void; action?: ReactNode; onOpen?: () => void }) {
+  // The row's text is the click target when there's somewhere to go. The
+  // checkbox and any action button stay outside it, so completing a task
+  // from here never also navigates you away from the list.
+  const body = (
+    <>
+      <div className="needs-row-title">{title}</div>
+      {meta && <div className="needs-row-meta">{meta}</div>}
+    </>
+  );
   return (
-    <div className="needs-row">
+    <div className={`needs-row${onOpen ? " needs-row-link" : ""}`}>
       {onDone && <input type="checkbox" checked={false} onChange={onDone} title="Mark done" />}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div className="needs-row-title">{title}</div>
-        {meta && <div className="needs-row-meta">{meta}</div>}
-      </div>
+      {onOpen ? (
+        <button type="button" className="needs-row-open" onClick={onOpen} title="Open">
+          {body}
+        </button>
+      ) : (
+        <div style={{ flex: 1, minWidth: 0 }}>{body}</div>
+      )}
       {action}
     </div>
   );
@@ -1052,31 +1042,51 @@ function WeeklyGoalsPanel({
 // A pipeline count. Deliberately plainer than DayMetric: there is no
 // same-weekday average to compare a stock count against, so it shows the
 // number and what it means on hover, and never a delta it can't compute.
-function PipeMetric({ label, value, hint }: { label: string; value: number; hint: string }) {
-  return (
-    <div className="metric" title={hint}>
+function PipeMetric({ label, value, hint, onOpen }: { label: string; value: number; hint: string; onOpen?: () => void }) {
+  const body = (
+    <>
       <div className="metric-label">{label}</div>
       <div className="metric-value">{value.toLocaleString()}</div>
-    </div>
+    </>
+  );
+  if (!onOpen) return <div className="metric" title={hint}>{body}</div>;
+  return (
+    <button type="button" className="metric metric-link" title={hint} onClick={onOpen}>
+      {body}
+      <span className="metric-go" aria-hidden="true">→</span>
+    </button>
   );
 }
 
 
-// Tier names as they read on the home screen. "No signal yet" is not a
-// fourth tier — it's a contact whose most recent scan never cleared
-// detection at all, so it genuinely has no tier (see CLAUDE.md).
-const TIER_MIX_LABEL = {
-  signal: "Strong Signal",
-  mention: "Needs Review",
-  dq: "Bad Lead",
-  none: "No signal yet",
-} as const;
 
-function MixKey({ color, label, value }: { color: string; label: string; value: number }) {
-  return (
-    <span className="mix-key">
-      <i style={{ background: color }} />
-      {label} <b>{value}</b>
-    </span>
-  );
+
+// Where a Home tile or row sends you. Kept as a small union rather than
+// a string so a typo can't route you to a view that doesn't exist.
+export type HomeDestination =
+  | { kind: "view"; view: "scanner" | "library" | "history" }
+  | {
+      kind: "engage";
+      tab: "contacts" | "companies" | "lists" | "calls" | "emails" | "tasks" | "sequences";
+      contactsQuery?: string;
+      contactsTier?: "signal" | "mention" | "dq";
+      contactsWorked?: "unworked" | "worked";
+    };
+
+
+// Which queue a task belongs in. A task's channel decides where you go to
+// work it — the same three tabs Engage already has. A task with no
+// channel is an ordinary board task.
+function queueForTask(t: Task): "calls" | "emails" | "tasks" {
+  if (t.channel === "call") return "calls";
+  if (t.channel === "email") return "emails";
+  return "tasks";
+}
+
+// Contacts' search box matches name, company, title, email and phone, so
+// seeding it with the person's name is enough to land on them. Falls back
+// to the company when a contact has no name on file.
+function contactSearchKey(c: Contact): string {
+  const name = c.fullName || `${c.firstName} ${c.lastName}`.trim();
+  return name || c.company || "";
 }

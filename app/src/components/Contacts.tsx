@@ -65,6 +65,10 @@ interface ContactsProps {
   // each time Engage's Contacts tab is selected, so an initial-only state
   // seed is enough; no need to react to later prop changes.
   initialSearch?: string;
+  // Seeded once on mount from Home's pipeline tiles. Seed-only, exactly
+  // like initialSearch — Engage remounts on every navigation into it.
+  initialTier?: Tier | "all";
+  initialWorkedFilter?: WorkedFilter;
 }
 
 type SortKey = "recent" | "name" | "company" | "timesSeen";
@@ -80,7 +84,7 @@ function todayKey(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-export default function Contacts({ contacts, loading, error, tasks, onAddContactTask, onToggleTask, onDeleteTask, onUpdateContact, users, leadLists, sequences, enrollments, dispositions, onManageDispositions, initialSearch, attempts, onLogAttempt, onRemoveAttempt }: ContactsProps) {
+export default function Contacts({ contacts, loading, error, tasks, onAddContactTask, onToggleTask, onDeleteTask, onUpdateContact, users, leadLists, sequences, enrollments, dispositions, onManageDispositions, initialSearch, initialTier, initialWorkedFilter, attempts, onLogAttempt, onRemoveAttempt }: ContactsProps) {
   // One index pass, not a filter per rendered row — the Reached cell is
   // computed for every visible contact.
   const attemptsByContact = useMemo(() => groupAttemptsByContact(attempts), [attempts]);
@@ -102,7 +106,10 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
   // under "All". Date filters against lastSeenAt — already a real,
   // full-precision timestamp on every contact, so no new "collected on"
   // field was needed.
-  const [tierFilter, setTierFilter] = useState<Tier | "all">("all");
+  const [tierFilter, setTierFilter] = useState<Tier | "all">(initialTier || "all");
+  // "Not worked yet" = no call and no email logged against them. The one
+  // filter Home's pipeline tile needs that the list didn't already have.
+  const [workedFilter, setWorkedFilter] = useState<WorkedFilter>(initialWorkedFilter || "all");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -246,6 +253,8 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
     let list = searched;
     if (dispositionFilter.size > 0) list = list.filter((c) => dispositionFilter.has(c.disposition || "none"));
     if (tierFilter !== "all") list = list.filter((c) => c.tier === tierFilter);
+    if (workedFilter === "unworked") list = list.filter((c) => !isWorked(c));
+    if (workedFilter === "worked") list = list.filter((c) => isWorked(c));
     // Compare LOCAL calendar days on both ends. lastSeenAt is a UTC ISO
     // stamp, so a contact merged at 8pm Central on the 8th reads as the
     // 9th in UTC and used to fall outside a "to the 8th" filter — every
@@ -253,7 +262,13 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
     if (dateFrom) list = list.filter((c) => localDayKeyFromIso(c.lastSeenAt) >= dateFrom);
     if (dateTo) list = list.filter((c) => localDayKeyFromIso(c.lastSeenAt) <= dateTo);
     return list;
-  }, [searched, dispositionFilter, tierFilter, dateFrom, dateTo]);
+  }, [searched, dispositionFilter, tierFilter, workedFilter, dateFrom, dateTo]);
+
+  const workedCounts = useMemo(() => {
+    let worked = 0;
+    searched.forEach((c) => { if (isWorked(c)) worked += 1; });
+    return { all: searched.length, worked, unworked: searched.length - worked };
+  }, [searched]);
 
   // Pagination — per Jack: "companies, lists, and contacts take time to
   // load." Measured on a real 3,000-contact directory: rendering every
@@ -270,7 +285,7 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
   // Any filter/search/sort change puts you back on page 1 — otherwise
   // narrowing 3,000 contacts down to 12 while sitting on page 40 shows an
   // empty table rather than the results.
-  useEffect(() => { setPage(1); }, [search, sort, dispositionFilter, tierFilter, dateFrom, dateTo]);
+  useEffect(() => { setPage(1); }, [search, sort, dispositionFilter, tierFilter, workedFilter, dateFrom, dateTo]);
 
   // Aggregate outreach summary for whichever bucket is currently selected
   // — per Jack: "know where a lead stands, how many times they've been
@@ -287,9 +302,10 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
   // How many filters are actually narrowing the list — drives the count
   // badge on the Filters button and whether the chip row renders at all.
   const activeFilterCount =
-    (tierFilter !== "all" ? 1 : 0) + dispositionFilter.size + (dateFrom || dateTo ? 1 : 0);
+    (tierFilter !== "all" ? 1 : 0) + dispositionFilter.size + (dateFrom || dateTo ? 1 : 0) + (workedFilter !== "all" ? 1 : 0);
   function clearAllFilters() {
     setTierFilter("all");
+    setWorkedFilter("all");
     setDispositionFilter(new Set());
     setDateFrom("");
     setDateTo("");
@@ -378,6 +394,16 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
                   })}
                 </div>
                 <div className="filter-group">
+                  <div className="filter-group-title">Outreach</div>
+                  {(["all", "unworked", "worked"] as const).map((k) => (
+                    <label key={k} className="filter-opt">
+                      <input type="radio" name="worked" checked={workedFilter === k} onChange={() => setWorkedFilter(k)} />
+                      {WORKED_LABEL[k]}
+                      <span className="filter-opt-count">{workedCounts[k]}</span>
+                    </label>
+                  ))}
+                </div>
+                <div className="filter-group">
                   <div className="filter-group-title">Last seen</div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="field" style={{ height: 30, flex: 1 }} />
@@ -408,6 +434,9 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
               <button title="Remove" onClick={() => setDispositionFilter((prev) => { const n = new Set(prev); n.delete(d); return n; })}>✕</button>
             </span>
           ))}
+          {workedFilter !== "all" && (
+            <span className="chip">{WORKED_LABEL[workedFilter]}<button onClick={() => setWorkedFilter("all")} title="Remove">✕</button></span>
+          )}
           {(dateFrom || dateTo) && (
             <span className="chip">
               Seen {dateFrom || "any"} to {dateTo || "any"}
@@ -805,3 +834,16 @@ function AddContactTaskForm({ contact, onSubmit, onCancel }: { contact: Contact;
     </div>
   );
 }
+
+
+// Whether a contact has ever been called or emailed. "Not worked yet"
+// means zero of both — the same definition Home's pipeline tile uses, so
+// clicking that tile and reading this filter can never disagree.
+export type WorkedFilter = "all" | "unworked" | "worked";
+export const WORKED_LABEL: Record<WorkedFilter, string> = {
+  all: "Any",
+  unworked: "Not worked yet",
+  worked: "Worked at least once",
+};
+export const isWorked = (c: { callCount?: number; emailCount?: number }) =>
+  Boolean((c.callCount || 0) || (c.emailCount || 0));

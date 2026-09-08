@@ -1701,3 +1701,43 @@ textarea:focus {
   border-radius: 999px;
   color: var(--ink-3);
 }
+
+/* Home — clickable pipeline tiles and needs-you-now rows. A tile that
+   navigates has to look like it does; the arrow only appears on hover so
+   the row of numbers still reads as a row of numbers at rest. */
+.metric-link {
+  position: relative;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  transition: background 0.12s ease;
+}
+.metric-link:hover { background: var(--bg-sunken); }
+.metric-link:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.metric-go {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  font-size: 12px;
+  color: var(--ink-3);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.metric-link:hover .metric-go { opacity: 1; }
+
+.needs-row-open {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  color: inherit;
+}
+.needs-row-link:hover { background: var(--bg-sunken); }
+.needs-row-open:hover .needs-row-title { text-decoration: underline; }
+.needs-row-open:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 4px; }
