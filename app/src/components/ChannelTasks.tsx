@@ -10,6 +10,8 @@ import type { Contact } from "../lib/contacts";
 import { formatTaskTime, type Task, type TaskPriority } from "../lib/tasks";
 import { SELF_USER_ID, userLabel, type PlatformUser } from "../lib/users";
 import { dispositionOptions, dispositionMetaFor, type CustomDisposition } from "../lib/dispositions";
+import DispositionOptions from "./DispositionOptions";
+import type { AttemptChannel } from "../lib/outreachAttempts";
 import LocalTime from "./LocalTime";
 import { useNow } from "../lib/useNow";
 import { resolveContactTimeZone } from "../lib/timezones";
@@ -24,6 +26,10 @@ interface ChannelTasksProps {
   dispositions: CustomDisposition[];
   onAddContactTask: (contactId: string, date: string, priority: TaskPriority, text: string, channel: "call" | "email", time?: string | null, userId?: string | null) => void;
   onToggleTask: (id: string) => void;
+  // Logging the outcome of a task you just worked — the point where an
+  // attempt actually gets recorded, since this tab is where calls and
+  // emails are worked from. See lib/outreachAttempts.ts.
+  onLogAttempt: (input: { contactId: string; channel: AttemptChannel; outcome?: string; note?: string; taskId?: string | null }) => void;
   onDeleteTask: (id: string) => void;
   // Manual "mark as replied" (email only — see lib/tasks.ts, this app has
   // no real inbox to detect a reply from) and the "Assign to" picker both
@@ -47,7 +53,9 @@ function todayKey(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-export default function ChannelTasks({ channel, contacts, tasks, users, dispositions, onAddContactTask, onToggleTask, onDeleteTask, onUpdateTaskFields }: ChannelTasksProps) {
+export default function ChannelTasks({ channel, contacts, tasks, users, dispositions, onAddContactTask, onToggleTask, onDeleteTask, onUpdateTaskFields, onLogAttempt }: ChannelTasksProps) {
+  // Which row currently has its outcome picker open.
+  const [logForTaskId, setLogForTaskId] = useState<string | null>(null);
   const meta = CHANNEL_META[channel];
   const [showAdd, setShowAdd] = useState(false);
   const [hideDone, setHideDone] = useState(true);
@@ -191,6 +199,41 @@ export default function ChannelTasks({ channel, contacts, tasks, users, disposit
                   >
                     {dispositionMetaFor(contact.disposition, dispositions).label}
                   </span>
+                )}
+                {contact && (
+                  logForTaskId === t.id ? (
+                    <select
+                      className="field"
+                      autoFocus
+                      defaultValue="none"
+                      aria-label="Outcome of this attempt"
+                      style={{ fontSize: 12, padding: "3px 6px" }}
+                      onChange={(e) => {
+                        const outcome = e.target.value;
+                        if (outcome === "none") { setLogForTaskId(null); return; }
+                        // Logging an outcome also completes the task — you
+                        // worked it, that is what an outcome means. Guarded
+                        // so re-logging an already-done task doesn't toggle
+                        // it back OPEN, which would be the opposite of the
+                        // intent.
+                        onLogAttempt({ contactId: contact.id, channel: channel === "email" ? "email" : "call", outcome, taskId: t.id });
+                        if (!t.done) onToggleTask(t.id);
+                        setLogForTaskId(null);
+                      }}
+                      onBlur={() => setLogForTaskId(null)}
+                    >
+                      <DispositionOptions dispositions={dispositions} />
+                    </select>
+                  ) : (
+                    <button
+                      className="btn btn-sm btn-secondary"
+                      onClick={() => setLogForTaskId(t.id)}
+                      title="Record how this attempt went — adds it to the contact's reached history"
+                      style={{ flexShrink: 0 }}
+                    >
+                      Log outcome
+                    </button>
+                  )
                 )}
                 {t.userId && (
                   <span title="Assigned to" style={{ fontSize: 10.5, fontWeight: 700, color: "#0A66C2", background: "#EAF3FC", borderRadius: 999, padding: "2px 8px", whiteSpace: "nowrap" }}>

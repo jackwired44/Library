@@ -3,7 +3,7 @@
 // used. No server, no shared backend (see CLAUDE.md, Access & ownership).
 
 export const DB_NAME = "wiredCioUnifiedLeadScannerLibrary_v1";
-export const DB_VERSION = 14;
+export const DB_VERSION = 15;
 export const STORE_LIBRARY = "files";
 export const STORE_GROUPS = "groups";
 export const STORE_HISTORY = "history";
@@ -21,6 +21,7 @@ export const STORE_SEQUENCE_GROUPS = "sequenceGroups";
 export const STORE_EMAIL_ACCOUNTS = "emailAccounts";
 export const STORE_DISPOSITIONS = "dispositions";
 export const STORE_COMPANY_PROFILES = "companyProfiles";
+export const STORE_OUTREACH_ATTEMPTS = "outreachAttempts";
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -48,6 +49,7 @@ function openDB(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE_EMAIL_ACCOUNTS)) db.createObjectStore(STORE_EMAIL_ACCOUNTS, { keyPath: "id" });
       if (!db.objectStoreNames.contains(STORE_DISPOSITIONS)) db.createObjectStore(STORE_DISPOSITIONS, { keyPath: "id" });
       if (!db.objectStoreNames.contains(STORE_COMPANY_PROFILES)) db.createObjectStore(STORE_COMPANY_PROFILES, { keyPath: "key" });
+      if (!db.objectStoreNames.contains(STORE_OUTREACH_ATTEMPTS)) db.createObjectStore(STORE_OUTREACH_ATTEMPTS, { keyPath: "id" });
     };
     req.onsuccess = () => {
       const db = req.result;
@@ -74,7 +76,18 @@ function openDB(): Promise<IDBDatabase> {
           "Another tab has an older version of this app open. Close the other tabs and reload."
         )
       );
-    req.onerror = () => reject(req.error || new Error("Could not open local file storage."));
+    req.onerror = () => {
+      // A VersionError means THIS build is older than the database already
+      // in the browser — a stale cached tab after a store was added. The
+      // generic message ("could not open local file storage") reads like
+      // data loss; it is only a reload.
+      const err = req.error;
+      if (err && err.name === "VersionError") {
+        reject(new Error("This tab is running an older version of the app. Reload the page to continue — your data is fine."));
+        return;
+      }
+      reject(err || new Error("Could not open local file storage."));
+    };
   });
 }
 

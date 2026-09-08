@@ -9,6 +9,8 @@
 // status — a separate, directly-editable concept from the scan-derived
 // `disposition` field, see lib/contacts.ts).
 import { useMemo, useState } from "react";
+import ReachedBoard from "./ReachedBoard";
+import type { OutreachAttempt, AttemptChannel } from "../lib/outreachAttempts";
 import { CATEGORY_META, type Tier } from "../lib/detection";
 import { dispositionMetaFor, type CustomDisposition } from "../lib/dispositions";
 import { OUTREACH_STATUS_META, OUTREACH_STATUS_ORDER, type Contact, type OutreachStatus } from "../lib/contacts";
@@ -28,6 +30,12 @@ const TIER_META: Record<Tier, { label: string; color: string; bg: string }> = {
 };
 
 interface ContactDetailProps {
+  // Per-attempt outreach history — see lib/outreachAttempts.ts. Read-only
+  // here; logging goes back up through onLogAttempt so App owns the write
+  // and the Contact patch that has to happen alongside it.
+  attempts: OutreachAttempt[];
+  onLogAttempt: (input: { contactId: string; channel: AttemptChannel; outcome?: string; note?: string }) => void;
+  onRemoveAttempt: (id: string) => void;
   contact: Contact;
   onClose: () => void;
   onUpdate: (patch: Partial<Contact>) => void;
@@ -44,7 +52,7 @@ interface ContactDetailProps {
   dispositions: CustomDisposition[];
 }
 
-export default function ContactDetail({ contact, onClose, onUpdate, users, tasks, leadLists, sequences, enrollments, dispositions }: ContactDetailProps) {
+export default function ContactDetail({ contact, onClose, onUpdate, users, tasks, leadLists, sequences, enrollments, dispositions, attempts, onLogAttempt, onRemoveAttempt }: ContactDetailProps) {
   const [linkedinDraft, setLinkedinDraft] = useState(contact.linkedinUrl || "");
   const [websiteDraft, setWebsiteDraft] = useState(contact.companyWebsite || "");
   const linkedinSearchUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent([contact.fullName, contact.company].filter(Boolean).join(" "))}`;
@@ -111,6 +119,20 @@ export default function ContactDetail({ contact, onClose, onUpdate, users, tasks
           <DetailField label="Phone" value={contact.workPhone || contact.mobilePhone} />
           <DetailField label="Employees" value={contact.employees} />
           <DetailField label="Times seen" value={`${contact.timesSeen}× · ${new Date(contact.lastSeenAt).toLocaleDateString()}`} />
+        </div>
+
+        {/* Reached status — the per-attempt history. Placed ABOVE Record
+            details because "how many times have we tried them and what
+            happened" is the first thing you want when you open a lead you
+            are about to work. */}
+        <div style={{ marginBottom: 16 }}>
+          <ReachedBoard
+            contact={contact}
+            attempts={attempts}
+            dispositions={dispositions}
+            onLog={(input) => onLogAttempt({ contactId: contact.id, ...input })}
+            onRemove={onRemoveAttempt}
+          />
         </div>
 
         {/* Record details — per Jack: owner, last activity (with how long

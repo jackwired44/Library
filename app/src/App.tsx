@@ -9,6 +9,15 @@ import PlatformNotes from "./components/PlatformNotes";
 import Home from "./components/Home";
 import Engage, { type EngageTab } from "./components/Engage";
 import AccountPanel from "./components/AccountPanel";
+import {
+  loadAttemptsFromDB,
+  persistAttempt,
+  deleteAttemptFromDB,
+  createAttempt,
+  contactPatchForAttempt,
+  type OutreachAttempt,
+  type AttemptChannel,
+} from "./lib/outreachAttempts";
 import { sequenceFromTemplate, type SequenceTemplate } from "./lib/sequenceTemplates";
 import DispositionManager from "./components/DispositionManager";
 import type { ParsedFile, ResultRow, RuleOverrides } from "./lib/detection";
@@ -231,6 +240,7 @@ export default function App() {
   // local lastScanStats, since a fresh upload computes its own instead.
   const [loadedScanStats, setLoadedScanStats] = useState<{ rowsScanned: number; duplicatesRemoved: number; largestDuplicateGroup: number } | null>(null);
 
+  const [attempts, setAttempts] = useState<OutreachAttempt[]>([]);
   const [libraryEntries, setLibraryEntries] = useState<LibraryEntry[]>([]);
   const [libraryGroups, setLibraryGroups] = useState<LibraryGroup[]>([]);
   const [libraryLoading, setLibraryLoading] = useState(true);
@@ -331,6 +341,7 @@ export default function App() {
         setLibraryError("Couldn't load previously saved files from this browser's local storage.");
         setLibraryLoading(false);
       });
+    loadAttemptsFromDB().then(setAttempts).catch(() => {});
     loadHistoryFromDB()
       .then((entries) => {
         setHistoryEntries(entries);
@@ -623,6 +634,55 @@ export default function App() {
       persistSequence(seq);
     }
     return seq;
+  }
+  // Logging an attempt does two things on purpose: append the history row,
+  // and patch the Contact's existing counters/disposition so every
+  // consumer that already reads those fields (sticky state, sequence
+  // advancement, Home, filters) keeps behaving exactly as before. See
+  // lib/outreachAttempts.ts for why it's additive rather than a
+  // replacement source of truth.
+  function logAttempt(input: {
+    contactId: string;
+    channel: AttemptChannel;
+    outcome?: string;
+    note?: string;
+    taskId?: string | null;
+    userId?: string | null;
+  }) {
+    const attempt = createAttempt(input);
+    setAttempts((prev) => [attempt, ...prev]);
+    persistAttempt(attempt);
+    setContacts((prev) =>
+      prev.map((c) => {
+        if (c.id !== attempt.contactId) return c;
+        const patch = contactPatchForAttempt(attempt, c);
+        const next = { ...c, ...patch };
+        // meetingBookedAt is stamped on the transition INTO meeting-booked
+        // and cleared when it moves away — same rule updateContact follows,
+        // so Home's "Booked this week" stays correct however it was set.
+        if (patch.disposition === "meeting-booked" && c.disposition !== "meeting-booked") {
+          next.meetingBookedAt = attempt.at;
+        } else if (patch.disposition && patch.disposition !== "meeting-booked" && c.disposition === "meeting-booked") {
+          next.meetingBookedAt = null;
+        }
+        persistContact(next);
+        return next;
+      })
+    );
+    // A connected outcome finishes that contact's active enrollments,
+    // exactly as setting the same disposition anywhere else does.
+    // finishTerminalEnrollments re-checks the disposition itself, so it is
+    // handed a contact carrying the NEW outcome rather than the stale one
+    // still sitting in the `contacts` array this closure captured.
+    if (attempt.outcome && attempt.outcome !== "none") {
+      const target = contacts.find((c) => c.id === attempt.contactId);
+      if (target) finishTerminalEnrollments([{ ...target, disposition: attempt.outcome }]);
+    }
+    return attempt;
+  }
+  function removeAttempt(id: string) {
+    setAttempts((prev) => prev.filter((a) => a.id !== id));
+    deleteAttemptFromDB(id);
   }
   function updateSequenceSteps(next: Sequence) {
     setSequences((prev) => prev.map((s) => (s.id === next.id ? next : s)));
@@ -1257,6 +1317,9 @@ export default function App() {
               enrollments={enrollments}
               sequencesLoading={sequencesLoading}
               sequencesError={sequencesError}
+              attempts={attempts}
+              onLogAttempt={logAttempt}
+              onRemoveAttempt={removeAttempt}
               onCreateSequence={createNewSequence}
               onCreateSequenceFromTemplate={createSequenceFromTemplate}
               onRenameSequence={renameSequenceById}

@@ -14,6 +14,7 @@ import ChannelTasks from "./ChannelTasks";
 import SequencesView from "./Sequences";
 import ListsView from "./Lists";
 import type { Task, TaskPriority } from "../lib/tasks";
+import type { OutreachAttempt, AttemptChannel } from "../lib/outreachAttempts";
 import type { SequenceTemplate } from "../lib/sequenceTemplates";
 import type { Contact, ManualContactInput } from "../lib/contacts";
 import type { Sequence, SequenceEnrollment, SequenceChannel, SequenceStatus } from "../lib/sequences";
@@ -72,6 +73,9 @@ interface EngageProps {
   onDeleteEmailAccount: (id: string) => void;
 
   dispositions: CustomDisposition[];
+  attempts: OutreachAttempt[];
+  onLogAttempt: (input: { contactId: string; channel: AttemptChannel; outcome?: string; note?: string }) => void;
+  onRemoveAttempt: (id: string) => void;
   onManageDispositions: () => void;
   companyProfiles: CompanyProfile[];
   onImportCompanyProfiles: (files: FileList | File[]) => Promise<ImportResult[]>;
@@ -156,6 +160,9 @@ export default function Engage({
   onEditEmailAccount,
   onDeleteEmailAccount,
   dispositions,
+  attempts,
+  onLogAttempt,
+  onRemoveAttempt,
   onManageDispositions,
   companyProfiles,
   onImportCompanyProfiles,
@@ -248,10 +255,12 @@ export default function Engage({
         />
       )}
       {tab === "calls" && (
-        <ChannelTasks channel="call" contacts={contacts} tasks={tasks} users={users} dispositions={dispositions} onAddContactTask={onAddContactTask} onToggleTask={onToggleTask} onDeleteTask={onDeleteTask} onUpdateTaskFields={onUpdateTaskFields} />
+        <ChannelTasks
+          onLogAttempt={onLogAttempt} channel="call" contacts={contacts} tasks={tasks} users={users} dispositions={dispositions} onAddContactTask={onAddContactTask} onToggleTask={onToggleTask} onDeleteTask={onDeleteTask} onUpdateTaskFields={onUpdateTaskFields} />
       )}
       {tab === "emails" && (
-        <ChannelTasks channel="email" contacts={contacts} tasks={tasks} users={users} dispositions={dispositions} onAddContactTask={onAddContactTask} onToggleTask={onToggleTask} onDeleteTask={onDeleteTask} onUpdateTaskFields={onUpdateTaskFields} />
+        <ChannelTasks
+          onLogAttempt={onLogAttempt} channel="email" contacts={contacts} tasks={tasks} users={users} dispositions={dispositions} onAddContactTask={onAddContactTask} onToggleTask={onToggleTask} onDeleteTask={onDeleteTask} onUpdateTaskFields={onUpdateTaskFields} />
       )}
       {tab === "companies" && (
         <CompaniesView
@@ -264,6 +273,9 @@ export default function Engage({
           sequences={sequences}
           enrollments={enrollments}
           dispositions={dispositions}
+          attempts={attempts}
+          onLogAttempt={onLogAttempt}
+          onRemoveAttempt={onRemoveAttempt}
           companyProfiles={companyProfiles}
           onImportCompanyProfiles={onImportCompanyProfiles}
           onDeleteContacts={onDeleteContacts}
@@ -284,6 +296,9 @@ export default function Engage({
           sequences={sequences}
           enrollments={enrollments}
           dispositions={dispositions}
+          attempts={attempts}
+          onLogAttempt={onLogAttempt}
+          onRemoveAttempt={onRemoveAttempt}
           onManageDispositions={onManageDispositions}
           initialSearch={initialContactsSearch}
         />

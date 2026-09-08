@@ -18,6 +18,7 @@ import { OUTREACH_STATUS_META, type Contact, type ManualContactInput } from "../
 import { CATEGORY_META } from "../lib/detection";
 import { dispositionMetaFor, type CustomDisposition } from "../lib/dispositions";
 import ContactDetail from "./ContactDetail";
+import type { OutreachAttempt, AttemptChannel } from "../lib/outreachAttempts";
 import BookedStamp from "./BookedStamp";
 import OnCrmBadge from "./OnCrmBadge";
 import LocalTime from "./LocalTime";
@@ -42,6 +43,9 @@ interface CompaniesProps {
   sequences: Sequence[];
   enrollments: SequenceEnrollment[];
   dispositions: CustomDisposition[];
+  attempts: OutreachAttempt[];
+  onLogAttempt: (input: { contactId: string; channel: AttemptChannel; outcome?: string; note?: string }) => void;
+  onRemoveAttempt: (id: string) => void;
   // Bulk Apollo export import — see lib/companyProfiles.ts.
   companyProfiles: CompanyProfile[];
   onImportCompanyProfiles: (files: FileList | File[]) => Promise<ImportResult[]>;
@@ -52,7 +56,7 @@ interface CompaniesProps {
 
 type SortKey = "recent" | "name" | "contactCount";
 
-export default function Companies({ contacts, onAddContact, onUpdateContact, users, tasks, leadLists, sequences, enrollments, dispositions, companyProfiles, onImportCompanyProfiles, onDeleteContacts }: CompaniesProps) {
+export default function Companies({ contacts, onAddContact, onUpdateContact, users, tasks, leadLists, sequences, enrollments, dispositions, companyProfiles, onImportCompanyProfiles, onDeleteContacts, attempts, onLogAttempt, onRemoveAttempt }: CompaniesProps) {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("recent");
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
@@ -568,6 +572,9 @@ export default function Companies({ contacts, onAddContact, onUpdateContact, use
           sequences={sequences}
           enrollments={enrollments}
           dispositions={dispositions}
+          attempts={attempts}
+          onLogAttempt={onLogAttempt}
+          onRemoveAttempt={onRemoveAttempt}
         />
       )}
     </div>

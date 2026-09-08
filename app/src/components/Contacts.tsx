@@ -12,9 +12,10 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { OUTREACH_STATUS_META, type Contact, searchContacts } from "../lib/contacts";
 import { CATEGORY_META, DISPOSITION_GROUP_LABEL, type Tier } from "../lib/detection";
-import { dispositionMetaFor, dispositionOptions, type CustomDisposition } from "../lib/dispositions";
+import { dispositionMetaFor, dispositionOptions, type CustomDisposition, isConnectedDisposition } from "../lib/dispositions";
 import { checkApolloAvailability, enrichContactsViaApollo, type EnrichOutcome } from "../lib/apolloEnrich";
 import ContactDetail from "./ContactDetail";
+import { groupAttemptsByContact, summarizeAttempts, ATTEMPT_CHANNEL_META, type OutreachAttempt, type AttemptChannel } from "../lib/outreachAttempts";
 import BookedStamp from "./BookedStamp";
 import OnCrmBadge from "./OnCrmBadge";
 import LocalTime from "./LocalTime";
@@ -55,6 +56,9 @@ interface ContactsProps {
   sequences: Sequence[];
   enrollments: SequenceEnrollment[];
   dispositions: CustomDisposition[];
+  attempts: OutreachAttempt[];
+  onLogAttempt: (input: { contactId: string; channel: AttemptChannel; outcome?: string; note?: string }) => void;
+  onRemoveAttempt: (id: string) => void;
   onManageDispositions: () => void;
   // Seeds the search box on mount — set when arriving here from the header
   // search (see App.tsx/HeaderSearch.tsx). This component remounts fresh
@@ -76,7 +80,10 @@ function todayKey(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-export default function Contacts({ contacts, loading, error, tasks, onAddContactTask, onToggleTask, onDeleteTask, onUpdateContact, users, leadLists, sequences, enrollments, dispositions, onManageDispositions, initialSearch }: ContactsProps) {
+export default function Contacts({ contacts, loading, error, tasks, onAddContactTask, onToggleTask, onDeleteTask, onUpdateContact, users, leadLists, sequences, enrollments, dispositions, onManageDispositions, initialSearch, attempts, onLogAttempt, onRemoveAttempt }: ContactsProps) {
+  // One index pass, not a filter per rendered row — the Reached cell is
+  // computed for every visible contact.
+  const attemptsByContact = useMemo(() => groupAttemptsByContact(attempts), [attempts]);
   const [search, setSearch] = useState(initialSearch || "");
   const [sort, setSort] = useState<SortKey>("recent");
   // Disposition-grouped view — per Jack: a place to see where every lead
@@ -563,6 +570,7 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
                 <th style={{ padding: "9px 12px" }}>Disposition</th>
                 <th style={{ padding: "9px 12px" }}>Matched snippet</th>
                 <th style={{ padding: "9px 12px" }}>Outreach</th>
+                <th style={{ padding: "9px 12px" }} title="How many times this lead has been tried, and how the last attempt went">Reached</th>
                 <th style={{ padding: "9px 12px" }}>Seen</th>
                 <th style={{ padding: "9px 12px" }}>Sources</th>
                 <th style={{ padding: "9px 12px" }}></th>
@@ -670,6 +678,21 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
                         <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 3 }}>{c.callCount || 0} calls · {c.emailCount || 0} emails</div>
                       )}
                     </td>
+                    <td style={{ padding: "9px 12px" }}>
+                      {(() => {
+                        const list = attemptsByContact.get(c.id) || [];
+                        if (!list.length) return <span style={{ color: "var(--muted)" }}>—</span>;
+                        const sum = summarizeAttempts(list, (o) => isConnectedDisposition(o, dispositions));
+                        const meta = dispositionMetaFor(sum.latest?.outcome, dispositions);
+                        return (
+                          <div className="reached-cell" title={`${sum.total} attempt${sum.total === 1 ? "" : "s"} · ${sum.reached} reached`}>
+                            <span className="reached-count">{sum.total}×</span>
+                            {sum.latest && <span>{ATTEMPT_CHANNEL_META[sum.latest.channel].icon}</span>}
+                            <span className="status-pill" style={{ background: meta.bg, color: meta.color }}>{meta.label}</span>
+                          </div>
+                        );
+                      })()}
+                    </td>
                     <td style={{ padding: "9px 12px", whiteSpace: "nowrap" }} title={new Date(c.lastSeenAt).toLocaleString()}>
                       {c.timesSeen}× · {new Date(c.lastSeenAt).toLocaleDateString()}
                     </td>
@@ -733,6 +756,9 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
           sequences={sequences}
           enrollments={enrollments}
           dispositions={dispositions}
+          attempts={attempts}
+          onLogAttempt={onLogAttempt}
+          onRemoveAttempt={onRemoveAttempt}
         />
       )}
     </div>

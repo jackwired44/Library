@@ -4211,6 +4211,86 @@ succeeding end to end, and everything surviving a reload). Suites after:
 platform audit 54/54, dispositions 12/12, audit-fix 8/8, Companies 16/16,
 sequence template 22/22, Home 16/16.
 
+## Reached status — per-attempt outreach history (app/ only)
+
+Per Jack: "add a section column for reached status for the leads so it
+shows how many times weve called them or tried reaching them and the
+result each time in a mini board also." This is the per-call record
+flagged as "the next brick" three times across earlier sessions — the
+thing the dialer, Home's connects, and the sequence spec's Phase 3
+same-company reply delay were all waiting on.
+
+**The problem it solves.** `Contact.disposition` is ONE latest value:
+three voicemails to the same person leave one value, not three.
+`Contact.callCount` is a bare counter with no date and no outcome. Neither
+can answer "the result each time."
+
+**`lib/outreachAttempts.ts`** (new, `STORE_OUTREACH_ATTEMPTS`,
+`DB_VERSION` 14→15) — `OutreachAttempt {id, contactId, channel, outcome,
+note?, at, taskId?, userId?}`. `outcome` uses the SAME disposition
+vocabulary as everything else (built-in or custom), so the two can never
+drift into parallel taxonomies. `at` is a full ISO moment, not a calendar
+day like `Task.date` — an attempt happens at a time.
+
+**It is additive, not a replacement source of truth.** `Contact.disposition`
+stays exactly what it has always been and is still what every existing
+consumer reads — sticky state across uploads, sequence advancement via
+`isConnectedDisposition`, Home's hot leads and call backs, every filter.
+Logging an attempt WRITES that field (`contactPatchForAttempt`) as a side
+effect, so nothing downstream changes behaviour. `App.logAttempt` also
+stamps/clears `meetingBookedAt` on the same transition rule
+`updateContact` follows, and finishes active enrollments on a connected
+outcome — handed a contact carrying the NEW outcome, since
+`finishTerminalEnrollments` re-checks the disposition itself and the
+captured `contacts` array still holds the stale one.
+
+**Counters are incremented, never recomputed** from the attempt list. A
+contact can carry counts from before this store existed; recomputing would
+silently erase them. `untrackedCount()` reports that difference and the
+mini board states it in plain text — those older counts have no date or
+outcome recorded and **cannot** be back-filled. Inventing rows for them
+would be fabricating data.
+
+**Two surfaces:**
+- **Contacts gained a "Reached" column** next to Outreach — attempt count,
+  the last channel's icon, and the last outcome as a chip. Built off one
+  `groupAttemptsByContact` index pass rather than a filter per rendered
+  row, since the cell renders for every visible contact.
+- **`components/ReachedBoard.tsx`** — the mini board, in the contact
+  record above Record details (what you want first when opening a lead you
+  are about to work). Four metrics (attempts / reached them / calls / days
+  since last, with `null` days shown as "—" rather than 0, which would
+  read as "tried today"), a "+ Log attempt" form, and the history newest
+  first with a dot marking whether each attempt reached the person.
+
+**The gap that made it real: logging from the Calls tab.** A board only
+reachable through a modal would not get used — Jack works from Engage →
+Calls. Each call/email task row gained a **"Log outcome"** control that
+records the attempt against that contact, stamps it with the `taskId`, and
+completes the task in the same action (guarded with `if (!t.done)` so
+re-logging an already-done task cannot toggle it back OPEN).
+
+**Also fixed here**: `lib/db.ts` reported a `VersionError` — a stale
+cached tab running an older build than the database — through the generic
+"Could not open local file storage," which reads like data loss when it is
+only a reload. Now its own message. This was flagged in the Sequence
+Engine spec as the failure mode to fix *before* the next store addition;
+this is that store addition.
+
+**Known gap, NOT fixed here:** "Backup everything" covers 3 of **18**
+stores (Library entries, groups, History) — attempts are not in it, and
+neither are Contacts, Tasks, Sequences, Lists or Dispositions. That has
+been flagged since the audit pass and is a real restore-time data-loss
+risk, but widening it is its own change.
+
+Verified 15/15 live on the board (empty state, logging a not-reached
+outcome then a connected one, counts moving correctly, both outcomes in
+the history, the column, the disposition writing through, Home counting
+the booking — proving `meetingBookedAt` was stamped — and everything
+surviving a reload) plus 8/8 on the Calls-tab path. Suites after: platform
+audit 54/54, dispositions 12/12, audit-fix 8/8, Companies 16/16, sequence
+template 22/22, Home 16/16, Lead Library 13/13.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool
