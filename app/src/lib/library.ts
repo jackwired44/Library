@@ -190,10 +190,15 @@ export function getOrCreateGroupByName(groups: LibraryGroup[], label: string): {
 // Group name is resolved live from `groups` every time (never cached in a
 // filename string) — matches legacy exactly, so a folder rename is always
 // reflected in any file created after it.
+// groupId is `string | null` on purpose: an UNGROUPED entry stores null
+// (that's what "deleting a folder only ungroups its files" leaves behind),
+// and coercing that null to "" here used to create a second, unreachable
+// entry whose groupId matched nothing — the moved lead was then dropped by
+// the caller's persist filter and lost on reload.
 export function getOrCreateMonthCategoryEntry(
   entries: LibraryEntry[],
   groups: LibraryGroup[],
-  groupId: string,
+  groupId: string | null,
   bucketKey: BucketKey
 ): { entries: LibraryEntry[]; entry: LibraryEntry } {
   const existing = entries.find((e) => e.groupId === groupId && e.bucketKey === bucketKey);
@@ -344,7 +349,7 @@ export function moveLibraryRowToBucket(entries: LibraryEntry[], groups: LibraryG
   } else {
     working = entries.map((e) => (e.id === entryId ? serialize({ ...source, rows: sourceRows }) : e));
   }
-  const { entries: next, entry: target } = getOrCreateMonthCategoryEntry(working, groups, source.groupId ?? "", newBucket);
+  const { entries: next, entry: target } = getOrCreateMonthCategoryEntry(working, groups, source.groupId ?? null, newBucket);
   working = next.map((e) => (e.id === target.id ? serialize({ ...target, rows: [...target.rows, row] }) : e));
   return working;
 }

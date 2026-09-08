@@ -3498,6 +3498,112 @@ Chrome extension build starts from scratch rather than from a reference.
 Left the layout section itself alone rather than rewriting a section
 documenting someone else's intent, but do not trust it as a file listing.
 
+## Audit pass: five confirmed bugs fixed (app/ only)
+
+Per Jack: "run a harness check on workflows and how the app is built and
+check over the code section by section." Two read-only review agents swept
+`lib/` and the component layer; every finding below was then re-verified
+directly before any change was made. Jack's follow-up — "make sure nothing
+with the scanner is reversed or messed up" and "check the functions remain
+the same or improve" — is why each fix is deliberately surgical and why the
+full regression suites were re-run after.
+
+**1. A Lead Library folder upload wiped sticky cross-out/disposition.**
+`Library.tsx`'s `handleUploadIntoFolder` was the ONLY upload path not
+calling `applyStickyState(scanned, contacts)` — Scanner's own upload, its
+Lead Library picker and `App.loadParsedFilesIntoScanner` all do. It then
+fed those fresh rows (always `crossedOut:false` / `disposition:"none"`) to
+`attachScanResultsToContacts`, which OVERWRITES rather than fill-blanks, so
+uploading a CSV into a folder silently reset a disposition set earlier,
+un-crossed the lead, and nulled `meetingBookedAt` (breaking Home's "Booked
+this week"). Fixed by adding the same call in the same position, plus a new
+`contacts` prop on `LibraryView`. Directly contradicted CLAUDE.md's own
+"Sticky crossed-out/disposition state" section.
+
+**2. Unmarking a starred lead could revert a live disposition.** Scanner's
+High Priority panel lists rows from ALL of History, then edited them via
+`onSyncToHistory({...row, priority:false})`. `App.syncToHistory` does two
+things: patch History (correct) AND run `attachScanResultsToContacts` on
+that row. A months-old row replayed its stale `disposition:"none"` /
+`crossedOut:false` onto the live Contact, nulled `meetingBookedAt`, and
+could even auto-finish a currently-active sequence enrollment via
+`finishTerminalEnrollments`. The month `<input>` did it on every keystroke.
+Fixed with an opt-out: `syncToHistory(row, opts?: {syncContact?: boolean})`
+**defaults to true**, so every Scanner per-row edit (tier, category,
+disposition, cross-out, priority) behaves exactly as before; only the two
+High Priority panel call sites pass `false`. That panel only ever edits
+`priority`/`priorityMonth`, which are History-only fields with no Contact
+equivalent, so it had nothing legitimate to sync.
+
+**3. Moving a lead between category files inside an UNGROUPED file lost
+it.** `moveLibraryRowToBucket` called `getOrCreateMonthCategoryEntry(...,
+source.groupId ?? "", ...)`. An ungrouped entry stores `groupId: null` (what
+"deleting a folder only ungroups its files" leaves behind), and `""` never
+matches `null`, so a third, unreachable entry was created; `Library.tsx`'s
+persist filter (`e.groupId === source?.groupId`) then skipped it, writing
+the source (row removed) but never the destination. The lead vanished from
+both files on reload. Fixed by widening the parameter to `string | null`
+and passing `?? null`. Verified with a direct unit check: the move now
+appends to the existing ungrouped file, creates no orphan, and leaves every
+`groupId` null.
+
+**4. The Engage sidebar sub-nav went dead on a repeat click.** `Engage.tsx`
+resyncs its tab via `useEffect(..., [initialTab])`, but `App.tsx` set
+`engageEntry` to a new object carrying the SAME string. So: click Calls in
+the sidebar, switch to Contacts with the in-page dropdown, click Calls
+again — `initialTab` is still `"calls"`, the effect never re-runs, and the
+click does nothing while the sidebar keeps highlighting Calls. This is the
+same seed-vs-resync class as the bug CLAUDE.md already documents fixing
+once; that fix closed the value-changes case but not the value-repeats
+case. Fixed at the root rather than with a nonce: `Engage` now reports its
+tab back via `onTabChange`, so App's copy never goes stale — which makes a
+repeat click a real change AND fixes the stale sidebar highlight with one
+mechanism. Confirmed broken then confirmed fixed with the same live script.
+
+**5. "Save to Lead Library" silently no-opped on a batch reopened from
+History.** `saveStrongSignalToLibrary` guards on `currentHistoryEntryId`,
+which only Scanner's own `handleFiles`/`loadFromLibraryPicker` ever set.
+`App.loadHistoryIntoScanner` sets `results` directly, so reopening any
+Recent upload rendered the button ENABLED, and clicking it hit the guard
+and returned with no filing, no notice and no state change. Fixed by
+threading `loadedHistoryEntryId` down (same adopt-via-`useEffect` pattern
+`loadedScanStats` already uses). A multi-entry combine has no single id to
+stamp, so it stays null and the button is now disabled with a title
+explaining why, instead of failing silently.
+
+**Verification.** Full platform audit 53/53 and the disposition suite 12/12
+both still green after the changes, plus an 8-check script proving each fix
+against the real IndexedDB flow. Scanner specifically was re-checked end to
+end: tier tabs, product-line chips, View sub-tabs, search, per-row tier/
+category/disposition/undo/cross-out/priority, the bulk bar, Non Relevant,
+Save to Lead Library and Start over all behave exactly as before.
+
+**Reported, NOT changed** (real findings, but each is a judgement call or a
+larger change than a bug fix): the Lead Library is the only place in the app
+that deletes persisted data with no confirmation, in four places including
+one that removes a whole filed file from a button beside Download; Weekly
+Goals' `computeAutoActual` parses its week end as UTC midnight so Sunday
+calls are dropped outside UTC+0; deleting a sequence-generated task strands
+its enrollment permanently (nothing clears `currentTaskId` and
+`resumeEnrollments` skips anything that still has one); "Backup everything"
+covers 3 of 17 IndexedDB stores while the filename says full backup;
+clearing the Cheat Sheet's qualify-threshold field writes `0` instantly;
+Contacts' date-range filter compares a local calendar date against a UTC
+`lastSeenAt` so evening uploads fall outside their own day; and
+`createCustomDisposition` doesn't guard the two retired built-in slugs, so a
+second "Other" chip can be added. Also flagged: ~11 exported functions and
+fields nothing reads, and `Sequences.tsx`'s enroll picker renders every
+contact unpaginated (the same pattern already measured and fixed in
+Contacts/Companies).
+
+**Confirmed clean.** No rules-of-hooks violations anywhere, checked by
+script across every component then by hand on each one that early-returns.
+Every rapid-fire state mutator in `App.tsx` correctly reads `prev` from
+inside its own functional updater. All list keys are stable.
+`lib/detection.ts`, `lib/csv.ts`, `lib/timezones.ts` and `lib/tasks.ts` had
+no defects found; `tasks.ts` was singled out as the one file that gets
+local-vs-UTC day handling right throughout and should be the reference.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

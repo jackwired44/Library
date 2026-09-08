@@ -17,6 +17,7 @@ import { dispositionMetaFor, type CustomDisposition } from "../lib/dispositions"
 import DispositionOptions from "./DispositionOptions";
 import { parseCSVFile, parseCSVText, downloadBlob } from "../lib/csv";
 import type { HistoryEntry } from "../lib/history";
+import { applyStickyState, type Contact } from "../lib/contacts";
 import {
   createGroup,
   renameGroup,
@@ -55,6 +56,14 @@ interface LibraryProps {
   // User-defined call dispositions, passed down to each file card's
   // per-lead editor so its dropdown offers the same set as everywhere else.
   dispositions: CustomDisposition[];
+  // Needed ONLY so an upload straight into a folder carries a person's
+  // sticky cross-out/disposition forward, exactly like every other upload
+  // path already does (Scanner's own upload, its Lead Library picker, and
+  // App's "Load into Scanner"). Without it this path fed freshly-scanned
+  // rows — always crossedOut:false / disposition:"none" — into
+  // attachScanResultsToContacts, which OVERWRITES those fields, silently
+  // wiping a disposition set earlier and nulling meetingBookedAt.
+  contacts: Contact[];
   entries: LibraryEntry[];
   setEntries: React.Dispatch<React.SetStateAction<LibraryEntry[]>>;
   groups: LibraryGroup[];
@@ -70,7 +79,7 @@ interface LibraryProps {
   ruleOverrides: RuleOverrides;
 }
 
-export default function LibraryView({ entries, setEntries, groups, setGroups, loading, error, onLoadIntoScanner, onRecordHistory, ruleOverrides, dispositions }: LibraryProps) {
+export default function LibraryView({ contacts, entries, setEntries, groups, setGroups, loading, error, onLoadIntoScanner, onRecordHistory, ruleOverrides, dispositions }: LibraryProps) {
   const [openFolderId, setOpenFolderId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [showNewGroupForm, setShowNewGroupForm] = useState(false);
@@ -159,6 +168,11 @@ export default function LibraryView({ entries, setEntries, groups, setGroups, lo
     try {
       const parsedFiles = await Promise.all(csvFiles.map(parseCSVFile));
       const { results: scanned, duplicatesRemoved } = scanParsedFiles(parsedFiles, ruleOverrides);
+      // Carry each person's sticky cross-out/disposition onto the fresh
+      // rows BEFORE anything reads them — same call, same position, as
+      // Scanner's own upload paths. See CLAUDE.md "Sticky crossed-out/
+      // disposition state".
+      applyStickyState(scanned, contacts);
       const signalRows = scanned.filter((r) => r.tier === "signal" && !r.isDuplicate);
       const folderName = groups.find((g) => g.id === groupId)?.name || "this folder";
       // Record History FIRST so the Library filing below can stamp its rows

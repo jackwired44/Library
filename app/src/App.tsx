@@ -167,6 +167,10 @@ export default function App() {
   // sub-nav or a Home tile — reset when Engage is opened any other way
   // so a stale seed doesn't linger.
   const [engageEntry, setEngageEntry] = useState<{ tab?: EngageTab; contactsQuery?: string }>({});
+  // The History entry a Scanner batch was reopened from — see
+  // loadHistoryIntoScanner. Null for a fresh upload (Scanner tracks its
+  // own id then) and for a multi-entry combine.
+  const [loadedHistoryEntryId, setLoadedHistoryEntryId] = useState<string | null>(null);
   // Collapsed by default — per Jack: "collapsable drop downs under tabs
   // with relevant sub sections like engage... just like apollo." Toggled
   // by its own arrow, separate from the Engage row's own click-to-navigate
@@ -900,7 +904,20 @@ export default function App() {
   // back to the entry it came from. A no-op for an ordinary fresh-scan row
   // (syncRowIntoHistory returns the same array reference when there's
   // nothing tying this row back to a History entry).
-  function syncToHistory(row: ResultRow) {
+  // `syncContact` defaults to TRUE — every Scanner per-row edit (tier,
+  // category, disposition, cross-out, priority) is an edit to a row from
+  // the CURRENT batch, so pushing its scan-derived fields onto that
+  // person's Contact is correct and unchanged.
+  //
+  // It is passed false only by Scanner's High Priority panel, which lists
+  // rows from ALL of History. Such a row can be months old: replaying it
+  // onto the Contact would overwrite a disposition set later, null out
+  // meetingBookedAt, and could even auto-finish a live sequence
+  // enrollment. That panel only ever edits priority/priorityMonth, which
+  // are History-only fields with no Contact equivalent, so it has nothing
+  // to sync in the first place.
+  function syncToHistory(row: ResultRow, opts?: { syncContact?: boolean }) {
+    const syncContact = opts?.syncContact !== false;
     setHistoryEntries((prev) => {
       const next = syncRowIntoHistory(prev, row);
       if (next !== prev) {
@@ -917,6 +934,7 @@ export default function App() {
     // ever set afterward, so without this hook Contacts' Disposition
     // column could never show anything but blank — a pure "snapshot at
     // initial scan" would defeat the point of surfacing it at all.
+    if (!syncContact) return;
     setContacts((prev) => {
       const { contacts: next, touched } = attachScanResultsToContacts(prev, [row]);
       touched.forEach((c) => persistContact(c));
@@ -955,6 +973,12 @@ export default function App() {
     setResults(combined);
     setUploadedFiles(entries.flatMap((h) => h.files));
     setLoadedScanStats({ rowsScanned, duplicatesRemoved, largestDuplicateGroup });
+    // Give Scanner the History entry this batch came from so its "Save to
+    // Lead Library" button can stamp StoredRow.__historyEntryId correctly.
+    // Combining several entries has no single id to stamp, so it stays
+    // null and Scanner disables the button with a reason rather than
+    // silently doing nothing (which is what it used to do for BOTH cases).
+    setLoadedHistoryEntryId(entries.length === 1 ? entries[0].id : null);
     setView("scanner");
   }
 
@@ -1136,6 +1160,7 @@ export default function App() {
               ruleOverrides={ruleOverrides}
               contacts={contacts}
               loadedScanStats={loadedScanStats}
+              loadedHistoryEntryId={loadedHistoryEntryId}
               leadLists={leadLists}
               onAddSelectedToList={addSelectedToList}
               dispositions={dispositions}
@@ -1203,6 +1228,7 @@ export default function App() {
               onImportCompanyProfiles={importCompanyProfilesFromFiles}
               initialTab={engageEntry.tab}
               initialContactsSearch={engageEntry.contactsQuery}
+              onTabChange={(tab) => setEngageEntry((prev) => ({ ...prev, tab }))}
             />
           )}
           {view === "history" && (
@@ -1220,6 +1246,7 @@ export default function App() {
           )}
           {view === "library" && (
             <LibraryView
+              contacts={contacts}
               entries={libraryEntries}
               setEntries={setLibraryEntries}
               groups={libraryGroups}

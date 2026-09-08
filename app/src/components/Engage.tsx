@@ -88,6 +88,13 @@ interface EngageProps {
   // initial state, not stay in sync afterward.
   initialTab?: EngageTab;
   initialContactsSearch?: string;
+  // Reports the tab actually showing back up to App.tsx. Without this the
+  // sidebar's own idea of the active tab goes stale the moment you use the
+  // in-page dropdown, which broke BOTH the highlight and the sub-nav:
+  // clicking the same sidebar item again produced an identical initialTab,
+  // so the resync effect below never re-ran and the click did nothing.
+  // Keeping App's copy in step means a repeat click is a real change.
+  onTabChange?: (tab: EngageTab) => void;
 }
 
 export type EngageTab = "sequences" | "tasks" | "calls" | "emails" | "companies" | "contacts" | "lists";
@@ -156,6 +163,7 @@ export default function Engage({
   onRemoveLeadFromList,
   initialTab,
   initialContactsSearch,
+  onTabChange,
 }: EngageProps) {
   const [tab, setTab] = useState<EngageTab>(initialTab || "sequences");
   // Engage does NOT unmount/remount when navigating between its own
@@ -176,7 +184,7 @@ export default function Engage({
       <div style={{ marginBottom: 18 }}>
         <select
           value={tab}
-          onChange={(e) => setTab(e.target.value as EngageTab)}
+          onChange={(e) => { const next = e.target.value as EngageTab; setTab(next); onTabChange?.(next); }}
           style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", fontSize: 13, fontWeight: 700, minWidth: 160 }}
         >
           {TAB_OPTIONS.map((opt) => (

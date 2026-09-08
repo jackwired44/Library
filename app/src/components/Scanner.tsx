@@ -66,7 +66,7 @@ interface ScannerProps {
   // Edits made to a row loaded FROM History (tagged with __sourceEntryId —
   // see lib/history.ts) get written back to the History entry it came from.
   // A no-op for an ordinary fresh-scan row.
-  onSyncToHistory: (row: ResultRow) => void;
+  onSyncToHistory: (row: ResultRow, opts?: { syncContact?: boolean }) => void;
   // Shown on the empty/upload screen so a recent batch is one click away
   // without switching to the History tab first.
   recentUploads: HistoryEntry[];
@@ -91,6 +91,11 @@ interface ScannerProps {
   // accounting banner silently fell back to the post-filter results.length
   // whenever a batch was reopened from History instead of freshly uploaded.
   loadedScanStats: { rowsScanned: number; duplicatesRemoved: number; largestDuplicateGroup: number } | null;
+  // Set when a batch was reopened from a single History entry, so filing
+  // it to the Lead Library can stamp the right entry id. Null for a
+  // multi-entry combine — the save button then explains why it is off
+  // instead of failing silently on a guard.
+  loadedHistoryEntryId: string | null;
   // Custom Lead Lists (see CLAUDE.md "Custom Lead Lists") — the bulk-action
   // bar's "+ Add to list" reads existing lists from here and creates/adds
   // through these two, same pattern as every other bulk action.
@@ -127,6 +132,7 @@ export default function Scanner({
   ruleOverrides,
   contacts,
   loadedScanStats,
+  loadedHistoryEntryId,
   leadLists,
   onAddSelectedToList,
   dispositions,
@@ -176,6 +182,10 @@ export default function Scanner({
   useEffect(() => {
     if (loadedScanStats) setLastScanStats(loadedScanStats);
   }, [loadedScanStats]);
+  // Same adopt pattern for the reopened batch's History entry id.
+  useEffect(() => {
+    if (loadedHistoryEntryId) setCurrentHistoryEntryId(loadedHistoryEntryId);
+  }, [loadedHistoryEntryId]);
   const [tierFilter, setTierFilter] = useState<Tier | "all">("signal");
   // "Non Relevant" — per Jack: "i want to be able to review every lead if
   // i want to... looking at those [rows] it didn't have a dynamics/m365/
@@ -793,11 +803,11 @@ export default function Scanner({
                       <input
                         type="month"
                         value={row.priorityMonth || ""}
-                        onChange={(e) => onSyncToHistory({ ...row, priorityMonth: e.target.value || null })}
+                        onChange={(e) => onSyncToHistory({ ...row, priorityMonth: e.target.value || null }, { syncContact: false })}
                         style={{ border: "1px solid var(--border)", borderRadius: 6, padding: "4px 6px", fontSize: 11.5 }}
                       />
                       <button
-                        onClick={() => onSyncToHistory({ ...row, priority: false })}
+                        onClick={() => onSyncToHistory({ ...row, priority: false }, { syncContact: false })}
                         title="Unmark High Priority"
                         style={{ border: "1px solid #F0D6D6", background: "var(--surface)", color: "#B5443B", borderRadius: 6, padding: "4px 8px", fontSize: 11.5, whiteSpace: "nowrap" }}
                       >
@@ -856,7 +866,8 @@ export default function Scanner({
             </select>
             <button
               onClick={saveStrongSignalToLibrary}
-              disabled={libraryFiledForBatch}
+              disabled={libraryFiledForBatch || !currentHistoryEntryId}
+              title={!currentHistoryEntryId ? "Combined batches can't be filed as one file — reopen a single upload from History instead." : undefined}
               className="btn btn-primary"
             >
               {libraryFiledForBatch ? "✓ Filed" : "Save to Lead Library"}
