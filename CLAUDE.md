@@ -4112,6 +4112,55 @@ scheduled moves them out of the hot list and into a Call backs block; all
 of it survives a reload. Suites after: audit 54/54, dispositions 12/12,
 audit-fix 8/8, Companies 16/16, sequence template 22/22.
 
+## Merge fields: {{#else}} and sender tokens (app/ only)
+
+Found while pulling Apollo's full sequence design for the Sequence Engine
+spec — reading every step type across all 20 live sequences surfaced a
+defect in the renderer shipped a session earlier.
+
+**Apollo's real templates use an else branch**, e.g.
+`{{#if first_name}}{{first_name}}{{#else}}there{{#endif}}`, in both the
+Commercial Real Estate call script and its LinkedIn note.
+`renderMerge` (`lib/mergeFields.ts`) handled `{{#if}}…{{#endif}}` only, and
+**both** branches were wrong:
+
+| Case | Was | Now |
+|---|---|---|
+| Contact has a first name | `Hi Dana{{#else}}there, quick one…` | `Hi Dana, quick one…` |
+| Contact has none | `Hi, quick one…` | `Hi there, quick one…` |
+
+The first row is the dangerous one — control syntax leaking into copy a rep
+pastes into a real email. The lazy inner capture swallowed the else marker
+and its fallback text, then the substitution pass left `{{#else}}` visible
+as an unresolved token.
+
+Fixed by splitting the captured inner block on `{{#else}}` and picking the
+branch. **Deliberately non-nesting**: the inner capture is lazy, so a
+nested `{{#if}}` would bind to the first `{{#endif}}`. None of Apollo's
+templates nest, and a real parser is a lot of machinery for a case that
+doesn't occur — flagged in the code rather than silently assumed away.
+
+**Sender tokens added**: `{{sender_first_name}}` (Apollo greets with the
+first name, so it needs its own token rather than making callers split a
+full name), `{{sender_name}}`, `{{sender_company}}`.
+
+**`{{sender_meeting_alias}}` is deliberately NOT resolved.** It builds a
+link to an Apollo booking page; this platform has no scheduling link, so
+resolving it to a blank would silently produce "grab time
+<a href="">here</a>" pointing nowhere. It stays a visible `{{token}}` the
+writer has to deal with — exported as `KNOWN_UNSUPPORTED_TOKENS` so the
+choice is documented in code, not just here.
+
+Verified 12/12 against Apollo's real template text (both conditional
+branches, no-else templates unchanged, the Dynamics LinkedIn note, the CRE
+call script, and `tokensIn` correctly skipping the control words). Suites
+after: sequence template 22/22, platform audit 54/54.
+
+**Trailing-whitespace note**: a template ending in a blanked conditional
+renders with a trailing space ("Title: "). Pre-existing, harmless, and the
+collapse rules that handle double spaces and space-before-punctuation were
+deliberate — left alone rather than widened.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

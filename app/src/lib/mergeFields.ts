@@ -32,6 +32,7 @@ export interface MergeContext {
 // (and a person typing from memory) actually uses onto one of these.
 function baseValues(ctx: MergeContext): Record<string, string> {
   const c = ctx.contact;
+  const senderName = ctx.senderName?.trim() || "";
   const full = c
     ? getFullName({ firstName: c.firstName, lastName: c.lastName, fullName: c.fullName })
     : "";
@@ -44,7 +45,11 @@ function baseValues(ctx: MergeContext): Record<string, string> {
     "contact.phone": (c?.mobilePhone || c?.workPhone || "").trim(),
     "account.name": c?.company?.trim() || "",
     "account.website": c?.companyWebsite?.trim() || "",
-    "sender.name": ctx.senderName?.trim() || "",
+    "sender.name": senderName,
+    // Apollo's own templates greet with the sender's FIRST name
+    // ({{sender_first_name}}), so it needs its own token rather than
+    // making a caller split the full name themselves.
+    "sender.first_name": senderName ? senderName.split(/\s+/)[0] : "",
     "sender.company": ctx.senderCompany?.trim() || "Wired CIO",
   };
 }
@@ -67,7 +72,18 @@ const ALIASES: Record<string, string> = {
   website: "account.website",
   "my.name": "sender.name",
   "my.company": "sender.company",
+  sender_name: "sender.name",
+  sender_first_name: "sender.first_name",
+  sender_company: "sender.company",
 };
+
+// Tokens Apollo supports that this app has NO value for, and deliberately
+// does not fake. {{sender_meeting_alias}} builds a link to an Apollo
+// booking page; there is no scheduling link here, so resolving it to a
+// blank would silently produce "grab time <a href=...>here</a>" pointing
+// nowhere. Left unrecognized on purpose, so it renders as a visible
+// {{token}} the writer has to deal with rather than a dead link.
+export const KNOWN_UNSUPPORTED_TOKENS = ["sender_meeting_alias"];
 
 function resolveToken(token: string, values: Record<string, string>): string | undefined {
   const key = token.trim();
@@ -106,11 +122,23 @@ export function renderMerge(
 
   // Conditionals first, so a {{#if title}} block whose token is empty is
   // removed before its inner tokens are substituted.
+  //
+  // {{#else}} is supported because Apollo's real templates rely on it:
+  // "{{#if first_name}}{{first_name}}{{#else}}there{{#endif}}". Without
+  // it the true branch leaked the literal text "{{#else}}there" into the
+  // output and the false branch dropped the fallback word entirely —
+  // both wrong, and the first one would have shipped in a real email.
+  //
+  // Deliberately non-nesting: the inner capture is lazy, so a nested
+  // {{#if}} would bind to the first {{#endif}}. Apollo's templates don't
+  // nest, and a real nesting parser is a lot of machinery for a case that
+  // doesn't occur — flagged here rather than silently assumed away.
   let out = template.replace(
     /\{\{\s*#if\s+([^}]+?)\s*\}\}([\s\S]*?)\{\{\s*#endif\s*\}\}/g,
     (_all, token: string, inner: string) => {
+      const [whenSet, whenBlank = ""] = inner.split(/\{\{\s*#else\s*\}\}/);
       const v = resolveToken(token, values);
-      return v && v.trim() ? inner : "";
+      return v && v.trim() ? whenSet : whenBlank;
     }
   );
 
