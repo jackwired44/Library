@@ -185,6 +185,44 @@ button:disabled {
   flex-shrink: 0;
 }
 
+/* US time-zone cheat window under the account row (AccountPanel.tsx). */
+.tz-cheat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-sunken);
+}
+.tz-cheat-cell {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.tz-cheat-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.tz-cheat-time {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.tz-cheat-abbr {
+  font-size: 10px;
+  color: var(--accent-blue);
+  font-weight: 600;
+  min-width: 26px;
+}
+
 /* Bottom-of-sidebar account block + Platform Notes — see
    components/AccountPanel.tsx and CLAUDE.md. */
 .account-panel {

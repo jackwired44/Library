@@ -3404,6 +3404,21 @@ NULL fix above), so treating sub-15 Dynamics as a Bad Lead contradicts a
 call he already made. Whether Dynamics should share the 15-seat floor is
 his product decision.
 
+## Sidebar time-zone cheat window (app/ only)
+
+Per Jack: "allow a little cheat sheet window below the jack sales director
+at the bottom to show mst current time est and pst." A small bordered
+strip in `AccountPanel.tsx`, directly under the account row and above the
+Cheat Sheet / Platform notes buttons: three stacked rows — Eastern,
+Mountain, Pacific — each with the current time and the LIVE abbreviation
+(EDT/MDT/PDT in summer, EST/MST/PST in winter), driven by the same shared
+30-second `useNow` tick and `formatTimeInZone`/`zoneAbbrev` helpers the
+local clock above it already uses. Mountain is `America/Denver` (observes
+DST), read from Jack's "MST" as the Mountain zone generally rather than
+Arizona's year-round MST. Pure display, no data. Verified live with the
+browser pinned to Chicago: Eastern +1h, Mountain -1h, Pacific -2h from the
+local clock, correct DST abbreviations, no console errors.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

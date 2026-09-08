@@ -23,6 +23,15 @@ interface AccountPanelProps {
   onOpenNotes: () => void;
 }
 
+// Eastern / Mountain / Pacific reference clocks. Mountain uses Denver
+// (observes DST) rather than Arizona — "MST" in Jack's ask reads as the
+// Mountain zone generally, not Arizona's year-round MST.
+const US_ZONE_CHEAT = [
+  { label: "Eastern", zone: "America/New_York" },
+  { label: "Mountain", zone: "America/Denver" },
+  { label: "Pacific", zone: "America/Los_Angeles" },
+];
+
 export default function AccountPanel({ onOpenSettings, onOpenNotes, users, onAddUser, onEditUser, onRemoveUser }: AccountPanelProps) {
   // The local user's own clock/zone — per Jack, shown "for the local user
   // using the platform" as the reference every contact's offset is
@@ -55,6 +64,20 @@ export default function AccountPanel({ onOpenSettings, onOpenNotes, users, onAdd
           </div>
         </div>
       </button>
+      {/* US time-zone cheat window — per Jack: "a little cheat sheet window
+          below the jack sales director at the bottom to show mst current
+          time est and pst." Same 30s tick as the local clock above; the
+          abbreviation is live (EDT/MDT/PDT in summer), so DST is never
+          misread. */}
+      <div className="tz-cheat" title="Current time in the three US zones most leads sit in">
+        {US_ZONE_CHEAT.map((z) => (
+          <div key={z.zone} className="tz-cheat-cell">
+            <div className="tz-cheat-label">{z.label}</div>
+            <div className="tz-cheat-time">{formatTimeInZone(z.zone, now)}</div>
+            <div className="tz-cheat-abbr">{zoneAbbrev(z.zone, now)}</div>
+          </div>
+        ))}
+      </div>
       <button onClick={onOpenSettings} title="Cheat Sheet — how leads qualify, hot signals, product-line breakdown" className="account-gear account-gear-standalone">
         ❓ Cheat Sheet
       </button>
