@@ -1501,6 +1501,8 @@ textarea:focus {
 .status-pill.danger { background: var(--danger-bg); color: var(--danger); }
 .status-pill.warning { background: var(--warning-bg); color: var(--warning); }
 .status-pill.info { background: var(--info-bg); color: var(--info); }
+/* Non-interactive marker only — the green rule holds: nothing green is clickable. */
+.status-pill.success { background: var(--success-bg); color: var(--success); }
 .status-pill.neutral { background: var(--neutral-bg); color: var(--neutral); }
 
 /* The clear-day state. Worth designing properly — it's a good moment. */

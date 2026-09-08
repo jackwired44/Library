@@ -25,7 +25,7 @@ interface HomeProps {
   onUpdateTaskFields: (id: string, patch: Partial<Pick<Task, "userId" | "repliedAt">>) => void;
   // The action band's single primary button needs somewhere to go. Home
   // has no router of its own, so App hands it a navigate callback.
-  onNavigate?: (tab: "calls" | "sequences") => void;
+  onNavigate?: (tab: "calls" | "sequences" | "contacts") => void;
 }
 
 
@@ -196,6 +196,67 @@ export default function Home({
     [scopedSequences]
   );
 
+  /* ---- Day / week scope for the task blocks ---- */
+  // Per Jack: Home should show "tasks for that day or week." One toggle
+  // rescopes the due-task block; overdue is deliberately NOT rescoped —
+  // anything past due is past due regardless of which window you're
+  // looking at, so it always shows in full.
+  const [taskScope, setTaskScope] = useState<"day" | "week">("day");
+  const weekEndKey = useMemo(() => {
+    const end = startOfWeek(new Date());
+    end.setDate(end.getDate() + 6);
+    return dateKeyOf(end);
+  }, []);
+  // Due in the chosen window, not yet done, and not already overdue
+  // (overdue has its own block above it — a task can't be in both).
+  const dueTasks = useMemo(() => {
+    const upper = taskScope === "day" ? today : weekEndKey;
+    return openTasks
+      .filter((t) => t.date >= today && t.date <= upper)
+      .sort((a, b) => (a.date === b.date ? compareByTimeThenCreated(a, b) : a.date.localeCompare(b.date)));
+  }, [openTasks, today, weekEndKey, taskScope]);
+
+  /* ---- People to work: call backs, follow-ups, hot leads ---- */
+  // Call backs are not a guess: "Call back scheduled" is one of the nine
+  // real call dispositions (lib/detection.ts), so this is simply everyone
+  // currently sitting on that outcome. Ordered most recently seen first.
+  const callBacks = useMemo(
+    () =>
+      contacts
+        .filter((c) => c.disposition === "call-back-scheduled")
+        .sort((a, b) => String(b.lastSeenAt).localeCompare(String(a.lastSeenAt))),
+    [contacts]
+  );
+
+  // "Hot leads" needed a definition, and this one is built only from
+  // fields that already exist — nothing here is a new flag or a guess at
+  // intent. A hot lead is a contact the detection engine already put at
+  // Strong Signal, who is still in play, and who is either asking for
+  // something or has never been worked:
+  //   - tier "signal" (Strong Signal), not crossed out
+  //   - not Not interested and not Do not contact
+  //   - not already covered by the Call backs block above
+  //   - and either disposition "Info requested", or zero calls AND zero
+  //     emails logged (qualified but untouched)
+  // Info-requested leads rank first — they asked. Then untouched ones, most
+  // recently seen first. The definition is stated on screen so the number
+  // is never a mystery; say the word and it changes.
+  const hotLeads = useMemo(() => {
+    const out = contacts.filter((c) => {
+      if (c.tier !== "signal" || c.crossedOut) return false;
+      if (c.disposition === "not-interested" || c.disposition === "do-not-contact") return false;
+      if (c.disposition === "call-back-scheduled") return false;
+      const untouched = !(c.callCount || 0) && !(c.emailCount || 0);
+      return c.disposition === "info-requested" || untouched;
+    });
+    return out.sort((a, b) => {
+      const ai = a.disposition === "info-requested" ? 0 : 1;
+      const bi = b.disposition === "info-requested" ? 0 : 1;
+      if (ai !== bi) return ai - bi;
+      return String(b.lastSeenAt).localeCompare(String(a.lastSeenAt));
+    });
+  }, [contacts]);
+
   return (
     <div className="home">
       {/* ---- Tier 1: greeting + one line of real state ---- */}
@@ -262,8 +323,26 @@ export default function Home({
       {/* ---- Tier 4: needs you now / this week ---- */}
       <div className="home-cols">
         <div>
-          <div className="section-label">Needs you now</div>
-          {overdueTasks.length === 0 && repliesWaiting.length === 0 && todaysTasks.filter((t) => !t.done).length === 0 && stalledSequences.length === 0 ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+            <div className="section-label" style={{ margin: 0 }}>Needs you now</div>
+            <div className="seg" style={{ marginLeft: "auto" }}>
+              <button
+                className={`seg-btn${taskScope === "day" ? " active" : ""}`}
+                onClick={() => setTaskScope("day")}
+                title="Tasks due today"
+              >
+                Day
+              </button>
+              <button
+                className={`seg-btn${taskScope === "week" ? " active" : ""}`}
+                onClick={() => setTaskScope("week")}
+                title="Tasks due any time this week"
+              >
+                Week
+              </button>
+            </div>
+          </div>
+          {overdueTasks.length === 0 && repliesWaiting.length === 0 && dueTasks.length === 0 && stalledSequences.length === 0 && callBacks.length === 0 && hotLeads.length === 0 ? (
             <div className="calm-state">
               <div className="calm-icon" aria-hidden="true">✓</div>
               <div className="calm-title">You&rsquo;re clear</div>
@@ -284,19 +363,80 @@ export default function Home({
                   {overdueTasks.length > 3 && <div className="needs-more">+{overdueTasks.length - 3} more</div>}
                 </NeedsBlock>
               )}
-              {todaysTasks.filter((t) => !t.done).length > 0 && (
-                <NeedsBlock title={`${todaysTasks.filter((t) => !t.done).length} due today`} pill="info" pillText="Today">
-                  {todaysTasks.filter((t) => !t.done).slice(0, 4).map((t) => {
+              {dueTasks.length > 0 && (
+                <NeedsBlock
+                  title={`${dueTasks.length} due ${taskScope === "day" ? "today" : "this week"}`}
+                  pill="info"
+                  pillText={taskScope === "day" ? "Today" : "This week"}
+                >
+                  {dueTasks.slice(0, taskScope === "day" ? 4 : 6).map((t) => {
                     const c = t.contactId ? contactById.get(t.contactId) : null;
                     return (
                       <NeedsRow
                         key={t.id}
                         title={t.text}
-                        meta={[c?.company, t.time ? formatTaskTime(t.time) : "Anytime", CHANNEL_ICON[t.channel || ""] || ""].filter(Boolean).join(" · ")}
+                        meta={[
+                          c?.company,
+                          taskScope === "week" && t.date !== today ? relativeDay(t.date, today) : null,
+                          t.time ? formatTaskTime(t.time) : "Anytime",
+                          CHANNEL_ICON[t.channel || ""] || "",
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
                         onDone={() => onToggleTask(t.id)}
                       />
                     );
                   })}
+                  {dueTasks.length > (taskScope === "day" ? 4 : 6) && (
+                    <div className="needs-more">+{dueTasks.length - (taskScope === "day" ? 4 : 6)} more</div>
+                  )}
+                </NeedsBlock>
+              )}
+              {callBacks.length > 0 && (
+                <NeedsBlock
+                  title={`${callBacks.length} call back${callBacks.length === 1 ? "" : "s"} to make`}
+                  pill="warning"
+                  pillText="Call back"
+                >
+                  {callBacks.slice(0, 4).map((c) => (
+                    <NeedsRow
+                      key={c.id}
+                      title={c.fullName || `${c.firstName} ${c.lastName}`.trim() || c.company || "Unnamed contact"}
+                      meta={[c.company, c.title].filter(Boolean).join(" · ")}
+                      action={
+                        <button className="btn btn-sm btn-ghost" onClick={() => onNavigate?.("calls")}>
+                          Call
+                        </button>
+                      }
+                    />
+                  ))}
+                  {callBacks.length > 4 && <div className="needs-more">+{callBacks.length - 4} more</div>}
+                </NeedsBlock>
+              )}
+              {hotLeads.length > 0 && (
+                <NeedsBlock title={`${hotLeads.length} hot lead${hotLeads.length === 1 ? "" : "s"}`} pill="success" pillText="Hot">
+                  {hotLeads.slice(0, 4).map((c) => (
+                    <NeedsRow
+                      key={c.id}
+                      title={c.fullName || `${c.firstName} ${c.lastName}`.trim() || c.company || "Unnamed contact"}
+                      meta={[
+                        c.company,
+                        c.category ? CATEGORY_META[c.category]?.label : null,
+                        c.disposition === "info-requested" ? "Asked for info" : "Not worked yet",
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                      action={
+                        <button className="btn btn-sm btn-ghost" onClick={() => onNavigate?.("contacts")}>
+                          Open
+                        </button>
+                      }
+                    />
+                  ))}
+                  {hotLeads.length > 4 && <div className="needs-more">+{hotLeads.length - 4} more</div>}
+                  <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 6, lineHeight: 1.4 }}>
+                    Strong Signal leads still in play that asked for info or have never been called or emailed.
+                  </div>
                 </NeedsBlock>
               )}
               {repliesWaiting.length > 0 && (

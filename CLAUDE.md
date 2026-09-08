@@ -4070,6 +4070,48 @@ Companies 16/16. Two disposition-suite locators were updated for the flat
 sidebar and the Filters popover (both documented app changes from earlier
 passes) — every assertion is unchanged and still passes.
 
+## Home: day/week task scope, call backs, hot leads (app/ only)
+
+Per Jack: "the home page should have tasks for that day or week also and
+people to call back follow ups or hot leads." Additive to the existing
+Home — no panel was removed, no new IndexedDB store, no new field on any
+record. Everything below is computed from `tasks` and `contacts` that
+`App.tsx` already holds.
+
+- **Day / Week toggle** on the "Needs you now" column header. The due-task
+  block rescopes between today and Monday–Sunday of the current week, and
+  relabels ("N due today" / "N due this week"); a week row also shows
+  which day it lands on ("in 3d"). **Overdue is deliberately NOT
+  rescoped** — past due is past due regardless of the window you're
+  looking at, so that block always shows in full and a task can never
+  appear in both.
+- **Call backs** — everyone whose `disposition` is `call-back-scheduled`,
+  one of the nine real call outcomes, so this is not a heuristic: it's
+  simply who is sitting on that outcome, most recently seen first, each
+  with a button through to Engage → Calls.
+- **Hot leads** — this one needed a definition, and it is built only from
+  fields that already exist. A hot lead is a contact the detection engine
+  already put at Strong Signal (`tier === "signal"`), not crossed out, not
+  Not interested and not Do not contact, not already in the Call backs
+  block above, and either sitting on **Info requested** or with **zero
+  calls and zero emails logged** (qualified but never worked).
+  Info-requested rank first — they asked — then untouched, most recently
+  seen first. **The definition is printed under the block** so the number
+  is never a mystery, and it is a product decision Jack can change.
+- `.status-pill.success` was a missing variant in `styles.css` (the tokens
+  existed, the rule didn't) — added for the Hot pill. Non-interactive
+  marker only; the green rule still holds, nothing green is clickable.
+- Home's `onNavigate` widened from `"calls" | "sequences"` to include
+  `"contacts"`.
+
+Verified live, 16/16: two Strong Signal leads from a real CSV upload show
+as hot with their product line and "Not worked yet" while a no-signal row
+correctly does not; a call task dated three days out is hidden under Day
+and appears under Week with its relative day; setting a lead to Call back
+scheduled moves them out of the hot list and into a Call backs block; all
+of it survives a reload. Suites after: audit 54/54, dispositions 12/12,
+audit-fix 8/8, Companies 16/16, sequence template 22/22.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool
