@@ -13,7 +13,7 @@ import { sequenceFromTemplate, type SequenceTemplate } from "./lib/sequenceTempl
 import DispositionManager from "./components/DispositionManager";
 import type { ParsedFile, ResultRow, RuleOverrides } from "./lib/detection";
 import { scanParsedFiles, DEFAULT_RULE_OVERRIDES } from "./lib/detection";
-import { loadLibraryFromDB, ensureMonthFoldersExist, persistGroup, type LibraryEntry, type LibraryGroup } from "./lib/library";
+import { loadLibraryFromDB, ensureMonthFoldersExist, pruneEmptyMonthFoldersBefore, persistGroup, deleteGroupFromDB, type LibraryEntry, type LibraryGroup } from "./lib/library";
 import { applyCompetitorDQ } from "./lib/companyProfiles";
 import { deleteContactsFromDB } from "./lib/contacts";
 import { applyStickyState, attachScanResultsToContacts, loadContactsFromDB, mergeContactsFromParsedFiles, mergeManualContact, persistContact, type Contact, type ManualContactInput } from "./lib/contacts";
@@ -307,9 +307,24 @@ export default function App() {
         // Every month folder from October 2025 through now should exist and
         // be browsable even before anything's been filed into it — not
         // created lazily on first upload.
-        const { groups: seededGroups, created } = ensureMonthFoldersExist(groups);
+        // Prune BEFORE seeding: a folder older than the cutoff is dropped
+        // here, and ensureMonthFoldersExist then only ever re-creates months
+        // at or after it — so the old ones can't come straight back.
+        const { groups: pruned, removed, blocked } = pruneEmptyMonthFoldersBefore(groups, entries);
+        removed.forEach((g) => deleteGroupFromDB(g.id));
+        const { groups: seededGroups, created } = ensureMonthFoldersExist(pruned);
         setLibraryGroups(seededGroups);
         created.forEach((g) => persistGroup(g));
+        // A folder older than the cutoff that still holds filed leads is
+        // never removed — say so rather than leaving it looking like the
+        // prune failed.
+        if (blocked.length) {
+          setLibraryError(
+            `Kept ${blocked.length} older folder${blocked.length === 1 ? "" : "s"} that still hold filed leads: ` +
+              blocked.map((b) => `${b.group.name} (${b.fileCount} file${b.fileCount === 1 ? "" : "s"})`).join(", ") +
+              ". Delete them by hand from the Lead Library if you want them gone."
+          );
+        }
         setLibraryLoading(false);
       })
       .catch(() => {

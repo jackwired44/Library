@@ -114,23 +114,37 @@ export function monthKeyFromGroupName(name: string | null | undefined): string |
   const d = new Date(`1 ${name}`);
   return isNaN(d.getTime()) ? null : monthKeyFromDate(d);
 }
-// Rolling 36-month range — comfortably covers backfilling, keeps rolling
-// forward automatically.
+// The months you can file INTO — deliberately the same range the Library
+// keeps folders for, never wider.
+//
+// This used to be an independent rolling 36-month window, which meant the
+// picker offered months (back to 2023) that no folder existed for. Filing
+// into one created a folder older than EARLIEST_MONTH_FOLDER, which the
+// prune on the next load would then delete again if it were empty — two
+// lists disagreeing about the same question. Caught by a live check after
+// the cutoff moved to May 2026; the picker was still offering October 2023.
 export function getMonthOptionsForFiling(): { key: string; label: string }[] {
-  const now = new Date();
-  const options: { key: string; label: string }[] = [];
-  for (let i = 35; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const key = monthKeyFromDate(d);
-    options.push({ key, label: monthLabelFromKey(key) });
-  }
-  return options;
+  return getRequiredMonthKeys().map((key) => ({ key, label: monthLabelFromKey(key) }));
 }
 
-// October 2025 (the earliest month Jack backfills to) through the current
-// month, inclusive — the fixed starting point every month folder should
-// exist for, regardless of whether anything's been filed into it yet.
-const EARLIEST_MONTH_FOLDER = new Date(2025, 9, 1); // month is 0-indexed: 9 = October
+// May 2026 through the current month, inclusive — the fixed starting point
+// every month folder should exist for, regardless of whether anything's
+// been filed into it yet.
+//
+// Per Jack: "remove april 2026 back to october of 2025 and just continue it
+// going forward // may 2026 should be the oldest date for now." Moving this
+// constant stops the older folders being RE-created on load; clearing the
+// ones already sitting in the browser is `pruneEmptyMonthFoldersBefore`
+// below, since the data lives in the viewer's own IndexedDB and nothing
+// outside the browser can reach it.
+const EARLIEST_MONTH_FOLDER = new Date(2026, 4, 1); // month is 0-indexed: 4 = May
+// The cutoff, as a label, so UI copy reads from the constant instead of
+// restating it. The subtitle in Library.tsx said "October 2025" for a while
+// after the constant moved to May 2026 — prose that repeats a value always
+// drifts eventually.
+export function earliestMonthFolderLabel(): string {
+  return monthLabelFromKey(monthKeyFromDate(EARLIEST_MONTH_FOLDER));
+}
 export function getRequiredMonthKeys(): string[] {
   const now = new Date();
   const keys: string[] = [];
@@ -147,6 +161,43 @@ export function getRequiredMonthKeys(): string[] {
 // the folder grid always shows Oct 2025 -> now ready to browse/backfill,
 // not just months something has already been filed into. Idempotent — safe
 // to call on every app load.
+// Removes auto-created month folders older than EARLIEST_MONTH_FOLDER — but
+// ONLY the empty ones. A folder still holding filed leads is never touched
+// and is reported back instead, so lowering the cutoff can't quietly strand
+// or discard real data. That is deliberately stricter than the app's own
+// `deleteGroup`, which ungroups a folder's files rather than deleting them:
+// here the point is a clean list, and dumping seven months of leads into
+// "Ungrouped files" would be a different mess rather than a cleanup.
+//
+// A CUSTOM folder is never considered, even one named like an old month:
+// `monthKeyFromGroupName` is only consulted for groups that parse as a real
+// month label, and `isAutoMonthFolder === false` is respected first.
+export function pruneEmptyMonthFoldersBefore(
+  groups: LibraryGroup[],
+  entries: LibraryEntry[]
+): { groups: LibraryGroup[]; removed: LibraryGroup[]; blocked: { group: LibraryGroup; fileCount: number }[] } {
+  const cutoff = monthKeyFromDate(EARLIEST_MONTH_FOLDER);
+  const removed: LibraryGroup[] = [];
+  const blocked: { group: LibraryGroup; fileCount: number }[] = [];
+
+  const next = groups.filter((g) => {
+    // Custom folders are the user's own naming and are out of scope, even
+    // if the name happens to parse as a month.
+    if (g.isAutoMonthFolder === false) return true;
+    const key = monthKeyFromGroupName(g.name);
+    if (!key || key >= cutoff) return true;
+    const fileCount = entries.filter((e) => e.groupId === g.id).length;
+    if (fileCount > 0) {
+      blocked.push({ group: g, fileCount });
+      return true;
+    }
+    removed.push(g);
+    return false;
+  });
+
+  return { groups: next, removed, blocked };
+}
+
 export function ensureMonthFoldersExist(groups: LibraryGroup[]): { groups: LibraryGroup[]; created: LibraryGroup[] } {
   let working = groups;
   const created: LibraryGroup[] = [];

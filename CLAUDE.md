@@ -4161,6 +4161,56 @@ renders with a trailing space ("Title: "). Pre-existing, harmless, and the
 collapse rules that handle double spaces and space-before-punctuation were
 deliberate — left alone rather than widened.
 
+## Lead Library: month folders start at May 2026 (app/ only)
+
+Per Jack: "remove april 2026 back to october of 2025 and just continue it
+going forward," refined to "may 2026 should be the oldest date for now."
+
+**It was one constant.** `EARLIEST_MONTH_FOLDER` (`lib/library.ts`) was
+October 2025, and `ensureMonthFoldersExist` auto-creates every month from
+it through the current month on load — 12 folders, most of them empty.
+Moved to May 2026, which stops the older ones being re-created.
+
+**Clearing the ones already in the browser needed a second piece**, since
+the data lives in the viewer's own IndexedDB and nothing outside the
+browser can reach it. `pruneEmptyMonthFoldersBefore(groups, entries)` runs
+on load, immediately BEFORE the seeding pass so a pruned folder can't come
+straight back, and is deliberately **safe by construction**:
+- Only **empty** month folders older than the cutoff are removed.
+- A folder that still holds filed leads is **never touched** — it is
+  reported back and surfaced in the Library's error line naming the folder
+  and its file count, so a kept folder never looks like a failed prune.
+  This is stricter than the app's own `deleteGroup`, which ungroups a
+  folder's files: here the goal is a clean list, and dumping seven months
+  of leads into "Ungrouped files" would be a different mess, not a cleanup.
+- A **custom** folder is never considered, even one named like an old month
+  (`isAutoMonthFolder === false` is checked first). A folder saved before
+  that flag existed reads as auto, matching the rest of the app.
+- Idempotent: running it again removes nothing.
+
+**Two real defects found while verifying, both fixed:**
+- **The subtitle still said "October 2025."** Prose that restates a
+  constant drifts the moment the constant moves. Now derived —
+  `earliestMonthFolderLabel()` — and the four-line paragraph explaining the
+  3-files-per-month rule was cut to one line.
+- **The Scanner's filing month picker was a SEPARATE list** — an
+  independent rolling 36-month window offering back to **October 2023**.
+  Filing into one of those created a folder older than the cutoff, which
+  the next load's prune would then delete again if empty: two lists
+  disagreeing about the same question. `getMonthOptionsForFiling` now
+  returns exactly `getRequiredMonthKeys()`, so the months you can file into
+  are always the months folders exist for. Caught by a live check, not by
+  reading the code.
+
+Verified 18/18 as a unit (removes exactly the 7 pre-May folders, keeps a
+non-empty one and reports it with its real file count, spares a custom
+folder named like an old month, treats a flag-less legacy folder as auto,
+re-seeding does not resurrect anything, idempotent) plus 13/13 live (folder
+list, derived subtitle, the picker offering no pre-May month, filing still
+succeeding end to end, and everything surviving a reload). Suites after:
+platform audit 54/54, dispositions 12/12, audit-fix 8/8, Companies 16/16,
+sequence template 22/22, Home 16/16.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

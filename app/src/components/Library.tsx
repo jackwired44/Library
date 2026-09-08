@@ -24,6 +24,7 @@ import {
   renameGroup,
   deleteGroup,
   isMonthFolder,
+  earliestMonthFolderLabel,
   getFolderEntries,
   getCombinedFolderExport,
   fileSignalRowsIntoGroup,
@@ -336,9 +337,7 @@ export default function LibraryView({ backup, contacts, companyProfiles, entries
         <div>
           <h1 className="page-title">Lead library</h1>
           <p className="page-sub">
-            Every month from October 2025 forward has its own folder. Each holds up to 3 files: one combined list of that
-            month's Strong Signal leads, plus the Dynamics 365 and M365 / Azure breakdowns. Only Strong Signal leads are
-            kept here.
+            Strong Signal leads, filed by month from {earliestMonthFolderLabel()}.
           </p>
         </div>
         {backup && <div className="page-actions">{backup}</div>}
