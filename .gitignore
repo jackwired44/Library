@@ -22,3 +22,7 @@ legacy/wired-cio-unified-scanner-source.zip
 # OS/editor cruft
 .DS_Store
 *.log
+
+# scratch test fixtures
+app/*.csv
+app/_run-*.cjs
