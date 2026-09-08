@@ -3975,6 +3975,101 @@ one primary button on Home), disposition suite 12/12, audit-fix suite
 8/8, Companies 16/16, plus a live pass over both the empty and populated
 Home states.
 
+## Apollo's Dynamics Sequence, reproduced natively (app/ only)
+
+Per Jack: "pull in the dynamics sequence made by jack snellgrove in apollo
+to here and see if we can re create it," then "the prompts in the
+sequences now are great to use so copy and pull them over // both user and
+system prompt for the automated email."
+
+**Pulled live, not from memory.** `apollo_emailer_campaigns_show` on
+emailer_campaign `6a0b653aba6c9100208889c0` ("Dynamics Sequence") returned
+the real step order, wait times, email subject, LinkedIn note and both AI
+prompts. Sequence reads cost 0 Apollo credits. Its live shape:
+
+| # | Type | Wait | Content |
+|---|---|---|---|
+| 1 | Call | 0 (on enroll) | — |
+| 2 | Auto email | 0h | Subject "Microsoft Solutions"; body AI-generated from the prompts |
+| 3 | Call | 2 days | — |
+| 4 | Call | 2 days | — |
+| 5 | LinkedIn connect | 1h | Fixed note with `{{contact.first_name}}` |
+
+Live performance at time of pull, worth keeping since it argues for the
+dialer: **427 overdue manual tasks**, Apollo flags it
+`is_performing_poorly`. Step 1 call 772 completed / 90.2% no answer / 19
+meetings booked; step 3 571 / 91.4% / 6; step 4 496 / **94.0%** / 3. Email
+638 delivered, 12.7% open (tracked), 4.2% reply, 3.4% demo, 1.25% opt-out.
+The call steps carry this sequence; the third dial is near-exhausted.
+
+**How it lands here — a code-level template, not a live import.** This
+app's data lives in the viewer's own IndexedDB, so nothing outside the
+browser can write a sequence into it. `lib/sequenceTemplates.ts` carries
+the sequence as a `SequenceTemplate`, and `sequenceFromTemplate()` builds
+a real, ordinary `Sequence` from it via the same `addStep`/`updateStep`
+path the editor uses — so a template can never produce a step shape the
+normal editor can't handle. Instantiating is a **create, not a link**:
+editing the result changes only Jack's copy. Surfaced as a "📋 Templates"
+button beside "+ New sequence" in `Sequences.tsx`.
+
+**Both prompts are copied verbatim**, including Apollo's own two
+banned-word lists, the 14 numbered writing rules, and its merge fields.
+They live in the `systemPrompt`/`userPrompt` fields `SequenceStep` already
+had — those were added speculatively an earlier session and turn out to map
+exactly onto Apollo's `prompt_template.system_instructions` /
+`instructions`. Two artifacts were left as-is rather than silently
+corrected, since this is a copy of what is running: the LinkedIn note is
+missing a space after `{{contact.first_name}}` (renders "Hey
+Danareaching out here"), and the user prompt says "peaked their interest"
+where it means "piqued." Both are flagged for Jack to fix in Apollo and
+here together.
+
+**Three supporting changes:**
+- **`SequenceStep` gained `subject?` and `body?`** — what a step actually
+  says, as opposed to `note` (a reminder to the rep working the task).
+  Optional, so every step saved before this loads unchanged. Editable via
+  a new "✉️ Content" toggle rendered only on non-call steps (a call has no
+  message to write). **Filling these in still sends nothing** — same
+  honesty line as everything else here; an email step still generates a
+  manual task. `taskTextFor` now prefers a rendered subject over the note
+  for the generated task's text.
+- **`lib/mergeFields.ts`** — resolves `{{contact.first_name}}`,
+  `{{contact.title}}`, `{{account.name}}` etc. against a real Contact,
+  plus Apollo's own `{{#if token}}…{{#endif}}` conditional syntax (used in
+  the Dynamics user prompt around `{{contact.title}}`). Deliberately not a
+  general template engine — it handles exactly what Apollo's templates use.
+  An **unknown** token stays visible as `{{token}}` rather than being
+  blanked, because a template quietly missing a field reads as finished
+  when it isn't; a **known** token with no value on that contact blanks,
+  and the stranded punctuation/double spaces are collapsed so "Hey ,
+  quick question" can't ship. The content editor previews against a real
+  contact from the directory and names which one.
+- **`MIN_WAIT_HOURS` 1 → 0.** Apollo's real sequence opens with a call at
+  wait 0 and an email at wait 0; a 1-hour floor made that shape
+  unrepresentable. `Task.date` is still calendar-day-only, so wait 0 means
+  "due today."
+
+**Deliberately not built:** no live "import from Apollo" button (would
+need the connector inside the published page — a separate grant), no AI
+generation of the email body (this app still has no LLM wired in; the step
+says so in plain text), and Apollo's `Connected - Positive` /
+`Connected - Neutral` outcomes were NOT added to the nine dispositions —
+flagged for Jack, since collapsing them into Info requested / Call back
+scheduled versus adding two more is his call.
+
+Verified live, 22/22: template panel lists the sequence with its step
+chips and "immediately" wait; using it creates and opens a 5-step
+sequence; Content buttons appear on exactly the 2 non-call steps and both
+show filled; the email step's system and user prompts read back Apollo's
+verbatim text including the banned-word list and merge fields; the
+LinkedIn body copies verbatim and its preview resolves against a real
+contact; the subject reads "Microsoft Solutions"; enrolling generates the
+step-1 call task on the Calls tab; everything survives a reload. Regression
+suites after: platform audit 54/54, dispositions 12/12, audit-fix 8/8,
+Companies 16/16. Two disposition-suite locators were updated for the flat
+sidebar and the Filters popover (both documented app changes from earlier
+passes) — every assertion is unchanged and still passes.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

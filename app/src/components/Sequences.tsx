@@ -4,10 +4,13 @@
 // current-step task from here (or from the Board/Calls/Emails tabs — same
 // shared Task store). Email/LinkedIn steps generate a task to work by
 // hand, not an automatic send — flagged in the empty state below too.
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import type { Contact } from "../lib/contacts";
+import { getFullName } from "../lib/detection";
+import { SEQUENCE_TEMPLATES, type SequenceTemplate } from "../lib/sequenceTemplates";
+import { renderMerge, tokensIn } from "../lib/mergeFields";
 import type { Task } from "../lib/tasks";
-import { resolveWaitHours, resolveStatus, isSequenceRunnable, MIN_WAIT_HOURS, MAX_WAIT_HOURS, type Sequence, type SequenceEnrollment, type SequenceChannel, type SequenceStep, type SequenceStatus } from "../lib/sequences";
+import { resolveWaitHours, resolveStatus, isSequenceRunnable, MAX_WAIT_HOURS, type Sequence, type SequenceEnrollment, type SequenceChannel, type SequenceStep, type SequenceStatus } from "../lib/sequences";
 import { userLabel, type PlatformUser } from "../lib/users";
 import { type SequenceGroup } from "../lib/sequenceGroups";
 import { emailAccountLabel, type EmailAccount } from "../lib/emailAccounts";
@@ -22,10 +25,11 @@ interface SequencesProps {
   loading: boolean;
   error: string | null;
   onCreate: (name: string) => Sequence | null;
+  onCreateFromTemplate: (tpl: SequenceTemplate) => Sequence | null;
   onRename: (id: string, name: string) => void;
   onAddStep: (id: string, channel: SequenceChannel, waitHours: number, note?: string) => void;
   onRemoveStep: (id: string, stepId: string) => void;
-  onUpdateStep: (id: string, stepId: string, patch: Partial<Pick<SequenceStep, "note" | "systemPrompt" | "userPrompt">>) => void;
+  onUpdateStep: (id: string, stepId: string, patch: Partial<Pick<SequenceStep, "note" | "systemPrompt" | "userPrompt" | "subject" | "body">>) => void;
   onMoveStep: (id: string, stepId: string, direction: -1 | 1) => void;
   onDelete: (id: string) => void;
   onEnroll: (sequenceId: string, contactIds: string[]) => { enrolled: number; blocked: number };
@@ -108,6 +112,7 @@ export default function SequencesView({
   loading,
   error,
   onCreate,
+  onCreateFromTemplate,
   onRename,
   onAddStep,
   onRemoveStep,
@@ -134,6 +139,7 @@ export default function SequencesView({
 }: SequencesProps) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
+  const [showTemplates, setShowTemplates] = useState(false);
   // "Live" (active + paused) is the default, NOT "active only" — pausing
   // a sequence must never make it vanish out from under you the moment
   // you click Pause, which is exactly what an active-only default did.
@@ -195,6 +201,13 @@ export default function SequencesView({
       setOpenId(seq.id);
     }
   }
+  function handleUseTemplate(tpl: SequenceTemplate) {
+    const seq = onCreateFromTemplate(tpl);
+    if (seq) {
+      setShowTemplates(false);
+      setOpenId(seq.id);
+    }
+  }
   function handleDelete(seq: Sequence) {
     if (window.confirm(`Delete the sequence "${seq.name}"? Every enrollment in it is removed too. Contacts and their tasks already generated stay untouched. This can't be undone.`)) {
       onDelete(seq.id);
@@ -228,6 +241,12 @@ export default function SequencesView({
         />
         <button onClick={handleCreate} disabled={!newName.trim()} style={{ background: "#2CC295", color: "#081E22", border: "none", borderRadius: 8, padding: "8px 16px", fontWeight: 700, opacity: newName.trim() ? 1 : 0.5 }}>
           + New sequence
+        </button>
+        <button
+          onClick={() => setShowTemplates((v) => !v)}
+          style={{ border: "1px solid var(--border)", background: "var(--surface)", borderRadius: 8, padding: "8px 14px", fontSize: 12.5, fontWeight: 700 }}
+        >
+          📋 Templates ({SEQUENCE_TEMPLATES.length})
         </button>
         <button
           onClick={() => setManagingGroups((v) => !v)}
@@ -322,6 +341,45 @@ export default function SequencesView({
             >
               Add account
             </button>
+          </div>
+        </div>
+      )}
+
+      {showTemplates && (
+        <div style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 14, marginBottom: 18, background: "var(--surface)" }}>
+          <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>Start from a template</div>
+          <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 12, lineHeight: 1.5, maxWidth: 620 }}>
+            A template creates a brand new sequence here, with every step, wait time and piece of content already
+            filled in. It is a starting point, not a link — editing it afterwards changes only your copy.
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {SEQUENCE_TEMPLATES.map((tpl) => (
+              <div key={tpl.id} style={{ border: "1px solid var(--border)", borderRadius: 9, padding: 12, background: "var(--surface-sunken)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <span style={{ fontWeight: 700, fontSize: 13 }}>{tpl.name}</span>
+                  <span style={{ fontSize: 11, color: "var(--muted)" }}>{tpl.steps.length} steps</span>
+                  <button
+                    onClick={() => handleUseTemplate(tpl)}
+                    style={{ marginLeft: "auto", background: "var(--accent)", color: "#fff", border: "none", borderRadius: 7, padding: "6px 14px", fontSize: 12, fontWeight: 700 }}
+                  >
+                    Use this template
+                  </button>
+                </div>
+                <div style={{ fontSize: 12, color: "var(--muted)", margin: "6px 0 8px" }}>{tpl.description}</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                  {tpl.steps.map((st, i) => (
+                    <span
+                      key={i}
+                      style={{ border: "1px solid var(--border)", background: "var(--surface)", borderRadius: 999, padding: "2px 9px", fontSize: 11 }}
+                    >
+                      {i + 1}. {CHANNEL_META[st.channel].icon} {CHANNEL_META[st.channel].label}
+                      {st.waitHours > 0 ? ` · ${formatWait(st.waitHours)}` : " · immediately"}
+                    </span>
+                  ))}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--muted)", fontStyle: "italic" }}>{tpl.source}</div>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -618,7 +676,7 @@ function SequenceDetail({
   onRename: (name: string) => void;
   onAddStep: (channel: SequenceChannel, waitHours: number, note?: string) => void;
   onRemoveStep: (stepId: string) => void;
-  onUpdateStep: (stepId: string, patch: Partial<Pick<SequenceStep, "note" | "systemPrompt" | "userPrompt">>) => void;
+  onUpdateStep: (stepId: string, patch: Partial<Pick<SequenceStep, "note" | "systemPrompt" | "userPrompt" | "subject" | "body">>) => void;
   onMoveStep: (stepId: string, dir: -1 | 1) => void;
   onEnroll: (contactIds: string[]) => { enrolled: number; blocked: number };
   onRestart: (enrollmentId: string) => void;
@@ -633,6 +691,7 @@ function SequenceDetail({
   // Which step's AI-prompt editor (system/user prompt) is expanded — one
   // at a time, collapsed by default so the step list stays scannable.
   const [promptEditorStepId, setPromptEditorStepId] = useState<string | null>(null);
+  const [contentEditorStepId, setContentEditorStepId] = useState<string | null>(null);
   const [listPickerId, setListPickerId] = useState("");
   const [enrollPicker, setEnrollPicker] = useState<Set<string>>(new Set());
   const [enrollNotice, setEnrollNotice] = useState<string | null>(null);
@@ -707,6 +766,11 @@ function SequenceDetail({
           {seq.steps.map((step, i) => {
             const hasPrompt = Boolean(step.systemPrompt?.trim() || step.userPrompt?.trim());
             const promptOpen = promptEditorStepId === step.id;
+            const contentOpen = contentEditorStepId === step.id;
+            // A call step has no message to write — content is only
+            // meaningful on the channels that actually send something.
+            const writesContent = step.channel !== "call";
+            const hasContent = Boolean(step.subject?.trim() || step.body?.trim());
             return (
               <div key={step.id}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--surface-sunken)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 10px", fontSize: 12.5 }}>
@@ -716,6 +780,24 @@ function SequenceDetail({
                   <span style={{ color: "var(--muted)" }}>{formatWait(resolveWaitHours(step))}{resolveWaitHours(step) > 0 ? " after previous" : ""}</span>
                   {step.note && <span style={{ color: "var(--muted)", fontStyle: "italic" }}>— {step.note}</span>}
                   <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4 }}>
+                    {writesContent && (
+                      <button
+                        onClick={() => setContentEditorStepId(contentOpen ? null : step.id)}
+                        title="What this step actually says — subject line and message body, with merge fields"
+                        style={{
+                          border: `1px solid ${hasContent ? "#BFE5DC" : "var(--border)"}`,
+                          borderRadius: 999,
+                          padding: "2px 8px",
+                          fontSize: 10.5,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          background: hasContent ? "#E6F5F1" : "var(--surface)",
+                          color: hasContent ? "var(--accent)" : "var(--muted)",
+                        }}
+                      >
+                        ✉️ Content{hasContent ? " ✓" : ""}
+                      </button>
+                    )}
                     <button
                       onClick={() => setPromptEditorStepId(promptOpen ? null : step.id)}
                       title="AI prompt for this step — system + user prompt, captured for future AI-generated content (not sent to any AI yet)"
@@ -737,6 +819,13 @@ function SequenceDetail({
                     <button onClick={() => onRemoveStep(step.id)} title="Remove step" style={{ border: "none", background: "none", color: "#B5443B" }}>✕</button>
                   </span>
                 </div>
+                {contentOpen && (
+                  <StepContentEditor
+                    step={step}
+                    previewContact={contacts[0] || null}
+                    onUpdate={(patch) => onUpdateStep(step.id, patch)}
+                  />
+                )}
                 {promptOpen && (
                   <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderTop: "none", borderRadius: "0 0 8px 8px", padding: "10px 12px", marginTop: -1 }}>
                     <div style={{ fontSize: 10.5, color: "var(--muted)", marginBottom: 8, lineHeight: 1.4 }}>
@@ -776,7 +865,7 @@ function SequenceDetail({
         <SendModeBadge channel={stepChannel} />
         <input
           type="number"
-          min={1}
+          min={0}
           max={stepWaitUnit === "hours" ? MAX_WAIT_HOURS : 7}
           value={stepWaitValue}
           onChange={(e) => setStepWaitValue(Number(e.target.value))}
@@ -796,7 +885,7 @@ function SequenceDetail({
         </button>
       </div>
       <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 18 }}>
-        Fires as soon as {MIN_WAIT_HOURS} hour after the previous step, or as late as 7 days ({MAX_WAIT_HOURS} hours).
+        Use 0 to fire immediately after the previous step, up to 7 days ({MAX_WAIT_HOURS} hours).
       </div>
 
       <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>Enrolled contacts</div>
@@ -889,6 +978,120 @@ function SequenceDetail({
         Enroll {enrollPicker.size || ""} contact{enrollPicker.size === 1 ? "" : "s"}
       </button>
       {enrollNotice && <span style={{ marginLeft: 10, fontSize: 12, color: "#3A4B8C" }}>{enrollNotice}</span>}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Step content — subject/body with merge fields and a live preview     */
+/* ------------------------------------------------------------------ */
+
+// Only rendered for channels that actually say something (email,
+// LinkedIn). Values save on blur, the same low-friction pattern the AI
+// prompt editor beside it already uses.
+//
+// The preview resolves against a real Contact from the directory rather
+// than fake sample data, so what shows here is exactly what the rep will
+// read on the generated task. With no contacts on file yet it says so
+// instead of rendering a template full of empty gaps.
+function StepContentEditor({
+  step,
+  previewContact,
+  onUpdate,
+}: {
+  step: SequenceStep;
+  previewContact: Contact | null;
+  onUpdate: (patch: Partial<Pick<SequenceStep, "subject" | "body">>) => void;
+}) {
+  const isEmail = step.channel === "email";
+  const subjectPreview = step.subject ? renderMerge(step.subject, { contact: previewContact }) : null;
+  const bodyPreview = step.body ? renderMerge(step.body, { contact: previewContact }) : null;
+  const unresolved = Array.from(
+    new Set([...(subjectPreview?.unresolved || []), ...(bodyPreview?.unresolved || [])])
+  );
+  const used = Array.from(new Set([...tokensIn(step.subject || ""), ...tokensIn(step.body || "")]));
+
+  const label: CSSProperties = {
+    display: "block",
+    fontSize: 10.5,
+    fontWeight: 700,
+    color: "var(--muted)",
+    textTransform: "uppercase",
+    marginBottom: 3,
+  };
+  const field: CSSProperties = {
+    width: "100%",
+    border: "1px solid var(--border)",
+    borderRadius: 7,
+    padding: "6px 8px",
+    fontSize: 12,
+    resize: "vertical",
+    boxSizing: "border-box",
+  };
+
+  return (
+    <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderTop: "none", borderRadius: "0 0 8px 8px", padding: "10px 12px", marginTop: -1 }}>
+      <div style={{ fontSize: 10.5, color: "var(--muted)", marginBottom: 8, lineHeight: 1.4 }}>
+        What this step says. Merge fields like <code>{"{{contact.first_name}}"}</code>, <code>{"{{contact.title}}"}</code>{" "}
+        and <code>{"{{account.name}}"}</code> are filled from the contact when the step&rsquo;s task is created.{" "}
+        <strong>Saving content here does not send anything</strong> &mdash; the step still generates a task to work by
+        hand.
+      </div>
+
+      {isEmail && (
+        <>
+          <label style={label}>Subject</label>
+          <input
+            defaultValue={step.subject || ""}
+            onBlur={(e) => onUpdate({ subject: e.target.value })}
+            placeholder="e.g. Microsoft Solutions"
+            style={{ ...field, marginBottom: 8 }}
+          />
+        </>
+      )}
+
+      <label style={label}>{isEmail ? "Body" : "Message"}</label>
+      <textarea
+        defaultValue={step.body || ""}
+        onBlur={(e) => onUpdate({ body: e.target.value })}
+        placeholder={isEmail ? "Leave blank if the body is written from the AI prompts on this step." : "Hey {{contact.first_name}}, …"}
+        rows={4}
+        style={field}
+      />
+
+      {isEmail && !step.body?.trim() && (step.systemPrompt?.trim() || step.userPrompt?.trim()) && (
+        <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 6, lineHeight: 1.4 }}>
+          No fixed body &mdash; this step&rsquo;s email is written from its <strong>AI prompt</strong> (the button beside
+          Content). That matches how it runs in Apollo. Nothing here generates it yet, so today you write the body from
+          those prompts when you work the task.
+        </div>
+      )}
+
+      {used.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <div style={label}>Preview</div>
+          {previewContact ? (
+            <div style={{ border: "1px solid var(--border)", borderRadius: 7, padding: "8px 10px", background: "var(--surface-sunken)", fontSize: 12, lineHeight: 1.5 }}>
+              {subjectPreview && <div style={{ fontWeight: 700, marginBottom: 4 }}>{subjectPreview.text}</div>}
+              {bodyPreview && <div style={{ whiteSpace: "pre-wrap" }}>{bodyPreview.text}</div>}
+              <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 6 }}>
+                Using {getFullName({ firstName: previewContact.firstName, lastName: previewContact.lastName, fullName: previewContact.fullName }) || "a contact"}
+                {previewContact.company ? ` at ${previewContact.company}` : ""}
+              </div>
+            </div>
+          ) : (
+            <div style={{ fontSize: 11.5, color: "var(--muted)" }}>
+              No contacts on file yet &mdash; upload a CSV and the preview fills in with a real one.
+            </div>
+          )}
+          {unresolved.length > 0 && (
+            <div style={{ fontSize: 11, color: "#8A5A00", marginTop: 6 }}>
+              Not a field this app knows: {unresolved.map((t) => `{{${t}}}`).join(", ")} &mdash; left visible so it
+              can&rsquo;t ship half-filled.
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

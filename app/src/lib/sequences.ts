@@ -15,6 +15,7 @@ import { createSequenceTask, type Task } from "./tasks";
 import { isConnectedDisposition, type CustomDisposition } from "./dispositions";
 import type { Contact } from "./contacts";
 import { getFullName } from "./detection";
+import { renderMerge } from "./mergeFields";
 
 export type SequenceChannel = "call" | "email" | "linkedin";
 
@@ -24,7 +25,14 @@ export type SequenceChannel = "call" | "email" | "linkedin";
 // (no time-of-day anywhere in this app), so a sub-day wait still just
 // lands the generated task on "today" (or "tomorrow" if it crosses
 // midnight) — same date-only granularity every other task already uses.
-export const MIN_WAIT_HOURS = 1;
+// 0 is deliberately allowed: Apollo's real sequences open with a call at
+// wait 0 (fires the moment someone is enrolled) followed immediately by an
+// email at wait 0 — see lib/sequenceTemplates.ts, imported verbatim from
+// the live "Dynamics Sequence". A 1-hour floor made that shape
+// unrepresentable, so a step can now fire immediately after the previous
+// one. Task.date is still calendar-day-only, so wait 0 simply means "due
+// today."
+export const MIN_WAIT_HOURS = 0;
 export const MAX_WAIT_HOURS = 24 * 7; // 168 — 7 days
 
 export interface SequenceStep {
@@ -54,6 +62,19 @@ export interface SequenceStep {
   // not an email-only restriction.
   systemPrompt?: string;
   userPrompt?: string;
+  // The actual content this step sends, as opposed to `note` (which is a
+  // reminder to the rep working the task). An email step's subject line
+  // and body; a LinkedIn step's message body (no subject). Both may carry
+  // merge fields — see lib/mergeFields.ts — resolved against the real
+  // Contact when the step's task is generated.
+  //
+  // Same honesty line as everything else here: filling these in does NOT
+  // make anything send. An email step still generates a manual task; the
+  // subject/body are what the rep copies out, and what a real SendGrid
+  // send would eventually use. Optional so every step saved before these
+  // existed loads unchanged.
+  subject?: string;
+  body?: string;
 }
 
 // Reads a step's wait as hours regardless of which field it was saved
@@ -168,7 +189,7 @@ export function addStep(seq: Sequence, channel: SequenceChannel, waitHours: numb
 export function updateStep(
   seq: Sequence,
   stepId: string,
-  patch: Partial<Pick<SequenceStep, "note" | "systemPrompt" | "userPrompt">>
+  patch: Partial<Pick<SequenceStep, "note" | "systemPrompt" | "userPrompt" | "subject" | "body">>
 ): Sequence {
   return { ...seq, steps: seq.steps.map((s) => (s.id === stepId ? { ...s, ...patch } : s)) };
 }
@@ -244,7 +265,16 @@ function addHours(iso: string, hours: number): string {
 function taskTextFor(contact: Contact, step: SequenceStep, seq: Sequence): string {
   const who = `${getFullName({ firstName: contact.firstName, lastName: contact.lastName, fullName: contact.fullName })}${contact.company ? ` (${contact.company})` : ""}`;
   const base = `${CHANNEL_LABEL[step.channel]} ${who} — ${seq.name}, step ${step.position + 1}`;
-  return step.note?.trim() ? `${base}: ${step.note.trim()}` : base;
+  // An email step's subject is the most useful thing to see on the task
+  // row ("Email Dana — Dynamics Sequence, step 2: Microsoft Solutions"),
+  // so it wins over the rep-facing note when both are set. Rendered
+  // against the real contact so a subject carrying merge fields reads as
+  // the finished line, not as {{contact.first_name}}.
+  const subject = step.subject?.trim()
+    ? renderMerge(step.subject, { contact }, { blankUnknown: true }).text.trim()
+    : "";
+  const suffix = subject || step.note?.trim() || "";
+  return suffix ? `${base}: ${suffix}` : base;
 }
 
 // Enrolls one contact: creates the enrollment plus a Task for step 0 (or

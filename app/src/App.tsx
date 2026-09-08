@@ -9,6 +9,7 @@ import PlatformNotes from "./components/PlatformNotes";
 import Home from "./components/Home";
 import Engage, { type EngageTab } from "./components/Engage";
 import AccountPanel from "./components/AccountPanel";
+import { sequenceFromTemplate, type SequenceTemplate } from "./lib/sequenceTemplates";
 import DispositionManager from "./components/DispositionManager";
 import type { ParsedFile, ResultRow, RuleOverrides } from "./lib/detection";
 import { scanParsedFiles, DEFAULT_RULE_OVERRIDES } from "./lib/detection";
@@ -596,6 +597,18 @@ export default function App() {
     }
     return seq;
   }
+  // Instantiating a template is a create, not a link: it produces an
+  // ordinary Sequence this app owns, which can then be edited/paused/
+  // copied like any other. Goes through the same setState+persist path as
+  // createNewSequence so there's one way a sequence comes into existence.
+  function createSequenceFromTemplate(tpl: SequenceTemplate): Sequence | null {
+    const seq = sequenceFromTemplate(tpl);
+    if (seq) {
+      setSequences((prev) => [seq, ...prev]);
+      persistSequence(seq);
+    }
+    return seq;
+  }
   function updateSequenceSteps(next: Sequence) {
     setSequences((prev) => prev.map((s) => (s.id === next.id ? next : s)));
     persistSequence(next);
@@ -615,7 +628,7 @@ export default function App() {
     if (!seq) return;
     updateSequenceSteps(removeStep(seq, stepId));
   }
-  function updateSequenceStep(id: string, stepId: string, patch: Partial<Pick<SequenceStep, "note" | "systemPrompt" | "userPrompt">>) {
+  function updateSequenceStep(id: string, stepId: string, patch: Partial<Pick<SequenceStep, "note" | "systemPrompt" | "userPrompt" | "subject" | "body">>) {
     const seq = sequences.find((s) => s.id === id);
     if (!seq) return;
     updateSequenceSteps(updateStep(seq, stepId, patch));
@@ -1230,6 +1243,7 @@ export default function App() {
               sequencesLoading={sequencesLoading}
               sequencesError={sequencesError}
               onCreateSequence={createNewSequence}
+              onCreateSequenceFromTemplate={createSequenceFromTemplate}
               onRenameSequence={renameSequenceById}
               onAddSequenceStep={addSequenceStep}
               onRemoveSequenceStep={removeSequenceStep}

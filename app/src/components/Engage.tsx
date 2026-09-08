@@ -14,6 +14,7 @@ import ChannelTasks from "./ChannelTasks";
 import SequencesView from "./Sequences";
 import ListsView from "./Lists";
 import type { Task, TaskPriority } from "../lib/tasks";
+import type { SequenceTemplate } from "../lib/sequenceTemplates";
 import type { Contact, ManualContactInput } from "../lib/contacts";
 import type { Sequence, SequenceEnrollment, SequenceChannel, SequenceStatus } from "../lib/sequences";
 import type { PlatformUser } from "../lib/users";
@@ -46,6 +47,7 @@ interface EngageProps {
   sequencesError: string | null;
   onCreateSequence: (name: string) => Sequence | null;
   onRenameSequence: (id: string, name: string) => void;
+  onCreateSequenceFromTemplate: (tpl: SequenceTemplate) => Sequence | null;
   onAddSequenceStep: (id: string, channel: SequenceChannel, waitHours: number, note?: string) => void;
   onRemoveSequenceStep: (id: string, stepId: string) => void;
   onUpdateSequenceStep: (id: string, stepId: string, patch: Partial<{ note: string; systemPrompt: string; userPrompt: string }>) => void;
@@ -130,6 +132,7 @@ export default function Engage({
   sequencesError,
   onCreateSequence,
   onRenameSequence,
+  onCreateSequenceFromTemplate,
   onAddSequenceStep,
   onRemoveSequenceStep,
   onUpdateSequenceStep,
@@ -208,6 +211,7 @@ export default function Engage({
           error={sequencesError}
           onCreate={onCreateSequence}
           onRename={onRenameSequence}
+          onCreateFromTemplate={onCreateSequenceFromTemplate}
           onAddStep={onAddSequenceStep}
           onRemoveStep={onRemoveSequenceStep}
           onUpdateStep={onUpdateSequenceStep}
