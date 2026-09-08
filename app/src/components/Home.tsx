@@ -158,36 +158,25 @@ export default function Home({
 
   return (
     <div>
-      <div
-        style={{
-          background: "var(--surface)",
-          border: "1px solid var(--border)",
-          borderRadius: 10,
-          padding: "16px 20px",
-          marginBottom: 18,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          flexWrap: "wrap",
-          gap: 12,
-        }}
-      >
+      {/* Page header: who you are, what day it is, and the one control
+          that scopes the page. The marketing paragraph that used to sit
+          here is gone on purpose — per Jack, "less ai and bs cluttered
+          together." The product thesis belongs in the docs, not on the
+          screen you open every morning. */}
+      <div className="page-head">
         <div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>
-            {todayLabel}
-          </div>
-          <h1 style={{ margin: "0 0 3px", fontSize: 19 }}>Welcome, {firstName}.</h1>
-          <p style={{ margin: "0 0 8px", maxWidth: 560, fontSize: 12.5, lineHeight: 1.5, color: "var(--muted)" }}>
-            The <strong style={{ color: "var(--ink)" }}>Lead Library</strong> is the single source of truth for every qualified
-            lead — the first step toward a lighter-weight, self-hosted CRM built solely for outbound sales.
-          </p>
-          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--muted)", fontWeight: 700 }}>
+          <h1 className="page-title">Welcome, {firstName}.</h1>
+          <p className="page-sub">{todayLabel}</p>
+        </div>
+        <div className="page-actions">
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--ink-3)", fontWeight: 600 }}>
             Viewing as
             <select
               value={viewingUserId}
               onChange={(e) => setViewingUserId(e.target.value)}
               title="Scope this page's tasks and numbers to one person's plate, or everyone's"
-              style={{ border: "1px solid var(--border)", borderRadius: 7, padding: "4px 8px", fontSize: 12, fontWeight: 700, color: "var(--ink)" }}
+              className="field"
+              style={{ height: 32 }}
             >
               {users.map((u) => (
                 <option key={u.id} value={u.id}>{u.isSelf ? `${u.name} (you)` : u.name}</option>
@@ -196,21 +185,24 @@ export default function Home({
             </select>
           </label>
         </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <StatTile label="Assigned tasks" value={assignedTasks} hint="Open tasks tied to a specific contact" />
-          <StatTile
-            label="Active sequences"
-            value={activeSequences}
-            hint={`${activeEnrollments} active enrollment${activeEnrollments === 1 ? "" : "s"} across them`}
-          />
-          <BookedThisWeekTile
-            count={meetingsBookedInWeek}
-            offset={bookedWeekOffset}
-            onOffsetChange={setBookedWeekOffset}
-            weekStart={bookedWeekStart}
-          />
-          <StatTile label="Follow-up leads" value={followUpLeads} hint="Distinct contacts with an open follow-up scheduled" />
-        </div>
+      </div>
+
+      {/* One bordered metric row, hairline-separated — not four floating
+          pills inside the banner. */}
+      <div className="metric-row">
+        <StatTile label="Assigned tasks" value={assignedTasks} hint="Open tasks tied to a specific contact" />
+        <StatTile
+          label="Active sequences"
+          value={activeSequences}
+          hint={`${activeEnrollments} active enrollment${activeEnrollments === 1 ? "" : "s"} across them`}
+        />
+        <BookedThisWeekTile
+          count={meetingsBookedInWeek}
+          offset={bookedWeekOffset}
+          onOffsetChange={setBookedWeekOffset}
+          weekStart={bookedWeekStart}
+        />
+        <StatTile label="Follow-up leads" value={followUpLeads} hint="Distinct contacts with an open follow-up scheduled" />
       </div>
 
       <TodayPanel
@@ -240,19 +232,9 @@ export default function Home({
 
 function StatTile({ label, value, hint }: { label: string; value: number; hint: string }) {
   return (
-    <div
-      title={hint}
-      style={{
-        background: "var(--surface-sunken)",
-        border: "1px solid var(--border)",
-        borderRadius: 8,
-        padding: "6px 12px",
-        textAlign: "center",
-        minWidth: 68,
-      }}
-    >
-      <div style={{ fontSize: 16, fontWeight: 700, color: "var(--ink)", lineHeight: 1.2 }}>{value}</div>
-      <div style={{ fontSize: 9.5, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>{label}</div>
+    <div className="metric" title={hint}>
+      <div className="metric-label">{label}</div>
+      <div className="metric-value">{value}</div>
     </div>
   );
 }
@@ -296,21 +278,15 @@ function BookedThisWeekTile({
 
   return (
     <div
+      className="metric"
       title={`Contacts whose disposition became Meeting booked during ${rangeLabel} — the date it was booked, not the date the meeting is held (this app has no meeting-date field).`}
-      style={{
-        background: "var(--surface-sunken)",
-        border: "1px solid var(--border)",
-        borderRadius: 8,
-        padding: "6px 10px",
-        textAlign: "center",
-        minWidth: 118,
-      }}
     >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
+      <div className="metric-label">Booked {isCurrentWeek ? "this week" : ""}</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         <button onClick={() => onOffsetChange(offset - 1)} title="Previous week" style={arrowStyle}>
           ◀
         </button>
-        <div style={{ fontSize: 16, fontWeight: 700, color: "var(--ink)", lineHeight: 1.2, minWidth: 18 }}>{count}</div>
+        <div className="metric-value" style={{ minWidth: 18 }}>{count}</div>
         <button
           onClick={() => onOffsetChange(Math.min(0, offset + 1))}
           disabled={isCurrentWeek}
@@ -320,12 +296,7 @@ function BookedThisWeekTile({
           ▶
         </button>
       </div>
-      <div style={{ fontSize: 9.5, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-        Booked {isCurrentWeek ? "this week" : ""}
-      </div>
-      {!isCurrentWeek && (
-        <div style={{ fontSize: 9, color: "var(--muted)", marginTop: 1, whiteSpace: "nowrap" }}>{rangeLabel}</div>
-      )}
+      <div className="metric-hint">{rangeLabel}</div>
     </div>
   );
 }

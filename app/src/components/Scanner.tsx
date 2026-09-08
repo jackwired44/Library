@@ -165,7 +165,9 @@ export default function Scanner({
   // this batch's filing is one-shot: disabled once filed, reset on a
   // fresh upload/reset.
   const [libraryFiledForBatch, setLibraryFiledForBatch] = useState(false);
-  const [dedupeNotice, setDedupeNotice] = useState<string | null>(null);
+  // Which product line's filename is being edited, if any — keeps the
+  // rename field out of the downloads strip until it is wanted.
+  const [renamingBucket, setRenamingBucket] = useState<BucketKey | null>(null);
   // Per Jack: "I want it to recognize [duplicates] for input reasons so I
   // know it's being mapped properly scanned and processed" — the raw row
   // count read from the uploaded file(s), straight from scanParsedFiles,
@@ -254,7 +256,6 @@ export default function Scanner({
     }
     setError(notice);
     setFiledNotice(null);
-    setDedupeNotice(null);
     try {
       const parsedFiles = await Promise.all(files.map(parseCSVFile));
       const { results: scanned, rowsScanned, duplicatesRemoved, noSignalRows: skipped } = scanParsedFiles(parsedFiles, ruleOverrides);
@@ -277,10 +278,6 @@ export default function Scanner({
       // as "recognized and merged" rather than "removed," since nothing is
       // actually lost (a lead that appeared, say, 6 times in the file
       // still ends up as one contact, not zero).
-      if (duplicatesRemoved > 0) {
-        const groupNote = largestDuplicateGroup > 2 ? ` (one lead appeared ${largestDuplicateGroup} times in this file)` : "";
-        setDedupeNotice(`${duplicatesRemoved} duplicate row${duplicatesRemoved === 1 ? "" : "s"} recognized and merged into ${duplicatesRemoved === 1 ? "its" : "their"} matching contact${groupNote} — exact name + company match already seen in this upload.`);
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not parse one or more of these files.");
     }
@@ -308,7 +305,6 @@ export default function Scanner({
     setFiledNotice(null);
     setCurrentHistoryEntryId(null);
     setLibraryFiledForBatch(false);
-    setDedupeNotice(null);
     setPickerFolderId("");
     setPickerFileKey("");
     // A previously-selected list (or "New list…" name) must never carry
@@ -878,7 +874,6 @@ export default function Scanner({
 
       {error && <div style={{ marginBottom: 16, color: "#9A5B22" }}>{error}</div>}
       {filedNotice && <div style={{ marginBottom: 16, color: "#2CC295", fontWeight: 600 }}>{filedNotice}</div>}
-      {dedupeNotice && <div style={{ marginBottom: 16, color: "#8A5A00", fontWeight: 600 }}>{dedupeNotice}</div>}
 
       {/* Per Jack: "I want it to recognize [duplicates] for input reasons
           so I know it's being mapped properly scanned and processed" — a
@@ -957,55 +952,70 @@ export default function Scanner({
 
       {lastScanStats && (
         <div className="scan-note">
-          <strong>{lastScanStats.rowsScanned.toLocaleString()}</strong> rows read
-          {lastScanStats.duplicatesRemoved > 0 && (
-            <>
-              {" · "}
-              <strong>{lastScanStats.duplicatesRemoved.toLocaleString()}</strong> recognized as
-              duplicates and merged into their matching contact
-              {lastScanStats.largestDuplicateGroup > 2 && ` (one lead appeared ${lastScanStats.largestDuplicateGroup} times)`}
-            </>
-          )}
+          <strong>{lastScanStats.rowsScanned.toLocaleString()}</strong> read
+          {" · "}
+          <strong>{results.length.toLocaleString()}</strong> processed
           {" · "}
           <strong>
             {Math.max(0, lastScanStats.rowsScanned - lastScanStats.duplicatesRemoved - results.length).toLocaleString()}
           </strong>{" "}
-          had no Dynamics 365/M365/Azure/licensing signal (not shown below) ·{" "}
-          <strong>{results.length.toLocaleString()}</strong> processed below
+          <span title="No Dynamics 365, M365, Azure or licensing language anywhere in the row. See the Non Relevant tab to review them.">no signal</span>
+          {lastScanStats.duplicatesRemoved > 0 && (
+            <>
+              {" · "}
+              <strong>{lastScanStats.duplicatesRemoved.toLocaleString()}</strong>{" "}
+              <span
+                title={`Exact name + company match already seen in this upload — merged into the first-seen row${
+                  lastScanStats.largestDuplicateGroup > 2 ? `. One lead appeared ${lastScanStats.largestDuplicateGroup} times.` : "."
+                }`}
+              >
+                duplicates merged
+              </span>
+              {lastScanStats.largestDuplicateGroup > 2 && ` (one ×${lastScanStats.largestDuplicateGroup})`}
+            </>
+          )}
         </div>
       )}
 
-      <div className="panel">
-        <div className="panel-head">
-          <div>
-            <div className="panel-title">Final downloads</div>
-            <div className="panel-sub">One file per product line — every Strong Signal lead lands in exactly one.</div>
-          </div>
-        </div>
-        <div className="panel-body" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {ACTIVE_BUCKET_KEYS.map((bk) => {
-            const count = bucketRowsFor(bk).length;
-            return (
-              <div key={bk} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                <span style={{ fontWeight: 600, fontSize: 12.5, minWidth: 170, color: count ? "var(--ink)" : "var(--muted)" }}>
-                  {BUCKET_META[bk].label}
-                  <span style={{ color: "var(--muted)", fontWeight: 600 }}> · {count}</span>
-                </span>
-                <input
-                  value={bucketFileNames[bk]}
-                  onChange={(e) => setBucketFileNames((prev) => ({ ...prev, [bk]: e.target.value }))}
-                  placeholder={defaultBucketFileName(bk)}
-                  className="field"
-                  style={{ flex: "1 1 220px" }}
-                />
-                <button disabled={count === 0} onClick={() => exportBucket(bk)} className="btn btn-primary">
-                  ⬇ Download CSV
-                </button>
-              </div>
-            );
-          })}
-        </div>
+      {/* Final downloads, condensed: one compact row per product line.
+          The editable filename is still there but tucked behind "Rename"
+          instead of a full-width input taking a third of the panel. */}
+      <div className="dl-strip">
+        <span className="dl-title">Final downloads</span>
+        {ACTIVE_BUCKET_KEYS.map((bk) => {
+          const count = bucketRowsFor(bk).length;
+          return (
+            <span key={bk} className="dl-item">
+              <button disabled={count === 0} onClick={() => exportBucket(bk)} className="btn btn-sm btn-primary">
+                ⬇ {BUCKET_META[bk].label}
+                <span className="dl-count">{count}</span>
+              </button>
+              <button
+                className="btn btn-sm btn-ghost"
+                title={`Filename: ${bucketFileNames[bk] || defaultBucketFileName(bk)}`}
+                onClick={() => setRenamingBucket(renamingBucket === bk ? null : bk)}
+              >
+                ✎
+              </button>
+            </span>
+          );
+        })}
+        <span className="control-spacer" />
+        <span className="dl-hint">Every Strong Signal lead lands in exactly one file.</span>
       </div>
+      {renamingBucket && (
+        <div className="dl-rename">
+          <span className="rd-label" style={{ marginBottom: 0 }}>{BUCKET_META[renamingBucket].label} filename</span>
+          <input
+            value={bucketFileNames[renamingBucket]}
+            onChange={(e) => setBucketFileNames((prev) => ({ ...prev, [renamingBucket]: e.target.value }))}
+            placeholder={defaultBucketFileName(renamingBucket)}
+            className="field"
+            style={{ flex: "1 1 240px", height: 30 }}
+          />
+          <button className="btn btn-sm btn-secondary" onClick={() => setRenamingBucket(null)}>Done</button>
+        </div>
+      )}
 
       {/* One filter toolbar, hairline-divided rows (see styles.css's
           "Scanner UI kit") — previously four loosely-spaced rows across two

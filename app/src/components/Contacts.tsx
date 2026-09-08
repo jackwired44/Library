@@ -96,6 +96,7 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
   // full-precision timestamp on every contact, so no new "collected on"
   // field was needed.
   const [tierFilter, setTierFilter] = useState<Tier | "all">("all");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [page, setPage] = useState(1);
@@ -276,58 +277,140 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
     );
   }, [filtered, dispositionFilter]);
 
+  // How many filters are actually narrowing the list — drives the count
+  // badge on the Filters button and whether the chip row renders at all.
+  const activeFilterCount =
+    (tierFilter !== "all" ? 1 : 0) + dispositionFilter.size + (dateFrom || dateTo ? 1 : 0);
+  function clearAllFilters() {
+    setTierFilter("all");
+    setDispositionFilter(new Set());
+    setDateFrom("");
+    setDateTo("");
+  }
+
   if (loading) return <div style={{ color: "var(--muted)", fontSize: 13 }}>Loading contacts…</div>;
   if (error) return <div style={{ color: "#B5443B", fontSize: 13 }}>{error}</div>;
 
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 4, flexWrap: "wrap", gap: 8 }}>
-        <h2 style={{ margin: 0, fontSize: 18 }}>Contacts</h2>
-        <span style={{ fontSize: 12, color: "var(--muted)" }}>
-          {contacts.length} contact{contacts.length === 1 ? "" : "s"} across every upload — deduplicated by email, then name + company.
-        </span>
+      {/* Page header + one control strip. Per Jack: filters "hidden
+          under drop downs and not displayed just across the screen" —
+          tier, disposition and the date range all moved into the single
+          Filters popover below, leaving search and sort in the open. */}
+      <div className="page-head">
+        <div>
+          <h1 className="page-title">Contacts</h1>
+          <p className="page-sub">
+            {contacts.length} contact{contacts.length === 1 ? "" : "s"} across every upload, deduplicated by email, then name and company.
+          </p>
+        </div>
       </div>
 
-      <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "16px 0", flexWrap: "wrap" }}>
+      <div className="control-strip">
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search name, company, title, email, or phone…"
-          style={{ flex: "1 1 280px", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", fontSize: 13 }}
+          className="field"
+          style={{ flex: "1 1 280px", height: 32 }}
         />
-        <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)} style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "8px 10px", fontSize: 12.5, fontWeight: 600 }}>
+        <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)} className="field" style={{ height: 32 }}>
           <option value="recent">Most recently seen</option>
           <option value="name">Name (A–Z)</option>
           <option value="company">Company (A–Z)</option>
           <option value="timesSeen">Times seen (most first)</option>
         </select>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ fontSize: 11.5, color: "var(--muted)", fontWeight: 600 }}>Seen</span>
-          <input
-            type="date"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-            title="Only show contacts last seen on or after this date"
-            style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "7px 8px", fontSize: 12.5 }}
-          />
-          <span style={{ fontSize: 11.5, color: "var(--muted)" }}>to</span>
-          <input
-            type="date"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-            title="Only show contacts last seen on or before this date"
-            style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "7px 8px", fontSize: 12.5 }}
-          />
-          {(dateFrom || dateTo) && (
-            <button
-              onClick={() => { setDateFrom(""); setDateTo(""); }}
-              style={{ border: "none", background: "none", textDecoration: "underline", fontSize: 11.5, color: "var(--muted)", cursor: "pointer" }}
-            >
-              Clear
-            </button>
+        <div className="filter-wrap">
+          <button className={`filter-btn${activeFilterCount > 0 ? " on" : ""}`} onClick={() => setFiltersOpen((v) => !v)}>
+            <span aria-hidden="true">⚟</span> Filters
+            {activeFilterCount > 0 && <span className="filter-count">{activeFilterCount}</span>}
+          </button>
+          {filtersOpen && (
+            <>
+              <div className="filter-pop-backdrop" onClick={() => setFiltersOpen(false)} />
+              <div className="filter-pop">
+                <div className="filter-group">
+                  <div className="filter-group-title">Tier</div>
+                  <label className="filter-opt">
+                    <input type="radio" name="tier" checked={tierFilter === "all"} onChange={() => setTierFilter("all")} />
+                    All tiers
+                    <span className="filter-opt-count">{searched.length}</span>
+                  </label>
+                  {TIER_ORDER.map((t) => (
+                    <label key={t} className="filter-opt">
+                      <input type="radio" name="tier" checked={tierFilter === t} onChange={() => setTierFilter(t)} />
+                      {TIER_META[t].label}
+                      <span className="filter-opt-count">{tierCounts[t]}</span>
+                    </label>
+                  ))}
+                </div>
+                <div className="filter-group">
+                  <div className="filter-group-title">Disposition</div>
+                  {dispositionOptions(dispositions).map((o, i, arr) => {
+                    const groupStart = o.group !== "none" && (i === 0 || arr[i - 1].group !== o.group);
+                    return (
+                      <span key={o.key} style={{ display: "contents" }}>
+                        {groupStart && <div className="filter-group-title" style={{ marginTop: 8 }}>{DISPOSITION_GROUP_LABEL[o.group]}</div>}
+                        <label className="filter-opt">
+                          <input
+                            type="checkbox"
+                            checked={dispositionFilter.has(o.key)}
+                            onChange={(e) => {
+                              setDispositionFilter((prev) => {
+                                const next = new Set(prev);
+                                if (e.target.checked) next.add(o.key); else next.delete(o.key);
+                                return next;
+                              });
+                            }}
+                          />
+                          {o.label}
+                          <span className="filter-opt-count">{dispositionCounts[o.key] || 0}</span>
+                        </label>
+                      </span>
+                    );
+                  })}
+                </div>
+                <div className="filter-group">
+                  <div className="filter-group-title">Last seen</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="field" style={{ height: 30, flex: 1 }} />
+                    <span style={{ fontSize: 11.5, color: "var(--ink-3)" }}>to</span>
+                    <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="field" style={{ height: 30, flex: 1 }} />
+                  </div>
+                </div>
+                {activeFilterCount > 0 && (
+                  <div style={{ marginTop: 12, textAlign: "right" }}>
+                    <button className="chip-clear" onClick={clearAllFilters}>Clear all filters</button>
+                  </div>
+                )}
+              </div>
+            </>
           )}
         </div>
+        <button className="filter-btn" onClick={onManageDispositions} title="Add or remove call dispositions">⚙ Manage</button>
       </div>
+
+      {activeFilterCount > 0 && (
+        <div className="chip-row">
+          {tierFilter !== "all" && (
+            <span className="chip">{TIER_META[tierFilter].label}<button onClick={() => setTierFilter("all")} title="Remove">✕</button></span>
+          )}
+          {[...dispositionFilter].map((d) => (
+            <span key={d} className="chip">
+              {dispositionMetaFor(d, dispositions).label}
+              <button title="Remove" onClick={() => setDispositionFilter((prev) => { const n = new Set(prev); n.delete(d); return n; })}>✕</button>
+            </span>
+          ))}
+          {(dateFrom || dateTo) && (
+            <span className="chip">
+              Seen {dateFrom || "any"} to {dateTo || "any"}
+              <button title="Remove" onClick={() => { setDateFrom(""); setDateTo(""); }}>✕</button>
+            </span>
+          )}
+          <button className="chip-clear" onClick={clearAllFilters}>Clear all</button>
+        </div>
+      )}
+
 
       <div style={{ marginBottom: 22 }}>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 8 }}>
@@ -359,103 +442,6 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
           </div>
         )}
       </div>
-
-      {contacts.length > 0 && (
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 16, border: "1px solid var(--border)", borderRadius: 10, padding: "9px 12px" }}>
-          <span className="rd-label" style={{ marginBottom: 0 }}>Disposition</span>
-          {dispositionOptions(dispositions).map((o, i, arr) => {
-            const checked = dispositionFilter.has(o.key);
-            // A small divider label wherever the bucket changes, so the
-            // reached/not-reached split is visible while filtering — the
-            // same split that decides whether an outcome ends a sequence.
-            const groupStart = o.group !== "none" && (i === 0 || arr[i - 1].group !== o.group);
-            return (
-              <span key={o.key} style={{ display: "contents" }}>
-              {groupStart && (
-                <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: "var(--muted)" }}>
-                  {DISPOSITION_GROUP_LABEL[o.group]}
-                </span>
-              )}
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  border: `1px solid ${checked ? o.color : "var(--border)"}`,
-                  background: checked ? o.bg : "var(--surface)",
-                  color: checked ? o.color : "var(--muted)",
-                  borderRadius: 999,
-                  padding: "4px 11px",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={(e) => {
-                    setDispositionFilter((prev) => {
-                      const next = new Set(prev);
-                      if (e.target.checked) next.add(o.key); else next.delete(o.key);
-                      return next;
-                    });
-                  }}
-                />
-                {o.label} ({dispositionCounts[o.key] || 0})
-              </label>
-              </span>
-            );
-          })}
-          {dispositionFilter.size > 0 && (
-            <button onClick={() => setDispositionFilter(new Set())} className="btn btn-sm btn-ghost" style={{ textDecoration: "underline" }}>
-              Clear ({dispositionFilter.size})
-            </button>
-          )}
-          <span style={{ flex: 1 }} />
-          <button onClick={onManageDispositions} className="btn btn-sm btn-secondary" title="Add or remove your own call dispositions">
-            ⚙ Manage
-          </button>
-        </div>
-      )}
-
-      {contacts.length > 0 && (
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
-          <button
-            onClick={() => setTierFilter("all")}
-            style={{
-              border: "1px solid var(--border)",
-              borderRadius: 999,
-              padding: "6px 14px",
-              fontSize: 12.5,
-              fontWeight: 700,
-              cursor: "pointer",
-              background: tierFilter === "all" ? "linear-gradient(90deg, var(--accent), var(--accent-blue))" : "var(--surface)",
-              color: tierFilter === "all" ? "#fff" : "var(--ink)",
-            }}
-          >
-            All tiers ({searched.length})
-          </button>
-          {TIER_ORDER.map((t) => (
-            <button
-              key={t}
-              onClick={() => setTierFilter(t)}
-              style={{
-                border: `1px solid ${tierFilter === t ? TIER_META[t].color : "var(--border)"}`,
-                borderRadius: 999,
-                padding: "6px 14px",
-                fontSize: 12.5,
-                fontWeight: 700,
-                cursor: "pointer",
-                background: tierFilter === t ? TIER_META[t].bg : "var(--surface)",
-                color: tierFilter === t ? TIER_META[t].color : "var(--muted)",
-              }}
-            >
-              {TIER_META[t].label} ({tierCounts[t]})
-            </button>
-          ))}
-        </div>
-      )}
 
       {bucketSummary && (
         <div style={{ display: "flex", gap: 18, alignItems: "center", background: "var(--surface-sunken)", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 12.5 }}>

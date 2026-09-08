@@ -3726,6 +3726,72 @@ now fixed:
   what is being destroyed and how many leads it holds. (Folder deletion
   still only ungroups its files, and the prompt says so.)
 
+## Cleanup pass: Home, filters behind a dropdown, condensed Scanner (app/ only)
+
+Per Jack: "clean up the home landing page and be more like hubspot less ai
+and bs cluttered together," "cleaner and more friendly less confusing," and
+— the most concrete of the three — filters "should be pretty clear and easy
+to navigate with filtered options but hidden under drop downs and not
+displayed just across the screen."
+
+**Reusable page furniture, defined once.** `styles.css` gained
+`.page-head` (title + subtitle left, at most one primary action right),
+`.metric-row`/`.metric` (tiles inside ONE bordered container separated by
+hairlines, not floating pills), `.control-strip`, `.filter-btn`/
+`.filter-pop` (the filters dropdown with a count badge), and `.chip-row`/
+`.chip` (active filters as removable chips). Every module can now use the
+same furniture instead of inventing its own layout.
+
+**Home.** The banner used to cram a date, a greeting, a marketing
+paragraph, the "Viewing as" control and four stat pills into one box. It
+is now a plain page header (greeting + today's date) with the Viewing-as
+control on the right, followed by a single hairline-separated metric row.
+**The product-thesis paragraph was deleted outright** — that is the "ai
+and bs" Jack meant; it belongs in these docs, not on the screen he opens
+every morning. Today, Weekly Goals and Notifications are unchanged below
+it.
+
+**Contacts: every filter moved behind one dropdown.** Search and sort stay
+in the open; tier, disposition (both buckets) and the last-seen date range
+now live in a single **Filters** popover carrying a count badge, with
+per-option counts. Whatever is active renders as removable chips above the
+table with a "Clear all". This removes the wall of ~13 disposition
+checkboxes plus a tier row plus a date row that used to span the whole
+screen. The popover is right-anchored — left-anchored ran off the viewport,
+caught by screenshotting rather than assumed.
+
+**Backup/Restore moved into the sidebar.** It used to sit above the page
+title on EVERY view, which is the first thing you saw on Home. It is a
+settings-shaped action, so it now lives in the sidebar above the account
+block.
+
+**Scanner: the two accounting lines were saying the same thing twice.**
+Per Jack, pasting both back. There was a transient dedupe banner AND the
+persistent accounting line, and the banner's content was already the
+second clause of the line. The banner and its `dedupeNotice` state are
+gone, and the line is condensed from a paragraph to
+`13 read · 10 processed · 1 no signal · 2 duplicates merged (one ×3)`,
+with the long explanations moved to hover titles. The arithmetic identity
+is unchanged and still holds: read = processed + no signal + duplicates.
+
+**Scanner: Final downloads condensed.** It was a full panel with a
+full-width editable filename input per product line. It is now one strip
+of compact download buttons carrying their counts, with the filename
+editor behind a small ✎ toggle — still editable, just not occupying a
+third of the panel until wanted.
+
+**Verification.** Platform audit 53/53, disposition suite 12/12,
+audit-fix suite 8/8, zero console errors. Several harness locators were
+updated for the new markup (an Engage tab is one sidebar click, tier and
+disposition now live inside the Filters popover, and the accounting line's
+wording changed) — legitimate harness updates, since every assertion is
+unchanged and still passes.
+
+**Known leftover, flagged not fixed:** Engage's own in-page dropdown is
+now redundant with the flat sidebar and still renders above the page
+title. Removing it deletes a working control, so it needs Jack's call
+rather than a unilateral change.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

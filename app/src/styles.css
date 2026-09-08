@@ -1145,3 +1145,280 @@ textarea:focus {
   .sidebar-nav { display: flex; flex-wrap: wrap; overflow: visible; }
   .sidebar-group { width: 100%; }
 }
+
+/* ============================================================
+   PAGE PATTERNS — the repeated furniture every screen uses, so
+   modules stop inventing their own layout. HubSpot's discipline:
+   one page header, one metric row, filters behind a control
+   rather than sprayed across the screen.
+   ============================================================ */
+
+/* Page header: title + optional subtitle on the left, at most one
+   primary action on the right. */
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s4);
+  flex-wrap: wrap;
+  margin-bottom: var(--s4);
+}
+.page-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--ink-1);
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.page-sub {
+  font-size: 12.5px;
+  color: var(--ink-3);
+  margin: 3px 0 0;
+  max-width: 62ch;
+}
+.page-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+
+/* Metric row: tiles inside ONE bordered container, separated by
+   hairlines rather than gaps. */
+.metric-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  background: var(--bg-surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  box-shadow: var(--sh-sm);
+  margin-bottom: var(--s4);
+}
+.metric {
+  padding: var(--s3) var(--s4);
+  border-right: 1px solid var(--line);
+  min-width: 0;
+}
+.metric:last-child { border-right: none; }
+.metric-label {
+  font-size: 10px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 600;
+}
+.metric-value {
+  font-family: var(--mono);
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--ink-1);
+  line-height: 1.15;
+  margin-top: 2px;
+}
+.metric-hint {
+  font-size: 11px;
+  color: var(--ink-3);
+  margin-top: 2px;
+}
+
+/* Control strip: search + sort + a single Filters button. Anything
+   that used to be a wall of chips lives inside the popover below. */
+.control-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+  margin-bottom: var(--s3);
+}
+.control-strip .field { height: 32px; }
+.control-spacer { flex: 1; }
+
+.filter-wrap { position: relative; }
+.filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 var(--s3);
+  border: 1px solid var(--line-strong);
+  background: var(--bg-surface);
+  color: var(--ink-2);
+  border-radius: var(--r-md);
+  font-family: var(--font);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.filter-btn:hover { background: var(--bg-hover); }
+.filter-btn.on { border-color: var(--brand); color: var(--brand); background: var(--brand-subtle); }
+.filter-count {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  background: var(--brand);
+  color: #fff;
+  border-radius: var(--r-full);
+  padding: 1px 6px;
+}
+.filter-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  /* Right-anchored: the Filters button sits at the end of the control
+     strip, so a left-anchored panel runs off the viewport. */
+  right: 0;
+  z-index: 40;
+  width: 320px;
+  max-height: 60vh;
+  overflow-y: auto;
+  background: var(--bg-surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-lg);
+  padding: var(--s3);
+}
+.filter-pop-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 39;
+}
+.filter-group + .filter-group {
+  margin-top: var(--s3);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--line);
+}
+.filter-group-title {
+  font-size: 10px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 600;
+  margin-bottom: var(--s2);
+}
+.filter-opt {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: 4px 2px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  cursor: pointer;
+  border-radius: var(--r-sm);
+}
+.filter-opt:hover { background: var(--bg-hover); }
+.filter-opt-count { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+
+/* Active filters as removable chips above the table. */
+.chip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: var(--s3);
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 500;
+  background: var(--brand-subtle);
+  color: var(--brand);
+  border: 1px solid transparent;
+  border-radius: var(--r-full);
+  padding: 3px 6px 3px 10px;
+}
+.chip button {
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 0 2px;
+  opacity: 0.7;
+}
+.chip button:hover { opacity: 1; }
+.chip-clear {
+  border: none;
+  background: none;
+  color: var(--ink-3);
+  font-size: 11.5px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* Global utilities pinned above the account block in the sidebar. */
+.sidebar-utils {
+  padding: 0 var(--s3) var(--s2);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.sidebar-utils button {
+  width: 100%;
+  justify-content: flex-start;
+  background: none;
+  border: 1px solid var(--sidebar-hover);
+  color: var(--sidebar-ink);
+  border-radius: var(--r-md);
+  padding: 5px 9px;
+  font-family: var(--font);
+  font-size: 11.5px;
+  cursor: pointer;
+  text-align: left;
+}
+.sidebar-utils button:hover { background: var(--sidebar-hover); color: var(--sidebar-ink-strong); }
+.sidebar-utils > div { display: flex; flex-direction: column; gap: 5px; }
+
+/* Final downloads, condensed to one strip instead of a panel with a
+   full-width filename input per product line. */
+.dl-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+  background: var(--bg-surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-sm);
+  padding: var(--s2) var(--s3);
+  margin-bottom: var(--s3);
+}
+.dl-title {
+  font-size: 10px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 600;
+  margin-right: var(--s1);
+}
+.dl-item { display: inline-flex; align-items: center; gap: 2px; }
+.dl-count {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: var(--r-full);
+  padding: 1px 6px;
+  margin-left: 6px;
+}
+.dl-hint { font-size: 11.5px; color: var(--ink-3); }
+.dl-rename {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+  margin: calc(var(--s2) * -1) 0 var(--s3);
+  padding: var(--s2) var(--s3);
+  background: var(--bg-subtle);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+/* The accounting line, now one compact sentence. */
+.scan-note {
+  font-size: 12px;
+  color: var(--ink-3);
+  margin-bottom: var(--s3);
+}
+.scan-note strong { color: var(--ink-1); font-family: var(--mono); font-weight: 600; }
+.scan-note span[title] { border-bottom: 1px dotted var(--line-strong); cursor: help; }
