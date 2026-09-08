@@ -3871,8 +3871,23 @@ deliberately untouched, which the confirmation says.
   write. Removed with its four call sites. A dead cache is worse than no
   cache: it reads as a live invariant someone has to maintain.
 
+**Bug found by live-testing the new filters: the Filters popover covered
+its own trigger.** `.filter-pop-backdrop` is a SIBLING of the button
+inside `.filter-wrap`, so its `z-index: 39` painted over the button —
+clicking Filters again to close the panel silently did nothing (clicking
+anywhere else still worked, which is why it was easy to miss). Raising
+`.filter-wrap` did not help, because a parent's z-index does not reorder
+its own children; the fix is `position: relative; z-index: 41` on
+`.filter-btn` itself, in the same stacking context as the backdrop.
+Affects Contacts as well as Companies, since both use the shared pattern.
+
 **Verification.** Platform audit 53/53, disposition suite 12/12,
-audit-fix suite 8/8, plus 36/36 on the competitor rule.
+audit-fix suite 8/8, 36/36 on the competitor rule, plus a 16-check live
+pass over the whole Companies flow: a competitor name lands in Bad Leads
+with the right reason, an Apollo import populates the industry list,
+"Competitors only" and the employee-size buckets each narrow correctly,
+active filters render as chips, and "Remove N filtered" actually deletes
+those companies' contacts.
 
 **Not built yet, from the same thread:** Jack also said "the goal should
 be to pull data from their website, linkedin, company linkedin and

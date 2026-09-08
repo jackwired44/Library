@@ -1235,7 +1235,14 @@ textarea:focus {
 .control-spacer { flex: 1; }
 
 .filter-wrap { position: relative; }
+/* Raised above the popover's own backdrop (z-index 39). The backdrop is a
+   SIBLING inside .filter-wrap, so raising the wrapper does nothing — the
+   button needs its own z-index in that same stacking context. Without it
+   the backdrop covers its own trigger and clicking Filters again to close
+   the panel silently does nothing. */
 .filter-btn {
+  position: relative;
+  z-index: 41;
   display: inline-flex;
   align-items: center;
   gap: 6px;
