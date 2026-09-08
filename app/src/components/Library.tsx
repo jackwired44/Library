@@ -18,6 +18,7 @@ import DispositionOptions from "./DispositionOptions";
 import { parseCSVFile, parseCSVText, downloadBlob } from "../lib/csv";
 import type { HistoryEntry } from "../lib/history";
 import { applyStickyState, type Contact } from "../lib/contacts";
+import { applyCompetitorDQ, type CompanyProfile } from "../lib/companyProfiles";
 import {
   createGroup,
   renameGroup,
@@ -64,6 +65,9 @@ interface LibraryProps {
   // attachScanResultsToContacts, which OVERWRITES those fields, silently
   // wiping a disposition set earlier and nulling meetingBookedAt.
   contacts: Contact[];
+  // Same reason as `contacts`: a competitor industry must disqualify a
+  // row filed straight into a folder, not only one scanned in Scanner.
+  companyProfiles: CompanyProfile[];
   entries: LibraryEntry[];
   setEntries: React.Dispatch<React.SetStateAction<LibraryEntry[]>>;
   groups: LibraryGroup[];
@@ -79,7 +83,7 @@ interface LibraryProps {
   ruleOverrides: RuleOverrides;
 }
 
-export default function LibraryView({ contacts, entries, setEntries, groups, setGroups, loading, error, onLoadIntoScanner, onRecordHistory, ruleOverrides, dispositions }: LibraryProps) {
+export default function LibraryView({ contacts, companyProfiles, entries, setEntries, groups, setGroups, loading, error, onLoadIntoScanner, onRecordHistory, ruleOverrides, dispositions }: LibraryProps) {
   const [openFolderId, setOpenFolderId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [showNewGroupForm, setShowNewGroupForm] = useState(false);
@@ -173,6 +177,7 @@ export default function LibraryView({ contacts, entries, setEntries, groups, set
       // Scanner's own upload paths. See CLAUDE.md "Sticky crossed-out/
       // disposition state".
       applyStickyState(scanned, contacts);
+      applyCompetitorDQ(scanned, companyProfiles);
       const signalRows = scanned.filter((r) => r.tier === "signal" && !r.isDuplicate);
       const folderName = groups.find((g) => g.id === groupId)?.name || "this folder";
       // Record History FIRST so the Library filing below can stamp its rows

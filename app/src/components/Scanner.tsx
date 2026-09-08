@@ -41,6 +41,8 @@ import {
 } from "../lib/library";
 import type { HistoryEntry } from "../lib/history";
 import { applyStickyState, buildContactIndex, lookupContact, type Contact } from "../lib/contacts";
+import { applyCompetitorDQ, type CompanyProfile } from "../lib/companyProfiles";
+import { MAX_COMPANY_BATCH } from "../lib/apolloEnrich";
 import type { UploadedFile } from "../App";
 
 const MAX_FILES = 5;
@@ -108,6 +110,9 @@ interface ScannerProps {
   autoEnrichCompanies: boolean;
   onToggleAutoEnrichCompanies: (on: boolean) => void;
   pendingEnrich: { companyName: string; domain: string }[];
+  // Enriched company profiles, so a competitor industry disqualifies a
+  // freshly-scanned row immediately (see applyCompetitorDQ).
+  companyProfiles: CompanyProfile[];
   companyEnrichOutcomes: CompanyEnrichOutcome[] | null;
   companyEnriching: boolean;
   onRunCompanyEnrichment: () => void;
@@ -139,6 +144,7 @@ export default function Scanner({
   autoEnrichCompanies,
   onToggleAutoEnrichCompanies,
   pendingEnrich,
+  companyProfiles,
   companyEnrichOutcomes,
   companyEnriching,
   onRunCompanyEnrichment,
@@ -260,6 +266,8 @@ export default function Scanner({
       const parsedFiles = await Promise.all(files.map(parseCSVFile));
       const { results: scanned, rowsScanned, duplicatesRemoved, noSignalRows: skipped } = scanParsedFiles(parsedFiles, ruleOverrides);
       applyStickyState(scanned, contacts);
+    applyCompetitorDQ(scanned, companyProfiles);
+      applyCompetitorDQ(scanned, companyProfiles);
       setResults(scanned);
       setUploadedFiles(parsedFiles.map((pf) => ({ name: pf.name, rows: pf.data.length })));
       const largestDuplicateGroup = Math.max(0, ...scanned.map((r) => r.duplicateGroupSize || 0));
@@ -905,11 +913,11 @@ export default function Scanner({
                 <span>
                   <strong>{pendingEnrich.length}</strong> compan{pendingEnrich.length === 1 ? "y" : "ies"} in this upload {pendingEnrich.length === 1 ? "has" : "have"} no
                   Apollo data yet. Enriching {pendingEnrich.length === 1 ? "it" : "them"} will consume up to{" "}
-                  <strong>{Math.min(pendingEnrich.length, 25)} credit{Math.min(pendingEnrich.length, 25) === 1 ? "" : "s"}</strong> (no charge for any not found
-                  {pendingEnrich.length > 25 ? "; first 25 per click" : ""}).
+                  <strong>{Math.min(pendingEnrich.length, MAX_COMPANY_BATCH)} credit{Math.min(pendingEnrich.length, MAX_COMPANY_BATCH) === 1 ? "" : "s"}</strong> (no charge for any not found
+                  {pendingEnrich.length > MAX_COMPANY_BATCH ? `; first ${MAX_COMPANY_BATCH} per click` : ""}).
                 </span>
                 <button onClick={onRunCompanyEnrichment} disabled={companyEnriching} className="btn btn-primary">
-                  {companyEnriching ? "Enriching…" : `Enrich ${Math.min(pendingEnrich.length, 25)} now`}
+                  {companyEnriching ? "Enriching…" : `Enrich ${Math.min(pendingEnrich.length, MAX_COMPANY_BATCH)} now`}
                 </button>
                 <span style={{ fontSize: 11.5, color: "var(--muted)" }}>
                   {pendingEnrich.slice(0, 6).map((p) => p.companyName).join(" · ")}{pendingEnrich.length > 6 ? ` · +${pendingEnrich.length - 6} more` : ""}

@@ -13,6 +13,8 @@ import DispositionManager from "./components/DispositionManager";
 import type { ParsedFile, ResultRow, RuleOverrides } from "./lib/detection";
 import { scanParsedFiles, DEFAULT_RULE_OVERRIDES } from "./lib/detection";
 import { loadLibraryFromDB, ensureMonthFoldersExist, persistGroup, type LibraryEntry, type LibraryGroup } from "./lib/library";
+import { applyCompetitorDQ } from "./lib/companyProfiles";
+import { deleteContactsFromDB } from "./lib/contacts";
 import { applyStickyState, attachScanResultsToContacts, loadContactsFromDB, mergeContactsFromParsedFiles, mergeManualContact, persistContact, type Contact, type ManualContactInput } from "./lib/contacts";
 import {
   loadHistoryFromDB,
@@ -504,6 +506,17 @@ export default function App() {
 
   // Companies' "+ Add contact" action — same dedup rules as any CSV-
   // derived contact (see lib/contacts.ts's mergeManualContact).
+  // Removes contacts outright — used by Companies' "Remove" to drop a
+  // competitor or an irrelevant company from the working directory. Also
+  // clears any company profile that no longer has contacts behind it, so
+  // an enriched profile can't resurrect a company you just removed.
+  function deleteContacts(ids: string[]) {
+    if (!ids.length) return;
+    const idSet = new Set(ids);
+    setContacts((prev) => prev.filter((c) => !idSet.has(c.id)));
+    void deleteContactsFromDB(ids);
+  }
+
   function addManualContact(input: ManualContactInput) {
     setContacts((prev) => {
       const { contacts: next, touched } = mergeManualContact(prev, input);
@@ -743,6 +756,15 @@ export default function App() {
       setCompanyProfiles(working);
       working.forEach((pr) => persistCompanyProfile(pr));
       setCompanyEnrichOutcomes(outcomes);
+      // Newly learned industries have to disqualify the rows already on
+      // screen, not wait for the next scan — per Jack, a competitor is a
+      // bad signal "when uploaded AND enriched". applyCompetitorDQ mutates
+      // the rows, so hand React a fresh array to re-render.
+      setResults((prev) => {
+        if (!prev) return prev;
+        const hit = applyCompetitorDQ(prev, working);
+        return hit > 0 ? [...prev] : prev;
+      });
       const done = new Set(outcomes.map((o) => o.domain));
       setPendingEnrich((prev) => prev.filter((p) => !done.has(p.domain)));
     } catch (e) {
@@ -1001,6 +1023,7 @@ export default function App() {
   function loadParsedFilesIntoScanner(parsedFiles: ParsedFile[], tag = "Loaded from Lead Library") {
     const { results: scanned, duplicatesRemoved } = scanParsedFiles(parsedFiles, ruleOverrides);
     applyStickyState(scanned, contacts);
+    applyCompetitorDQ(scanned, companyProfiles);
     setResults(scanned);
     setUploadedFiles(parsedFiles.map((pf) => ({ name: pf.name, rows: pf.data.length })));
     setView("scanner");
@@ -1194,6 +1217,7 @@ export default function App() {
               autoEnrichCompanies={autoEnrichCompanies}
               onToggleAutoEnrichCompanies={toggleAutoEnrichCompanies}
               pendingEnrich={pendingEnrich}
+              companyProfiles={companyProfiles}
               companyEnrichOutcomes={companyEnrichOutcomes}
               companyEnriching={companyEnriching}
               onRunCompanyEnrichment={runPendingCompanyEnrichment}
@@ -1253,6 +1277,7 @@ export default function App() {
               onManageDispositions={() => setNotesPanelTab("dispositions")}
               companyProfiles={companyProfiles}
               onImportCompanyProfiles={importCompanyProfilesFromFiles}
+              onDeleteContacts={deleteContacts}
               initialTab={engageEntry.tab}
               initialContactsSearch={engageEntry.contactsQuery}
               onTabChange={(tab) => setEngageEntry((prev) => ({ ...prev, tab }))}
@@ -1274,6 +1299,7 @@ export default function App() {
           {view === "library" && (
             <LibraryView
               contacts={contacts}
+              companyProfiles={companyProfiles}
               entries={libraryEntries}
               setEntries={setLibraryEntries}
               groups={libraryGroups}

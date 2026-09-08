@@ -49,7 +49,31 @@ function openDB(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE_DISPOSITIONS)) db.createObjectStore(STORE_DISPOSITIONS, { keyPath: "id" });
       if (!db.objectStoreNames.contains(STORE_COMPANY_PROFILES)) db.createObjectStore(STORE_COMPANY_PROFILES, { keyPath: "key" });
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      const db = req.result;
+      // Another tab opening a NEWER version later would otherwise leave
+      // this connection blocking it forever. Close on demand so the other
+      // tab can upgrade, and tell this one to reload rather than sitting
+      // on a dead handle.
+      db.onversionchange = () => {
+        db.close();
+        if (typeof window !== "undefined") {
+          window.alert("This app was updated in another tab. Reload this tab to continue.");
+        }
+      };
+      resolve(db);
+    };
+    // Fires when ANOTHER tab still holds an older version open. Without
+    // this handler neither onsuccess nor onerror ever fires and the whole
+    // app hangs on its loading state with no message at all — the one
+    // storage failure mode that looks like a frozen page rather than an
+    // error. Found by the code audit.
+    req.onblocked = () =>
+      reject(
+        new Error(
+          "Another tab has an older version of this app open. Close the other tabs and reload."
+        )
+      );
     req.onerror = () => reject(req.error || new Error("Could not open local file storage."));
   });
 }

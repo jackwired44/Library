@@ -3792,6 +3792,96 @@ now redundant with the flat sidebar and still renders above the page
 title. Removing it deletes a working control, so it needs Jack's call
 rather than a unilateral change.
 
+## Competitor Auto-DQ, bulk enrichment, Companies filters (app/ only)
+
+Per Jack, in one thread: "if the company is an msp, it partner, microsoft
+partner, computer software or network and security for cloud or tech its
+going to be a bad signal going forward automatically when uploaded and
+enriched"; "raise the amount i can enrich at once from 25 for company
+data"; "there will be a filter for company size and industry also to
+filter also filter out and delete"; "check for cache errors."
+
+**Competitor / IT-services Auto-DQ.** Wired CIO IS an MSP and a Microsoft
+partner, so another MSP, IT services firm, Microsoft partner or security/
+cloud vendor is a peer, not a prospect. `COMPETITOR_DQ_LABEL`
+("Competitor / IT services company") is cross-cutting like every other
+Auto-DQ: it overrides whatever category/tier the row would otherwise get,
+and the lead stays visible and reversible, just out of the three CSV
+downloads. **Two independent signals, deliberately kept apart because they
+are not equally trustworthy:**
+- **Industry, from an enriched company profile** — the reliable one.
+  Apollo's industry values are a fixed vocabulary, so `COMPETITOR_INDUSTRIES`
+  matches them WHOLE rather than by substring. Applied by
+  `applyCompetitorDQ` (`lib/companyProfiles.ts`), which runs as a separate
+  pass right after `scanParsedFiles`, in the same shape and position as
+  `applyStickyState`, because detection never sees company profiles and a
+  profile may only arrive later via enrichment.
+- **Company name, at scan time** — can only ever be a heuristic, so
+  `COMPETITOR_NAME_RE` is deliberately NARROW: whole phrases that
+  essentially only appear in the name of an IT services business
+  ("managed services", "IT solutions", "cyber security", "Microsoft
+  partner"), never single broad words like "technologies", "systems",
+  "digital" or "solutions", which sit in the names of plenty of
+  manufacturers, clinics and logistics firms.
+
+Wired into all four scan sites (Scanner's upload and Library picker,
+App's "Load into Scanner", and Library's upload-into-folder) and re-run
+over the rows already on screen after an enrichment run — per Jack, a
+competitor is a bad signal "when uploaded AND enriched", so a newly
+learned industry disqualifies immediately rather than at the next scan.
+Verified with 36 assertions including adversarial names: "Acme
+Technologies", "Vertex Health Systems", "Quill Digital", "Baker
+Solutions" and "IT'S A GRIND COFFEE" all correctly do NOT fire.
+
+**Enrichment cap raised from 25 to 100.** The old ceiling guarded a
+one-Apollo-call-per-domain loop. `enrichCompaniesViaApollo` now prefers
+Apollo's BULK organization endpoint (10 domains per call, chunked) and
+falls back to the single-domain one when the bulk tool isn't exposed, so
+the same work costs a tenth of the round trips. Bulk results are read
+**by index**, parallel to the input array — re-matching by name would
+silently attach one company's data to another. Credit cost is identical
+either way (1 per match, 0 per miss), and Apollo's mandatory
+confirmation is unchanged: the panel states the exact count and cost, and
+nothing runs without the explicit click.
+
+**Companies: filters behind one dropdown, plus filter-out-and-delete.**
+Company size (five employee buckets), industry (only values actually
+present, with counts) and a competitor filter (show all / hide / only)
+all live in the same `.filter-pop` dropdown pattern Contacts uses, with
+active filters as removable chips. A company with no employee count on
+file never matches a size bucket rather than being guessed into the
+smallest one. **"Remove N filtered"** deletes every contact behind the
+currently-filtered companies, and is offered ONLY while a filter is
+active, so it can never wipe the whole directory in one click; it
+confirms with both counts. This needed a real delete path —
+`deleteContactsFromDB` — because until now nothing in the app could
+remove a contact, the directory only ever grew. Filed Lead Library rows,
+History entries and list snapshots are separate copies and are
+deliberately untouched, which the confirmation says.
+
+**Cache errors, both real, both found by the audit.**
+- `lib/db.ts` had **no `onblocked` handler**. If another tab held an older
+  `DB_VERSION` open, neither `onsuccess` nor `onerror` ever fired and the
+  app hung on its loading state with no message — the one storage failure
+  that looks like a frozen page rather than an error. Now rejects with an
+  actionable message, and a `versionchange` handler closes this
+  connection so another tab can upgrade instead of being blocked forever.
+- `lib/library.ts` carried a **per-entry category-count cache nothing ever
+  read**, kept warm by four `invalidateCategoryCount` calls on every
+  write. Removed with its four call sites. A dead cache is worse than no
+  cache: it reads as a live invariant someone has to maintain.
+
+**Verification.** Platform audit 53/53, disposition suite 12/12,
+audit-fix suite 8/8, plus 36/36 on the competitor rule.
+
+**Not built yet, from the same thread:** Jack also said "the goal should
+be to pull data from their website, linkedin, company linkedin and
+apollos enriched data which is the best." Apollo and the website are
+covered (live enrichment, and the export/research/import loop for sites).
+LinkedIn is still not scrapeable and has no API here — see "Contacts:
+Profile Agent" above for why that stays a manual field plus an Apollo-
+supplied URL.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

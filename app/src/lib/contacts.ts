@@ -16,7 +16,7 @@
 // case/whitespace-insensitive, exact match, no fuzzy matching) when a row
 // has no email. A row with neither still gets a Contact record, it's just
 // never matched as a duplicate of anything else.
-import { dbGetAll, dbPut, STORE_CONTACTS } from "./db";
+import { dbGetAll, dbPut, dbDelete, STORE_CONTACTS } from "./db";
 import { computeFileFieldMapping, getEmailDomain, getFullName, isFreeEmailDomain, resolveRowFields, type CategoryKey, type Disposition, type ParsedFile, type ResolvedFields, type ResultRow, type Tier } from "./detection";
 
 export interface Contact {
@@ -192,6 +192,15 @@ export async function loadContactsFromDB(): Promise<Contact[]> {
 }
 export async function persistContact(contact: Contact) {
   await dbPut(STORE_CONTACTS, contact);
+}
+
+// Permanently removes contacts. Until now nothing in the app could delete
+// one — the directory only ever grew — so this is the path behind
+// Companies' "Remove" action (per Jack: "filter out and delete"). It only
+// touches the Contacts store: filed Lead Library rows, History entries and
+// list snapshots are separate copies and are deliberately left alone.
+export async function deleteContactsFromDB(ids: string[]) {
+  await Promise.all(ids.map((id) => dbDelete(STORE_CONTACTS, id)));
 }
 
 interface ContactInput {

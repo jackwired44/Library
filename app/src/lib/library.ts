@@ -8,19 +8,14 @@ import {
   CATEGORY_META,
   BUCKET_LABEL,
   EXPORT_LABELS,
-  FIELD_DEFS,
   ACTIVE_BUCKET_KEYS,
   buildExportRow,
-  guessColumn,
-  scanRowUnified,
   type BucketKey,
-  type CategoryKey,
   type Disposition,
   type ExportRow,
-  type ResolvedFields,
   type ResultRow,
 } from "./detection";
-import { toCSV, parseCSVText } from "./csv";
+import { toCSV } from "./csv";
 
 export interface LibraryGroup {
   id: string;
@@ -222,7 +217,6 @@ export function getOrCreateMonthCategoryEntry(
 // is regenerated and the cached category count for this id is dropped
 // (same id, new content: a stale cache entry would otherwise undercount).
 function serialize(entry: LibraryEntry): LibraryEntry {
-  invalidateCategoryCount(entry.id);
   return { ...entry, rowCount: entry.rows.length, rawText: toCSV(entry.rows, EXPORT_LABELS) };
 }
 
@@ -279,7 +273,6 @@ export function removeBatchSignalRows(entries: LibraryEntry[], historyEntryId: s
     if (!entry) return;
     const remaining = entry.rows.filter((r) => r.__historyEntryId !== historyEntryId);
     if (remaining.length === 0) {
-      invalidateCategoryCount(entry.id);
       working = working.filter((e) => e.id !== libId);
     } else {
       working = working.map((e) => (e.id === libId ? serialize({ ...entry, rows: remaining }) : e));
@@ -328,7 +321,6 @@ export function deleteLibraryRow(entries: LibraryEntry[], entryId: string, rowKe
   if (idx === -1) return entries;
   const rows = entry.rows.filter((_, i) => i !== idx);
   if (rows.length === 0) {
-    invalidateCategoryCount(entry.id);
     return entries.filter((e) => e.id !== entryId);
   }
   return entries.map((e) => (e.id === entryId ? serialize({ ...entry, rows }) : e));
@@ -344,7 +336,6 @@ export function moveLibraryRowToBucket(entries: LibraryEntry[], groups: LibraryG
   const sourceRows = source.rows.filter((_, i) => i !== idx);
   let working: LibraryEntry[];
   if (sourceRows.length === 0) {
-    invalidateCategoryCount(source.id);
     working = entries.filter((e) => e.id !== entryId);
   } else {
     working = entries.map((e) => (e.id === entryId ? serialize({ ...source, rows: sourceRows }) : e));
@@ -402,33 +393,12 @@ export function deleteGroup(groups: LibraryGroup[], entries: LibraryEntry[], id:
 // stored detected categories separately) — cached by entry id, invalidated
 // whenever rawText changes (serialize() always produces a fresh rawText,
 // so callers should drop cache entries they touch).
-const categoryCountCache = new Map<string, Record<CategoryKey, number>>();
-export function invalidateCategoryCount(entryId: string) {
-  categoryCountCache.delete(entryId);
-}
-export function getLibraryEntryCategoryCounts(entry: LibraryEntry): Record<CategoryKey, number> {
-  const cached = categoryCountCache.get(entry.id);
-  if (cached) return cached;
-  const counts: Record<CategoryKey, number> = { m365Tenant: 0, dynamics365: 0, dataPlatform: 0 };
-  try {
-    const pf = parseCSVText(entry.fileName, entry.rawText);
-    const mapping: Partial<Record<keyof ResolvedFields, string>> = {};
-    FIELD_DEFS.forEach((f) => { mapping[f.key] = guessColumn(pf.fields, f.candidates) || undefined; });
-    pf.data.forEach((row) => {
-      const resolved: ResolvedFields = {};
-      FIELD_DEFS.forEach((f) => {
-        const col = mapping[f.key];
-        (resolved as Record<string, unknown>)[f.key] = col ? row[col] ?? "" : "";
-      });
-      const scan = scanRowUnified(row, pf.fields, resolved);
-      if (scan) counts[scan.category]++;
-    });
-  } catch {
-    // A malformed file just contributes zero counts.
-  }
-  categoryCountCache.set(entry.id, counts);
-  return counts;
-}
+// NOTE: a per-entry category-count cache used to live here, along with
+// getLibraryEntryCategoryCounts. Nothing ever read either one, yet four
+// call sites still paid to invalidate the cache on every write. Removed by
+// the audit pass — dead caches are worse than no cache, because they look
+// like a live invariant someone has to maintain.
+
 
 // Every entry belonging to one folder: the 2 active buckets first, in a
 // fixed, predictable order (Dynamics -> M365/Azure), then any bucket key

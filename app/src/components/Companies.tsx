@@ -10,10 +10,10 @@
 // down the road" — a future LinkedIn integration and richer company
 // profiles beyond this roll-up are direction, not built yet.
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { groupContactsByCompany, searchCompanies } from "../lib/companies";
+import { groupContactsByCompany, searchCompanies, type Company } from "../lib/companies";
 import { profileLocationLabel, PROFILE_FIELD_DEFS, type CompanyProfile, type ImportResult } from "../lib/companyProfiles";
 import { downloadBlob, toCSV } from "../lib/csv";
-import { getEmailDomain, isFreeEmailDomain } from "../lib/detection";
+import { getEmailDomain, isFreeEmailDomain, isCompetitorIndustry } from "../lib/detection";
 import { OUTREACH_STATUS_META, type Contact, type ManualContactInput } from "../lib/contacts";
 import { CATEGORY_META } from "../lib/detection";
 import { dispositionMetaFor, type CustomDisposition } from "../lib/dispositions";
@@ -45,11 +45,14 @@ interface CompaniesProps {
   // Bulk Apollo export import — see lib/companyProfiles.ts.
   companyProfiles: CompanyProfile[];
   onImportCompanyProfiles: (files: FileList | File[]) => Promise<ImportResult[]>;
+  // Removing a company means removing the contacts behind it — a company
+  // here is a roll-up, it has no record of its own to delete.
+  onDeleteContacts: (ids: string[]) => void;
 }
 
 type SortKey = "recent" | "name" | "contactCount";
 
-export default function Companies({ contacts, onAddContact, onUpdateContact, users, tasks, leadLists, sequences, enrollments, dispositions, companyProfiles, onImportCompanyProfiles }: CompaniesProps) {
+export default function Companies({ contacts, onAddContact, onUpdateContact, users, tasks, leadLists, sequences, enrollments, dispositions, companyProfiles, onImportCompanyProfiles, onDeleteContacts }: CompaniesProps) {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("recent");
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
@@ -61,6 +64,12 @@ export default function Companies({ contacts, onAddContact, onUpdateContact, use
   const importInputRef = useRef<HTMLInputElement>(null);
   const [importNotice, setImportNotice] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+  // Filters, all behind one dropdown per Jack — "hidden under drop downs
+  // and not displayed just across the screen."
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [industryFilter, setIndustryFilter] = useState<Set<string>>(new Set());
+  const [sizeFilter, setSizeFilter] = useState<string>("all");
+  const [competitorFilter, setCompetitorFilter] = useState<"all" | "only" | "hide">("all");
 
   const companies = useMemo(() => groupContactsByCompany(contacts, companyProfiles), [contacts, companyProfiles]);
   const enrichedCount = useMemo(() => companies.filter((c) => c.profile).length, [companies]);
@@ -112,14 +121,59 @@ export default function Companies({ contacts, onAddContact, onUpdateContact, use
       setImporting(false);
     }
   }
+  // Employee-count buckets. Apollo returns either a number or a range
+  // string, so parse the FIRST integer out of whatever is stored and bucket
+  // on that; a company with no count on file never matches a size filter
+  // rather than being guessed into the smallest bucket.
+  const sizeOf = (c: Company): number | null => {
+    const raw = String(c.profile?.employees || "").replace(/,/g, "");
+    const m = raw.match(/\d+/);
+    return m ? Number(m[0]) : null;
+  };
+  const SIZE_BUCKETS: { key: string; label: string; test: (n: number) => boolean }[] = [
+    { key: "1-10", label: "1–10", test: (n) => n <= 10 },
+    { key: "11-50", label: "11–50", test: (n) => n > 10 && n <= 50 },
+    { key: "51-200", label: "51–200", test: (n) => n > 50 && n <= 200 },
+    { key: "201-1000", label: "201–1,000", test: (n) => n > 200 && n <= 1000 },
+    { key: "1000+", label: "1,000+", test: (n) => n > 1000 },
+  ];
+  // Every distinct industry actually present, so the list only ever offers
+  // values that would match something.
+  const industryOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    companies.forEach((c) => {
+      const v = String(c.profile?.industry || "").trim();
+      if (v) counts.set(v, (counts.get(v) || 0) + 1);
+    });
+    return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  }, [companies]);
+  const isCompetitor = (c: Company) => isCompetitorIndustry(c.profile?.industry);
+  const competitorCount = useMemo(() => companies.filter(isCompetitor).length, [companies]);
+
+  const activeFilterCount =
+    industryFilter.size + (sizeFilter !== "all" ? 1 : 0) + (competitorFilter !== "all" ? 1 : 0);
+  function clearAllFilters() {
+    setIndustryFilter(new Set());
+    setSizeFilter("all");
+    setCompetitorFilter("all");
+  }
+
   const filtered = useMemo(() => {
-    const list = searchCompanies(companies, search);
+    let list = searchCompanies(companies, search);
+    if (industryFilter.size > 0) list = list.filter((c) => industryFilter.has(String(c.profile?.industry || "").trim()));
+    if (sizeFilter !== "all") {
+      const bucket = SIZE_BUCKETS.find((b) => b.key === sizeFilter);
+      list = bucket ? list.filter((c) => { const n = sizeOf(c); return n !== null && bucket.test(n); }) : list;
+    }
+    if (competitorFilter === "only") list = list.filter(isCompetitor);
+    else if (competitorFilter === "hide") list = list.filter((c) => !isCompetitor(c));
     const sorted = [...list];
     if (sort === "recent") sorted.sort((a, b) => new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime());
     else if (sort === "name") sorted.sort((a, b) => a.name.localeCompare(b.name));
     else if (sort === "contactCount") sorted.sort((a, b) => b.contactCount - a.contactCount);
     return sorted;
-  }, [companies, search, sort]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companies, search, sort, industryFilter, sizeFilter, competitorFilter]);
 
   // Paginated for the same measured reason Contacts is (see the note in
   // Contacts.tsx) — a real directory rolls up to ~1,000 companies, and
@@ -153,6 +207,83 @@ export default function Companies({ contacts, onAddContact, onUpdateContact, use
           <option value="name">Name (A–Z)</option>
           <option value="contactCount">Most contacts</option>
         </select>
+        <div className="filter-wrap">
+          <button className={`filter-btn${activeFilterCount > 0 ? " on" : ""}`} onClick={() => setFiltersOpen((v) => !v)}>
+            <span aria-hidden="true">⚟</span> Filters
+            {activeFilterCount > 0 && <span className="filter-count">{activeFilterCount}</span>}
+          </button>
+          {filtersOpen && (
+            <>
+              <div className="filter-pop-backdrop" onClick={() => setFiltersOpen(false)} />
+              <div className="filter-pop">
+                <div className="filter-group">
+                  <div className="filter-group-title">Company size (employees)</div>
+                  <label className="filter-opt">
+                    <input type="radio" name="size" checked={sizeFilter === "all"} onChange={() => setSizeFilter("all")} />
+                    Any size
+                  </label>
+                  {SIZE_BUCKETS.map((b) => (
+                    <label key={b.key} className="filter-opt">
+                      <input type="radio" name="size" checked={sizeFilter === b.key} onChange={() => setSizeFilter(b.key)} />
+                      {b.label}
+                      <span className="filter-opt-count">
+                        {companies.filter((c) => { const n = sizeOf(c); return n !== null && b.test(n); }).length}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <div className="filter-group">
+                  <div className="filter-group-title">Competitors / IT services</div>
+                  <label className="filter-opt">
+                    <input type="radio" name="comp" checked={competitorFilter === "all"} onChange={() => setCompetitorFilter("all")} />
+                    Show all
+                  </label>
+                  <label className="filter-opt">
+                    <input type="radio" name="comp" checked={competitorFilter === "hide"} onChange={() => setCompetitorFilter("hide")} />
+                    Hide competitors
+                    <span className="filter-opt-count">{competitorCount}</span>
+                  </label>
+                  <label className="filter-opt">
+                    <input type="radio" name="comp" checked={competitorFilter === "only"} onChange={() => setCompetitorFilter("only")} />
+                    Competitors only
+                    <span className="filter-opt-count">{competitorCount}</span>
+                  </label>
+                </div>
+                <div className="filter-group">
+                  <div className="filter-group-title">Industry</div>
+                  {industryOptions.length === 0 ? (
+                    <div style={{ fontSize: 12, color: "var(--ink-3)" }}>
+                      No industries on file yet — enrich companies via Apollo, or import an export.
+                    </div>
+                  ) : (
+                    industryOptions.map(([ind, n]) => (
+                      <label key={ind} className="filter-opt">
+                        <input
+                          type="checkbox"
+                          checked={industryFilter.has(ind)}
+                          onChange={(e) =>
+                            setIndustryFilter((prev) => {
+                              const next = new Set(prev);
+                              if (e.target.checked) next.add(ind); else next.delete(ind);
+                              return next;
+                            })
+                          }
+                        />
+                        {ind}
+                        <span className="filter-opt-count">{n}</span>
+                      </label>
+                    ))
+                  )}
+                </div>
+                {activeFilterCount > 0 && (
+                  <div style={{ marginTop: 12, textAlign: "right" }}>
+                    <button className="chip-clear" onClick={clearAllFilters}>Clear all filters</button>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
         <span style={{ flex: 1 }} />
         <button
           onClick={() => importInputRef.current?.click()}
@@ -179,6 +310,47 @@ export default function Companies({ contacts, onAddContact, onUpdateContact, use
           onChange={(e) => { handleImport(e.target.files); e.target.value = ""; }}
         />
       </div>
+      {activeFilterCount > 0 && (
+        <div className="chip-row">
+          {sizeFilter !== "all" && (
+            <span className="chip">
+              {SIZE_BUCKETS.find((b) => b.key === sizeFilter)?.label} employees
+              <button title="Remove" onClick={() => setSizeFilter("all")}>✕</button>
+            </span>
+          )}
+          {competitorFilter !== "all" && (
+            <span className="chip">
+              {competitorFilter === "only" ? "Competitors only" : "Competitors hidden"}
+              <button title="Remove" onClick={() => setCompetitorFilter("all")}>✕</button>
+            </span>
+          )}
+          {[...industryFilter].map((ind) => (
+            <span key={ind} className="chip">
+              {ind}
+              <button title="Remove" onClick={() => setIndustryFilter((prev) => { const n = new Set(prev); n.delete(ind); return n; })}>✕</button>
+            </span>
+          ))}
+          <button className="chip-clear" onClick={clearAllFilters}>Clear all</button>
+          {/* "Filter out and delete", per Jack: narrow to what you don't
+              want, then remove the whole filtered set in one action. Only
+              offered while a filter is active, so it can never wipe the
+              entire directory with one click. */}
+          <span className="control-spacer" />
+          <button
+            className="btn btn-sm btn-danger"
+            onClick={() => {
+              const ids = filtered.flatMap((c) => c.contacts.map((p) => p.id));
+              if (!ids.length) return;
+              if (!window.confirm(`Remove ${filtered.length} compan${filtered.length === 1 ? "y" : "ies"} and their ${ids.length} contact${ids.length === 1 ? "" : "s"} from the directory? Filed Lead Library rows, History and lists keep their own copies.`)) return;
+              onDeleteContacts(ids);
+            }}
+            title="Delete every contact behind the currently filtered companies"
+          >
+            Remove {filtered.length} filtered
+          </button>
+        </div>
+      )}
+
       {importNotice && (
         <div className="scan-note" style={{ marginTop: -6 }}>
           {importNotice}

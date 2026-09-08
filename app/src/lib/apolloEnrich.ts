@@ -195,12 +195,27 @@ export interface CompanyEnrichOutcome {
   errorMessage?: string;
 }
 
-async function findApolloOrgTool(mcp: ClaudeMcpNamespace): Promise<{ server: string; tool: string } | null> {
+// Prefers Apollo's BULK organization endpoint (10 domains per call) and
+// falls back to the single-domain one. Per Jack: "raise the amount i can
+// enrich at once from 25 for company data." The old ceiling was a
+// self-imposed guard around a one-call-per-domain loop; chunking the bulk
+// endpoint means the same work costs a tenth of the round trips, so the
+// per-click ceiling can rise without the run taking minutes.
+//
+// Credit cost is identical either way: exactly 1 per MATCHED company, 0
+// for a miss. Apollo's contract requires the total count and cost to be
+// stated and confirmed before any call — the Scanner panel's "Enrich N
+// now" button does that, and nothing here runs without it.
+async function findApolloOrgTool(
+  mcp: ClaudeMcpNamespace
+): Promise<{ server: string; tool: string; bulk: boolean } | null> {
   const { servers } = await mcp.listTools();
   for (const s of servers) {
     if (!s.server.toLowerCase().includes("apollo")) continue;
-    const tool = s.tools.find((t) => t.name.toLowerCase().includes("organizations_enrich"));
-    if (tool) return { server: s.server, tool: tool.name };
+    const bulk = s.tools.find((t) => t.name.toLowerCase().includes("organizations_bulk_enrich"));
+    if (bulk) return { server: s.server, tool: bulk.name, bulk: true };
+    const single = s.tools.find((t) => t.name.toLowerCase().includes("organizations_enrich"));
+    if (single) return { server: s.server, tool: single.name, bulk: false };
   }
   return null;
 }
@@ -229,30 +244,67 @@ function mapOrg(org: Record<string, unknown>): CompanyEnrichFields {
 // Sequential on purpose: each call is a credit decision Jack has already
 // confirmed for THIS batch; running them one at a time keeps the outcome
 // list readable and means a failure part-way can't fan out.
-export const MAX_COMPANY_BATCH = 25;
+// Apollo's bulk organization endpoint takes at most 10 domains per call,
+// so a run is chunked. The per-click ceiling is the number of companies
+// the button will accept at once, not an Apollo limit.
+export const APOLLO_BULK_CHUNK = 10;
+export const MAX_COMPANY_BATCH = 100;
+
 export async function enrichCompaniesViaApollo(domains: string[]): Promise<CompanyEnrichOutcome[]> {
   const unique = Array.from(new Set(domains.map((d) => d.trim().toLowerCase()).filter(Boolean))).slice(0, MAX_COMPANY_BATCH);
   if (unique.length === 0) return [];
   const mcp = await getMcp();
   if (!mcp) throw new Error("Apollo enrichment isn't available in this view.");
-  let handle: { server: string; tool: string } | null;
+  let handle: { server: string; tool: string; bulk: boolean } | null;
   try {
     handle = await findApolloOrgTool(mcp);
   } catch (err) {
     throw new Error(describeApolloError(err));
   }
   if (!handle) throw new Error("Apollo isn't connected — add it in claude.ai Settings → Connectors, then try again.");
+
   const out: CompanyEnrichOutcome[] = [];
+  const readOrg = (payload: unknown): Record<string, unknown> | null => {
+    if (!payload || typeof payload !== "object") return null;
+    const p = payload as Record<string, unknown>;
+    const org = ("organization" in p ? p.organization : p) as Record<string, unknown> | null | undefined;
+    return org && Object.keys(org).length ? org : null;
+  };
+
+  if (handle.bulk) {
+    for (let i = 0; i < unique.length; i += APOLLO_BULK_CHUNK) {
+      const chunk = unique.slice(i, i + APOLLO_BULK_CHUNK);
+      try {
+        const result = await mcp.callTool(handle.server, handle.tool, { domains: chunk });
+        const payload = result.payload as Record<string, unknown> | undefined;
+        // Apollo returns the matches parallel to the input array, with a
+        // null hole for anything it couldn't match — so read it BY INDEX
+        // rather than trying to re-match by name, which would silently
+        // attach one company's data to another.
+        const orgs = (payload?.organizations || payload?.matches || []) as unknown[];
+        chunk.forEach((domain, j) => {
+          const org = readOrg(Array.isArray(orgs) ? orgs[j] : null);
+          out.push(org ? { domain, status: "found", fields: mapOrg(org) } : { domain, status: "not-found" });
+        });
+      } catch (err) {
+        const message = describeApolloError(err);
+        chunk.forEach((domain) => out.push({ domain, status: "error", errorMessage: message }));
+      }
+    }
+    return out;
+  }
+
+  // Single-domain fallback: sequential on purpose, so one failure part-way
+  // can't fan out and the outcome list stays readable.
   for (const domain of unique) {
     try {
       const result = await mcp.callTool(handle.server, handle.tool, { domain });
-      const payload = result.payload as { organization?: Record<string, unknown> | null } | Record<string, unknown> | undefined;
-      const org = (payload && "organization" in (payload as object) ? (payload as { organization?: Record<string, unknown> | null }).organization : payload) as Record<string, unknown> | null | undefined;
-      if (!org || !Object.keys(org).length) { out.push({ domain, status: "not-found" }); continue; }
-      out.push({ domain, status: "found", fields: mapOrg(org) });
+      const org = readOrg(result.payload);
+      out.push(org ? { domain, status: "found", fields: mapOrg(org) } : { domain, status: "not-found" });
     } catch (err) {
       out.push({ domain, status: "error", errorMessage: describeApolloError(err) });
     }
   }
   return out;
 }
+

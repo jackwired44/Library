@@ -767,6 +767,71 @@ export interface ResolvedFields {
   comments?: string;
 }
 
+/* ------------------------------------------------------------------ */
+/* Competitor / peer Auto-DQ                                            */
+/* ------------------------------------------------------------------ */
+// Per Jack: "if the company is an msp, it partner, microsoft partner,
+// computer software or network and security for cloud or tech its going
+// to be a bad signal going forward automatically when uploaded and
+// enriched."
+//
+// Wired CIO IS an MSP and a Microsoft partner, so another MSP, IT
+// services firm, Microsoft partner or security/cloud vendor is a peer or
+// a competitor, not a prospect. This is cross-cutting like every other
+// Auto-DQ: it overrides whatever category/tier the row would otherwise
+// get, and the lead stays visible and reversible, just excluded from the
+// three CSV downloads.
+//
+// TWO independent signals, deliberately kept apart because they are not
+// equally trustworthy:
+//
+//   1. INDUSTRY, from an enriched company profile (Apollo, or a bulk
+//      export import). This is the reliable one — Apollo's industry
+//      values are a fixed vocabulary, so matching them is exact rather
+//      than a guess. Applied by applyCompetitorDQ (below), which runs
+//      AFTER a scan because a profile may not exist at scan time and may
+//      only arrive later via enrichment.
+//   2. COMPANY NAME, at scan time, from the row itself. This one can
+//      only ever be a heuristic, so it is deliberately NARROW: whole
+//      phrases that essentially only appear in the name of an IT
+//      services business ("managed services", "IT solutions", "cyber
+//      security"), never single broad words like "technologies",
+//      "systems", "digital" or "solutions", which sit in the names of
+//      plenty of manufacturers, clinics and logistics firms.
+export const COMPETITOR_DQ_LABEL = "Competitor / IT services company";
+
+// Apollo's own industry vocabulary, matched whole. Adding a value here
+// is a real product decision — it disqualifies every company carrying it.
+export const COMPETITOR_INDUSTRIES: string[] = [
+  "information technology & services",
+  "information technology and services",
+  "computer software",
+  "computer & network security",
+  "computer and network security",
+  "computer networking",
+  "computer hardware",
+  "internet",
+  "it services and it consulting",
+  "cloud computing",
+  "managed services",
+];
+
+export function isCompetitorIndustry(industry: string | undefined | null): boolean {
+  const v = String(industry || "").trim().toLowerCase();
+  if (!v) return false;
+  return COMPETITOR_INDUSTRIES.includes(v);
+}
+
+// Narrow on purpose — see the note above. Every entry is a multi-word
+// phrase or an unambiguous acronym.
+const COMPETITOR_NAME_RE =
+  /\b(managed\s+(?:it\s+)?services?(?:\s+provider)?|msp\b|it\s+services|it\s+solutions|it\s+consulting|it\s+support|microsoft\s+partner|gold\s+partner|solution\s+provider|cyber\s*security|network\s+security|network\s+solutions|cloud\s+solutions|cloud\s+services|computer\s+services|computer\s+solutions|tech\s+solutions|technology\s+solutions|technology\s+partners?|systems?\s+integrator|value\s+added\s+reseller|\bvar\b)\b/i;
+
+export function isCompetitorName(companyName: string | undefined | null): boolean {
+  const v = String(companyName || "").trim();
+  return v.length > 0 && COMPETITOR_NAME_RE.test(v);
+}
+
 function getDQReasons(combinedText: string, resolved: ResolvedFields, licensing: LicensingResult | null, qualifyThreshold: number): string[] {
   const reasons: string[] = [];
   for (const rule of DQ_RULES) if (rule.pattern.test(combinedText)) reasons.push(rule.label);
@@ -776,6 +841,10 @@ function getDQReasons(combinedText: string, resolved: ResolvedFields, licensing:
   const emailDomain = getEmailDomain(resolved.email);
   if (emailDomain && isFreeEmailDomain(emailDomain)) reasons.push(PERSONAL_EMAIL_DQ_LABEL);
   if (isCrmMetadataOnly(resolved.comments)) reasons.push(CRM_METADATA_ONLY_DQ_LABEL);
+  // Company-NAME signal only. The far more reliable industry signal needs
+  // an enriched profile, which detection has no access to — see
+  // applyCompetitorDQ, run right after a scan and again after enrichment.
+  if (isCompetitorName(resolved.company as string)) reasons.push(COMPETITOR_DQ_LABEL);
   return reasons;
 }
 

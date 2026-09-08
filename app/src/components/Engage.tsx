@@ -73,6 +73,7 @@ interface EngageProps {
   onManageDispositions: () => void;
   companyProfiles: CompanyProfile[];
   onImportCompanyProfiles: (files: FileList | File[]) => Promise<ImportResult[]>;
+  onDeleteContacts: (ids: string[]) => void;
 
   leadLists: LeadList[];
   leadListsLoading: boolean;
@@ -155,6 +156,7 @@ export default function Engage({
   onManageDispositions,
   companyProfiles,
   onImportCompanyProfiles,
+  onDeleteContacts,
   leadLists,
   leadListsLoading,
   leadListsError,
@@ -260,6 +262,7 @@ export default function Engage({
           dispositions={dispositions}
           companyProfiles={companyProfiles}
           onImportCompanyProfiles={onImportCompanyProfiles}
+          onDeleteContacts={onDeleteContacts}
         />
       )}
       {tab === "contacts" && (

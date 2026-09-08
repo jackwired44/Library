@@ -24,7 +24,7 @@
 // - The HQ city/state/country feeds the company's time zone (lib/
 //   timezones.ts) — the first real location signal this app has had.
 import { dbGetAll, dbPut, dbDelete, STORE_COMPANY_PROFILES } from "./db";
-import { guessColumn, getEmailDomain, isFreeEmailDomain } from "./detection";
+import { guessColumn, getEmailDomain, isFreeEmailDomain, isCompetitorIndustry, COMPETITOR_DQ_LABEL, type ResultRow } from "./detection";
 
 export interface CompanyProfile {
   key: string; // normalized company name — same key lib/companies.ts uses
@@ -304,4 +304,45 @@ export function companiesNeedingEnrichment(
     seen.set(key, { companyName: name, domain });
   });
   return Array.from(seen.values());
+}
+
+/* ------------------------------------------------------------------ */
+/* Competitor Auto-DQ by enriched industry                              */
+/* ------------------------------------------------------------------ */
+// The reliable half of the competitor rule (see lib/detection.ts's
+// COMPETITOR_DQ_LABEL for the full reasoning). Detection itself never sees
+// company profiles — a profile may not exist when a row is scanned, and
+// may only arrive later via Apollo enrichment — so this runs as a separate
+// pass, in the same shape and the same position as applyStickyState:
+//
+//   scanParsedFiles(...) -> applyStickyState(rows, contacts)
+//                        -> applyCompetitorDQ(rows, profiles)
+//
+// and again over the rows on screen after an enrichment run, so newly
+// learned industries disqualify immediately rather than at the next scan.
+//
+// Mutates in place and returns how many rows it newly disqualified, so a
+// caller can report "N companies disqualified as IT services" rather than
+// changing tiers silently.
+export function applyCompetitorDQ(rows: ResultRow[], profiles: CompanyProfile[]): number {
+  if (!profiles.length) return 0;
+  let changed = 0;
+  for (const row of rows) {
+    if (row.dqReasons.includes(COMPETITOR_DQ_LABEL)) continue; // already flagged by name
+    const f = row.row.__f as { company?: unknown; email?: unknown };
+    const company = String(f.company || "").trim();
+    if (!company) continue;
+    const profile = profileForCompany(profiles, normalizeCompanyKey(company), [String(f.email || "")]);
+    if (!profile || !isCompetitorIndustry(profile.industry)) continue;
+    row.dqReasons = [...row.dqReasons, COMPETITOR_DQ_LABEL];
+    row.tier = "dq";
+    changed++;
+  }
+  return changed;
+}
+
+// Which of these companies are competitors by enriched industry — used by
+// the Companies view to badge and bulk-remove them.
+export function competitorCompanyKeys(profiles: CompanyProfile[]): Set<string> {
+  return new Set(profiles.filter((p) => isCompetitorIndustry(p.industry)).map((p) => p.key));
 }
