@@ -3902,6 +3902,79 @@ LinkedIn is still not scrapeable and has no API here — see "Contacts:
 Profile Agent" above for why that stays a manual field plus an Apollo-
 supplied URL.
 
+## Home rebuilt as a three-tier dashboard + Weekly Goals with pace (app/ only)
+
+Per Jack: "i want to make a fully built out home page and make the weekly
+goals much more defined and not ai crap use hubspot for this ui swap,"
+against a redesign brief whose own diagnosis was right — the page was a
+flat grid of equal-weight metric cards, so nothing read first and the rep
+had to scan and decide rather than look and act.
+
+**Cross-checked the brief against real data before building.** Roughly
+half of what it specified has no data behind it, and building those
+blocks with placeholder numbers would have made the page look finished
+while lying every morning. What was dropped, and why:
+- **Connects** (calls that reached someone) — the brief is right that
+  calls without connects is vanity, but `connected` is a flag on a
+  DISPOSITION, and a disposition lives on the Contact as one latest
+  value, not on a call. Three voicemails to one person leave one value.
+  Needs the per-call record (see the disposition section above); it is
+  the next brick and the dialer makes it necessary anyway.
+- **Reply classification** ("willing to meet", "question", "referral") —
+  does not exist anywhere. `Task.repliedAt` is a manual "Mark replied"
+  toggle with no reply body, sender or real timestamp. The page shows
+  what was flagged, and calls it "flagged" rather than implying a real
+  inbox.
+- **Bounce rate and auto-paused sequences** — no delivery data at all
+  until SendGrid. The page shows sequences PAUSED BY HAND and says so,
+  rather than implying the system decided.
+- **Reply rate** — same reason; a ratio of completed email tasks to
+  manual flags is not a reply rate and would read as one.
+- **"Start call session"** — there is no dialer; zero occurrences in the
+  codebase. The button is honest: "Start calling", landing on Calls.
+
+**What was built, in the brief's four tiers:**
+1. **Greeting + one line of state.** Time-aware greeting, date and
+   viewing-as on the right. The state line drops zero clauses entirely,
+   so a clean day reads clean rather than printing "0 overdue".
+2. **The action band** — the page's focal point and its ONLY primary
+   button, with a 3px brand left border. States the queue size, overdue
+   count and which product lines it covers, read off each task's
+   contact. Empty state swaps to a SECONDARY "Go to sequences" rather
+   than showing a dead primary button.
+3. **Today's numbers** in one hairline-separated container: Calls,
+   Emails, Meetings booked, Follow-ups due. Deltas compare against
+   **your own average for this weekday** (`sameWeekdayAverage`,
+   `lib/weeklyGoals.ts`) rather than yesterday, since Monday against
+   Friday is noise. Needs no backend — every task already carries
+   `completedAt`. The delta is omitted entirely below two prior
+   same-weekday samples rather than printing a meaningless one.
+4. **Two columns.** Left "Needs you now" is an action list, not a metric
+   list: overdue tasks, today's follow-ups, flagged replies, paused
+   sequences — each block hidden entirely when empty, and the whole
+   column collapsing to a designed "You're clear" state when nothing
+   needs attention. Right is week counters plus Weekly Goals.
+
+**Weekly Goals rebuilt around pace, which is the actual point.** The old
+version was three rows of bare number inputs and a thin bar: it told you
+how full a bar was, never whether you were on track. Each metric now
+shows where you are, a marker for where you SHOULD be given how far
+through the week it is (`weekProgressFraction`), and a state — Goal hit /
+On pace / N behind pace — with "on pace" as a 5% band rather than a knife
+edge, so being half a call short of a 50 target isn't coloured as a
+failure. Editing moved behind an Edit toggle so the display state is
+clean, and **defaults to open when no metric has a target yet**, so a
+fresh week can't read "No target set" three times with the only fix
+hidden behind a button.
+
+**Deliberately not done**, per the brief's own instruction: no chart. Six
+data points of history is decoration, not a trend.
+
+**Verification.** Platform audit 54/54 (one new check: never more than
+one primary button on Home), disposition suite 12/12, audit-fix suite
+8/8, Companies 16/16, plus a live pass over both the empty and populated
+Home states.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

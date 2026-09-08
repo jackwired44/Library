@@ -134,3 +134,42 @@ export function updateMetric(
 ): WeeklyGoals {
   return { ...goals, metrics: goals.metrics.map((m) => (m.id === id ? { ...m, ...patch } : m)) };
 }
+
+// The average number of completed tasks on THIS weekday across previous
+// weeks — the comparison the Home dashboard uses for its deltas. Comparing
+// today to yesterday is noise when Monday and Friday behave differently;
+// comparing Tuesday to your own Tuesdays is a real signal.
+//
+// Needs no backend: every task already carries completedAt, so this is
+// computed from history the app already has. Returns null when there
+// aren't at least two prior same-weekday samples, so the UI can omit the
+// delta rather than print a meaningless one.
+export function sameWeekdayAverage(
+  tasks: Task[],
+  channel: "call" | "email",
+  todayKey: string,
+  weeksBack = 6
+): number | null {
+  const today = new Date(`${todayKey}T12:00:00`);
+  if (Number.isNaN(today.getTime())) return null;
+  const samples: number[] = [];
+  for (let i = 1; i <= weeksBack; i++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i * 7);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    samples.push(countCompletedChannelTasks(tasks, channel, key, key));
+  }
+  const seen = samples.filter((n) => n > 0);
+  if (seen.length < 2) return null;
+  return samples.reduce((a, b) => a + b, 0) / samples.length;
+}
+
+// How far through the working week we are, 0..1, used to show whether a
+// weekly goal is on pace rather than just how full its bar is. Monday
+// morning at 20% of target is fine; Friday at 20% is not.
+export function weekProgressFraction(now: Date = new Date()): number {
+  const day = now.getDay(); // 0 Sun .. 6 Sat
+  const elapsedDays = day === 0 ? 6 : day - 1; // Monday-start
+  const withinDay = (now.getHours() * 60 + now.getMinutes()) / 1440;
+  return Math.min(1, Math.max(0, (elapsedDays + withinDay) / 5));
+}

@@ -1164,8 +1164,8 @@ export default function App() {
               tasks={tasks}
               contacts={contacts}
               sequences={sequences}
-              enrollments={enrollments}
               onToggleTask={toggleTask}
+              onNavigate={(tab) => { setEngageEntry({ tab }); setView("engage"); }}
               weeklyGoals={getOrCreateCurrentWeekGoals()}
               onUpdateMetric={updateWeeklyMetric}
               onAddMetric={addWeeklyMetric}
