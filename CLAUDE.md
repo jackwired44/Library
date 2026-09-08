@@ -3760,10 +3760,15 @@ checkboxes plus a tier row plus a date row that used to span the whole
 screen. The popover is right-anchored — left-anchored ran off the viewport,
 caught by screenshotting rather than assumed.
 
-**Backup/Restore moved into the sidebar.** It used to sit above the page
-title on EVERY view, which is the first thing you saw on Home. It is a
-settings-shaped action, so it now lives in the sidebar above the account
-block.
+**Backup/Restore moved into the Lead Library.** It used to sit above the
+page title on EVERY view, which is the first thing you saw on Home. It
+briefly moved to the sidebar, then to the Lead Library per Jack ("backup
+and restore can be in the library") — which is the better home anyway,
+since the Library is where the filed data it protects actually lives. It
+renders in the Lead Library's page header, passed down from `App.tsx` as
+a `backup` node so the component keeps owning its own state and the
+Library doesn't need to know what a backup is. The Lead Library also
+gained a real `.page-head` title while it was being touched.
 
 **Scanner: the two accounting lines were saying the same thing twice.**
 Per Jack, pasting both back. There was a transient dedupe banner AND the

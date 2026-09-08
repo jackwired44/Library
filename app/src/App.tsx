@@ -1147,19 +1147,6 @@ export default function App() {
             </div>
           ))}
         </nav>
-        {/* Global utilities live in the sidebar, not stacked above every
-            page title — backup is a settings-shaped action, not something
-            you do while working a list. */}
-        <div className="sidebar-utils">
-          <BackupRestore
-            libraryEntries={libraryEntries}
-            libraryGroups={libraryGroups}
-            historyEntries={historyEntries}
-            setLibraryEntries={setLibraryEntries}
-            setLibraryGroups={setLibraryGroups}
-            setHistoryEntries={setHistoryEntries}
-          />
-        </div>
         <AccountPanel
           onOpenSettings={() => setNotesPanelTab("cheatsheet")}
           onOpenNotes={() => setNotesPanelTab("notes")}
@@ -1298,6 +1285,16 @@ export default function App() {
           )}
           {view === "library" && (
             <LibraryView
+              backup={
+                <BackupRestore
+                  libraryEntries={libraryEntries}
+                  libraryGroups={libraryGroups}
+                  historyEntries={historyEntries}
+                  setLibraryEntries={setLibraryEntries}
+                  setLibraryGroups={setLibraryGroups}
+                  setHistoryEntries={setHistoryEntries}
+                />
+              }
               contacts={contacts}
               companyProfiles={companyProfiles}
               entries={libraryEntries}

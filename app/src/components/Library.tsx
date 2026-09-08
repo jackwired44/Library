@@ -65,6 +65,10 @@ interface LibraryProps {
   // attachScanResultsToContacts, which OVERWRITES those fields, silently
   // wiping a disposition set earlier and nulling meetingBookedAt.
   contacts: Contact[];
+  // Backup/Restore lives here, per Jack — the Lead Library is where the
+  // filed data it protects actually is, so the control sits with the
+  // thing it backs up rather than in the global chrome.
+  backup?: React.ReactNode;
   // Same reason as `contacts`: a competitor industry must disqualify a
   // row filed straight into a folder, not only one scanned in Scanner.
   companyProfiles: CompanyProfile[];
@@ -83,7 +87,7 @@ interface LibraryProps {
   ruleOverrides: RuleOverrides;
 }
 
-export default function LibraryView({ contacts, companyProfiles, entries, setEntries, groups, setGroups, loading, error, onLoadIntoScanner, onRecordHistory, ruleOverrides, dispositions }: LibraryProps) {
+export default function LibraryView({ backup, contacts, companyProfiles, entries, setEntries, groups, setGroups, loading, error, onLoadIntoScanner, onRecordHistory, ruleOverrides, dispositions }: LibraryProps) {
   const [openFolderId, setOpenFolderId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [showNewGroupForm, setShowNewGroupForm] = useState(false);
@@ -328,11 +332,17 @@ export default function LibraryView({ contacts, companyProfiles, entries, setEnt
 
   return (
     <div>
-      <p style={{ color: "#4c6167", maxWidth: 700 }}>
-        Every month from October 2025 forward has its own folder, ready to file leads into whether or not anything's been
-        uploaded yet. Each folder holds up to 3 files: one combined list of every Strong Signal lead that month, plus the 2
-        category breakdowns (Dynamics 365, M365 / Azure). Only Strong Signal leads are ever kept here.
-      </p>
+      <div className="page-head">
+        <div>
+          <h1 className="page-title">Lead library</h1>
+          <p className="page-sub">
+            Every month from October 2025 forward has its own folder. Each holds up to 3 files: one combined list of that
+            month's Strong Signal leads, plus the Dynamics 365 and M365 / Azure breakdowns. Only Strong Signal leads are
+            kept here.
+          </p>
+        </div>
+        {backup && <div className="page-actions">{backup}</div>}
+      </div>
       {error && <div style={{ color: "#9A5B22", marginBottom: 12 }}>{error}</div>}
 
       <input
