@@ -1260,6 +1260,11 @@ export default function App() {
               onRemoveMetric={removeWeeklyMetric}
               users={users}
               onUpdateTaskFields={updateTaskFields}
+              attempts={attempts}
+              dispositions={dispositions}
+              libraryFileCount={libraryEntries.length}
+              listCount={leadLists.length}
+              uploadCount={historyEntries.length}
             />
           )}
           {view === "scanner" && (

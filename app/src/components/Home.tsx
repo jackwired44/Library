@@ -11,6 +11,8 @@ import type { Contact } from "../lib/contacts";
 import { CATEGORY_META } from "../lib/detection";
 import { resolveStatus, type Sequence } from "../lib/sequences";
 import { SELF_USER_ID, userLabel, type PlatformUser } from "../lib/users";
+import { dispositionMetaFor, type CustomDisposition } from "../lib/dispositions";
+import type { OutreachAttempt } from "../lib/outreachAttempts";
 
 interface HomeProps {
   tasks: Task[];
@@ -26,6 +28,14 @@ interface HomeProps {
   // The action band's single primary button needs somewhere to go. Home
   // has no router of its own, so App hands it a navigate callback.
   onNavigate?: (tab: "calls" | "sequences" | "contacts") => void;
+  // Read-only counts and activity for the pipeline strip and the activity
+  // feed. Everything here is already loaded by App — Home does not read
+  // IndexedDB and does not introduce a data path of its own.
+  attempts?: OutreachAttempt[];
+  dispositions?: CustomDisposition[];
+  libraryFileCount?: number;
+  listCount?: number;
+  uploadCount?: number;
 }
 
 
@@ -40,6 +50,11 @@ export default function Home({
   contacts,
   sequences,
   onToggleTask,
+  attempts = [],
+  dispositions = [],
+  libraryFileCount = 0,
+  listCount = 0,
+  uploadCount = 0,
   weeklyGoals,
   onUpdateMetric,
   onAddMetric,
@@ -257,6 +272,54 @@ export default function Home({
     });
   }, [contacts]);
 
+  // ---- Pipeline snapshot: what's actually in the system. Counts only,
+  // all from props App already holds — no new data path.
+  const companyCount = useMemo(() => {
+    const set = new Set<string>();
+    contacts.forEach((c) => {
+      const n = (c.company || "").trim().toLowerCase();
+      if (n) set.add(n);
+    });
+    return set.size;
+  }, [contacts]);
+
+  const strongSignalContacts = useMemo(
+    () => contacts.filter((c) => c.tier === "signal").length,
+    [contacts]
+  );
+
+  const notYetWorked = useMemo(
+    () => contacts.filter((c) => !(c.callCount || 0) && !(c.emailCount || 0)).length,
+    [contacts]
+  );
+
+  // ---- Lead mix: this app's answer to the "deal stages" bar every other
+  // CRM home screen carries. There are no deal stages here — the closest
+  // real thing is the tier the detection engine assigned and the product
+  // line it landed in, both already on the Contact.
+  const leadMix = useMemo(() => {
+    const tiers = { signal: 0, mention: 0, dq: 0, none: 0 };
+    const lines: Record<string, number> = {};
+    contacts.forEach((c) => {
+      if (c.tier === "signal") tiers.signal += 1;
+      else if (c.tier === "mention") tiers.mention += 1;
+      else if (c.tier === "dq") tiers.dq += 1;
+      else tiers.none += 1;
+      if (c.tier === "signal" && c.category) lines[c.category] = (lines[c.category] || 0) + 1;
+    });
+    return { tiers, lines };
+  }, [contacts]);
+
+  // ---- Recent activity: the last real outreach attempts, newest first.
+  // Reads the attempt store (the only place with a per-attempt outcome and
+  // timestamp), never a task's scheduled date.
+  const recentActivity = useMemo(() => {
+    return [...attempts]
+      .sort((a, b) => String(b.at).localeCompare(String(a.at)))
+      .slice(0, 8)
+      .map((a) => ({ attempt: a, contact: contactById.get(a.contactId) || null }));
+  }, [attempts, contactById]);
+
   return (
     <div className="home">
       {/* ---- Tier 1: greeting + one line of real state ---- */}
@@ -318,6 +381,62 @@ export default function Home({
         <DayMetric label="Emails" value={emailsToday} avg={emailsAvg} />
         <DayMetric label="Meetings booked" value={meetingsBookedToday} />
         <DayMetric label="Follow-ups due" value={followUpsDueToday} />
+      </div>
+
+      {/* ---- Pipeline: what's in the system, not what happened today ---- */}
+      <div className="section-label" style={{ marginTop: "var(--s5)" }}>Pipeline</div>
+      <div className="metric-row">
+        <PipeMetric label="Contacts" value={contacts.length} hint="Everyone captured from every upload" />
+        <PipeMetric label="Companies" value={companyCount} hint="Distinct company names across contacts" />
+        <PipeMetric label="Strong Signal" value={strongSignalContacts} hint="Contacts whose last scan cleared Strong Signal" />
+        <PipeMetric label="Not worked yet" value={notYetWorked} hint="No call and no email logged against them" />
+        <PipeMetric label="Lead library files" value={libraryFileCount} hint="Filed category files across every folder" />
+        <PipeMetric label="Lists" value={listCount} hint="Custom lead lists" />
+        <PipeMetric label="Uploads" value={uploadCount} hint="CSV imports in History" />
+      </div>
+
+      <div className="lead-mix">
+        <div className="lead-mix-head">
+          <span className="lead-mix-title">Lead mix</span>
+          <span className="lead-mix-sub">
+            {contacts.length
+              ? `${contacts.length.toLocaleString()} contacts by the tier their last scan gave them`
+              : "No contacts yet — upload a CSV in Scanner"}
+          </span>
+        </div>
+        {contacts.length > 0 && (
+          <>
+            <div className="mix-bar" role="img" aria-label="Lead tiers">
+              {([
+                ["signal", leadMix.tiers.signal, "var(--success)"],
+                ["mention", leadMix.tiers.mention, "var(--warn, #C98A16)"],
+                ["dq", leadMix.tiers.dq, "#B5443B"],
+                ["none", leadMix.tiers.none, "var(--line-strong)"],
+              ] as const).map(([k, v, color]) =>
+                v > 0 ? (
+                  <span
+                    key={k}
+                    style={{ width: `${(v / contacts.length) * 100}%`, background: color }}
+                    title={`${v} ${TIER_MIX_LABEL[k]}`}
+                  />
+                ) : null
+              )}
+            </div>
+            <div className="mix-legend">
+              <MixKey color="var(--success)" label={TIER_MIX_LABEL.signal} value={leadMix.tiers.signal} />
+              <MixKey color="var(--warn, #C98A16)" label={TIER_MIX_LABEL.mention} value={leadMix.tiers.mention} />
+              <MixKey color="#B5443B" label={TIER_MIX_LABEL.dq} value={leadMix.tiers.dq} />
+              <MixKey color="var(--line-strong)" label={TIER_MIX_LABEL.none} value={leadMix.tiers.none} />
+              <span style={{ flex: 1 }} />
+              {Object.entries(leadMix.lines).map(([key, n]) => (
+                <span key={key} className="mix-line">
+                  {CATEGORY_META[key as keyof typeof CATEGORY_META]?.label || key}
+                  <b>{n}</b>
+                </span>
+              ))}
+            </div>
+          </>
+        )}
       </div>
 
       {/* ---- Tier 4: needs you now / this week ---- */}
@@ -488,6 +607,36 @@ export default function Home({
             <WeekRow label="Follow-up leads" value={followUpLeads} />
           </div>
 
+          <div className="section-label" style={{ marginTop: "var(--s4)" }}>Recent activity</div>
+          <div className="stack-card">
+            {recentActivity.length === 0 ? (
+              <div className="stack-empty">
+                No outreach logged yet. Logging a call or email outcome from Calls,
+                Emails or a contact's record puts it here.
+              </div>
+            ) : (
+              recentActivity.map(({ attempt, contact }) => {
+                const meta = dispositionMetaFor(attempt.outcome, dispositions);
+                return (
+                  <div key={attempt.id} className="activity-row">
+                    <span className="activity-icon">{CHANNEL_ICON[attempt.channel] || "•"}</span>
+                    <span className="activity-who">
+                      {contact ? `${contact.firstName} ${contact.lastName}`.trim() || "Unnamed contact" : "Unknown contact"}
+                      {contact?.company ? <span className="activity-co"> · {contact.company}</span> : null}
+                    </span>
+                    <span className="chip" style={{ color: meta.color, background: meta.bg, borderColor: meta.bg }}>
+                      {meta.label}
+                    </span>
+                    <span className="activity-when">{relativeDay(localDayKeyFromIso(attempt.at) || today, today)}</span>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        {/* Third column at desk width; drops to a full-width row below it. */}
+        <div className="home-goals-col">
           <WeeklyGoalsPanel
             goals={weeklyGoals}
             tasks={scopedTasks}
@@ -793,7 +942,7 @@ function WeeklyGoalsPanel({
 
   return (
     <>
-      <div className="section-label" style={{ marginTop: "var(--s4)" }}>Weekly goals</div>
+      <div className="section-label">Weekly goals</div>
       <div className="stack-card">
         <div className="goals-head">
           <span className="goals-week">{weekLabel}</span>
@@ -896,5 +1045,38 @@ function WeeklyGoalsPanel({
         )}
       </div>
     </>
+  );
+}
+
+
+// A pipeline count. Deliberately plainer than DayMetric: there is no
+// same-weekday average to compare a stock count against, so it shows the
+// number and what it means on hover, and never a delta it can't compute.
+function PipeMetric({ label, value, hint }: { label: string; value: number; hint: string }) {
+  return (
+    <div className="metric" title={hint}>
+      <div className="metric-label">{label}</div>
+      <div className="metric-value">{value.toLocaleString()}</div>
+    </div>
+  );
+}
+
+
+// Tier names as they read on the home screen. "No signal yet" is not a
+// fourth tier — it's a contact whose most recent scan never cleared
+// detection at all, so it genuinely has no tier (see CLAUDE.md).
+const TIER_MIX_LABEL = {
+  signal: "Strong Signal",
+  mention: "Needs Review",
+  dq: "Bad Lead",
+  none: "No signal yet",
+} as const;
+
+function MixKey({ color, label, value }: { color: string; label: string; value: number }) {
+  return (
+    <span className="mix-key">
+      <i style={{ background: color }} />
+      {label} <b>{value}</b>
+    </span>
   );
 }

@@ -1414,7 +1414,11 @@ textarea:focus {
    cards. Action band first, today's numbers second, then a split
    between what needs you now and how the week is going.
    ============================================================ */
-.home { max-width: 1200px; }
+/* Full width. A CRM welcome dashboard should use the whole desk, not sit
+   in a 1200px column with dead space beside it. Readability is protected
+   by the column grid below and by .page-sub's own measure, not by capping
+   the whole page. */
+.home { max-width: none; }
 
 .section-label {
   font-size: 10px;
@@ -1450,12 +1454,23 @@ textarea:focus {
 /* Tier 4 — two columns, needs-you-now weighted wider. */
 .home-cols {
   display: grid;
-  grid-template-columns: 1.4fr 1fr;
+  /* Three real columns at desk width: what needs you now (weighted
+     widest), the week's counters, and the goals board. */
+  grid-template-columns: 1.6fr 1fr 1fr;
   gap: var(--s4);
   margin-top: var(--s5);
   align-items: start;
 }
-@media (max-width: 900px) { .home-cols { grid-template-columns: 1fr; } }
+/* Narrower than a desk: goals drop to their own full-width row under the
+   other two rather than being squeezed into a third of a laptop screen. */
+@media (max-width: 1400px) {
+  .home-cols { grid-template-columns: 1.4fr 1fr; }
+  .home-goals-col { grid-column: 1 / -1; }
+}
+@media (max-width: 900px) {
+  .home-cols { grid-template-columns: 1fr; }
+  .home-goals-col { grid-column: auto; }
+}
 
 /* One card holding hairline-separated blocks. No nested cards. */
 .stack-card {
@@ -1625,3 +1640,64 @@ textarea:focus {
 /* Contacts table Reached cell */
 .reached-cell { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .reached-count { font-family: var(--font-mono, monospace); font-size: 12px; font-weight: 600; }
+
+/* Home — pipeline strip + recent activity feed.
+   The activity row is a single grid line, not a nested card: who, what
+   outcome, and how long ago, in one scan. */
+.activity-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: 9px var(--s4);
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+}
+.activity-row:last-child { border-bottom: none; }
+.activity-icon { flex: none; font-size: 13px; }
+.activity-who {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink-1);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.activity-co { color: var(--ink-3); font-weight: 400; }
+.activity-when { flex: none; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.stack-empty { padding: var(--s4); font-size: 12.5px; color: var(--ink-3); }
+
+/* Home — lead mix. One bar, one legend row: the tier split every other
+   CRM home screen fills with deal stages. */
+.lead-mix {
+  background: var(--bg-surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-sm);
+  padding: var(--s4);
+  margin-top: var(--s3);
+}
+.lead-mix-head { display: flex; align-items: baseline; gap: var(--s3); flex-wrap: wrap; }
+.lead-mix-title { font-size: 13px; font-weight: 600; color: var(--ink-1); }
+.lead-mix-sub { font-size: 12px; color: var(--ink-3); }
+.mix-bar {
+  display: flex;
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--bg-sunken);
+  margin: var(--s3) 0 var(--s2);
+}
+.mix-bar span { display: block; height: 100%; }
+.mix-legend { display: flex; align-items: center; gap: var(--s4); flex-wrap: wrap; font-size: 12px; color: var(--ink-2); }
+.mix-key { display: inline-flex; align-items: center; gap: 6px; }
+.mix-key i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+.mix-key b, .mix-line b { font-variant-numeric: tabular-nums; color: var(--ink-1); margin-left: 4px; }
+.mix-line {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink-3);
+}
