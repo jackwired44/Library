@@ -21,42 +21,64 @@ interface CheatSheetProps {
   onSwitchToDispositions?: () => void;
 }
 
-export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrides, onSwitchToNotes, onSwitchToDispositions }: CheatSheetProps) {
-  return (
-    <div
-      onClick={onClose}
-      style={{ position: "fixed", inset: 0, background: "rgba(8,30,34,0.45)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 20px", zIndex: 50, overflowY: "auto" }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{ background: "#fff", borderRadius: 16, maxWidth: 760, width: "100%", padding: "28px 30px", boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}
-      >
-        {onSwitchToNotes && (
-          <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
-            <button onClick={onSwitchToNotes} style={{ border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 13, fontWeight: 700, background: "#F4F6F7", color: "#5b6b72", cursor: "pointer" }}>
-              Platform Notes
-            </button>
-            <button disabled style={{ border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 13, fontWeight: 700, background: "linear-gradient(90deg, var(--accent), var(--accent-blue))", color: "#fff" }}>
-              Cheat Sheet
-            </button>
-            {onSwitchToDispositions && (
-              <button onClick={onSwitchToDispositions} style={{ border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 13, fontWeight: 700, background: "#F4F6F7", color: "#5b6b72", cursor: "pointer" }}>
-                Dispositions
-              </button>
-            )}
-          </div>
-        )}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-          <h2 style={{ margin: 0, fontSize: 19 }}>Cheat Sheet — what "Detected" means</h2>
-          <button onClick={onClose} style={{ border: "none", background: "none", fontSize: 20, color: "#4c6167", cursor: "pointer" }}>✕</button>
-        </div>
-        <p style={{ color: "#4c6167", fontSize: 13, marginTop: 0, marginBottom: 20 }}>
-          Two independent engines run over every row and combine into one result. Reassign or re-tier any row manually any
-          time — this is what the auto-detection is doing before you touch it. The threshold and extra trigger words below
-          are yours to edit; everything else here is the fixed rule set built into the app.
-        </p>
+type SettingsPane = "rules" | "licensing" | "product" | "views" | "dq" | "dupes";
 
-        <Section title="🔥 Hot signals right now">
+const PANES: { key: SettingsPane; label: string; hint: string }[] = [
+  { key: "rules", label: "Hot signals", hint: "What auto-qualifies right now" },
+  { key: "licensing", label: "Licensing & threshold", hint: "Microsoft SKUs, seat count" },
+  { key: "product", label: "Product lines", hint: "The two buckets and their gates" },
+  { key: "views", label: "View tabs", hint: "Sub-filters inside a category" },
+  { key: "dq", label: "Auto-DQ rules", hint: "What sends a lead to Bad Leads" },
+  { key: "dupes", label: "Duplicates", hint: "How repeats are matched" },
+];
+
+export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrides, onSwitchToNotes, onSwitchToDispositions }: CheatSheetProps) {
+  const [pane, setPane] = useState<SettingsPane>("rules");
+  return (
+    <div className="settings-backdrop" onClick={onClose}>
+      <div className="settings-shell" onClick={(e) => e.stopPropagation()}>
+        <header className="settings-head">
+          <div>
+            <h2 className="settings-title">Settings</h2>
+            <p className="settings-sub">How this platform qualifies a lead, and what you can change about it.</p>
+          </div>
+          <button className="settings-close" onClick={onClose} aria-label="Close settings">✕</button>
+        </header>
+
+        <div className="settings-body">
+          <nav className="settings-rail" aria-label="Settings sections">
+            <div className="settings-rail-group">Qualification</div>
+            {PANES.map((p) => (
+              <button
+                key={p.key}
+                className={`settings-rail-btn${pane === p.key ? " active" : ""}`}
+                onClick={() => setPane(p.key)}
+              >
+                <span className="settings-rail-label">{p.label}</span>
+                <span className="settings-rail-hint">{p.hint}</span>
+              </button>
+            ))}
+            {(onSwitchToDispositions || onSwitchToNotes) && (
+              <>
+                <div className="settings-rail-group">Elsewhere</div>
+                {onSwitchToDispositions && (
+                  <button className="settings-rail-btn" onClick={onSwitchToDispositions}>
+                    <span className="settings-rail-label">Call dispositions</span>
+                    <span className="settings-rail-hint">Add or remove outcomes</span>
+                  </button>
+                )}
+                {onSwitchToNotes && (
+                  <button className="settings-rail-btn" onClick={onSwitchToNotes}>
+                    <span className="settings-rail-label">Platform notes</span>
+                    <span className="settings-rail-hint">Your dated build log</span>
+                  </button>
+                )}
+              </>
+            )}
+          </nav>
+
+          <div className="settings-content">
+        <Section show={pane === "rules"} title="Hot signals right now" blurb="These skip the trigger-word and seat-count requirements entirely — clearing one of these gates is itself proof of intent, so the hit is Strong Signal on its own.">
           <p style={{ marginBottom: 8 }}>
             These clear a category match AND jump straight to Strong Signal on their own — no trigger word or seat count
             needed on top:
@@ -74,7 +96,7 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
           </p>
         </Section>
 
-        <Section title="Licensing — Microsoft SKUs">
+        <Section show={pane === "licensing"} title="Licensing — Microsoft SKUs" blurb="Engine 1 of 2. Looks for a named Microsoft SKU, then checks for a confirmed seat count against the threshold below.">
           <p>
             Looks for any of {SKU_CATALOGUE.length} Microsoft SKU patterns. A <strong>Strong Signal</strong> requires a
             confirmed seat/user/license count at or above the threshold below. A confirmed count under that threshold
@@ -105,7 +127,7 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
           <ChipList items={SKU_CATALOGUE.map((s) => s.label)} />
         </Section>
 
-        <Section title="Platform — two product-line buckets">
+        <Section show={pane === "product"} title="Product lines" blurb="Engine 2 of 2. Every Strong Signal lead lands in exactly one of two buckets, and each has its own qualification gate.">
           <p>Every row also gets checked against two independent product-line buckets. When a row matches both, the auto-default picks in this order (always manually reassignable regardless):</p>
           <ol style={{ margin: "8px 0 14px", paddingLeft: 20 }}>
             {ACTIVE_CATEGORY_KEYS.map((k) => (
@@ -170,7 +192,7 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
           </CategoryDetail>
         </Section>
 
-        <Section title="How each category breaks down further (View tabs)">
+        <Section show={pane === "views"} title="View tabs" blurb="Sub-filters inside a category. These change what you see, never what a lead files as — the download files are unaffected.">
           <p style={{ marginBottom: 10 }}>
             Once a category filter is active in Scanner or a Lead Library file, a "View:" row of tabs slices it further —
             purely for browsing/filtering. It never changes what's downloaded, filed, or which of the two categories a lead
@@ -203,24 +225,30 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
           </CategoryDetail>
         </Section>
 
-        <Section title="Auto-DQ — Bad Leads">
-          <p>Cross-cutting, applies on top of whatever category/tier a row would otherwise get, always wins. Still fully visible and reversible — just excluded from the three CSV downloads.</p>
+        <Section show={pane === "dq"} title="Auto-DQ — Bad Leads" blurb="Cross-cutting rules that override whatever tier a row would otherwise get.">
+          <p>A Bad Lead stays fully visible and reversible — it is only excluded from the CSV downloads.</p>
           <ChipList items={DQ_RULES.map((r) => r.label)} tone="dq" />
         </Section>
 
-        <Section title="Duplicates">
-          <p>Exact match on full name + company (case/whitespace-insensitive, no fuzzy matching), scoped to just the current import — not checked against the Library or History. Rows are flagged, never auto-removed.</p>
+        <Section show={pane === "dupes"} title="Duplicates" blurb="How a repeated lead inside one upload is recognised.">
+          <p>Exact match on full name + company, case and whitespace insensitive, no fuzzy matching. Scoped to the current import only — not checked against the Lead Library or History. The first row of a repeat group survives; the rest are merged into it and reported in the scan accounting line.</p>
         </Section>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+// A settings section. `show` lets the left rail switch panes without the
+// sections needing to know the rail exists.
+function Section({ title, children, show = true, blurb }: { title: string; children: React.ReactNode; show?: boolean; blurb?: string }) {
+  if (!show) return null;
   return (
-    <div style={{ marginBottom: 22 }}>
-      <div style={{ fontSize: 11.5, color: "#8b93a0", fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>{title}</div>
-      <div style={{ fontSize: 13, color: "#1B2430", lineHeight: 1.5 }}>{children}</div>
+    <div className="settings-section">
+      <h3 className="settings-section-title">{title}</h3>
+      {blurb && <p className="settings-section-blurb">{blurb}</p>}
+      <div className="settings-section-body">{children}</div>
     </div>
   );
 }

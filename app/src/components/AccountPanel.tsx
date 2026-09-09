@@ -23,14 +23,29 @@ interface AccountPanelProps {
   onOpenNotes: () => void;
 }
 
-// Eastern / Mountain / Pacific reference clocks. Mountain uses Denver
-// (observes DST) rather than Arizona — "MST" in Jack's ask reads as the
-// Mountain zone generally, not Arizona's year-round MST.
+// The four continental US zones, north to south of the map as you read
+// left to right. Mountain uses Denver (observes DST) rather than Arizona —
+// "MST" in Jack's ask reads as the Mountain zone generally, not Arizona's
+// year-round MST.
 const US_ZONE_CHEAT = [
   { label: "Eastern", zone: "America/New_York" },
+  { label: "Central", zone: "America/Chicago" },
   { label: "Mountain", zone: "America/Denver" },
   { label: "Pacific", zone: "America/Los_Angeles" },
 ];
+
+// Which of the four the person using the platform is actually sitting in.
+// Compared by UTC OFFSET at this moment, not by zone id, so a browser
+// reporting America/Detroit or America/Winnipeg still lights up the right
+// row instead of matching nothing. A rep outside all four (or on a
+// half-hour offset) simply gets no highlight rather than a wrong one.
+function matchesLocalZone(zone: string, localZone: string, now: Date): boolean {
+  try {
+    return formatTimeInZone(zone, now) === formatTimeInZone(localZone, now);
+  } catch {
+    return false;
+  }
+}
 
 export default function AccountPanel({ onOpenSettings, onOpenNotes, users, onAddUser, onEditUser, onRemoveUser }: AccountPanelProps) {
   // The local user's own clock/zone — per Jack, shown "for the local user
@@ -59,9 +74,6 @@ export default function AccountPanel({ onOpenSettings, onOpenNotes, users, onAdd
         <div className="account-info">
           <div className="account-name">{profile?.name || "Jack"}</div>
           <div className="account-org">{[profile?.role, profile?.org].filter(Boolean).join(" · ") || "Wired CIO"}</div>
-          <div className="account-org" title={`Your time zone, as this browser reports it: ${localZone}`}>
-            🕒 {formatTimeInZone(localZone, now)} {zoneAbbrev(localZone, now)} · {zoneLabel(localZone)}
-          </div>
         </div>
       </button>
       {/* US time-zone cheat window — per Jack: "a little cheat sheet window
@@ -69,17 +81,24 @@ export default function AccountPanel({ onOpenSettings, onOpenNotes, users, onAdd
           time est and pst." Same 30s tick as the local clock above; the
           abbreviation is live (EDT/MDT/PDT in summer), so DST is never
           misread. */}
-      <div className="tz-cheat" title="Current time in the three US zones most leads sit in">
-        {US_ZONE_CHEAT.map((z) => (
-          <div key={z.zone} className="tz-cheat-cell">
-            <div className="tz-cheat-label">{z.label}</div>
-            <div className="tz-cheat-time">{formatTimeInZone(z.zone, now)}</div>
-            <div className="tz-cheat-abbr">{zoneAbbrev(z.zone, now)}</div>
-          </div>
-        ))}
+      <div className="tz-cheat" title="Current time in the four continental US zones. Your own zone is highlighted.">
+        {US_ZONE_CHEAT.map((z) => {
+          const isYou = matchesLocalZone(z.zone, localZone, now);
+          return (
+            <div
+              key={z.zone}
+              className={`tz-cheat-cell${isYou ? " tz-cheat-you" : ""}`}
+              title={isYou ? `You are here — this browser reports ${zoneLabel(localZone)}` : undefined}
+            >
+              <div className="tz-cheat-label">{z.label}</div>
+              <div className="tz-cheat-time">{formatTimeInZone(z.zone, now)}</div>
+              <div className="tz-cheat-abbr">{zoneAbbrev(z.zone, now)}</div>
+            </div>
+          );
+        })}
       </div>
-      <button onClick={onOpenSettings} title="Cheat Sheet — how leads qualify, hot signals, product-line breakdown" className="account-gear account-gear-standalone">
-        ❓ Cheat Sheet
+      <button onClick={onOpenSettings} title="Settings — qualification rules, hot signals, thresholds, dispositions" className="account-gear account-gear-standalone">
+        ⚙ Settings
       </button>
       <button onClick={onOpenNotes} className="notes-trigger">
         📝 Platform notes

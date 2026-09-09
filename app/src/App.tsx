@@ -1218,6 +1218,38 @@ export default function App() {
       </header>
 
       <aside className="sidebar">
+        {/* Brand block. wiredcio.com is blocked by this environment's
+            network egress, so the real logo file could not be fetched —
+            this mark is drawn from the recorded brand palette (teal
+            #0E7A72, green #2CC295, ink #081E22) as a stand-in. Swap the
+            <svg> for the real asset when it's to hand; nothing else
+            depends on its shape. */}
+        <div className="sidebar-brand">
+          <svg className="sidebar-logo" viewBox="0 0 32 32" role="img" aria-label="Wired CIO">
+            <defs>
+              <linearGradient id="wcio-wire" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stopColor="#4CBFB3" />
+                <stop offset="100%" stopColor="#2CC295" />
+              </linearGradient>
+            </defs>
+            <rect x="0.75" y="0.75" width="30.5" height="30.5" rx="8" fill="none" stroke="url(#wcio-wire)" strokeWidth="1.5" />
+            {/* the "wire": a W drawn as a single traced conductor */}
+            <path
+              d="M7 10.5 L11 21.5 L16 13.5 L21 21.5 L25 10.5"
+              fill="none"
+              stroke="url(#wcio-wire)"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <circle cx="7" cy="10.5" r="1.9" fill="#2CC295" />
+            <circle cx="25" cy="10.5" r="1.9" fill="#4CBFB3" />
+          </svg>
+          <div className="sidebar-brand-text">
+            <span className="sidebar-brand-name">WIRED CIO</span>
+            <span className="sidebar-brand-sub">Sales Outbound</span>
+          </div>
+        </div>
         <nav className="sidebar-nav">
           {NAV_GROUPS.map((grp, gi) => (
             <div key={grp.group || `g${gi}`}>
