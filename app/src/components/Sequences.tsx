@@ -919,6 +919,19 @@ function SequenceDetail({
                   <div className="seq-step-num">STEP {i + 1}</div>
                   <div className="seq-step-main">
                   <span style={{ fontWeight: 600 }}>{stepTypeLabel(step).icon} {stepTypeLabel(step).label}</span>
+                  {step.channel === "email" && (
+                    <span className="seq-subject">
+                      <span className="seq-subject-label">Subject</span>
+                      <input
+                        aria-label="Step subject"
+                        defaultValue={step.subject || ""}
+                        onBlur={(e) => onUpdateStep(step.id, { subject: e.target.value })}
+                        placeholder="Add a subject line"
+                        title="The subject this step sends with. Merge fields fill in per contact."
+                        className="seq-subject-input"
+                      />
+                    </span>
+                  )}
                   {(step.sendDayOfWeek !== null && step.sendDayOfWeek !== undefined) && (
                     <span title="Rolled forward to this weekday" style={{ fontSize: 10.5, fontWeight: 700, color: "#0A66C2", background: "#EAF3FC", borderRadius: 999, padding: "1px 7px" }}>
                       {DAY_NAMES[step.sendDayOfWeek]}s
@@ -1456,16 +1469,22 @@ function EmailPreview({
   // Leads worth previewing against are ones with an email — a contact
   // with none can still be picked (it demonstrates the blocker) but the
   // ones that can actually receive mail come first.
-  const candidates = useMemo(() => {
+  // Searches the WHOLE contact directory — name, company, title, email,
+  // phone — then shows the first 50 matches, because a <select> with
+  // thousands of options is unusable. The count line below says which of
+  // those two things you are looking at.
+  const PREVIEW_LIMIT = 50;
+  const matches = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const scored = contacts.filter((c) => {
+    const found = contacts.filter((c) => {
       if (!q) return true;
-      return [c.firstName, c.lastName, c.fullName, c.company, c.email, c.title]
+      return [c.firstName, c.lastName, c.fullName, c.company, c.email, c.title, c.workPhone, c.mobilePhone]
         .filter(Boolean)
         .some((v) => String(v).toLowerCase().includes(q));
     });
-    return [...scored].sort((a, b) => Number(Boolean(b.email)) - Number(Boolean(a.email))).slice(0, 50);
+    return [...found].sort((a, b) => Number(Boolean(b.email)) - Number(Boolean(a.email)));
   }, [contacts, search]);
+  const candidates = useMemo(() => matches.slice(0, PREVIEW_LIMIT), [matches]);
 
   // The previewed lead must be one the dropdown is actually showing —
   // otherwise narrowing the search leaves the <select> displaying
@@ -1535,8 +1554,8 @@ function EmailPreview({
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search leads…"
-          style={{ border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 12.5, width: 160 }}
+          placeholder="Search all contacts…"
+          style={{ border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 12.5, flex: "1 1 150px", minWidth: 120 }}
         />
         <select
           value={picked?.id || ""}
@@ -1555,10 +1574,15 @@ function EmailPreview({
         </select>
       </div>
 
-      {!picked && (
-        <div style={{ fontSize: 12, color: "var(--muted)" }}>
-          Upload a CSV in Scanner first — the preview fills merge fields from a real lead rather than made-up sample data.
-        </div>
+      <div style={{ fontSize: 11, color: "var(--muted)", marginTop: -2, marginBottom: 8 }}>
+        {contacts.length === 0
+          ? "No contacts yet — upload a CSV in Scanner and any of them can be previewed here."
+          : matches.length > candidates.length
+            ? `Showing ${candidates.length} of ${matches.length.toLocaleString()} matches from all ${contacts.length.toLocaleString()} contacts — keep typing to narrow.`
+            : `${matches.length.toLocaleString()} of ${contacts.length.toLocaleString()} contacts match.`}
+      </div>
+      {!picked && contacts.length > 0 && (
+        <div style={{ fontSize: 12, color: "var(--muted)" }}>Nothing matches that search.</div>
       )}
 
       {picked && !isEmailStep && (
