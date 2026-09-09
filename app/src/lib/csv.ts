@@ -25,7 +25,7 @@ async function saveViaClaudeDownloads(fileName: string, text: string): Promise<b
   } catch {
     return false;
   }
-  if (!downloads) return false;
+  if (!downloads) return false; // capability not granted to this view — see downloadBlob's message
   try {
     await downloads.save({ filename: fileName, data: text });
     return true;
@@ -50,7 +50,24 @@ export async function downloadBlob(text: string, fileName: string, mime = "text/
     // Inside a claude.ai viewer, but the save genuinely failed (not a
     // decline) — the classic <a download> fallback below is a guaranteed
     // no-op here, so say so instead of silently doing nothing.
-    window.alert(`Couldn't save "${fileName}" here. Try again, or run this app outside the preview (npm run dev) to download normally.`);
+    //
+    // The overwhelmingly likely cause is that this page was republished
+    // without restating `downloads` in its capabilities object. That
+    // object is a FULL-SET declaration: anything not restated on a
+    // republish is silently revoked, with no error anywhere. It has
+    // happened twice. Name it, so the next report is "downloads got
+    // revoked" instead of "the download button broke".
+    let granted = false;
+    try {
+      granted = Boolean(await window.claude.use("downloads"));
+    } catch {
+      granted = false;
+    }
+    window.alert(
+      granted
+        ? `Couldn't save "${fileName}". Try again, or run this app outside the preview (npm run dev) to download normally.`
+        : `Downloads are turned off for this page, so "${fileName}" can't be saved.\n\nThis is a publish setting, not a bug in the file: the page needs republishing with the "downloads" capability restated. Nothing you can fix from here.`
+    );
     return;
   }
   const blob = new Blob([text], { type: mime });
