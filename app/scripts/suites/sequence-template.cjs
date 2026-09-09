@@ -68,6 +68,8 @@ Dana,Whitfield,IT Director,Ridgeline Orthopedics,dana@ridgelineortho.com,(312) 5
   // Open the email step's AI prompt and verify the REAL text landed.
   await page.locator('[data-step-channel="email"]').locator('button:has-text("Edit"), button:has-text("Close")').first().click();
   await page.waitForTimeout(500);
+  await page.click('.seg-btn:has-text("AI instructions")');
+  await page.waitForTimeout(400);
   const sys = await page.locator('textarea[aria-label="System prompt"]').inputValue();
   ok('System prompt is Apollo\'s verbatim', sys.includes('skilled conversationalist') && sys.includes('Once-in-a-Lifetime'), sys.slice(0,60));
   const usr = await page.locator('textarea[aria-label="User prompt"]').inputValue();

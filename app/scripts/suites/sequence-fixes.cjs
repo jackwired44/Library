@@ -42,7 +42,11 @@ Nora,Ellis,CFO,Harbor Dental,nora@harbordental.com,(415) 555-0144,Google Workspa
  // Email step preview: draft renders, merged
  await page.locator('[data-step-channel="email"]').locator('button:has-text("Edit")').first().click(); await sleep(900);
  let prev = await page.locator('.preview-col').innerText();
- ok('draft is shown, not "no body written"', /draft —/i.test(prev) && !/this step has no body written/.test(prev), prev.slice(0,300));
+ // The preview is a mail card now: To / From / Subject, then the body.
+ // "Draft —" was the old label; what matters is that the message renders
+ // rather than an empty-body placeholder.
+ ok('the message renders, not "no body written"',
+   /\bSUBJECT\b/.test(prev) && !/this step has no body written/i.test(prev), prev.slice(0,300));
  ok('draft is merged for the picked lead', /I'm Jack from Wired CIO/.test(prev) && /(Ridgeline Orthopedics|Harbor Dental)/.test(prev), prev.slice(prev.indexOf('Draft'), prev.indexOf('Draft')+320));
  const firstLead = /Dana/.test(prev) ? 'Dana' : 'Nora';
  await page.locator('select[aria-label="Preview lead"]').selectOption({index:1}); await sleep(800);

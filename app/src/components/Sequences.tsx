@@ -772,6 +772,13 @@ function SequenceDetail({
   const [listPickerId, setListPickerId] = useState("");
   const [stepType, setStepType] = useState<StepType>("call");
   const [linkedinWithMessage, setLinkedinWithMessage] = useState(true);
+  // The two prompts are ~80 lines between them. They stay collapsed so
+  // the step opens on the EMAIL, the way Apollo's does, with the
+  // instructions one click away.
+  // The step editor has two panes: the email itself, and the instructions
+  // that write it. Apollo separates these too — mixing them put a
+  // subject line and eighty lines of prompt in one scroll.
+  const [editorPane, setEditorPane] = useState<"email" | "ai">("email");
   const [stepDay, setStepDay] = useState<string>("");
   const [stepTime, setStepTime] = useState<string>("");
   const [enrollPicker, setEnrollPicker] = useState<Set<string>>(new Set());
@@ -941,6 +948,11 @@ function SequenceDetail({
                           const open = contentOpen || promptOpen;
                           setContentEditorStepId(open ? null : step.id);
                           setPromptEditorStepId(open ? null : step.id);
+                          // Always open on the message. The pane is shared
+                          // across steps, so without this a step opened
+                          // after an AI one lands on the prompts instead
+                          // of on its own body.
+                          if (!open) setEditorPane("email");
                         }}
                         title="Write this step — subject, body, and the AI prompts, with a live preview against a real lead"
                         style={{
@@ -967,52 +979,68 @@ function SequenceDetail({
                 {promptOpen && (
                   <div className="prompt-split" style={{ background: "var(--surface)", border: "1px solid var(--border)", borderTop: "none", borderRadius: "0 0 8px 8px", padding: "10px 12px", marginTop: -1 }}>
                     <div className="prompt-col">
+                      <div className="seg" style={{ marginBottom: 10 }}>
+                        <button
+                          className={`seg-btn${editorPane === "email" ? " active" : ""}`}
+                          onClick={() => setEditorPane("email")}
+                        >
+                          Email
+                        </button>
+                        <button
+                          className={`seg-btn${editorPane === "ai" ? " active" : ""}`}
+                          onClick={() => setEditorPane("ai")}
+                        >
+                          AI instructions
+                          {[step.systemPrompt, step.userPrompt].filter((t) => t?.trim()).length > 0 && " ✓"}
+                        </button>
+                      </div>
+                      {editorPane === "email" && (
                       <StepContentEditor
                         step={step}
                         onUpdate={(patch) => onUpdateStep(step.id, patch)}
                       />
-                    <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 10, lineHeight: 1.5 }}>
-                      These two prompts <strong>are</strong> the email on an automatic step — the body is written per
-                      contact from them rather than sent as fixed text, so editing them changes every email this step
-                      produces. Kept exactly as written, no reformatting.{" "}
-                      <strong>Nothing calls an AI from this app yet</strong>; these are stored so the wording is ready
-                      the moment sending is.
-                      <div style={{ marginTop: 6 }}>
-                        Merge fields available:{" "}
-                        {["{{contact.first_name}}", "{{account.name}}", "{{contact.title}}"].map((v) => (
-                          <code
-                            key={v}
-                            style={{ background: "var(--surface-sunken)", border: "1px solid var(--border)", borderRadius: 4, padding: "1px 5px", marginRight: 4, fontSize: 10.5 }}
-                          >
-                            {v}
-                          </code>
-                        ))}
-                        <span style={{ marginLeft: 4 }}>
-                          — wrap an optional one as <code style={{ fontSize: 10.5 }}>{"{{#if contact.title}}…{{#endif}}"}</code>
-                        </span>
-                      </div>
-                    </div>
-                    <label style={{ display: "block", fontSize: 10.5, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", marginBottom: 3 }}>System prompt</label>
-                    <textarea
-                      aria-label="System prompt"
-                      defaultValue={step.systemPrompt || ""}
-                      onBlur={(e) => onUpdateStep(step.id, { systemPrompt: e.target.value })}
-                      placeholder="e.g. You are a friendly, concise SDR at Wired CIO writing a short first-touch email…"
-                      rows={2}
-                      style={{ width: "100%", border: "1px solid var(--border)", borderRadius: 7, padding: "6px 8px", fontSize: 12, marginBottom: 8, resize: "vertical", boxSizing: "border-box" }}
-                    />
-                    <label style={{ display: "block", fontSize: 10.5, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", marginBottom: 3 }}>User prompt</label>
-                    <textarea
-                      aria-label="User prompt"
-                      defaultValue={step.userPrompt || ""}
-                      onBlur={(e) => onUpdateStep(step.id, { userPrompt: e.target.value })}
-                      placeholder="e.g. Write a 3-sentence intro referencing {{company}}'s Dynamics 365 interest and asking for 15 minutes."
-                      rows={10}
-                      style={{ width: "100%", border: "1px solid var(--border)", borderRadius: 7, padding: "8px 10px", fontSize: 12, lineHeight: 1.5, resize: "vertical", boxSizing: "border-box", fontFamily: "var(--font-mono, ui-monospace, monospace)" }}
-                    />
-                    <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 6 }}>
-                      Saved when you click away from the box.
-                    </div>
+                      )}
+                    {editorPane === "ai" && (
+                      <>
+                        <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 10, lineHeight: 1.5 }}>
+                          These two write the email, per contact. Editing them changes every email this step
+                          produces. <strong>Nothing calls an AI from this app yet</strong> — see the note under the
+                          preview.
+                          <div style={{ marginTop: 6 }}>
+                            Merge fields:{" "}
+                            {["{{contact.first_name}}", "{{account.name}}", "{{contact.title}}"].map((v) => (
+                              <code key={v} style={{ background: "var(--surface-sunken)", border: "1px solid var(--border)", borderRadius: 4, padding: "1px 5px", marginRight: 4, fontSize: 10.5 }}>{v}</code>
+                            ))}
+                          </div>
+                        </div>
+                        <label style={{ display: "block", fontSize: 10, letterSpacing: "0.07em", fontWeight: 600, color: "var(--muted)", textTransform: "uppercase", marginBottom: 4 }}>
+                          System prompt — how it writes
+                        </label>
+                        <textarea
+                          aria-label="System prompt"
+                          defaultValue={step.systemPrompt || ""}
+                          onBlur={(e) => onUpdateStep(step.id, { systemPrompt: e.target.value })}
+                          placeholder="Tone, length, banned words — the rules every email from this step follows."
+                          rows={12}
+                          style={{ width: "100%", border: "1px solid var(--border)", borderRadius: 7, padding: "8px 10px", fontSize: 11.5, lineHeight: 1.55, resize: "vertical", boxSizing: "border-box", marginBottom: 12, fontFamily: "var(--font-mono, ui-monospace, monospace)" }}
+                        />
+                        <label style={{ display: "block", fontSize: 10, letterSpacing: "0.07em", fontWeight: 600, color: "var(--muted)", textTransform: "uppercase", marginBottom: 4 }}>
+                          User prompt — what to say
+                        </label>
+                        <textarea
+                          aria-label="User prompt"
+                          defaultValue={step.userPrompt || ""}
+                          onBlur={(e) => onUpdateStep(step.id, { userPrompt: e.target.value })}
+                          placeholder="Who you are, what this email is for, and the merge fields it may use."
+                          rows={14}
+                          style={{ width: "100%", border: "1px solid var(--border)", borderRadius: 7, padding: "8px 10px", fontSize: 11.5, lineHeight: 1.55, resize: "vertical", boxSizing: "border-box", fontFamily: "var(--font-mono, ui-monospace, monospace)" }}
+                        />
+                        <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 6 }}>
+                          Saved when you click away from a box. The preview beside this shows them filled in for the
+                          lead you picked.
+                        </div>
+                      </>
+                    )}
                     </div>
                     <div className="preview-col">
                       <EmailPreview
@@ -1255,11 +1283,8 @@ function StepContentEditor({
 
   return (
     <div style={{ marginBottom: 12 }}>
-      <div style={{ fontSize: 10.5, color: "var(--muted)", marginBottom: 8, lineHeight: 1.4 }}>
-        What this step says. Merge fields like <code>{"{{contact.first_name}}"}</code>, <code>{"{{contact.title}}"}</code>{" "}
-        and <code>{"{{account.name}}"}</code> are filled from the contact when the step&rsquo;s task is created.{" "}
-        <strong>Saving content here does not send anything</strong> &mdash; the step still generates a task to work by
-        hand.
+      <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 8 }}>
+        Merge fields fill in per contact. <strong>Saving does not send anything</strong> — the step generates a task.
       </div>
 
       {isEmail && (
@@ -1286,10 +1311,8 @@ function StepContentEditor({
       />
 
       {isEmail && !step.body?.trim() && (step.systemPrompt?.trim() || step.userPrompt?.trim()) && (
-        <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 6, lineHeight: 1.4 }}>
-          No fixed body &mdash; this step&rsquo;s email is written from its <strong>AI prompt</strong> (the button beside
-          Content). That matches how it runs in Apollo. Nothing here generates it yet, so today you write the body from
-          those prompts when you work the task.
+        <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 6 }}>
+          No fixed body — this email is written per contact from the AI instructions below.
         </div>
       )}
 
@@ -1414,6 +1437,11 @@ function EmailPreview({
   const [samples, setSamples] = useState<SentSample[]>([]);
   const [sampleErr, setSampleErr] = useState<string | null>(null);
   const [loadingSamples, setLoadingSamples] = useState(false);
+  // The prompts are long. They sit below the draft and stay collapsed,
+  // so opening a step shows the MESSAGE first rather than 80 lines of
+  // instructions.
+  const [promptsOpen, setPromptsOpen] = useState(false);
+  const [draftOpen, setDraftOpen] = useState(false);
 
   async function pullSamples() {
     if (!apolloCampaignId) return;
@@ -1545,20 +1573,33 @@ function EmailPreview({
 
       {picked && isEmailStep && composed && (
         <>
-          {/* Would this actually go out? Same check the sender runs. */}
+          {/* One email card: who it goes to, what the subject is, then the
+              message — the way you would read it in an inbox, and the way
+              Apollo shows its own preview. The raw draft with its merge
+              tokens is behind "Edit draft" rather than printed a second
+              time underneath the rendered one. */}
+          <div className="mail-card">
+            <div className="mail-head">
+              <div><span>To</span>{composed.toName}{composed.to ? ` <${composed.to}>` : " — no email on file"}</div>
+              <div><span>From</span>{composed.fromName ? `${composed.fromName}${composed.fromEmail ? ` <${composed.fromEmail}>` : ""}` : "no sending account selected"}</div>
+              <div><span>Subject</span>{composed.subject || "— none —"}</div>
+            </div>
+            <div className="mail-body">
+              {bodyMode === "ai"
+                ? draftRendered || "No draft on this step yet. Add one below to see how it reads for this lead."
+                : composed.body || "This step has no body written."}
+            </div>
+          </div>
+
           <div
             style={{
-              display: "flex",
-              alignItems: "flex-start",
-              gap: 8,
-              borderRadius: 7,
-              padding: "7px 10px",
-              fontSize: 12,
+              display: "flex", alignItems: "flex-start", gap: 8, borderRadius: 7,
+              padding: "7px 10px", marginTop: 8, fontSize: 12,
               background: isSendable(composed) ? "#E7F1EA" : "#FBEAE8",
               color: isSendable(composed) ? "#1F7A45" : "#B5443B",
             }}
           >
-            <span style={{ fontWeight: 700 }}>{isSendable(composed) ? "✓ Would send" : "✕ Would not send"}</span>
+            <span style={{ fontWeight: 700, whiteSpace: "nowrap" }}>{isSendable(composed) ? "✓ Would send" : "✕ Would not send"}</span>
             <span style={{ flex: 1 }}>
               {isSendable(composed)
                 ? "Everything this message needs is present. Nothing sends yet — there is no relay connected."
@@ -1566,48 +1607,35 @@ function EmailPreview({
             </span>
           </div>
 
-          <label style={label}>Envelope</label>
-          <div style={{ ...mono, maxHeight: "none" }}>
-            {`From: ${composed.fromName || "(no sending account selected)"}${composed.fromEmail ? ` <${composed.fromEmail}>` : ""}
-To:   ${composed.toName}${composed.to ? ` <${composed.to}>` : " (no email on file)"}
-Subj: ${composed.subject || "(none)"}`}
-          </div>
-
-          {bodyMode === "ai" ? (
+          {bodyMode === "ai" && (
             <>
-              <div style={{ fontSize: 11.5, color: "var(--muted)", margin: "10px 0 0", lineHeight: 1.5 }}>
-                This step&rsquo;s body is written per contact from the two prompts below. They are shown here{" "}
-                <strong>exactly as they would reach a model</strong>, with merge fields filled in for{" "}
-                {(picked.fullName || `${picked.firstName} ${picked.lastName}`).trim() || "this lead"}. No model is
-                connected to this app, so the finished body cannot be generated here — what you are checking is that
-                the instructions are right.
-              </div>
-              <label style={label}>Draft — merged for {(picked.fullName || `${picked.firstName} ${picked.lastName}`).trim() || "this lead"}</label>
-              {draftRendered ? (
-                <div style={mono}>{draftRendered}</div>
-              ) : (
-                <div style={{ fontSize: 11.5, color: "var(--muted)", lineHeight: 1.5 }}>
-                  No draft saved on this step yet. Paste one below and it will render here merged for whichever lead
-                  you pick — useful for judging the prompts against real wording.
-                </div>
+              <button
+                onClick={() => setDraftOpen((v) => !v)}
+                style={{ border: "none", background: "none", padding: 0, marginTop: 10, fontSize: 11.5, color: "var(--muted)", textDecoration: "underline", cursor: "pointer" }}
+              >
+                {draftOpen ? "Hide draft editor" : draftRendered ? "Edit draft" : "Add a draft"}
+              </button>
+              {draftOpen && (
+                <>
+                  <textarea
+                    aria-label="Draft"
+                    defaultValue={step.sampleBody || ""}
+                    onBlur={(e) => onUpdateDraft?.(e.target.value)}
+                    placeholder="Hi {{contact.first_name}}, …"
+                    rows={6}
+                    style={{ width: "100%", border: "1px solid var(--border)", borderRadius: 7, padding: "7px 9px", fontSize: 11.5, lineHeight: 1.5, resize: "vertical", boxSizing: "border-box", marginTop: 6, fontFamily: "var(--font-mono, ui-monospace, monospace)" }}
+                  />
+                  <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 4 }}>
+                    An example of what these prompts produce. The body that actually sends is written per contact at
+                    send time.
+                  </div>
+                </>
               )}
-              <textarea
-                aria-label="Draft"
-                defaultValue={step.sampleBody || ""}
-                onBlur={(e) => onUpdateDraft?.(e.target.value)}
-                placeholder="Paste a draft here — {{contact.first_name}} and {{account.name}} merge per lead."
-                rows={4}
-                style={{ width: "100%", border: "1px solid var(--border)", borderRadius: 7, padding: "7px 9px", fontSize: 11.5, lineHeight: 1.5, resize: "vertical", boxSizing: "border-box", marginTop: 6, fontFamily: "var(--font-mono, ui-monospace, monospace)" }}
-              />
-              <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 4 }}>
-                A draft is an example of what these prompts produce. The body that actually sends is written per contact
-                at send time.
-              </div>
+            </>
+          )}
 
-              {/* Real output. Apollo has no preview API — checked — but it
-                  does have every email this sequence already sent, written
-                  by these same prompts. Real delivered copy beats an
-                  invented sample. */}
+          {bodyMode === "ai" && (
+            <>
               <label style={label}>What these prompts actually produced</label>
               {apolloCampaignId ? (
                 <>
@@ -1637,15 +1665,25 @@ Subj: ${composed.subject || "(none)"}`}
                 </div>
               )}
 
-              <label style={label}>System prompt — as sent</label>
-              <div style={mono}>{systemResolved || "(empty — this step has no system prompt)"}</div>
-              <label style={label}>User prompt — as sent</label>
-              <div style={mono}>{userResolved || "(empty — this step has no user prompt)"}</div>
-            </>
-          ) : (
-            <>
-              <label style={label}>Body — as it would send</label>
-              <div style={mono}>{composed.body || "(this step has no body written)"}</div>
+              <button
+                onClick={() => setPromptsOpen((v) => !v)}
+                style={{ border: "none", background: "none", padding: 0, marginTop: 12, fontSize: 11.5, color: "var(--muted)", textDecoration: "underline", cursor: "pointer" }}
+              >
+                {promptsOpen ? "Hide the prompts as sent" : "Show the prompts as they would reach a model"}
+              </button>
+              {promptsOpen && (
+                <>
+                  <div style={{ fontSize: 11.5, color: "var(--muted)", margin: "8px 0 0", lineHeight: 1.5 }}>
+                    Merge fields filled in for {(picked.fullName || `${picked.firstName} ${picked.lastName}`).trim() || "this lead"}.
+                    No model is connected to this app, so the finished body cannot be generated here — what you are
+                    checking is that the instructions are right.
+                  </div>
+                  <label style={label}>System prompt — as sent</label>
+                  <div style={mono}>{systemResolved || "(empty — this step has no system prompt)"}</div>
+                  <label style={label}>User prompt — as sent</label>
+                  <div style={mono}>{userResolved || "(empty — this step has no user prompt)"}</div>
+                </>
+              )}
             </>
           )}
 

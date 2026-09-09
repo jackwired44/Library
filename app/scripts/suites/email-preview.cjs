@@ -52,20 +52,29 @@ Nora,Ellis,CFO,Harbor Dental,nora@harbordental.com,(415) 555-0144,Google Workspa
  await sleep(800);
  const opened = (await page.locator('.prompt-split').count()) > 0;
  ok('prompt editor opens as a split view', opened);
- ok('left column holds the prompts', await page.locator('.prompt-split .prompt-col textarea').count() >= 2, String(await page.locator('.prompt-split .prompt-col textarea').count()));
+ // The left column is two panes now: the email, then its instructions.
+ ok('left column opens on the email', await page.locator('.prompt-col input[aria-label="Subject line"]').count() === 1);
+ await page.click('.seg-btn:has-text("AI instructions")'); await sleep(500);
+ ok('left column holds both prompts', await page.locator('.prompt-col textarea').count() === 2, String(await page.locator('.prompt-col textarea').count()));
+ await page.click('.seg-btn:has-text("Email")'); await sleep(400);
  ok('right column holds the preview', await page.locator('.prompt-split .preview-col').count() === 1);
 
  const previewText = await page.locator('.preview-col').innerText();
  console.log('  preview head:', previewText.replace(/\n/g,' | ').slice(0,300));
  ok('preview has a lead picker', await page.locator('select[aria-label="Preview lead"]').count() === 1);
- ok('preview shows the envelope', /From:/.test(previewText) && /To:/.test(previewText) && /Subj:/.test(previewText), previewText.slice(0,200));
+ // The envelope is the mail card's header now — To / From / Subject.
+ ok('preview shows the envelope', /\bTO\b/.test(previewText) && /\bFROM\b/.test(previewText) && /\bSUBJECT\b/.test(previewText), previewText.slice(0,200));
  ok('subject is merge-resolved', /Microsoft Solutions/.test(previewText));
  ok('preview names the picked lead in the To line', /Justin Bartlett|Nora Ellis/.test(previewText), previewText.slice(0,300));
  ok('sendability verdict is shown', /Would send|Would not send/.test(previewText));
- ok('AI step explains the body is generated at send time', /written per contact|cannot be generated here/i.test(previewText));
+ ok('AI step explains the body is generated at send time', /AI-written from its prompts|written per contact/i.test(previewText), previewText.slice(0,240));
  ok('offers to pull real Apollo examples', /Pull real examples from Apollo/.test(previewText));
- ok('resolved prompts are shown', /system prompt — as sent/i.test(previewText) && /user prompt — as sent/i.test(previewText));
- ok('system prompt is resolved, not raw tokens', /skilled conversationalist/i.test(previewText));
+ // The resolved prompts moved behind a disclosure under the preview, so
+ // the panel opens on the EMAIL rather than on eighty lines of prompt.
+ await page.click('button:has-text("Show the prompts as they would reach a model")'); await sleep(400);
+ const resolved = await page.locator('.preview-col').innerText();
+ ok('resolved prompts are shown', /system prompt — as sent/i.test(resolved) && /user prompt — as sent/i.test(resolved), resolved.slice(0,200));
+ ok('system prompt is resolved, not raw tokens', /skilled conversationalist/i.test(resolved), resolved.slice(0,160));
 
  // switch lead and confirm the envelope follows
  await page.locator('select[aria-label="Preview lead"]').selectOption({index:1}); await sleep(700);

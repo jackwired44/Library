@@ -2017,3 +2017,73 @@ textarea:focus {
 }
 .seq-step-counts { display: flex; gap: 10px; font-size: 11px; color: var(--ink-3); }
 .seq-step-counts span { white-space: nowrap; }
+
+/* The AI instructions block: a header you can collapse, so an email step
+   opens on the EMAIL rather than on eighty lines of instructions. */
+.ai-instr-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--line);
+  margin-top: var(--s3);
+  margin-bottom: 4px;
+}
+.ai-instr-title {
+  font-size: 10px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 600;
+}
+.ai-instr-toggle {
+  margin-left: auto;
+  border: 1px solid var(--line);
+  background: var(--bg-surface);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.ai-instr-toggle:hover { color: var(--brand); border-color: var(--brand); }
+
+/* The step preview, shaped like the email itself: header lines, then the
+   message — what it looks like to the person it is addressed to. */
+.mail-card {
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--bg-surface);
+  overflow: hidden;
+}
+.mail-head {
+  padding: 8px var(--s4);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-sunken);
+  font-size: 11.5px;
+  color: var(--ink-2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.mail-head > div { display: flex; gap: 8px; min-width: 0; }
+.mail-head span {
+  flex: none;
+  width: 52px;
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 700;
+  padding-top: 2px;
+}
+.mail-body {
+  padding: var(--s4);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink-1);
+  white-space: pre-wrap;
+  max-height: 320px;
+  overflow: auto;
+}
