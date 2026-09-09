@@ -99,6 +99,27 @@ const STEP_TYPES: {
 // row that carried an icon, a channel word, a Manual/Automated badge and
 // an "AI body" badge — four things saying one thing, and saying it
 // inconsistently once a step's note disagreed with its send mode.
+// Per-step counts, the way Apollo's sequence page reports them: how many
+// contacts are ON this step right now, and how many have already gone
+// past it. Computed from enrollments — no new data.
+function stepStats(steps: SequenceStep[], enrollments: SequenceEnrollment[]) {
+  return steps.map((_, i) => {
+    let active = 0;
+    let completed = 0;
+    enrollments.forEach((e) => {
+      if (e.status === "removed") return;
+      if (e.status === "active") {
+        if (e.currentStepIndex === i) active += 1;
+        else if (e.currentStepIndex > i) completed += 1;
+      } else if (e.status === "finished") {
+        // A finished enrollment worked every step up to where it stopped.
+        if (e.currentStepIndex >= i) completed += 1;
+      }
+    });
+    return { active, completed };
+  });
+}
+
 function stepTypeLabel(step: SequenceStep): { icon: string; label: string } {
   if (step.channel === "call") return { icon: "📞", label: "Phone call" };
   if (step.channel === "linkedin") {
@@ -166,6 +187,10 @@ export default function SequencesView({
   const [openId, setOpenId] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [showTemplates, setShowTemplates] = useState(false);
+  // The page used to open with a seven-line paragraph. The load-bearing
+  // sentence stays in the subtitle; the rest is one click away rather
+  // than gone — these are honesty statements, not filler.
+  const [howOpen, setHowOpen] = useState(false);
   // Who a preview email is "from". The self user is the person using the
   // platform (lib/users.ts) — Apollo greets with a first name, so the
   // preview does too.
@@ -255,13 +280,23 @@ export default function SequencesView({
         <h2 style={{ margin: 0, fontSize: 18 }}>📡 Sequences</h2>
       </div>
       <p style={{ margin: "4px 0 16px", fontSize: 12.5, color: "var(--muted)", maxWidth: 640 }}>
-        Build multi-step outbound sequences — call, email, and (eventually) LinkedIn steps, each with a wait period.
-        <strong> Email and LinkedIn steps generate a task to work by hand</strong> — there's no send/connect
-        integration wired up yet, so nothing fires automatically. "Email accounts" below records which sender
-        identity a sequence should use once a real SendGrid connection lands. A contact's enrollment finishes on
-        its own the moment you actually reach them — any "reached them" disposition, not only Meeting booked;
-        restart or remove it any time.
+        <strong>Email and LinkedIn steps generate a task you work by hand</strong> — nothing sends automatically.
       </p>
+      <button
+        onClick={() => setHowOpen((v) => !v)}
+        style={{ border: "none", background: "none", padding: 0, marginBottom: 10, fontSize: 11.5, color: "var(--muted)", textDecoration: "underline", cursor: "pointer" }}
+      >
+        {howOpen ? "Hide" : "How sequences run here"}
+      </button>
+      {howOpen && (
+        <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "10px 12px", marginBottom: 12, fontSize: 12, color: "var(--muted)", lineHeight: 1.55, maxWidth: "72ch" }}>
+          Each step waits, then generates a task. There is no send or connect integration wired up, so an email step
+          produces a task rather than an email — <strong>nothing fires on its own</strong>. &ldquo;Email accounts&rdquo;
+          records which sender identity a sequence should use once a real SendGrid connection lands; it is not a live
+          connection. A contact&rsquo;s enrollment finishes on its own the moment you actually reach them — any
+          &ldquo;reached them&rdquo; disposition, not only Meeting booked. Restart or remove one any time.
+        </div>
+      )}
       {error && <div style={{ color: "#B5443B", marginBottom: 12, fontSize: 12.5 }}>{error}</div>}
 
       <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
@@ -741,6 +776,9 @@ function SequenceDetail({
   const [stepTime, setStepTime] = useState<string>("");
   const [enrollPicker, setEnrollPicker] = useState<Set<string>>(new Set());
   const [enrollSearch, setEnrollSearch] = useState("");
+  // Enrollments that still count: a removed one is history, not a member.
+  const liveEnrollments = useMemo(() => enrollments.filter((e) => e.status !== "removed"), [enrollments]);
+  const stepCounts = useMemo(() => stepStats(seq.steps, liveEnrollments), [seq.steps, liveEnrollments]);
   const ENROLL_PAGE = 50;
   const enrollMatches = useMemo(() => {
     const q = enrollSearch.trim().toLowerCase();
@@ -824,11 +862,30 @@ function SequenceDetail({
         )}
       </div>
 
-      <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>Steps</div>
+      {/* Sequence summary, the strip Apollo puts above its steps. */}
+      <div className="seq-summary">
+        <div className="seq-stat"><span>Active</span><b>{liveEnrollments.filter((e) => e.status === "active").length}</b></div>
+        <div className="seq-stat"><span>Finished</span><b>{liveEnrollments.filter((e) => e.status === "finished").length}</b></div>
+        <div className="seq-stat"><span>Total enrolled</span><b>{liveEnrollments.length}</b></div>
+        <div className="seq-stat"><span>Steps</span><b>{seq.steps.length} of {MAX_STEPS}</b></div>
+        <div className="seq-stat"><span>Runs</span><b>{totalSpanDays(seq)}d</b></div>
+      </div>
+
+      <div className="seq-section-head">
+        <span>Steps</span>
+        {seq.steps.length > 0 && (
+          <span className="seq-section-note">
+            Each step generates a task when the one before it is completed.
+          </span>
+        )}
+      </div>
       {seq.steps.length === 0 ? (
-        <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10 }}>No steps yet — add one below.</div>
+        <div className="calm-state" style={{ marginBottom: 10 }}>
+          <div className="calm-title">No steps yet</div>
+          <div className="calm-body">Add the first touch below — a call, an email, or a LinkedIn request.</div>
+        </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 10 }}>
+        <div className="seq-steps">
           {seq.steps.map((step, i) => {
             const hasPrompt = Boolean(step.systemPrompt?.trim() || step.userPrompt?.trim());
             const promptOpen = promptEditorStepId === step.id;
@@ -837,12 +894,24 @@ function SequenceDetail({
             // meaningful on the channels that actually send something.
             const writesContent = step.channel !== "call";
             const hasContent = Boolean(step.subject?.trim() || step.body?.trim());
+            const wait = resolveWaitHours(step);
+            const stat = stepCounts[i] || { active: 0, completed: 0 };
             return (
               <div key={step.id} data-step-type={stepTypeLabel(step).label} data-step-channel={step.channel}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--surface-sunken)", border: "1px solid var(--border)", borderRadius: 8, padding: "7px 10px", fontSize: 12.5 }}>
-                  <span style={{ fontWeight: 700, color: "var(--muted)", minWidth: 14 }}>{i + 1}</span>
+                {/* The wait sits BETWEEN steps, as its own rule — Apollo
+                    reads as a timeline for this reason: the gap is a thing
+                    that happens, not an attribute of the row after it. */}
+                <div className="seq-wait">
+                  <span className="seq-wait-line" />
+                  <span className="seq-wait-text">
+                    {wait > 0 ? `Wait ${formatWait(wait)}` : i === 0 ? "Starts immediately" : "Immediately after"}
+                  </span>
+                  <span className="seq-wait-line" />
+                </div>
+                <div className="seq-step">
+                  <div className="seq-step-num">STEP {i + 1}</div>
+                  <div className="seq-step-main">
                   <span style={{ fontWeight: 600 }}>{stepTypeLabel(step).icon} {stepTypeLabel(step).label}</span>
-                  <span style={{ color: "var(--muted)" }}>· {formatWait(resolveWaitHours(step))}{resolveWaitHours(step) > 0 ? " after previous" : ""}</span>
                   {(step.sendDayOfWeek !== null && step.sendDayOfWeek !== undefined) && (
                     <span title="Rolled forward to this weekday" style={{ fontSize: 10.5, fontWeight: 700, color: "#0A66C2", background: "#EAF3FC", borderRadius: 999, padding: "1px 7px" }}>
                       {DAY_NAMES[step.sendDayOfWeek]}s
@@ -854,6 +923,14 @@ function SequenceDetail({
                     </span>
                   )}
 
+                  {/* Where people actually are, per step — Apollo's own
+                      per-step reporting, from our enrollments. */}
+                  {(stat.active > 0 || stat.completed > 0) && (
+                    <span className="seq-step-counts">
+                      {stat.active > 0 && <span title="Contacts sitting on this step now">{stat.active} on this step</span>}
+                      {stat.completed > 0 && <span title="Contacts who have worked past this step">{stat.completed} past it</span>}
+                    </span>
+                  )}
                   <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4 }}>
                     {writesContent && (
                       <button
@@ -884,12 +961,9 @@ function SequenceDetail({
                     <button onClick={() => onMoveStep(step.id, 1)} disabled={i === seq.steps.length - 1} title="Move later" style={{ border: "none", background: "none", cursor: i === seq.steps.length - 1 ? "default" : "pointer", opacity: i === seq.steps.length - 1 ? 0.3 : 1 }}>▼</button>
                     <button onClick={() => onRemoveStep(step.id)} title="Remove step" style={{ border: "none", background: "none", color: "#B5443B" }}>✕</button>
                   </span>
-                </div>
-                {step.note && (
-                  <div style={{ fontSize: 11.5, color: "var(--muted)", padding: "3px 10px 0 34px", fontStyle: "italic" }}>
-                    {step.note}
                   </div>
-                )}
+                  {step.note && <div className="seq-step-note">{step.note}</div>}
+                </div>
                 {promptOpen && (
                   <div className="prompt-split" style={{ background: "var(--surface)", border: "1px solid var(--border)", borderTop: "none", borderRadius: "0 0 8px 8px", padding: "10px 12px", marginTop: -1 }}>
                     <div className="prompt-col">

@@ -26,8 +26,12 @@ Nora,Ellis,CFO,Harbor Dental,nora@harbordental.com,(415) 555-0144,Google Workspa
  await page.locator('button:has-text("Use this")').first().click(); await sleep(1600);
 
  // FIX: header no longer claims only two outcomes end an enrollment
+ // The seven-line intro was condensed to one line; the rest of the
+ // disclosures moved behind "How sequences run here" rather than being
+ // deleted. sequence-layout.cjs asserts each one survives.
+ await page.click('button:has-text("How sequences run here")'); await sleep(400);
  const head = await page.locator('main').innerText();
- ok('header states any reached-them outcome ends enrollment', /reached them/i.test(head) && !/Meeting booked or Not interested/.test(head), head.slice(0,300));
+ ok('states any reached-them outcome ends enrollment', /reached them/i.test(head) && !/Meeting booked or Not interested/.test(head), head.slice(0,300));
 
  // FIX #9: days stepper allows up to 182
  const num = page.locator('input[type=number]').first();

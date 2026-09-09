@@ -1907,3 +1907,113 @@ textarea:focus {
 @media (max-width: 1100px) {
   .prompt-split { grid-template-columns: 1fr; }
 }
+
+/* ============================================================
+   SEQUENCES — laid out the way Apollo's own sequence page is:
+   a summary strip, then a vertical timeline where the WAIT is a
+   rule between steps rather than a word buried in the step row,
+   and each step is a numbered card carrying its own counts.
+   ============================================================ */
+.seq-summary {
+  display: flex;
+  flex-wrap: wrap;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--bg-surface);
+  margin-bottom: var(--s4);
+  overflow: hidden;
+}
+.seq-stat {
+  flex: 1 1 120px;
+  min-width: 0;
+  padding: 9px var(--s4);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.seq-stat:last-child { border-right: none; }
+.seq-stat span {
+  font-size: 10px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 600;
+}
+.seq-stat b { font-size: 16px; font-weight: 600; color: var(--ink-1); font-variant-numeric: tabular-nums; }
+
+.seq-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  margin-bottom: 2px;
+}
+.seq-section-head > span:first-child {
+  font-size: 10px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 600;
+}
+.seq-section-note { font-size: 11.5px; color: var(--ink-3); }
+
+.seq-steps { display: flex; flex-direction: column; margin-bottom: var(--s4); }
+
+/* The gap between touches, as its own rule. */
+.seq-wait {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: 4px 0;
+}
+.seq-wait-line { flex: 1; height: 1px; background: var(--line); }
+.seq-wait-text {
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.seq-step {
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--bg-surface);
+  box-shadow: var(--sh-sm);
+  padding: 9px var(--s4) 9px 0;
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: center;
+}
+.seq-step-num {
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 700;
+  text-align: center;
+  border-right: 1px solid var(--line);
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.seq-step-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+  padding-left: var(--s4);
+}
+.seq-step-note {
+  grid-column: 2;
+  padding-left: var(--s4);
+  font-size: 11.5px;
+  color: var(--ink-3);
+  font-style: italic;
+  margin-top: 3px;
+}
+.seq-step-counts { display: flex; gap: 10px; font-size: 11px; color: var(--ink-3); }
+.seq-step-counts span { white-space: nowrap; }
