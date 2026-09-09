@@ -111,6 +111,7 @@ export function createSequenceTask(
   contactId: string,
   channel: "call" | "email" | "linkedin",
   sequenceEnrollmentId: string,
+  time: string | null = null,
   priority: TaskPriority = "medium"
 ): Task | null {
   const base = createTask(date, text);
@@ -120,7 +121,7 @@ export function createSequenceTask(
   // the sequence's own enrollment view (not a third channel tab, since
   // that pairing wasn't asked for) but not Calls/Emails, so it's tagged
   // null there rather than forced into an unrelated channel.
-  return { ...base, contactId, priority, channel: channel === "linkedin" ? null : channel, sequenceEnrollmentId };
+  return { ...base, contactId, priority, time, channel: channel === "linkedin" ? null : channel, sequenceEnrollmentId };
 }
 
 function dateKey(d: Date): string {

@@ -13,13 +13,16 @@
 // actually puts it in his hands. A live "import from Apollo" reader can
 // come later — see CLAUDE.md — but it would need the connector available
 // inside the published page, which is a separate grant.
-import { addStep, updateStep, createSequence, type Sequence, type SequenceChannel } from "./sequences";
+import { addStep, updateStep, createSequence, DEFAULT_SEQUENCE_RULES, type Sequence, type SequenceChannel, type SequenceRules } from "./sequences";
 
 export interface TemplateStep {
   channel: SequenceChannel;
   waitHours: number;
   note?: string;
   subject?: string;
+  sendMode?: "auto" | "manual";
+  bodyMode?: "ai" | "fixed";
+  linkedinWithMessage?: boolean;
   body?: string;
   systemPrompt?: string;
   userPrompt?: string;
@@ -28,6 +31,8 @@ export interface TemplateStep {
 export interface SequenceTemplate {
   id: string;
   name: string;
+  rules?: SequenceRules;
+  mergeVariables?: string[];
   // Shown in the picker so the shape is readable before instantiating.
   description: string;
   // Where this came from, stated plainly in the UI.
@@ -108,6 +113,12 @@ export const DYNAMICS_SEQUENCE_TEMPLATE: SequenceTemplate = {
       channel: "email",
       waitHours: 0,
       subject: "Microsoft Solutions",
+      // Apollo runs this as an AUTO email: it sends without the rep
+      // touching it, and its body is generated per contact rather than
+      // written once. Recorded here so the format survives the copy —
+      // nothing in this app sends yet either way.
+      sendMode: "auto",
+      bodyMode: "ai",
       // Apollo generates this body from the prompts below rather than
       // sending a fixed template, so there is no static body to copy —
       // the prompts ARE the content. Stated in the step itself so it does
@@ -117,18 +128,71 @@ export const DYNAMICS_SEQUENCE_TEMPLATE: SequenceTemplate = {
       userPrompt: DYNAMICS_EMAIL_USER_PROMPT,
       note: "Body is AI-written from the prompts on this step",
     },
-    { channel: "call", waitHours: 48, note: "Second dial" },
-    { channel: "call", waitHours: 48, note: "Third dial" },
+    { channel: "call", waitHours: 48, sendMode: "manual", note: "Second dial" },
+    { channel: "call", waitHours: 48, sendMode: "manual", note: "Third dial" },
     {
       channel: "linkedin",
       waitHours: 1,
       body: DYNAMICS_LINKEDIN_BODY,
+      sendMode: "manual",
+      bodyMode: "fixed",
+      linkedinWithMessage: true,
       note: "LinkedIn connect request with a note",
     },
   ],
+  // The house rules the live Apollo sequence runs under, copied exactly.
+  // Recorded, not enforced — there is no sending engine here to enforce
+  // them against yet.
+  rules: DEFAULT_SEQUENCE_RULES,
+  // The merge variables the email prompts actually reference. Apollo's
+  // stored body is ONE AI-opener variable and nothing else, so these
+  // three are the entire input the generated email is written from.
+  mergeVariables: ["contact.first_name", "account.name", "contact.title"],
 };
 
-export const SEQUENCE_TEMPLATES: SequenceTemplate[] = [DYNAMICS_SEQUENCE_TEMPLATE];
+// Per Jack, sequences here are usually one of two shapes: email only, or
+// calls + email + a LinkedIn connection request. The Dynamics sequence
+// above is the second shape as it actually runs in Apollo; this is the
+// first, built to the same rules and the same email format so the two
+// stay comparable.
+export const EMAIL_ONLY_TEMPLATE: SequenceTemplate = {
+  id: "tpl-email-only",
+  name: "Email only",
+  description: "3 emails — an AI-written first touch, then two manual follow-ups you write and send yourself.",
+  source: "Built on the Dynamics sequence's email format and house rules",
+  steps: [
+    {
+      channel: "email",
+      waitHours: 0,
+      subject: "Microsoft Solutions",
+      sendMode: "auto",
+      bodyMode: "ai",
+      systemPrompt: DYNAMICS_EMAIL_SYSTEM_PROMPT,
+      userPrompt: DYNAMICS_EMAIL_USER_PROMPT,
+      note: "First touch — body written per contact from the prompts",
+    },
+    {
+      channel: "email",
+      waitHours: 72,
+      subject: "Re: Microsoft Solutions",
+      sendMode: "manual",
+      bodyMode: "fixed",
+      note: "Follow-up you write and send by hand",
+    },
+    {
+      channel: "email",
+      waitHours: 120,
+      subject: "Closing the loop",
+      sendMode: "manual",
+      bodyMode: "fixed",
+      note: "Last touch before the sequence finishes",
+    },
+  ],
+  rules: DEFAULT_SEQUENCE_RULES,
+  mergeVariables: ["contact.first_name", "account.name", "contact.title"],
+};
+
+export const SEQUENCE_TEMPLATES: SequenceTemplate[] = [DYNAMICS_SEQUENCE_TEMPLATE, EMAIL_ONLY_TEMPLATE];
 
 // Builds a real, persistable Sequence from a template. Reuses addStep/
 // updateStep rather than hand-building step objects, so a template can
@@ -145,7 +209,11 @@ export function sequenceFromTemplate(tpl: SequenceTemplate, name?: string): Sequ
     if (t.body !== undefined) patch.body = t.body;
     if (t.systemPrompt !== undefined) patch.systemPrompt = t.systemPrompt;
     if (t.userPrompt !== undefined) patch.userPrompt = t.userPrompt;
+    if (t.sendMode !== undefined) patch.sendMode = t.sendMode;
+    if (t.bodyMode !== undefined) patch.bodyMode = t.bodyMode;
+    if (t.linkedinWithMessage !== undefined) patch.linkedinWithMessage = t.linkedinWithMessage;
     if (Object.keys(patch).length) seq = updateStep(seq, added.id, patch);
   }
+  if (tpl.rules) seq = { ...seq, rules: { ...tpl.rules } };
   return seq;
 }

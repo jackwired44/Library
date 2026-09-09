@@ -33,7 +33,14 @@ export type SequenceChannel = "call" | "email" | "linkedin";
 // one. Task.date is still calendar-day-only, so wait 0 simply means "due
 // today."
 export const MIN_WAIT_HOURS = 0;
-export const MAX_WAIT_HOURS = 24 * 7; // 168 — 7 days
+// Per Jack: a sequence can run "over 6 months in length from first to
+// last", so a single gap has to be able to carry most of that on its
+// own. 182 days is half a year; ten steps at that ceiling is far more
+// than six months, which is the point — the ceiling is a guard against
+// a typo, not a cadence opinion.
+export const MAX_WAIT_HOURS = 24 * 182; // 4368 — 182 days
+// Per Jack: "a max of ten steps."
+export const MAX_STEPS = 10;
 
 export interface SequenceStep {
   id: string;
@@ -62,6 +69,30 @@ export interface SequenceStep {
   // not an email-only restriction.
   systemPrompt?: string;
   userPrompt?: string;
+  // How this step's message is produced. Copied from Apollo's own model:
+  // an "auto_email" step sends without the rep touching it, a manual one
+  // generates a task to send by hand. NOTHING here sends either way yet
+  // (see CLAUDE.md, Email sending accounts) — this records the intent so
+  // it survives to whenever a real relay exists.
+  sendMode?: "auto" | "manual";
+  // "ai" = the body is generated per contact from the prompts on this
+  // step; "fixed" = the body text is sent as written. Apollo's Dynamics
+  // email is `ai`: its stored body is a single AI-opener variable and
+  // nothing else, so the prompts ARE the content.
+  bodyMode?: "ai" | "fixed";
+  // A LinkedIn step is a connection REQUEST either way; this is whether
+  // it carries a note with it. Apollo models these as two separate step
+  // types; one boolean on one channel says the same thing without
+  // splitting the channel enum (and so without migrating every step
+  // already saved).
+  linkedinWithMessage?: boolean;
+  // Optional scheduling. When set, the step's task is pushed forward from
+  // the computed due date to the next matching weekday (0 = Sunday), and
+  // given a time of day. Both optional and independent: a day with no
+  // time lands on that weekday with no time set, a time with no day just
+  // times the day the wait already produced.
+  sendDayOfWeek?: number | null;
+  sendTime?: string | null;
   // The actual content this step sends, as opposed to `note` (which is a
   // reminder to the rep working the task). An email step's subject line
   // and body; a LinkedIn step's message body (no subject). Both may carry
@@ -118,7 +149,56 @@ export interface Sequence {
   // preference today — email steps still only ever generate a manual
   // task (see taskTextFor below); nothing reads this to actually send.
   emailAccountId?: string | null;
+  // The house rules a sequence runs under. Optional as a whole and
+  // field-by-field, so every sequence saved before this loads unchanged
+  // and simply reads as "no rules recorded". These are RECORDED, not yet
+  // ENFORCED — there is no sending engine here to enforce them against;
+  // enforcing each one is its own piece of work, and the UI says so
+  // rather than implying the sequence is obeying them.
+  rules?: SequenceRules;
 }
+
+export interface SequenceRules {
+  // Stop the cadence when the contact replies / is marked interested.
+  finishOnReply?: boolean;
+  finishIfInterested?: boolean;
+  // Pause rather than finish when an out-of-office bounces back.
+  pauseIfOutOfOffice?: boolean;
+  // How long a reply is waited on before it counts as a response.
+  daysToWaitBeforeResponse?: number;
+  // Don't email a second person at a company that replied within N days.
+  sameAccountReplyDelayDays?: number;
+  // 0 = no cap.
+  maxEmailsPerDay?: number;
+  // Auto-pause the whole sequence when bounce/complaint rates go bad
+  // over a rolling window, once there is enough volume to judge.
+  autoPause?: {
+    enabled: boolean;
+    evaluationWindowDays: number;
+    minVolume: number;
+    warningThresholdPct: number;
+    pauseThresholdPct: number;
+  };
+}
+
+// What a sequence runs under when nothing else is set. Mirrors the
+// settings on Jack's own live Apollo sequence rather than inventing
+// defaults.
+export const DEFAULT_SEQUENCE_RULES: SequenceRules = {
+  finishOnReply: true,
+  finishIfInterested: true,
+  pauseIfOutOfOffice: true,
+  daysToWaitBeforeResponse: 5,
+  sameAccountReplyDelayDays: 30,
+  maxEmailsPerDay: 0,
+  autoPause: {
+    enabled: true,
+    evaluationWindowDays: 7,
+    minVolume: 200,
+    warningThresholdPct: 4,
+    pauseThresholdPct: 6,
+  },
+};
 
 export function resolveStatus(seq: Sequence): SequenceStatus {
   return seq.status || "active";
@@ -181,15 +261,24 @@ export function createSequence(name: string): Sequence | null {
   return { id: newId("seq"), name: trimmed, createdAt: new Date().toISOString(), steps: [] };
 }
 
-export function addStep(seq: Sequence, channel: SequenceChannel, waitHours: number, note?: string): Sequence {
+export function addStep(
+  seq: Sequence,
+  channel: SequenceChannel,
+  waitHours: number,
+  note?: string,
+  extra?: Partial<Pick<SequenceStep, "sendMode" | "bodyMode" | "linkedinWithMessage" | "sendDayOfWeek" | "sendTime">>
+): Sequence {
+  // Refuse rather than silently truncate — a caller that hits the cap
+  // needs to know, and the UI disables the button before this fires.
+  if (seq.steps.length >= MAX_STEPS) return seq;
   const clamped = Math.min(MAX_WAIT_HOURS, Math.max(MIN_WAIT_HOURS, Math.round(waitHours)));
-  const step: SequenceStep = { id: newId("step"), position: seq.steps.length, channel, waitHours: clamped, note };
+  const step: SequenceStep = { id: newId("step"), position: seq.steps.length, channel, waitHours: clamped, note, ...extra };
   return { ...seq, steps: [...seq.steps, step] };
 }
 export function updateStep(
   seq: Sequence,
   stepId: string,
-  patch: Partial<Pick<SequenceStep, "note" | "systemPrompt" | "userPrompt" | "subject" | "body">>
+  patch: Partial<Pick<SequenceStep, "note" | "systemPrompt" | "userPrompt" | "subject" | "body" | "sendMode" | "bodyMode" | "linkedinWithMessage" | "sendDayOfWeek" | "sendTime">>
 ): Sequence {
   return { ...seq, steps: seq.steps.map((s) => (s.id === stepId ? { ...s, ...patch } : s)) };
 }
@@ -262,6 +351,30 @@ function addHours(iso: string, hours: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+// The date a step's task is due: the wait, then rolled forward to the
+// step's preferred weekday if it has one. Rolling FORWARD only — never
+// back — so honouring a preferred day can delay a touch but can never
+// make it land earlier than the cadence intended.
+export function dueDateForStep(fromIso: string, step: SequenceStep): string {
+  const base = addHours(fromIso, resolveWaitHours(step));
+  const dow = step.sendDayOfWeek;
+  if (dow === null || dow === undefined || dow < 0 || dow > 6) return base;
+  // Parse at local noon — a bare "YYYY-MM-DD" is read as UTC midnight,
+  // which is the previous local day west of UTC.
+  const d = new Date(`${base}T12:00:00`);
+  const delta = (dow - d.getDay() + 7) % 7;
+  if (delta === 0) return base;
+  d.setDate(d.getDate() + delta);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+// Longest the whole cadence can run: every step's wait, in sequence.
+export function totalSpanDays(seq: Sequence): number {
+  return Math.round(seq.steps.reduce((n, st) => n + resolveWaitHours(st), 0) / 24);
+}
+
+export const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
 function taskTextFor(contact: Contact, step: SequenceStep, seq: Sequence): string {
   const who = `${getFullName({ firstName: contact.firstName, lastName: contact.lastName, fullName: contact.fullName })}${contact.company ? ` (${contact.company})` : ""}`;
   const base = `${CHANNEL_LABEL[step.channel]} ${who} — ${seq.name}, step ${step.position + 1}`;
@@ -300,8 +413,8 @@ export function enrollContact(seq: Sequence, contact: Contact): { enrollment: Se
   };
   const step0 = seq.steps[0];
   if (!step0) return { enrollment: { ...enrollment, status: "finished", finishedAt: nowIso, finishReason: "completed-all-steps" }, task: null };
-  const dueDate = addHours(nowIso, resolveWaitHours(step0));
-  const task = createSequenceTask(dueDate, taskTextFor(contact, step0, seq), contact.id, step0.channel, enrollment.id);
+  const dueDate = dueDateForStep(nowIso, step0);
+  const task = createSequenceTask(dueDate, taskTextFor(contact, step0, seq), contact.id, step0.channel, enrollment.id, step0.sendTime || null);
   return { enrollment: { ...enrollment, currentTaskId: task?.id ?? null }, task };
 }
 
@@ -337,8 +450,8 @@ export function advanceEnrollment(
   if (!isSequenceRunnable(seq)) {
     return { enrollment: { ...enrollment, currentStepIndex: nextIndex, currentTaskId: null }, task: null };
   }
-  const dueDate = addHours(nowIso, resolveWaitHours(nextStep));
-  const task = createSequenceTask(dueDate, taskTextFor(contact, nextStep, seq), contact.id, nextStep.channel, enrollment.id);
+  const dueDate = dueDateForStep(nowIso, nextStep);
+  const task = createSequenceTask(dueDate, taskTextFor(contact, nextStep, seq), contact.id, nextStep.channel, enrollment.id, nextStep.sendTime || null);
   return { enrollment: { ...enrollment, currentStepIndex: nextIndex, currentTaskId: task?.id ?? null }, task };
 }
 
@@ -359,11 +472,12 @@ export function resumeEnrollments(
     const contact = contacts.find((c) => c.id === e.contactId);
     if (!step || !contact) return e;
     const task = createSequenceTask(
-      addHours(nowIso, resolveWaitHours(step)),
+      dueDateForStep(nowIso, step),
       taskTextFor(contact, step, seq),
       contact.id,
       step.channel,
-      e.id
+      e.id,
+      step.sendTime || null
     );
     if (!task) return e;
     tasks.push(task);
@@ -379,8 +493,8 @@ export function restartEnrollment(enrollment: SequenceEnrollment, seq: Sequence,
   const nowIso = new Date().toISOString();
   const step0 = seq.steps[0];
   if (!step0) return { enrollment: { ...enrollment, status: "finished", currentStepIndex: 0, finishedAt: nowIso, finishReason: "completed-all-steps", currentTaskId: null }, task: null };
-  const dueDate = addHours(nowIso, resolveWaitHours(step0));
-  const task = createSequenceTask(dueDate, taskTextFor(contact, step0, seq), contact.id, step0.channel, enrollment.id);
+  const dueDate = dueDateForStep(nowIso, step0);
+  const task = createSequenceTask(dueDate, taskTextFor(contact, step0, seq), contact.id, step0.channel, enrollment.id, step0.sendTime || null);
   return { enrollment: { ...enrollment, status: "active", currentStepIndex: 0, finishedAt: undefined, finishReason: undefined, currentTaskId: task?.id ?? null }, task };
 }
 

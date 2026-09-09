@@ -193,6 +193,12 @@ export default function Scanner({
   // Same adopt pattern for the reopened batch's History entry id.
   useEffect(() => {
     if (loadedHistoryEntryId) setCurrentHistoryEntryId(loadedHistoryEntryId);
+    // A batch reopened from History is a different batch, so the
+    // one-shot "already filed" flag has to clear with it. Without this it
+    // stayed set from whatever was filed earlier in the session and the
+    // Save button sat permanently disabled on "✓ Filed" for every batch
+    // opened afterwards.
+    setLibraryFiledForBatch(false);
   }, [loadedHistoryEntryId]);
   const [tierFilter, setTierFilter] = useState<Tier | "all">("signal");
   // "Non Relevant" — per Jack: "i want to be able to review every lead if
@@ -324,7 +330,19 @@ export default function Scanner({
     setListNotice(null);
   }
 
-  const folderOptions = useMemo(() => [...libraryGroups].sort((a, b) => a.name.localeCompare(b.name)), [libraryGroups]);
+  // Private folders are deliberately EXCLUDED from this picker rather than
+  // listed-and-blocked. The Lead Library gates a private folder's contents
+  // behind its own password (Library.tsx), but this picker loaded any
+  // entry's rawText with no such check — so a folder marked private was
+  // fully readable from here without ever being asked for the password.
+  // A second password prompt in Scanner would be a second gate to keep in
+  // step with the first; hiding them keeps ONE way into a private folder,
+  // which is the Lead Library, where the prompt already lives.
+  const folderOptions = useMemo(
+    () => libraryGroups.filter((g) => !g.isPrivate).sort((a, b) => a.name.localeCompare(b.name)),
+    [libraryGroups]
+  );
+  const hiddenPrivateFolders = useMemo(() => libraryGroups.filter((g) => g.isPrivate).length, [libraryGroups]);
   const folderFileOptions = useMemo(() => {
     if (!pickerFolderId) return [];
     return getFolderEntries(libraryEntries, pickerFolderId).filter((e) => e.rowCount > 0);
@@ -709,7 +727,16 @@ export default function Scanner({
               </button>
             </div>
             {folderOptions.length === 0 && (
-              <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 6 }}>No Lead Library folders yet.</div>
+              <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 6 }}>
+                {hiddenPrivateFolders > 0
+                  ? `No folders available here. ${hiddenPrivateFolders} private folder${hiddenPrivateFolders === 1 ? " is" : "s are"} only openable from the Lead Library, where the password is asked for.`
+                  : "No Lead Library folders yet."}
+              </div>
+            )}
+            {folderOptions.length > 0 && hiddenPrivateFolders > 0 && (
+              <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 6 }}>
+                {hiddenPrivateFolders} private folder{hiddenPrivateFolders === 1 ? "" : "s"} not listed — open those from the Lead Library.
+              </div>
             )}
           </div>
         </div>

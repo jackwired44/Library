@@ -701,10 +701,16 @@ export default function App() {
     if (!seq) return;
     updateSequenceSteps(renameSequence(seq, name));
   }
-  function addSequenceStep(id: string, channel: SequenceChannel, waitHours: number, note?: string) {
+  function addSequenceStep(
+    id: string,
+    channel: SequenceChannel,
+    waitHours: number,
+    note?: string,
+    extra?: Partial<Pick<SequenceStep, "sendMode" | "bodyMode" | "linkedinWithMessage">>
+  ) {
     const seq = sequences.find((s) => s.id === id);
     if (!seq) return;
-    updateSequenceSteps(addStep(seq, channel, waitHours, note));
+    updateSequenceSteps(addStep(seq, channel, waitHours, note, extra));
   }
   function removeSequenceStep(id: string, stepId: string) {
     const seq = sequences.find((s) => s.id === id);

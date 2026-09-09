@@ -10,7 +10,7 @@ import { getFullName } from "../lib/detection";
 import { SEQUENCE_TEMPLATES, type SequenceTemplate } from "../lib/sequenceTemplates";
 import { renderMerge, tokensIn } from "../lib/mergeFields";
 import type { Task } from "../lib/tasks";
-import { resolveWaitHours, resolveStatus, isSequenceRunnable, MAX_WAIT_HOURS, type Sequence, type SequenceEnrollment, type SequenceChannel, type SequenceStep, type SequenceStatus } from "../lib/sequences";
+import { resolveWaitHours, resolveStatus, isSequenceRunnable, MAX_WAIT_HOURS, MAX_STEPS, DAY_NAMES, totalSpanDays, type Sequence, type SequenceEnrollment, type SequenceChannel, type SequenceStep, type SequenceStatus } from "../lib/sequences";
 import { userLabel, type PlatformUser } from "../lib/users";
 import { type SequenceGroup } from "../lib/sequenceGroups";
 import { emailAccountLabel, type EmailAccount } from "../lib/emailAccounts";
@@ -27,7 +27,7 @@ interface SequencesProps {
   onCreate: (name: string) => Sequence | null;
   onCreateFromTemplate: (tpl: SequenceTemplate) => Sequence | null;
   onRename: (id: string, name: string) => void;
-  onAddStep: (id: string, channel: SequenceChannel, waitHours: number, note?: string) => void;
+  onAddStep: (id: string, channel: SequenceChannel, waitHours: number, note?: string, extra?: StepExtra) => void;
   onRemoveStep: (id: string, stepId: string) => void;
   onUpdateStep: (id: string, stepId: string, patch: Partial<Pick<SequenceStep, "note" | "systemPrompt" | "userPrompt" | "subject" | "body">>) => void;
   onMoveStep: (id: string, stepId: string, direction: -1 | 1) => void;
@@ -75,12 +75,43 @@ const SEND_MODE_META: Record<"manual" | "automated", { label: string; color: str
   manual: { label: "Manual", color: "#9A5B22", bg: "#FBEBDD" },
   automated: { label: "Automated", color: "#2CC295", bg: "#E7F1EA" },
 };
-function SendModeBadge({ channel }: { channel: SequenceChannel }) {
-  const mode = CHANNEL_META[channel].sendMode;
+// The step types a sequence can contain, per Jack: phone call, automatic
+// email, manual email, and a LinkedIn request with or without a message.
+// These are PRESENTATION over the three real channels — an automatic and
+// a manual email are the same channel with a different send mode, and a
+// LinkedIn request is one channel with a boolean. Keeping the channel
+// enum at three means no step already saved has to be migrated.
+export type StepExtra = Partial<Pick<SequenceStep, "sendMode" | "bodyMode" | "linkedinWithMessage">>;
+
+type StepType = "call" | "auto-email" | "manual-email" | "linkedin";
+const STEP_TYPES: {
+  key: StepType;
+  label: string;
+  icon: string;
+  channel: SequenceChannel;
+  sendMode: "auto" | "manual";
+  bodyMode?: "ai" | "fixed";
+}[] = [
+  { key: "call", label: "Phone call", icon: "📞", channel: "call", sendMode: "manual" },
+  { key: "auto-email", label: "Automatic email", icon: "⚡", channel: "email", sendMode: "auto", bodyMode: "ai" },
+  { key: "manual-email", label: "Manual email", icon: "✉️", channel: "email", sendMode: "manual", bodyMode: "fixed" },
+  { key: "linkedin", label: "LinkedIn request", icon: "🔗", channel: "linkedin", sendMode: "manual", bodyMode: "fixed" },
+];
+
+function SendModeBadge({ channel, step }: { channel: SequenceChannel; step?: SequenceStep }) {
+  // A step can carry its own send mode (Apollo's auto_email vs a manual
+  // email). Fall back to the channel default when it doesn't — every
+  // step saved before that field existed.
+  const mode: "manual" | "automated" =
+    step?.sendMode === "auto" ? "automated" : step?.sendMode === "manual" ? "manual" : CHANNEL_META[channel].sendMode;
   const meta = SEND_MODE_META[mode];
   return (
     <span
-      title={mode === "manual" ? "Generates a task you work by hand — nothing sends itself yet" : "Sends automatically once the step's wait period elapses"}
+      title={
+        mode === "manual"
+          ? "Generates a task you work by hand"
+          : "Marked to send automatically once the step's wait elapses. Nothing sends from this app yet — there is no email relay here (see Settings)."
+      }
       style={{ fontSize: 9.5, fontWeight: 700, color: meta.color, background: meta.bg, borderRadius: 999, padding: "1px 7px", whiteSpace: "nowrap" }}
     >
       {meta.label}
@@ -615,6 +646,7 @@ export default function SequencesView({
                               </span>
                             )}
                           </div>
+                          <SequenceRulesPanel seq={seq} />
                           <SequenceDetail
                             seq={seq}
                             enrollments={seqEnrollments}
@@ -624,7 +656,7 @@ export default function SequencesView({
                             taskById={taskById}
                             runnable={runnable}
                             onRename={(name) => onRename(seq.id, name)}
-                            onAddStep={(channel, waitHours, note) => onAddStep(seq.id, channel, waitHours, note)}
+                            onAddStep={(channel, waitHours, note, extra) => onAddStep(seq.id, channel, waitHours, note, extra)}
                             onRemoveStep={(stepId) => onRemoveStep(seq.id, stepId)}
                             onUpdateStep={(stepId, patch) => onUpdateStep(seq.id, stepId, patch)}
                             onMoveStep={(stepId, dir) => onMoveStep(seq.id, stepId, dir)}
@@ -674,7 +706,7 @@ function SequenceDetail({
   // UI doesn't offer an action that would silently no-op.
   runnable: boolean;
   onRename: (name: string) => void;
-  onAddStep: (channel: SequenceChannel, waitHours: number, note?: string) => void;
+  onAddStep: (channel: SequenceChannel, waitHours: number, note?: string, extra?: StepExtra) => void;
   onRemoveStep: (stepId: string) => void;
   onUpdateStep: (stepId: string, patch: Partial<Pick<SequenceStep, "note" | "systemPrompt" | "userPrompt" | "subject" | "body">>) => void;
   onMoveStep: (stepId: string, dir: -1 | 1) => void;
@@ -684,7 +716,6 @@ function SequenceDetail({
 }) {
   const [renaming, setRenaming] = useState(false);
   const [nameDraft, setNameDraft] = useState(seq.name);
-  const [stepChannel, setStepChannel] = useState<SequenceChannel>("call");
   const [stepWaitValue, setStepWaitValue] = useState(1);
   const [stepWaitUnit, setStepWaitUnit] = useState<"hours" | "days">("days");
   const [stepNote, setStepNote] = useState("");
@@ -693,6 +724,10 @@ function SequenceDetail({
   const [promptEditorStepId, setPromptEditorStepId] = useState<string | null>(null);
   const [contentEditorStepId, setContentEditorStepId] = useState<string | null>(null);
   const [listPickerId, setListPickerId] = useState("");
+  const [stepType, setStepType] = useState<StepType>("call");
+  const [linkedinWithMessage, setLinkedinWithMessage] = useState(true);
+  const [stepDay, setStepDay] = useState<string>("");
+  const [stepTime, setStepTime] = useState<string>("");
   const [enrollPicker, setEnrollPicker] = useState<Set<string>>(new Set());
   const [enrollNotice, setEnrollNotice] = useState<string | null>(null);
 
@@ -702,7 +737,14 @@ function SequenceDetail({
   }
   function submitAddStep() {
     const hours = stepWaitUnit === "hours" ? stepWaitValue : stepWaitValue * 24;
-    onAddStep(stepChannel, hours, stepNote.trim() || undefined);
+    const t = STEP_TYPES.find((x) => x.key === stepType)!;
+    onAddStep(t.channel, hours, stepNote.trim() || undefined, {
+      sendMode: t.sendMode,
+      bodyMode: t.bodyMode,
+      ...(t.channel === "linkedin" ? { linkedinWithMessage } : {}),
+      ...(stepDay !== "" ? { sendDayOfWeek: Number(stepDay) } : {}),
+      ...(stepTime ? { sendTime: stepTime } : {}),
+    });
     setStepNote("");
     setStepWaitValue(1);
   }
@@ -776,8 +818,26 @@ function SequenceDetail({
                 <div style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--surface-sunken)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 10px", fontSize: 12.5 }}>
                   <span style={{ fontWeight: 700 }}>{i + 1}.</span>
                   <span>{CHANNEL_META[step.channel].icon} {CHANNEL_META[step.channel].label}</span>
-                  <SendModeBadge channel={step.channel} />
+                  <SendModeBadge channel={step.channel} step={step} />
+                  {step.bodyMode === "ai" && (
+                    <span
+                      title="The body is written per contact from this step's prompts, not sent as fixed text. Nothing generates it in this app yet."
+                      style={{ fontSize: 9.5, fontWeight: 700, color: "#7A4FBF", background: "#F1EAFB", borderRadius: 999, padding: "1px 7px", whiteSpace: "nowrap" }}
+                    >
+                      AI body
+                    </span>
+                  )}
                   <span style={{ color: "var(--muted)" }}>{formatWait(resolveWaitHours(step))}{resolveWaitHours(step) > 0 ? " after previous" : ""}</span>
+                  {(step.sendDayOfWeek !== null && step.sendDayOfWeek !== undefined) && (
+                    <span title="Rolled forward to this weekday" style={{ fontSize: 10.5, fontWeight: 700, color: "#0A66C2", background: "#EAF3FC", borderRadius: 999, padding: "1px 7px" }}>
+                      {DAY_NAMES[step.sendDayOfWeek]}s
+                    </span>
+                  )}
+                  {step.sendTime && (
+                    <span title="Time of day on the generated task" style={{ fontSize: 10.5, fontWeight: 700, color: "var(--muted)", background: "var(--surface-sunken)", border: "1px solid var(--border)", borderRadius: 999, padding: "1px 7px" }}>
+                      {step.sendTime}
+                    </span>
+                  )}
                   {step.note && <span style={{ color: "var(--muted)", fontStyle: "italic" }}>— {step.note}</span>}
                   <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4 }}>
                     {writesContent && (
@@ -828,10 +888,26 @@ function SequenceDetail({
                 )}
                 {promptOpen && (
                   <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderTop: "none", borderRadius: "0 0 8px 8px", padding: "10px 12px", marginTop: -1 }}>
-                    <div style={{ fontSize: 10.5, color: "var(--muted)", marginBottom: 8, lineHeight: 1.4 }}>
-                      Captured for a future AI-generated version of this step, same idea as Apollo's system/user prompt
-                      fields — <strong>nothing calls any AI with these yet</strong>, this app has no AI integration wired
-                      in. Safe to fill in now so the content is ready once one is.
+                    <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 10, lineHeight: 1.5 }}>
+                      These two prompts <strong>are</strong> the email on an automatic step — the body is written per
+                      contact from them rather than sent as fixed text, so editing them changes every email this step
+                      produces. Kept exactly as written, no reformatting.{" "}
+                      <strong>Nothing calls an AI from this app yet</strong>; these are stored so the wording is ready
+                      the moment sending is.
+                      <div style={{ marginTop: 6 }}>
+                        Merge fields available:{" "}
+                        {["{{contact.first_name}}", "{{account.name}}", "{{contact.title}}"].map((v) => (
+                          <code
+                            key={v}
+                            style={{ background: "var(--surface-sunken)", border: "1px solid var(--border)", borderRadius: 4, padding: "1px 5px", marginRight: 4, fontSize: 10.5 }}
+                          >
+                            {v}
+                          </code>
+                        ))}
+                        <span style={{ marginLeft: 4 }}>
+                          — wrap an optional one as <code style={{ fontSize: 10.5 }}>{"{{#if contact.title}}…{{#endif}}"}</code>
+                        </span>
+                      </div>
                     </div>
                     <label style={{ display: "block", fontSize: 10.5, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", marginBottom: 3 }}>System prompt</label>
                     <textarea
@@ -846,9 +922,12 @@ function SequenceDetail({
                       defaultValue={step.userPrompt || ""}
                       onBlur={(e) => onUpdateStep(step.id, { userPrompt: e.target.value })}
                       placeholder="e.g. Write a 3-sentence intro referencing {{company}}'s Dynamics 365 interest and asking for 15 minutes."
-                      rows={2}
-                      style={{ width: "100%", border: "1px solid var(--border)", borderRadius: 7, padding: "6px 8px", fontSize: 12, resize: "vertical", boxSizing: "border-box" }}
+                      rows={10}
+                      style={{ width: "100%", border: "1px solid var(--border)", borderRadius: 7, padding: "8px 10px", fontSize: 12, lineHeight: 1.5, resize: "vertical", boxSizing: "border-box", fontFamily: "var(--font-mono, ui-monospace, monospace)" }}
                     />
+                    <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 6 }}>
+                      Saved when you click away from the box.
+                    </div>
                   </div>
                 )}
               </div>
@@ -857,12 +936,22 @@ function SequenceDetail({
         </div>
       )}
       <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginBottom: 6 }}>
-        <select value={stepChannel} onChange={(e) => setStepChannel(e.target.value as SequenceChannel)} style={{ border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 12.5 }}>
-          {(Object.keys(CHANNEL_META) as SequenceChannel[]).map((c) => (
-            <option key={c} value={c}>{CHANNEL_META[c].icon} {CHANNEL_META[c].label}</option>
+        <select
+          value={stepType}
+          onChange={(e) => setStepType(e.target.value as StepType)}
+          aria-label="Step type"
+          style={{ border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 12.5 }}
+        >
+          {STEP_TYPES.map((t) => (
+            <option key={t.key} value={t.key}>{t.icon} {t.label}</option>
           ))}
         </select>
-        <SendModeBadge channel={stepChannel} />
+        {stepType === "linkedin" && (
+          <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--muted)" }}>
+            <input type="checkbox" checked={linkedinWithMessage} onChange={(e) => setLinkedinWithMessage(e.target.checked)} />
+            with a message
+          </label>
+        )}
         <input
           type="number"
           min={0}
@@ -876,16 +965,43 @@ function SequenceDetail({
           <option value="days">days</option>
         </select>
         <span style={{ fontSize: 11.5, color: "var(--muted)" }}>after previous step</span>
+        <select
+          value={stepDay}
+          onChange={(e) => setStepDay(e.target.value)}
+          aria-label="Preferred day"
+          title="Roll this step forward to a particular weekday. Forward only — it can delay a touch, never make it land earlier."
+          style={{ border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 12.5 }}
+        >
+          <option value="">Any day</option>
+          {DAY_NAMES.map((d, i) => (
+            <option key={d} value={i}>{d}</option>
+          ))}
+        </select>
+        <input
+          type="time"
+          value={stepTime}
+          onChange={(e) => setStepTime(e.target.value)}
+          aria-label="Time of day"
+          title="Time of day for the generated task"
+          style={{ border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 12.5 }}
+        />
         <input value={stepNote} onChange={(e) => setStepNote(e.target.value)} placeholder="Optional note/script" style={{ border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 12.5, flex: "1 1 160px" }} />
         <button
           onClick={submitAddStep}
-          style={{ background: "#2CC295", color: "#081E22", border: "none", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 700 }}
+          disabled={seq.steps.length >= MAX_STEPS}
+          title={seq.steps.length >= MAX_STEPS ? `A sequence holds at most ${MAX_STEPS} steps.` : undefined}
+          style={{
+            background: seq.steps.length >= MAX_STEPS ? "var(--surface-sunken)" : "#2CC295",
+            color: seq.steps.length >= MAX_STEPS ? "var(--muted)" : "#081E22",
+            border: "none", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 700,
+          }}
         >
           + Add step
         </button>
       </div>
       <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 18 }}>
-        Use 0 to fire immediately after the previous step, up to 7 days ({MAX_WAIT_HOURS} hours).
+        {seq.steps.length} of {MAX_STEPS} steps · runs about {totalSpanDays(seq)} day{totalSpanDays(seq) === 1 ? "" : "s"} end to end.
+        Use 0 to fire immediately after the previous step; a single gap can be up to {Math.round(MAX_WAIT_HOURS / 24)} days.
       </div>
 
       <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>Enrolled contacts</div>
@@ -1090,6 +1206,80 @@ function StepContentEditor({
               can&rsquo;t ship half-filled.
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// The house rules a sequence runs under, copied from Apollo's own
+// settings. RECORDED, NOT ENFORCED — there is no sending engine in this
+// app to enforce them against, and saying otherwise would be the same
+// kind of lie as a fake "connected" badge. The panel states that in
+// plain text rather than leaving it to be discovered.
+function SequenceRulesPanel({ seq }: { seq: Sequence }) {
+  const [open, setOpen] = useState(false);
+  const r = seq.rules;
+  if (!r) return null;
+  const rows: { label: string; value: string; enforced: boolean }[] = [
+    { label: "Finish on reply", value: r.finishOnReply ? "On" : "Off", enforced: false },
+    { label: "Finish if marked interested", value: r.finishIfInterested ? "On" : "Off", enforced: true },
+    { label: "Pause on out-of-office", value: r.pauseIfOutOfOffice ? "On" : "Off", enforced: false },
+    { label: "Wait before a reply counts", value: `${r.daysToWaitBeforeResponse ?? 0} days`, enforced: false },
+    { label: "Same-company reply delay", value: `${r.sameAccountReplyDelayDays ?? 0} days`, enforced: false },
+    { label: "Max emails per day", value: r.maxEmailsPerDay ? String(r.maxEmailsPerDay) : "No cap", enforced: false },
+  ];
+  if (r.autoPause) {
+    rows.push({
+      label: "Auto-pause",
+      value: r.autoPause.enabled
+        ? `warn ${r.autoPause.warningThresholdPct}% · pause ${r.autoPause.pauseThresholdPct}% over ${r.autoPause.evaluationWindowDays}d (min ${r.autoPause.minVolume} sends)`
+        : "Off",
+      enforced: false,
+    });
+  }
+  return (
+    <div style={{ border: "1px solid var(--border)", borderRadius: 8, marginTop: 8, background: "var(--surface-sunken)" }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", border: "none", background: "none", padding: "7px 10px", cursor: "pointer", fontSize: 12, fontWeight: 700, color: "var(--muted)" }}
+      >
+        <span>{open ? "▾" : "▸"}</span>
+        <span>Sequence rules</span>
+        <span style={{ fontWeight: 500 }}>— copied from Apollo, recorded but not yet enforced</span>
+      </button>
+      {open && (
+        <div style={{ padding: "0 10px 10px" }}>
+          <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 8, lineHeight: 1.5 }}>
+            These are the settings the sequence runs under in Apollo. This app has no sending engine, so only the
+            rule marked <b>Live</b> below actually does anything here today — the rest are stored so they survive to
+            whenever real sending is built, not silently obeyed.
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: "4px 10px", fontSize: 12 }}>
+            {rows.map((row) => (
+              <span key={row.label} style={{ display: "contents" }}>
+                <span style={{ color: "var(--muted)" }}>{row.label}</span>
+                <span style={{ fontWeight: 600 }}>{row.value}</span>
+                <span
+                  title={row.enforced
+                    ? "This one really happens here: a connected disposition finishes the contact's enrollment."
+                    : "Stored only — nothing in this app acts on it yet."}
+                  style={{
+                    fontSize: 9.5,
+                    fontWeight: 700,
+                    borderRadius: 999,
+                    padding: "1px 7px",
+                    color: row.enforced ? "#2CC295" : "var(--muted)",
+                    background: row.enforced ? "#E7F1EA" : "var(--surface)",
+                    border: row.enforced ? "none" : "1px solid var(--border)",
+                  }}
+                >
+                  {row.enforced ? "Live" : "Recorded"}
+                </span>
+              </span>
+            ))}
+          </div>
         </div>
       )}
     </div>

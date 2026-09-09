@@ -11,7 +11,7 @@
 // profiles beyond this roll-up are direction, not built yet.
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { groupContactsByCompany, searchCompanies, type Company } from "../lib/companies";
-import { profileLocationLabel, PROFILE_FIELD_DEFS, type CompanyProfile, type ImportResult } from "../lib/companyProfiles";
+import { profileLocationLabel, PROFILE_FIELD_DEFS, type CompanyProfile, type ImportResult , SIZE_BUCKETS } from "../lib/companyProfiles";
 import { downloadBlob, toCSV } from "../lib/csv";
 import { getEmailDomain, isFreeEmailDomain, isCompetitorIndustry } from "../lib/detection";
 import { OUTREACH_STATUS_META, type Contact, type ManualContactInput } from "../lib/contacts";
@@ -134,13 +134,6 @@ export default function Companies({ contacts, onAddContact, onUpdateContact, use
     const m = raw.match(/\d+/);
     return m ? Number(m[0]) : null;
   };
-  const SIZE_BUCKETS: { key: string; label: string; test: (n: number) => boolean }[] = [
-    { key: "1-10", label: "1–10", test: (n) => n <= 10 },
-    { key: "11-50", label: "11–50", test: (n) => n > 10 && n <= 50 },
-    { key: "51-200", label: "51–200", test: (n) => n > 50 && n <= 200 },
-    { key: "201-1000", label: "201–1,000", test: (n) => n > 200 && n <= 1000 },
-    { key: "1000+", label: "1,000+", test: (n) => n > 1000 },
-  ];
   // Every distinct industry actually present, so the list only ever offers
   // values that would match something.
   const industryOptions = useMemo(() => {

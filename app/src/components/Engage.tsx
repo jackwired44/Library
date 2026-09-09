@@ -12,7 +12,7 @@ import ContactsView, { type WorkedFilter } from "./Contacts";
 import type { Tier } from "../lib/detection";
 import CompaniesView from "./Companies";
 import ChannelTasks from "./ChannelTasks";
-import SequencesView from "./Sequences";
+import SequencesView, { type StepExtra } from "./Sequences";
 import ListsView from "./Lists";
 import type { Task, TaskPriority } from "../lib/tasks";
 import type { OutreachAttempt, AttemptChannel } from "../lib/outreachAttempts";
@@ -50,7 +50,7 @@ interface EngageProps {
   onCreateSequence: (name: string) => Sequence | null;
   onRenameSequence: (id: string, name: string) => void;
   onCreateSequenceFromTemplate: (tpl: SequenceTemplate) => Sequence | null;
-  onAddSequenceStep: (id: string, channel: SequenceChannel, waitHours: number, note?: string) => void;
+  onAddSequenceStep: (id: string, channel: SequenceChannel, waitHours: number, note?: string, extra?: StepExtra) => void;
   onRemoveSequenceStep: (id: string, stepId: string) => void;
   onUpdateSequenceStep: (id: string, stepId: string, patch: Partial<{ note: string; systemPrompt: string; userPrompt: string }>) => void;
   onMoveSequenceStep: (id: string, stepId: string, direction: -1 | 1) => void;
@@ -257,6 +257,10 @@ export default function Engage({
           onToggleTask={onToggleTask}
           onEditTask={onEditTask}
           onDeleteTask={onDeleteTask}
+          contacts={contacts}
+          sequences={sequences}
+          enrollments={enrollments}
+          companyProfiles={companyProfiles}
         />
       )}
       {tab === "calls" && (

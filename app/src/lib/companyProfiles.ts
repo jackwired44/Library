@@ -346,3 +346,27 @@ export function applyCompetitorDQ(rows: ResultRow[], profiles: CompanyProfile[])
 export function competitorCompanyKeys(profiles: CompanyProfile[]): Set<string> {
   return new Set(profiles.filter((p) => isCompetitorIndustry(p.industry)).map((p) => p.key));
 }
+
+
+// Employee-count buckets. Shared so the Companies filter and the Tasks
+// work filter can never disagree about what "51–200" means.
+export const SIZE_BUCKETS: { key: string; label: string; test: (n: number) => boolean }[] = [
+  { key: "1-10", label: "1–10", test: (n) => n <= 10 },
+  { key: "11-50", label: "11–50", test: (n) => n > 10 && n <= 50 },
+  { key: "51-200", label: "51–200", test: (n) => n > 50 && n <= 200 },
+  { key: "201-1000", label: "201–1,000", test: (n) => n > 200 && n <= 1000 },
+  { key: "1000+", label: "1,000+", test: (n) => n > 1000 },
+];
+
+// Apollo exports employee counts as either a number or a range string
+// ("51-200"). Read the first number in either case; a value with no
+// digits at all is genuinely unknown, so it returns null rather than 0 —
+// a company with no headcount on file must not fall into the "1–10"
+// bucket by accident.
+export function employeeCountOf(profile: { employees?: string } | null | undefined): number | null {
+  const raw = (profile?.employees || "").replace(/,/g, "");
+  const m = raw.match(/\d+/);
+  if (!m) return null;
+  const n = Number(m[0]);
+  return Number.isFinite(n) ? n : null;
+}
