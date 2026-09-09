@@ -6,7 +6,6 @@
 // hand, not an automatic send — flagged in the empty state below too.
 import { useMemo, useState, type CSSProperties } from "react";
 import type { Contact } from "../lib/contacts";
-import { getFullName } from "../lib/detection";
 import { SEQUENCE_TEMPLATES, type SequenceTemplate } from "../lib/sequenceTemplates";
 import { renderMerge, tokensIn } from "../lib/mergeFields";
 import type { Task } from "../lib/tasks";
@@ -741,6 +740,19 @@ function SequenceDetail({
   const [stepDay, setStepDay] = useState<string>("");
   const [stepTime, setStepTime] = useState<string>("");
   const [enrollPicker, setEnrollPicker] = useState<Set<string>>(new Set());
+  const [enrollSearch, setEnrollSearch] = useState("");
+  const ENROLL_PAGE = 50;
+  const enrollMatches = useMemo(() => {
+    const q = enrollSearch.trim().toLowerCase();
+    if (!q) return contacts;
+    return contacts.filter((c) =>
+      [c.fullName, c.firstName, c.lastName, c.company, c.email, c.title]
+        .filter(Boolean)
+        .some((v) => String(v).toLowerCase().includes(q))
+    );
+  }, [contacts, enrollSearch]);
+  const enrollMatchCount = enrollMatches.length;
+  const enrollCandidates = useMemo(() => enrollMatches.slice(0, ENROLL_PAGE), [enrollMatches]);
   const [enrollNotice, setEnrollNotice] = useState<string | null>(null);
 
   function commitRename() {
@@ -883,7 +895,6 @@ function SequenceDetail({
                     <div className="prompt-col">
                       <StepContentEditor
                         step={step}
-                        previewContact={contacts[0] || null}
                         onUpdate={(patch) => onUpdateStep(step.id, patch)}
                       />
                     <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 10, lineHeight: 1.5 }}>
@@ -1078,8 +1089,18 @@ function SequenceDetail({
       )}
 
       <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>Or enroll specific contacts (manual)</div>
-      <div style={{ maxHeight: 160, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 8, marginBottom: 8 }}>
-        {contacts.map((c) => (
+      {/* Searched and capped. This rendered EVERY contact — the same
+          unpaginated pattern measured at ~5 seconds and 77,500 DOM nodes
+          in Contacts, still here because this picker was never touched.
+          Selection is a Set of ids, so it survives narrowing the search. */}
+      <input
+        value={enrollSearch}
+        onChange={(e) => setEnrollSearch(e.target.value)}
+        placeholder="Search contacts…"
+        style={{ width: "100%", border: "1px solid var(--border)", borderRadius: 7, padding: "6px 9px", fontSize: 12.5, marginBottom: 6, boxSizing: "border-box" }}
+      />
+      <div style={{ maxHeight: 160, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 8, marginBottom: 4 }}>
+        {enrollCandidates.map((c) => (
           <label key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 10px", fontSize: 12.5, borderBottom: "1px solid var(--border)", cursor: "pointer" }}>
             <input
               type="checkbox"
@@ -1095,6 +1116,14 @@ function SequenceDetail({
             {c.fullName || "(no name)"}{c.company ? ` — ${c.company}` : ""}
           </label>
         ))}
+        {enrollCandidates.length === 0 && (
+          <div style={{ padding: "8px 10px", fontSize: 12, color: "var(--muted)" }}>No contacts match that search.</div>
+        )}
+      </div>
+      <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 8 }}>
+        {enrollMatchCount > enrollCandidates.length
+          ? `Showing ${enrollCandidates.length} of ${enrollMatchCount} matches — search to narrow. ${enrollPicker.size} selected.`
+          : `${enrollMatchCount} contact${enrollMatchCount === 1 ? "" : "s"}. ${enrollPicker.size} selected.`}
       </div>
       <button
         onClick={submitEnroll}
@@ -1123,19 +1152,13 @@ function SequenceDetail({
 // instead of rendering a template full of empty gaps.
 function StepContentEditor({
   step,
-  previewContact,
   onUpdate,
 }: {
   step: SequenceStep;
-  previewContact: Contact | null;
   onUpdate: (patch: Partial<Pick<SequenceStep, "subject" | "body">>) => void;
 }) {
   const isEmail = step.channel === "email";
-  const subjectPreview = step.subject ? renderMerge(step.subject, { contact: previewContact }) : null;
-  const bodyPreview = step.body ? renderMerge(step.body, { contact: previewContact }) : null;
-  const unresolved = Array.from(
-    new Set([...(subjectPreview?.unresolved || []), ...(bodyPreview?.unresolved || [])])
-  );
+  const unresolved: string[] = [];
   const used = Array.from(new Set([...tokensIn(step.subject || ""), ...tokensIn(step.body || "")]));
 
   const label: CSSProperties = {
@@ -1198,24 +1221,14 @@ function StepContentEditor({
 
       {used.length > 0 && (
         <div style={{ marginTop: 10 }}>
-          <div style={label}>Preview</div>
-          {previewContact ? (
-            <div style={{ border: "1px solid var(--border)", borderRadius: 7, padding: "8px 10px", background: "var(--surface-sunken)", fontSize: 12, lineHeight: 1.5 }}>
-              {subjectPreview && <div style={{ fontWeight: 700, marginBottom: 4 }}>{subjectPreview.text}</div>}
-              {bodyPreview && <div style={{ whiteSpace: "pre-wrap" }}>{bodyPreview.text}</div>}
-              <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 6 }}>
-                Using {getFullName({ firstName: previewContact.firstName, lastName: previewContact.lastName, fullName: previewContact.fullName }) || "a contact"}
-                {previewContact.company ? ` at ${previewContact.company}` : ""}
-              </div>
-            </div>
-          ) : (
-            <div style={{ fontSize: 11.5, color: "var(--muted)" }}>
-              No contacts on file yet &mdash; upload a CSV and the preview fills in with a real one.
-            </div>
-          )}
+          <div style={label}>Merge fields used</div>
+          <div style={{ fontSize: 11.5, color: "var(--muted)" }}>
+            {used.map((t) => `{{${t}}}`).join(", ")} — see the preview beside this panel for how they fill in for a
+            real lead.
+          </div>
           {unresolved.length > 0 && (
             <div style={{ fontSize: 11, color: "#8A5A00", marginTop: 6 }}>
-              Not a field this app knows: {unresolved.map((t) => `{{${t}}}`).join(", ")} &mdash; left visible so it
+              Not a field this app knows: {unresolved.map((t) => `{{${t}}}`).join(", ")} — left visible so it
               can&rsquo;t ship half-filled.
             </div>
           )}

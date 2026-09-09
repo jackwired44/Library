@@ -347,18 +347,35 @@ export function attachScanResultsToContacts(existing: Contact[], resultRows: Res
     const match = lookupContact(index, getFullName(f), String(f.company || "").trim(), String(f.email || "").trim());
     if (!match) return;
 
+    // A ResultRow carries a SNAPSHOT of the disposition as the Scanner
+    // last saw it. An outcome logged since — from Calls, Emails, or the
+    // Reached board — lives on the Contact and is newer. Writing the
+    // snapshot back unconditionally meant that clicking a row's tier tab
+    // in Scanner silently erased a "Meeting booked" logged an hour
+    // earlier, along with its meetingBookedAt stamp, so Home's "Booked
+    // this week" lost the lead. The row only wins when it actually
+    // carries a disposition; "none" means "the Scanner has nothing to
+    // say", not "clear whatever is there".
+    const rowHasDisposition = Boolean(r.disposition && r.disposition !== "none");
+    const disposition = rowHasDisposition ? r.disposition : match.disposition;
+    const dispositionNote = rowHasDisposition ? r.dispositionNote || "" : match.dispositionNote || "";
+    // crossedOut deliberately still takes the row's value: un-crossing a
+    // row in Scanner is an explicit action and CLAUDE.md's sticky-state
+    // rule requires that undo to stick across later uploads. Preserving
+    // the contact's value here would make a cross-out un-undoable.
+
     const updated: Contact = {
       ...match,
       category: r.category,
       tier: r.tier,
       matchedSnippet: r.notesSummary || "",
-      disposition: r.disposition,
-      dispositionNote: r.dispositionNote || "",
+      disposition,
+      dispositionNote,
       crossedOut: r.crossedOut,
       // Stamp on the transition INTO meeting-booked; keep an existing
       // stamp while it stays booked; clear it if it moves away.
       meetingBookedAt:
-        r.disposition === "meeting-booked"
+        disposition === "meeting-booked"
           ? match.meetingBookedAt || new Date().toISOString()
           : null,
     };

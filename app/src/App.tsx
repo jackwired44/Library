@@ -80,6 +80,7 @@ import {
   type SequenceChannel,
   type SequenceStep,
   type SequenceStatus,
+  isSequenceRunnable,
 } from "./lib/sequences";
 import {
   loadUsersFromDB,
@@ -114,6 +115,7 @@ import {
   deleteDispositionFromDB,
   createCustomDisposition,
   type CustomDisposition,
+  isConnectedDisposition,
 } from "./lib/dispositions";
 import { loadCompanyProfilesFromDB, persistCompanyProfile, importCompanyRows, companiesNeedingEnrichment, upsertProfileFromApollo, type CompanyProfile, type ImportResult } from "./lib/companyProfiles";
 import { enrichCompaniesViaApollo, type CompanyEnrichOutcome } from "./lib/apolloEnrich";
@@ -463,7 +465,18 @@ export default function App() {
   function toggleTask(id: string) {
     const task = tasks.find((t) => t.id === id);
     if (!task) return;
-    const done = !task.done;
+    setTaskDone(task, !task.done, true);
+  }
+  // Mark one task done/undone. `advanceSequence` is false when the caller
+  // has already ended the enrollment (a connected outcome), so the step
+  // machine doesn't hand the contact a fresh task they shouldn't get.
+  function completeTask(id: string, opts: { advanceSequence: boolean }) {
+    const task = tasks.find((t) => t.id === id);
+    if (!task || task.done) return;
+    setTaskDone(task, true, opts.advanceSequence);
+  }
+  function setTaskDone(task: Task, done: boolean, advanceSequence: boolean) {
+    const id = task.id;
     // Stamp when it was actually completed — a task's `date` is when it was
     // scheduled, which can be in the future (a sequence step due tomorrow,
     // worked today). Contacts' "last activity" reads this. Cleared when a
@@ -474,7 +487,7 @@ export default function App() {
 
     // Completing (not un-completing) a Sequence-generated task advances
     // its enrollment to the next step — see CLAUDE.md "Native Sequences."
-    if (done && task.sequenceEnrollmentId) {
+    if (done && advanceSequence && task.sequenceEnrollmentId) {
       const result = advanceEnrollment(enrollments, sequences, contacts, task.sequenceEnrollmentId);
       if (result) {
         setEnrollments((prev) => prev.map((e) => (e.id === result.enrollment.id ? result.enrollment : e)));
@@ -550,6 +563,23 @@ export default function App() {
     const idSet = new Set(ids);
     setContacts((prev) => prev.filter((c) => !idSet.has(c.id)));
     void deleteContactsFromDB(ids);
+    // Their enrollments and tasks would otherwise point at a contact
+    // that no longer exists: an active enrollment could never advance
+    // (advanceEnrollment returns null with no contact) yet kept counting
+    // as active, and their tasks vanished from Calls/Emails — which
+    // filter by a live contact — while still counting on Home and the
+    // Board. Remove both alongside the contacts.
+    const gone = new Set(ids);
+    setEnrollments((prev) => {
+      const doomed = prev.filter((e) => gone.has(e.contactId));
+      doomed.forEach((e) => deleteEnrollmentFromDB(e.id));
+      return prev.filter((e) => !gone.has(e.contactId));
+    });
+    setTasks((prev) => {
+      const doomed = prev.filter((t) => t.contactId && gone.has(t.contactId));
+      doomed.forEach((t) => deleteTaskFromDB(t.id));
+      return prev.filter((t) => !(t.contactId && gone.has(t.contactId)));
+    });
   }
 
   function addManualContact(input: ManualContactInput) {
@@ -686,6 +716,20 @@ export default function App() {
       const target = contacts.find((c) => c.id === attempt.contactId);
       if (target) finishTerminalEnrollments([{ ...target, disposition: attempt.outcome }]);
     }
+    // Completing the linked task is part of logging an outcome, not a
+    // separate action the caller fires alongside it. Doing it separately
+    // meant toggleTask's advanceEnrollment ran against the enrollments
+    // array from BEFORE finishTerminalEnrollments, so a "Meeting booked"
+    // logged from Calls finished the enrollment and then immediately
+    // advanced it to the next step — the contact kept getting worked
+    // after they booked. `reached` here is the same connected test that
+    // finishes the enrollment, so the two can never disagree.
+    if (input.taskId) {
+      const reached = Boolean(
+        attempt.outcome && attempt.outcome !== "none" && isConnectedDisposition(attempt.outcome, dispositions)
+      );
+      completeTask(input.taskId, { advanceSequence: !reached });
+    }
     return attempt;
   }
   function removeAttempt(id: string) {
@@ -709,9 +753,7 @@ export default function App() {
     });
   }
   function renameSequenceById(id: string, name: string) {
-    const seq = sequences.find((s) => s.id === id);
-    if (!seq) return;
-    updateSequenceSteps(renameSequence(seq, name));
+    mutateSequence(id, (seq) => renameSequence(seq, name));
   }
   function addSequenceStep(
     id: string,
@@ -763,14 +805,10 @@ export default function App() {
     newTasks.forEach(persistTask);
   }
   function assignSequenceOwner(id: string, ownerId: string | null) {
-    const seq = sequences.find((s) => s.id === id);
-    if (!seq) return;
-    updateSequenceSteps(setSequenceOwner(seq, ownerId));
+    mutateSequence(id, (seq) => setSequenceOwner(seq, ownerId));
   }
   function assignSequenceGroup(id: string, groupId: string | null) {
-    const seq = sequences.find((s) => s.id === id);
-    if (!seq) return;
-    updateSequenceSteps(setSequenceGroup(seq, groupId));
+    mutateSequence(id, (seq) => setSequenceGroup(seq, groupId));
   }
   // "Copy which duplicates it exactly" — steps deep-copied with fresh ids,
   // no enrollments carried over (see duplicateSequence).
@@ -809,9 +847,7 @@ export default function App() {
     });
   }
   function assignSequenceEmailAccount(id: string, emailAccountId: string | null) {
-    const seq = sequences.find((s) => s.id === id);
-    if (!seq) return;
-    updateSequenceSteps(setSequenceEmailAccount(seq, emailAccountId));
+    mutateSequence(id, (seq) => setSequenceEmailAccount(seq, emailAccountId));
   }
 
   // --- Email sending accounts (lib/emailAccounts.ts) — sender identity
@@ -979,6 +1015,11 @@ export default function App() {
     const seq = sequences.find((s) => s.id === enrollment.sequenceId);
     const contact = contacts.find((c) => c.id === enrollment.contactId);
     if (!seq || !contact) return;
+    // Pausing or archiving a sequence is documented to stop new step
+    // tasks, and enrolling respects that. Restart did not, so restarting
+    // an enrollment on a paused sequence reactivated it and generated a
+    // fresh task — exactly what pausing is meant to prevent.
+    if (!isSequenceRunnable(seq)) return;
     const result = restartEnrollment(enrollment, seq, contact);
     setEnrollments((prev) => prev.map((e) => (e.id === enrollmentId ? result.enrollment : e)));
     persistEnrollment(result.enrollment);

@@ -2,7 +2,7 @@
   "name": "wired-cio-lead-scanner",
   "version": "0.1.0",
   "private": true,
-  "description": "Wired CIO Lead Scanner — React/TypeScript rebuild. See ../CLAUDE.md before touching anything here; ../legacy is the working reference implementation and the acceptance bar (its Playwright suite is the spec).",
+  "description": "Wired CIO Lead Scanner \u2014 React/TypeScript rebuild. See ../CLAUDE.md before touching anything here; ../legacy is the working reference implementation and the acceptance bar (its Playwright suite is the spec).",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,7 +11,9 @@
     "lint": "eslint .",
     "typecheck": "tsc -b --noEmit",
     "hash-password": "node scripts/hash-password.cjs",
-    "company-overview": "node scripts/company-overview.cjs"
+    "company-overview": "node scripts/company-overview.cjs",
+    "suites": "node scripts/run-suites.cjs",
+    "test": "npm run build && node scripts/run-suites.cjs"
   },
   "dependencies": {
     "papaparse": "^5.4.1",

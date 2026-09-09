@@ -26,3 +26,5 @@ legacy/wired-cio-unified-scanner-source.zip
 # scratch test fixtures
 app/*.csv
 app/_run-*.cjs
+app/_run-*.cjs
+app/scripts/suites/*.csv

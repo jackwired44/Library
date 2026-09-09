@@ -84,7 +84,11 @@ export default function ChannelTasks({ channel, contacts, tasks, users, disposit
   const dispositionCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     tasks.forEach((t) => {
-      if (t.channel !== channel || !t.contactId) return;
+      // Must apply the SAME guards the visible list applies, or a bucket
+      // advertises a count whose rows never render — a task whose contact
+      // was deleted, or one with no priority, is counted but not shown.
+      if (t.channel !== channel || !t.contactId || !t.priority) return;
+      if (!contactById.has(t.contactId)) return;
       if (hideDone && t.done) return;
       const c = contactById.get(t.contactId);
       const key = c?.disposition || "none";
@@ -212,12 +216,15 @@ export default function ChannelTasks({ channel, contacts, tasks, users, disposit
                         const outcome = e.target.value;
                         if (outcome === "none") { setLogForTaskId(null); return; }
                         // Logging an outcome also completes the task — you
-                        // worked it, that is what an outcome means. Guarded
-                        // so re-logging an already-done task doesn't toggle
-                        // it back OPEN, which would be the opposite of the
-                        // intent.
+                        // worked it, that is what an outcome means. The
+                        // completion is done INSIDE onLogAttempt now, not
+                        // fired alongside it: calling onToggleTask here as
+                        // well ran the step machine against the
+                        // pre-completion enrollment array, so logging
+                        // "Meeting booked" finished the enrollment and then
+                        // immediately advanced it to the next step, and the
+                        // contact kept getting worked after booking.
                         onLogAttempt({ contactId: contact.id, channel: channel === "email" ? "email" : "call", outcome, taskId: t.id });
-                        if (!t.done) onToggleTask(t.id);
                         setLogForTaskId(null);
                       }}
                       onBlur={() => setLogForTaskId(null)}

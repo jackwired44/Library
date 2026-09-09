@@ -202,13 +202,23 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
   }
 
   const contactById = useMemo(() => new Map(contacts.map((c) => [c.id, c])), [contacts]);
-  const contactTasks = useMemo(
+  // Open tasks only, capped. Enrolling a 1,000-lead list generated 1,000+
+  // rows here — completed ones included, with no "hide done" — rendered on
+  // every visit to Contacts and re-rendered on every keystroke in the
+  // search box, recreating the multi-second tab switch that pagination
+  // already fixed for the table below. This panel is a "what matters
+  // most, at a glance" view, so it shows the top of the priority order
+  // and says how many more there are.
+  const allContactTasks = useMemo(
     () =>
       tasks
         .filter((t): t is Task & { contactId: string; priority: TaskPriority } => Boolean(t.contactId && t.priority && contactById.has(t.contactId)))
+        .filter((t) => !t.done)
         .sort((a, b) => PRIORITY_META[a.priority].rank - PRIORITY_META[b.priority].rank || a.date.localeCompare(b.date)),
     [tasks, contactById]
   );
+  const CONTACT_TASK_LIMIT = 25;
+  const contactTasks = useMemo(() => allContactTasks.slice(0, CONTACT_TASK_LIMIT), [allContactTasks]);
 
   function submitContactTask(contact: Contact, date: string, priority: TaskPriority, note: string, time?: string) {
     const base = `Follow up with ${contact.fullName || contact.company}${contact.company && contact.fullName ? ` (${contact.company})` : ""}`;
@@ -459,6 +469,12 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {allContactTasks.length > CONTACT_TASK_LIMIT && (
+              <div style={{ fontSize: 11.5, color: "var(--muted)", padding: "4px 0 8px" }}>
+                Showing the {CONTACT_TASK_LIMIT} highest-priority of {allContactTasks.length} open tasks — the rest are
+                in Engage → Tasks.
+              </div>
+            )}
             {contactTasks.map((t) => {
               const contact = contactById.get(t.contactId);
               const meta = PRIORITY_META[t.priority];
