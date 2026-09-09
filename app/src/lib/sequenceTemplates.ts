@@ -33,6 +33,7 @@ export interface SequenceTemplate {
   name: string;
   rules?: SequenceRules;
   mergeVariables?: string[];
+  apolloCampaignId?: string;
   // Shown in the picker so the shape is readable before instantiating.
   description: string;
   // Where this came from, stated plainly in the UI.
@@ -144,6 +145,9 @@ export const DYNAMICS_SEQUENCE_TEMPLATE: SequenceTemplate = {
   // Recorded, not enforced — there is no sending engine here to enforce
   // them against yet.
   rules: DEFAULT_SEQUENCE_RULES,
+  // The live Apollo sequence this was copied from. Lets the preview pull
+  // real delivered emails these exact prompts produced.
+  apolloCampaignId: "6a0b653aba6c9100208889c0",
   // The merge variables the email prompts actually reference. Apollo's
   // stored body is ONE AI-opener variable and nothing else, so these
   // three are the entire input the generated email is written from.
@@ -215,5 +219,6 @@ export function sequenceFromTemplate(tpl: SequenceTemplate, name?: string): Sequ
     if (Object.keys(patch).length) seq = updateStep(seq, added.id, patch);
   }
   if (tpl.rules) seq = { ...seq, rules: { ...tpl.rules } };
+  if (tpl.apolloCampaignId) seq = { ...seq, apolloCampaignId: tpl.apolloCampaignId };
   return seq;
 }

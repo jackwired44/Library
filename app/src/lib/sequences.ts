@@ -91,6 +91,11 @@ export interface SequenceStep {
   // given a time of day. Both optional and independent: a day with no
   // time lands on that weekday with no time set, a time with no day just
   // times the day the wait already produced.
+  // An EXAMPLE of what this step's AI body produced, pasted in by hand.
+  // Explicitly not what will send — the real body is generated per
+  // contact at send time. Kept so a prompt can be judged against real
+  // output rather than from imagination.
+  sampleBody?: string;
   sendDayOfWeek?: number | null;
   sendTime?: string | null;
   // The actual content this step sends, as opposed to `note` (which is a
@@ -156,6 +161,10 @@ export interface Sequence {
   // enforcing each one is its own piece of work, and the UI says so
   // rather than implying the sequence is obeying them.
   rules?: SequenceRules;
+  // When this sequence was copied from a live Apollo sequence, its id
+  // there. Used only to pull REAL sent examples of what its AI prompts
+  // produce (lib/apolloSamples.ts) — never to write anything back.
+  apolloCampaignId?: string | null;
 }
 
 export interface SequenceRules {
@@ -266,7 +275,7 @@ export function addStep(
   channel: SequenceChannel,
   waitHours: number,
   note?: string,
-  extra?: Partial<Pick<SequenceStep, "sendMode" | "bodyMode" | "linkedinWithMessage" | "sendDayOfWeek" | "sendTime">>
+  extra?: Partial<Pick<SequenceStep, "sendMode" | "bodyMode" | "linkedinWithMessage" | "sendDayOfWeek" | "sendTime" | "sampleBody">>
 ): Sequence {
   // Refuse rather than silently truncate — a caller that hits the cap
   // needs to know, and the UI disables the button before this fires.
@@ -278,7 +287,7 @@ export function addStep(
 export function updateStep(
   seq: Sequence,
   stepId: string,
-  patch: Partial<Pick<SequenceStep, "note" | "systemPrompt" | "userPrompt" | "subject" | "body" | "sendMode" | "bodyMode" | "linkedinWithMessage" | "sendDayOfWeek" | "sendTime">>
+  patch: Partial<Pick<SequenceStep, "note" | "systemPrompt" | "userPrompt" | "subject" | "body" | "sendMode" | "bodyMode" | "linkedinWithMessage" | "sendDayOfWeek" | "sendTime" | "sampleBody">>
 ): Sequence {
   return { ...seq, steps: seq.steps.map((s) => (s.id === stepId ? { ...s, ...patch } : s)) };
 }

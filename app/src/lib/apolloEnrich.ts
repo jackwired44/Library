@@ -25,7 +25,7 @@ import type { ClaudeMcpNamespace } from "./claudeRuntime";
 
 export type ApolloAvailability = "available" | "not-connected" | "unsupported";
 
-async function getMcp(): Promise<ClaudeMcpNamespace | null> {
+export async function getMcp(): Promise<ClaudeMcpNamespace | null> {
   try {
     if (typeof window === "undefined" || !window.claude?.use) return null;
     return await window.claude.use("mcp");
@@ -88,7 +88,7 @@ export interface EnrichOutcome {
 // generic string. See the artifact-capabilities skill's mcp.d.ts doctrine:
 // branching on `code`/`message`, never collapsing every failure into one
 // banner, is the explicit contract here.
-function describeApolloError(err: unknown): string {
+export function describeApolloError(err: unknown): string {
   if (err && typeof err === "object") {
     const e = err as { code?: string; message?: string };
     if (e.code === "needs_reauth") return "Apollo's connection needs to be reconnected — check claude.ai Settings → Connectors.";

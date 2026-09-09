@@ -14,6 +14,8 @@ import { resolveWaitHours, resolveStatus, isSequenceRunnable, MAX_WAIT_HOURS, MA
 import { userLabel, type PlatformUser } from "../lib/users";
 import { type SequenceGroup } from "../lib/sequenceGroups";
 import { emailAccountLabel, type EmailAccount } from "../lib/emailAccounts";
+import { composeStepEmail, isSendable } from "../lib/emailSend";
+import { fetchSentSamples, type SentSample } from "../lib/apolloSamples";
 import { resolveListContacts, type LeadList } from "../lib/leadLists";
 
 interface SequencesProps {
@@ -71,10 +73,6 @@ const CHANNEL_META: Record<SequenceChannel, { label: string; icon: string; sendM
   email: { label: "Email", icon: "✉️", sendMode: "manual" },
   linkedin: { label: "LinkedIn", icon: "🔗", sendMode: "manual" },
 };
-const SEND_MODE_META: Record<"manual" | "automated", { label: string; color: string; bg: string }> = {
-  manual: { label: "Manual", color: "#9A5B22", bg: "#FBEBDD" },
-  automated: { label: "Automated", color: "#2CC295", bg: "#E7F1EA" },
-};
 // The step types a sequence can contain, per Jack: phone call, automatic
 // email, manual email, and a LinkedIn request with or without a message.
 // These are PRESENTATION over the three real channels — an automatic and
@@ -98,26 +96,21 @@ const STEP_TYPES: {
   { key: "linkedin", label: "LinkedIn request", icon: "🔗", channel: "linkedin", sendMode: "manual", bodyMode: "fixed" },
 ];
 
-function SendModeBadge({ channel, step }: { channel: SequenceChannel; step?: SequenceStep }) {
-  // A step can carry its own send mode (Apollo's auto_email vs a manual
-  // email). Fall back to the channel default when it doesn't — every
-  // step saved before that field existed.
-  const mode: "manual" | "automated" =
-    step?.sendMode === "auto" ? "automated" : step?.sendMode === "manual" ? "manual" : CHANNEL_META[channel].sendMode;
-  const meta = SEND_MODE_META[mode];
-  return (
-    <span
-      title={
-        mode === "manual"
-          ? "Generates a task you work by hand"
-          : "Marked to send automatically once the step's wait elapses. Nothing sends from this app yet — there is no email relay here (see Settings)."
-      }
-      style={{ fontSize: 9.5, fontWeight: 700, color: meta.color, background: meta.bg, borderRadius: 999, padding: "1px 7px", whiteSpace: "nowrap" }}
-    >
-      {meta.label}
-    </span>
-  );
+// What a step is called, derived from what it actually is. Replaces a
+// row that carried an icon, a channel word, a Manual/Automated badge and
+// an "AI body" badge — four things saying one thing, and saying it
+// inconsistently once a step's note disagreed with its send mode.
+function stepTypeLabel(step: SequenceStep): { icon: string; label: string } {
+  if (step.channel === "call") return { icon: "📞", label: "Phone call" };
+  if (step.channel === "linkedin") {
+    return { icon: "🔗", label: step.linkedinWithMessage === false ? "LinkedIn request" : "LinkedIn request with a note" };
+  }
+  if (step.sendMode === "auto") {
+    return { icon: "⚡", label: step.bodyMode === "ai" ? "Automatic email · AI-written" : "Automatic email" };
+  }
+  return { icon: "✉️", label: "Manual email" };
 }
+
 
 // Formats a step's wait as whole days when it divides evenly, hours
 // otherwise — e.g. 168 -> "7d", 36 -> "36h". Min is 1 hour, max is 7
@@ -171,6 +164,12 @@ export default function SequencesView({
   const [openId, setOpenId] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [showTemplates, setShowTemplates] = useState(false);
+  // Who a preview email is "from". The self user is the person using the
+  // platform (lib/users.ts) — Apollo greets with a first name, so the
+  // preview does too.
+  const selfUser = users.find((u) => u.isSelf) || users[0] || null;
+  const selfName = (selfUser?.name || "Jack").split(" ")[0];
+  const selfCompany = "Wired CIO";
   // "Live" (active + paused) is the default, NOT "active only" — pausing
   // a sequence must never make it vanish out from under you the moment
   // you click Pause, which is exactly what an active-only default did.
@@ -649,6 +648,9 @@ export default function SequencesView({
                           <SequenceRulesPanel seq={seq} />
                           <SequenceDetail
                             seq={seq}
+                            emailAccounts={emailAccounts}
+                            selfName={selfName}
+                            selfCompany={selfCompany}
                             enrollments={seqEnrollments}
                             contacts={contacts}
                             leadLists={leadLists}
@@ -680,6 +682,9 @@ export default function SequencesView({
 
 function SequenceDetail({
   seq,
+  emailAccounts,
+  selfName,
+  selfCompany,
   enrollments,
   contacts,
   leadLists,
@@ -696,6 +701,9 @@ function SequenceDetail({
   onRemoveEnrollment,
 }: {
   seq: Sequence;
+  emailAccounts: EmailAccount[];
+  selfName: string;
+  selfCompany: string;
   enrollments: SequenceEnrollment[];
   contacts: Contact[];
   leadLists: LeadList[];
@@ -814,20 +822,11 @@ function SequenceDetail({
             const writesContent = step.channel !== "call";
             const hasContent = Boolean(step.subject?.trim() || step.body?.trim());
             return (
-              <div key={step.id}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--surface-sunken)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 10px", fontSize: 12.5 }}>
-                  <span style={{ fontWeight: 700 }}>{i + 1}.</span>
-                  <span>{CHANNEL_META[step.channel].icon} {CHANNEL_META[step.channel].label}</span>
-                  <SendModeBadge channel={step.channel} step={step} />
-                  {step.bodyMode === "ai" && (
-                    <span
-                      title="The body is written per contact from this step's prompts, not sent as fixed text. Nothing generates it in this app yet."
-                      style={{ fontSize: 9.5, fontWeight: 700, color: "#7A4FBF", background: "#F1EAFB", borderRadius: 999, padding: "1px 7px", whiteSpace: "nowrap" }}
-                    >
-                      AI body
-                    </span>
-                  )}
-                  <span style={{ color: "var(--muted)" }}>{formatWait(resolveWaitHours(step))}{resolveWaitHours(step) > 0 ? " after previous" : ""}</span>
+              <div key={step.id} data-step-type={stepTypeLabel(step).label} data-step-channel={step.channel}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--surface-sunken)", border: "1px solid var(--border)", borderRadius: 8, padding: "7px 10px", fontSize: 12.5 }}>
+                  <span style={{ fontWeight: 700, color: "var(--muted)", minWidth: 14 }}>{i + 1}</span>
+                  <span style={{ fontWeight: 600 }}>{stepTypeLabel(step).icon} {stepTypeLabel(step).label}</span>
+                  <span style={{ color: "var(--muted)" }}>· {formatWait(resolveWaitHours(step))}{resolveWaitHours(step) > 0 ? " after previous" : ""}</span>
                   {(step.sendDayOfWeek !== null && step.sendDayOfWeek !== undefined) && (
                     <span title="Rolled forward to this weekday" style={{ fontSize: 10.5, fontWeight: 700, color: "#0A66C2", background: "#EAF3FC", borderRadius: 999, padding: "1px 7px" }}>
                       {DAY_NAMES[step.sendDayOfWeek]}s
@@ -838,56 +837,51 @@ function SequenceDetail({
                       {step.sendTime}
                     </span>
                   )}
-                  {step.note && <span style={{ color: "var(--muted)", fontStyle: "italic" }}>— {step.note}</span>}
+
                   <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4 }}>
                     {writesContent && (
                       <button
-                        onClick={() => setContentEditorStepId(contentOpen ? null : step.id)}
-                        title="What this step actually says — subject line and message body, with merge fields"
+                        onClick={() => {
+                          // ONE editor per step. Content and the AI prompts
+                          // were two buttons opening two stacked panels that
+                          // edit the same message; they are one panel now.
+                          const open = contentOpen || promptOpen;
+                          setContentEditorStepId(open ? null : step.id);
+                          setPromptEditorStepId(open ? null : step.id);
+                        }}
+                        title="Write this step — subject, body, and the AI prompts, with a live preview against a real lead"
                         style={{
-                          border: `1px solid ${hasContent ? "#BFE5DC" : "var(--border)"}`,
+                          border: `1px solid ${hasContent || hasPrompt ? "#BFE5DC" : "var(--border)"}`,
                           borderRadius: 999,
-                          padding: "2px 8px",
+                          padding: "2px 10px",
                           fontSize: 10.5,
                           fontWeight: 700,
                           cursor: "pointer",
-                          background: hasContent ? "#E6F5F1" : "var(--surface)",
-                          color: hasContent ? "var(--accent)" : "var(--muted)",
+                          background: hasContent || hasPrompt ? "#E6F5F1" : "var(--surface)",
+                          color: hasContent || hasPrompt ? "var(--accent)" : "var(--muted)",
                         }}
                       >
-                        ✉️ Content{hasContent ? " ✓" : ""}
+                        {contentOpen || promptOpen ? "Close" : "Edit"}{hasContent || hasPrompt ? " ✓" : ""}
                       </button>
                     )}
-                    <button
-                      onClick={() => setPromptEditorStepId(promptOpen ? null : step.id)}
-                      title="AI prompt for this step — system + user prompt, captured for future AI-generated content (not sent to any AI yet)"
-                      style={{
-                        border: `1px solid ${hasPrompt ? "#CFE3F7" : "var(--border)"}`,
-                        borderRadius: 999,
-                        padding: "2px 8px",
-                        fontSize: 10.5,
-                        fontWeight: 700,
-                        cursor: "pointer",
-                        background: hasPrompt ? "#EAF3FC" : "var(--surface)",
-                        color: hasPrompt ? "#0A66C2" : "var(--muted)",
-                      }}
-                    >
-                      🤖 AI prompt{hasPrompt ? " ✓" : ""}
-                    </button>
                     <button onClick={() => onMoveStep(step.id, -1)} disabled={i === 0} title="Move earlier" style={{ border: "none", background: "none", cursor: i === 0 ? "default" : "pointer", opacity: i === 0 ? 0.3 : 1 }}>▲</button>
                     <button onClick={() => onMoveStep(step.id, 1)} disabled={i === seq.steps.length - 1} title="Move later" style={{ border: "none", background: "none", cursor: i === seq.steps.length - 1 ? "default" : "pointer", opacity: i === seq.steps.length - 1 ? 0.3 : 1 }}>▼</button>
                     <button onClick={() => onRemoveStep(step.id)} title="Remove step" style={{ border: "none", background: "none", color: "#B5443B" }}>✕</button>
                   </span>
                 </div>
-                {contentOpen && (
-                  <StepContentEditor
-                    step={step}
-                    previewContact={contacts[0] || null}
-                    onUpdate={(patch) => onUpdateStep(step.id, patch)}
-                  />
+                {step.note && (
+                  <div style={{ fontSize: 11.5, color: "var(--muted)", padding: "3px 10px 0 34px", fontStyle: "italic" }}>
+                    {step.note}
+                  </div>
                 )}
                 {promptOpen && (
-                  <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderTop: "none", borderRadius: "0 0 8px 8px", padding: "10px 12px", marginTop: -1 }}>
+                  <div className="prompt-split" style={{ background: "var(--surface)", border: "1px solid var(--border)", borderTop: "none", borderRadius: "0 0 8px 8px", padding: "10px 12px", marginTop: -1 }}>
+                    <div className="prompt-col">
+                      <StepContentEditor
+                        step={step}
+                        previewContact={contacts[0] || null}
+                        onUpdate={(patch) => onUpdateStep(step.id, patch)}
+                      />
                     <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 10, lineHeight: 1.5 }}>
                       These two prompts <strong>are</strong> the email on an automatic step — the body is written per
                       contact from them rather than sent as fixed text, so editing them changes every email this step
@@ -911,6 +905,7 @@ function SequenceDetail({
                     </div>
                     <label style={{ display: "block", fontSize: 10.5, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", marginBottom: 3 }}>System prompt</label>
                     <textarea
+                      aria-label="System prompt"
                       defaultValue={step.systemPrompt || ""}
                       onBlur={(e) => onUpdateStep(step.id, { systemPrompt: e.target.value })}
                       placeholder="e.g. You are a friendly, concise SDR at Wired CIO writing a short first-touch email…"
@@ -919,6 +914,7 @@ function SequenceDetail({
                     />
                     <label style={{ display: "block", fontSize: 10.5, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", marginBottom: 3 }}>User prompt</label>
                     <textarea
+                      aria-label="User prompt"
                       defaultValue={step.userPrompt || ""}
                       onBlur={(e) => onUpdateStep(step.id, { userPrompt: e.target.value })}
                       placeholder="e.g. Write a 3-sentence intro referencing {{company}}'s Dynamics 365 interest and asking for 15 minutes."
@@ -927,6 +923,16 @@ function SequenceDetail({
                     />
                     <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 6 }}>
                       Saved when you click away from the box.
+                    </div>
+                    </div>
+                    <div className="preview-col">
+                      <EmailPreview
+                        step={step}
+                        contacts={contacts}
+                        account={emailAccounts.find((a) => a.id === seq.emailAccountId) || null}
+                        sender={{ name: selfName, company: selfCompany }}
+                        apolloCampaignId={seq.apolloCampaignId}
+                      />
                     </div>
                   </div>
                 )}
@@ -1146,7 +1152,7 @@ function StepContentEditor({
   };
 
   return (
-    <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderTop: "none", borderRadius: "0 0 8px 8px", padding: "10px 12px", marginTop: -1 }}>
+    <div style={{ marginBottom: 12 }}>
       <div style={{ fontSize: 10.5, color: "var(--muted)", marginBottom: 8, lineHeight: 1.4 }}>
         What this step says. Merge fields like <code>{"{{contact.first_name}}"}</code>, <code>{"{{contact.title}}"}</code>{" "}
         and <code>{"{{account.name}}"}</code> are filled from the contact when the step&rsquo;s task is created.{" "}
@@ -1158,6 +1164,7 @@ function StepContentEditor({
         <>
           <label style={label}>Subject</label>
           <input
+            aria-label="Subject line"
             defaultValue={step.subject || ""}
             onBlur={(e) => onUpdate({ subject: e.target.value })}
             placeholder="e.g. Microsoft Solutions"
@@ -1168,6 +1175,7 @@ function StepContentEditor({
 
       <label style={label}>{isEmail ? "Body" : "Message"}</label>
       <textarea
+        aria-label="Message body"
         defaultValue={step.body || ""}
         onBlur={(e) => onUpdate({ body: e.target.value })}
         placeholder={isEmail ? "Leave blank if the body is written from the AI prompts on this step." : "Hey {{contact.first_name}}, …"}
@@ -1281,6 +1289,223 @@ function SequenceRulesPanel({ seq }: { seq: Sequence }) {
             ))}
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+
+// Preview one step's email against a real lead.
+//
+// It runs composeStepEmail — the SAME function a real send would use, and
+// the one scripts/test-email-send.mjs covers — so the preview and an
+// actual send can never disagree about what would go out or about why it
+// would not. That is the whole point of previewing here rather than
+// re-rendering the fields separately.
+function EmailPreview({
+  step,
+  contacts,
+  account,
+  sender,
+  apolloCampaignId,
+}: {
+  step: SequenceStep;
+  contacts: Contact[];
+  account: EmailAccount | null;
+  sender: { name: string; company: string };
+  apolloCampaignId?: string | null;
+}) {
+  const [search, setSearch] = useState("");
+  const [pickedId, setPickedId] = useState<string>("");
+  const [samples, setSamples] = useState<SentSample[]>([]);
+  const [sampleErr, setSampleErr] = useState<string | null>(null);
+  const [loadingSamples, setLoadingSamples] = useState(false);
+
+  async function pullSamples() {
+    if (!apolloCampaignId) return;
+    setLoadingSamples(true);
+    setSampleErr(null);
+    const res = await fetchSentSamples(apolloCampaignId, 3, sender.name);
+    setSamples(res.samples);
+    setSampleErr(res.error || null);
+    setLoadingSamples(false);
+  }
+
+  // Leads worth previewing against are ones with an email — a contact
+  // with none can still be picked (it demonstrates the blocker) but the
+  // ones that can actually receive mail come first.
+  const candidates = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const scored = contacts.filter((c) => {
+      if (!q) return true;
+      return [c.firstName, c.lastName, c.fullName, c.company, c.email, c.title]
+        .filter(Boolean)
+        .some((v) => String(v).toLowerCase().includes(q));
+    });
+    return [...scored].sort((a, b) => Number(Boolean(b.email)) - Number(Boolean(a.email))).slice(0, 50);
+  }, [contacts, search]);
+
+  const picked = useMemo(
+    () => contacts.find((c) => c.id === pickedId) || candidates[0] || null,
+    [contacts, pickedId, candidates]
+  );
+
+  const composed = useMemo(
+    () => (picked ? composeStepEmail(step, picked, account, sender) : null),
+    [step, picked, account, sender]
+  );
+
+  // The prompts as they would actually reach a model: merge fields
+  // resolved against THIS lead. This is the part Jack tunes by hand, so
+  // seeing it filled in for a real person is the test that matters.
+  const promptCtx = { contact: picked, senderName: sender.name, senderCompany: sender.company };
+  const systemResolved = step.systemPrompt ? renderMerge(step.systemPrompt, promptCtx).text : "";
+  const userResolved = step.userPrompt ? renderMerge(step.userPrompt, promptCtx).text : "";
+
+  const mono: CSSProperties = {
+    whiteSpace: "pre-wrap",
+    fontFamily: "var(--font-mono, ui-monospace, monospace)",
+    fontSize: 11.5,
+    lineHeight: 1.55,
+    background: "var(--surface-sunken)",
+    border: "1px solid var(--border)",
+    borderRadius: 7,
+    padding: "8px 10px",
+    maxHeight: 260,
+    overflow: "auto",
+  };
+  const label: CSSProperties = {
+    display: "block",
+    fontSize: 10.5,
+    fontWeight: 700,
+    color: "var(--muted)",
+    textTransform: "uppercase",
+    margin: "10px 0 4px",
+  };
+
+  return (
+    <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderTop: "none", borderRadius: "0 0 8px 8px", padding: "10px 12px", marginTop: -1 }}>
+      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase" }}>Preview against</span>
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search leads…"
+          style={{ border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 12.5, width: 160 }}
+        />
+        <select
+          value={picked?.id || ""}
+          onChange={(e) => setPickedId(e.target.value)}
+          aria-label="Preview lead"
+          style={{ border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 12.5, flex: "1 1 220px" }}
+        >
+          {candidates.length === 0 && <option value="">No contacts yet — upload a CSV in Scanner</option>}
+          {candidates.map((c) => (
+            <option key={c.id} value={c.id}>
+              {(c.fullName || `${c.firstName} ${c.lastName}`).trim() || "Unnamed"}
+              {c.company ? ` · ${c.company}` : ""}
+              {c.email ? "" : " (no email)"}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {!picked && (
+        <div style={{ fontSize: 12, color: "var(--muted)" }}>
+          Upload a CSV in Scanner first — the preview fills merge fields from a real lead rather than made-up sample data.
+        </div>
+      )}
+
+      {picked && composed && (
+        <>
+          {/* Would this actually go out? Same check the sender runs. */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 8,
+              borderRadius: 7,
+              padding: "7px 10px",
+              fontSize: 12,
+              background: isSendable(composed) ? "#E7F1EA" : "#FBEAE8",
+              color: isSendable(composed) ? "#1F7A45" : "#B5443B",
+            }}
+          >
+            <span style={{ fontWeight: 700 }}>{isSendable(composed) ? "✓ Would send" : "✕ Would not send"}</span>
+            <span style={{ flex: 1 }}>
+              {isSendable(composed)
+                ? "Everything this message needs is present. Nothing sends yet — there is no relay connected."
+                : composed.blockers.map((b) => b.message).join(" ")}
+            </span>
+          </div>
+
+          <label style={label}>Envelope</label>
+          <div style={{ ...mono, maxHeight: "none" }}>
+            {`From: ${composed.fromName || "(no sending account selected)"}${composed.fromEmail ? ` <${composed.fromEmail}>` : ""}
+To:   ${composed.toName}${composed.to ? ` <${composed.to}>` : " (no email on file)"}
+Subj: ${composed.subject || "(none)"}`}
+          </div>
+
+          {step.bodyMode === "ai" ? (
+            <>
+              <div style={{ fontSize: 11.5, color: "var(--muted)", margin: "10px 0 0", lineHeight: 1.5 }}>
+                This step&rsquo;s body is written per contact from the two prompts below. They are shown here{" "}
+                <strong>exactly as they would reach a model</strong>, with merge fields filled in for{" "}
+                {(picked.fullName || `${picked.firstName} ${picked.lastName}`).trim() || "this lead"}. No model is
+                connected to this app, so the finished body cannot be generated here — what you are checking is that
+                the instructions are right.
+              </div>
+              {/* Real output. Apollo has no preview API — checked — but it
+                  does have every email this sequence already sent, written
+                  by these same prompts. Real delivered copy beats an
+                  invented sample. */}
+              <label style={label}>What these prompts actually produced</label>
+              {apolloCampaignId ? (
+                <>
+                  <button
+                    onClick={pullSamples}
+                    disabled={loadingSamples}
+                    style={{ border: "1px solid var(--border)", background: "var(--surface)", borderRadius: 7, padding: "5px 10px", fontSize: 12, fontWeight: 700, color: "var(--accent)" }}
+                  >
+                    {loadingSamples ? "Pulling…" : samples.length ? "↻ Pull 3 more" : "Pull real examples from Apollo"}
+                  </button>
+                  <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+                    Reads emails this sequence has already delivered. No credits, nothing written back.
+                  </div>
+                  {sampleErr && <div style={{ fontSize: 11.5, color: "#9A5B22", marginTop: 6 }}>{sampleErr}</div>}
+                  {samples.map((sm) => (
+                    <div key={sm.id} style={{ marginTop: 8 }}>
+                      <div style={{ fontSize: 10.5, color: "var(--muted)", marginBottom: 3 }}>
+                        to {sm.to}{sm.sentAt ? ` · ${sm.sentAt.slice(0, 10)}` : ""}
+                      </div>
+                      <div style={mono}>{sm.body}</div>
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <div style={{ fontSize: 11.5, color: "var(--muted)" }}>
+                  This sequence isn&rsquo;t linked to an Apollo sequence, so there is no delivered output to read back.
+                </div>
+              )}
+
+              <label style={label}>System prompt — as sent</label>
+              <div style={mono}>{systemResolved || "(empty — this step has no system prompt)"}</div>
+              <label style={label}>User prompt — as sent</label>
+              <div style={mono}>{userResolved || "(empty — this step has no user prompt)"}</div>
+            </>
+          ) : (
+            <>
+              <label style={label}>Body — as it would send</label>
+              <div style={mono}>{composed.body || "(this step has no body written)"}</div>
+            </>
+          )}
+
+          {composed.warnings.length > 0 && (
+            <div style={{ fontSize: 11.5, color: "#9A5B22", marginTop: 8 }}>
+              {composed.warnings.join(" ")}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

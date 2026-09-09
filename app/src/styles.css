@@ -1886,3 +1886,24 @@ textarea:focus {
   font-weight: 600;
   margin-top: 2px;
 }
+
+/* Sequences — prompt editor beside its preview, the way Apollo lays it
+   out: what you are writing on the left, what it produces on the right,
+   both visible while you tune. Stacks below a laptop width rather than
+   squeezing two unreadable columns. */
+.prompt-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--s4);
+  align-items: start;
+}
+.prompt-split > .prompt-col,
+.prompt-split > .preview-col { min-width: 0; }
+.prompt-split > .preview-col > div {
+  border: 1px solid var(--line) !important;
+  border-radius: 8px !important;
+  margin-top: 0 !important;
+}
+@media (max-width: 1100px) {
+  .prompt-split { grid-template-columns: 1fr; }
+}
