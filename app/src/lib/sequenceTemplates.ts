@@ -23,6 +23,7 @@ export interface TemplateStep {
   sendMode?: "auto" | "manual";
   bodyMode?: "ai" | "fixed";
   linkedinWithMessage?: boolean;
+  sampleBody?: string;
   body?: string;
   systemPrompt?: string;
   userPrompt?: string;
@@ -127,6 +128,19 @@ export const DYNAMICS_SEQUENCE_TEMPLATE: SequenceTemplate = {
       body: "",
       systemPrompt: DYNAMICS_EMAIL_SYSTEM_PROMPT,
       userPrompt: DYNAMICS_EMAIL_USER_PROMPT,
+      // A DRAFT, not the body. The real body is written per contact at
+      // send time; this is one example of what the prompts above produce,
+      // so the preview shows a readable email rather than an empty box.
+      // Written to the prompt's own rules: three short paragraphs, under
+      // 75 words, no dashes or colons, one closing question, none of the
+      // banned words.
+      sampleBody: `Hi {{contact.first_name}},
+
+I'm Jack from Wired CIO. We work with companies like {{account.name}} on Microsoft Dynamics, usually when the current setup has stopped keeping up.
+
+I don't know what you're running today. Given your role, I'd guess platform decisions land with you at some point.
+
+Would you be open to a short call?`,
       note: "Body is AI-written from the prompts on this step",
     },
     { channel: "call", waitHours: 48, sendMode: "manual", note: "Second dial" },
@@ -216,6 +230,7 @@ export function sequenceFromTemplate(tpl: SequenceTemplate, name?: string): Sequ
     if (t.sendMode !== undefined) patch.sendMode = t.sendMode;
     if (t.bodyMode !== undefined) patch.bodyMode = t.bodyMode;
     if (t.linkedinWithMessage !== undefined) patch.linkedinWithMessage = t.linkedinWithMessage;
+    if (t.sampleBody !== undefined) patch.sampleBody = t.sampleBody;
     if (Object.keys(patch).length) seq = updateStep(seq, added.id, patch);
   }
   if (tpl.rules) seq = { ...seq, rules: { ...tpl.rules } };

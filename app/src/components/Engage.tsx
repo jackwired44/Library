@@ -52,7 +52,7 @@ interface EngageProps {
   onCreateSequenceFromTemplate: (tpl: SequenceTemplate) => Sequence | null;
   onAddSequenceStep: (id: string, channel: SequenceChannel, waitHours: number, note?: string, extra?: StepExtra) => void;
   onRemoveSequenceStep: (id: string, stepId: string) => void;
-  onUpdateSequenceStep: (id: string, stepId: string, patch: Partial<{ note: string; systemPrompt: string; userPrompt: string }>) => void;
+  onUpdateSequenceStep: (id: string, stepId: string, patch: Partial<{ note: string; systemPrompt: string; userPrompt: string; subject: string; body: string; sampleBody: string }>) => void;
   onMoveSequenceStep: (id: string, stepId: string, direction: -1 | 1) => void;
   onDeleteSequence: (id: string) => void;
   onEnrollInSequence: (sequenceId: string, contactIds: string[]) => { enrolled: number; blocked: number };

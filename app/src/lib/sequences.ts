@@ -193,6 +193,26 @@ export interface SequenceRules {
 // What a sequence runs under when nothing else is set. Mirrors the
 // settings on Jack's own live Apollo sequence rather than inventing
 // defaults.
+// What a step's body mode actually is, including for steps saved before
+// the field existed. A message step carrying prompts but no written body
+// IS an AI step — every sequence built from the Dynamics template before
+// the field shipped looks exactly like that, and reading it as a fixed
+// body made the preview say "this step has no body written" while hiding
+// the two prompts that ARE its body.
+export function resolveBodyMode(step: SequenceStep): "ai" | "fixed" {
+  if (step.bodyMode) return step.bodyMode;
+  const hasPrompts = Boolean(step.systemPrompt?.trim() || step.userPrompt?.trim());
+  return hasPrompts && !step.body?.trim() ? "ai" : "fixed";
+}
+
+// Likewise for send mode: an AI-bodied email was only ever Apollo's
+// auto_email, so an old step with prompts reads as automatic rather than
+// contradicting its own note.
+export function resolveSendMode(step: SequenceStep): "auto" | "manual" {
+  if (step.sendMode) return step.sendMode;
+  return step.channel === "email" && resolveBodyMode(step) === "ai" ? "auto" : "manual";
+}
+
 export const DEFAULT_SEQUENCE_RULES: SequenceRules = {
   finishOnReply: true,
   finishIfInterested: true,
@@ -340,6 +360,8 @@ export function duplicateSequence(seq: Sequence): Sequence {
     id: newId("seq"),
     name: `${seq.name} (copy)`,
     createdAt: new Date().toISOString(),
+    rules: seq.rules ? { ...seq.rules } : undefined,
+    apolloCampaignId: seq.apolloCampaignId ?? null,
     steps: seq.steps.map((s, i) => ({ ...s, id: newId("step"), position: i })),
     status: "active",
     ownerId: seq.ownerId ?? null,

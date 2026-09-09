@@ -19,7 +19,7 @@
 // SendGrid is connected, the message that goes out is the message this
 // app has already been showing, not a new code path written under time
 // pressure.
-import type { SequenceStep } from "./sequences";
+import { resolveBodyMode, type SequenceStep } from "./sequences";
 import type { Contact } from "./contacts";
 import type { EmailAccount } from "./emailAccounts";
 import { renderMerge, tokensIn, KNOWN_UNSUPPORTED_TOKENS } from "./mergeFields";
@@ -89,7 +89,7 @@ export function composeStepEmail(
   if (!subject) blockers.push({ code: "no_subject", message: "This step has no subject line." });
 
   let body = "";
-  if (step.bodyMode === "ai") {
+  if (resolveBodyMode(step) === "ai") {
     // The body is meant to be written per contact from the step's
     // prompts. This app has no model wired in, so it cannot produce one
     // — and inventing placeholder copy that then went out over a real
@@ -112,6 +112,19 @@ export function composeStepEmail(
   // A token that survived rendering is a field this contact has no value
   // for, or one this app does not know. Either way it would go out as
   // literal "{{...}}" text, so it stops the send rather than warning.
+  // tokensIn deliberately skips {{#...}} control markers, so a MALFORMED
+  // conditional — an {{#if}} with no {{#endif}}, or a stray {{#else}} —
+  // survives rendering and would go out as literal template syntax while
+  // every other check passed. Caught separately here.
+  const strayControl = [subject, body].some((t) => /\{\{\s*#(if|else|endif)\b/.test(t));
+  if (strayControl) {
+    blockers.push({
+      code: "unresolved_tokens",
+      message:
+        "A conditional block is malformed — an {{#if}} without its {{#endif}}, or a stray {{#else}}. " +
+        "It would send as literal text.",
+    });
+  }
   const leftover = [...tokensIn(subject), ...tokensIn(body)].filter(
     (t) => !KNOWN_UNSUPPORTED_TOKENS.includes(t)
   );

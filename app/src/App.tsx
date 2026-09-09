@@ -696,6 +696,18 @@ export default function App() {
     setSequences((prev) => prev.map((s) => (s.id === next.id ? next : s)));
     persistSequence(next);
   }
+  // Apply a transform to one sequence, reading `prev` from inside the
+  // updater so concurrent edits compose instead of clobbering. Persists
+  // the version that actually won.
+  function mutateSequence(id: string, fn: (seq: Sequence) => Sequence) {
+    setSequences((prev) => {
+      const cur = prev.find((s) => s.id === id);
+      if (!cur) return prev;
+      const next = fn(cur);
+      persistSequence(next);
+      return prev.map((s) => (s.id === id ? next : s));
+    });
+  }
   function renameSequenceById(id: string, name: string) {
     const seq = sequences.find((s) => s.id === id);
     if (!seq) return;
@@ -708,24 +720,16 @@ export default function App() {
     note?: string,
     extra?: Partial<Pick<SequenceStep, "sendMode" | "bodyMode" | "linkedinWithMessage">>
   ) {
-    const seq = sequences.find((s) => s.id === id);
-    if (!seq) return;
-    updateSequenceSteps(addStep(seq, channel, waitHours, note, extra));
+    mutateSequence(id, (seq) => addStep(seq, channel, waitHours, note, extra));
   }
   function removeSequenceStep(id: string, stepId: string) {
-    const seq = sequences.find((s) => s.id === id);
-    if (!seq) return;
-    updateSequenceSteps(removeStep(seq, stepId));
+    mutateSequence(id, (seq) => removeStep(seq, stepId));
   }
-  function updateSequenceStep(id: string, stepId: string, patch: Partial<Pick<SequenceStep, "note" | "systemPrompt" | "userPrompt" | "subject" | "body">>) {
-    const seq = sequences.find((s) => s.id === id);
-    if (!seq) return;
-    updateSequenceSteps(updateStep(seq, stepId, patch));
+  function updateSequenceStep(id: string, stepId: string, patch: Partial<Pick<SequenceStep, "note" | "systemPrompt" | "userPrompt" | "subject" | "body" | "sampleBody">>) {
+    mutateSequence(id, (seq) => updateStep(seq, stepId, patch));
   }
   function moveSequenceStep(id: string, stepId: string, direction: -1 | 1) {
-    const seq = sequences.find((s) => s.id === id);
-    if (!seq) return;
-    updateSequenceSteps(moveStep(seq, stepId, direction));
+    mutateSequence(id, (seq) => moveStep(seq, stepId, direction));
   }
   function deleteSequence(id: string) {
     setSequences((prev) => prev.filter((s) => s.id !== id));

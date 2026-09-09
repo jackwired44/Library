@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { getWeekDays, startOfWeek, tasksForDay, weekRangeLabel, type Task } from "../lib/tasks";
 import type { Contact } from "../lib/contacts";
 import type { Sequence, SequenceEnrollment } from "../lib/sequences";
-import { normalizeCompanyKey, SIZE_BUCKETS, employeeCountOf, type CompanyProfile } from "../lib/companyProfiles";
+import { profileForCompany, normalizeCompanyKey, SIZE_BUCKETS, employeeCountOf, type CompanyProfile } from "../lib/companyProfiles";
 
 interface TaskBoardProps {
   tasks: Task[];
@@ -45,15 +45,19 @@ export default function TaskBoard({
   const contactById = useMemo(() => new Map(contacts.map((c) => [c.id, c])), [contacts]);
   // Company facts are keyed the same way lib/companies.ts groups them, so
   // a task's contact resolves to the same profile the Companies tab shows.
-  const profileByKey = useMemo(
-    () => new Map(companyProfiles.map((p) => [p.key, p])),
-    [companyProfiles]
-  );
+  // Same resolution Companies uses — name key first, then the email /
+  // website domain. Keying on the name alone missed a contact at
+  // "Acme Inc." whose Apollo profile is filed as "Acme", so a task that
+  // Companies could filter, Tasks could not.
   const profileFor = (contactId?: string | null) => {
     if (!contactId) return null;
     const c = contactById.get(contactId);
-    if (!c?.company) return null;
-    return profileByKey.get(normalizeCompanyKey(c.company)) || null;
+    if (!c) return null;
+    return profileForCompany(
+      companyProfiles,
+      normalizeCompanyKey(c.company || ""),
+      [c.email, c.companyWebsite].filter(Boolean) as string[]
+    );
   };
   // Which sequence a task belongs to, via its enrollment back-link.
   const seqIdByEnrollment = useMemo(
@@ -86,6 +90,11 @@ export default function TaskBoard({
         if (sid !== seqFilter) return false;
       }
       if (industryFilter || sizeFilter || locationFilter) {
+        // A task with no contact (an ordinary board to-do) has no company
+        // to judge, so a COMPANY filter simply doesn't apply to it rather
+        // than hiding it — otherwise adding a task while a filter is on
+        // saves it and instantly makes it invisible, with no explanation.
+        if (!t.contactId) return true;
         const p = profileFor(t.contactId);
         // A task whose company has no enriched profile can't satisfy a
         // company filter, so it drops out rather than being kept on a
@@ -101,7 +110,7 @@ export default function TaskBoard({
       }
       return true;
     });
-  }, [tasks, seqFilter, industryFilter, sizeFilter, locationFilter, activeFilterCount, seqIdByEnrollment, contactById, profileByKey]);
+  }, [tasks, seqFilter, industryFilter, sizeFilter, locationFilter, activeFilterCount, seqIdByEnrollment, contactById, companyProfiles]);
 
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
   const days = useMemo(() => getWeekDays(weekStart), [weekStart]);

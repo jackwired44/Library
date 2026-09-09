@@ -10,7 +10,7 @@ import { getFullName } from "../lib/detection";
 import { SEQUENCE_TEMPLATES, type SequenceTemplate } from "../lib/sequenceTemplates";
 import { renderMerge, tokensIn } from "../lib/mergeFields";
 import type { Task } from "../lib/tasks";
-import { resolveWaitHours, resolveStatus, isSequenceRunnable, MAX_WAIT_HOURS, MAX_STEPS, DAY_NAMES, totalSpanDays, type Sequence, type SequenceEnrollment, type SequenceChannel, type SequenceStep, type SequenceStatus } from "../lib/sequences";
+import { resolveBodyMode, resolveSendMode, resolveWaitHours, resolveStatus, isSequenceRunnable, MAX_WAIT_HOURS, MAX_STEPS, DAY_NAMES, totalSpanDays, type Sequence, type SequenceEnrollment, type SequenceChannel, type SequenceStep, type SequenceStatus } from "../lib/sequences";
 import { userLabel, type PlatformUser } from "../lib/users";
 import { type SequenceGroup } from "../lib/sequenceGroups";
 import { emailAccountLabel, type EmailAccount } from "../lib/emailAccounts";
@@ -31,7 +31,7 @@ interface SequencesProps {
   onRename: (id: string, name: string) => void;
   onAddStep: (id: string, channel: SequenceChannel, waitHours: number, note?: string, extra?: StepExtra) => void;
   onRemoveStep: (id: string, stepId: string) => void;
-  onUpdateStep: (id: string, stepId: string, patch: Partial<Pick<SequenceStep, "note" | "systemPrompt" | "userPrompt" | "subject" | "body">>) => void;
+  onUpdateStep: (id: string, stepId: string, patch: Partial<Pick<SequenceStep, "note" | "systemPrompt" | "userPrompt" | "subject" | "body" | "sampleBody">>) => void;
   onMoveStep: (id: string, stepId: string, direction: -1 | 1) => void;
   onDelete: (id: string) => void;
   onEnroll: (sequenceId: string, contactIds: string[]) => { enrolled: number; blocked: number };
@@ -103,10 +103,13 @@ const STEP_TYPES: {
 function stepTypeLabel(step: SequenceStep): { icon: string; label: string } {
   if (step.channel === "call") return { icon: "📞", label: "Phone call" };
   if (step.channel === "linkedin") {
-    return { icon: "🔗", label: step.linkedinWithMessage === false ? "LinkedIn request" : "LinkedIn request with a note" };
+    // A step saved before linkedinWithMessage existed only carries a note
+    // if it actually has body text — don't claim one it hasn't got.
+    const withNote = step.linkedinWithMessage ?? Boolean(step.body?.trim());
+    return { icon: "🔗", label: withNote ? "LinkedIn request with a note" : "LinkedIn request" };
   }
-  if (step.sendMode === "auto") {
-    return { icon: "⚡", label: step.bodyMode === "ai" ? "Automatic email · AI-written" : "Automatic email" };
+  if (resolveSendMode(step) === "auto") {
+    return { icon: "⚡", label: resolveBodyMode(step) === "ai" ? "Automatic email · AI-written" : "Automatic email" };
   }
   return { icon: "✉️", label: "Manual email" };
 }
@@ -257,7 +260,8 @@ export default function SequencesView({
         <strong> Email and LinkedIn steps generate a task to work by hand</strong> — there's no send/connect
         integration wired up yet, so nothing fires automatically. "Email accounts" below records which sender
         identity a sequence should use once a real SendGrid connection lands. A contact's enrollment finishes on
-        its own once their disposition lands on Meeting booked or Not interested; restart or remove it any time.
+        its own the moment you actually reach them — any "reached them" disposition, not only Meeting booked;
+        restart or remove it any time.
       </p>
       {error && <div style={{ color: "#B5443B", marginBottom: 12, fontSize: 12.5 }}>{error}</div>}
 
@@ -716,7 +720,7 @@ function SequenceDetail({
   onRename: (name: string) => void;
   onAddStep: (channel: SequenceChannel, waitHours: number, note?: string, extra?: StepExtra) => void;
   onRemoveStep: (stepId: string) => void;
-  onUpdateStep: (stepId: string, patch: Partial<Pick<SequenceStep, "note" | "systemPrompt" | "userPrompt" | "subject" | "body">>) => void;
+  onUpdateStep: (stepId: string, patch: Partial<Pick<SequenceStep, "note" | "systemPrompt" | "userPrompt" | "subject" | "body" | "sampleBody">>) => void;
   onMoveStep: (stepId: string, dir: -1 | 1) => void;
   onEnroll: (contactIds: string[]) => { enrolled: number; blocked: number };
   onRestart: (enrollmentId: string) => void;
@@ -932,6 +936,7 @@ function SequenceDetail({
                         account={emailAccounts.find((a) => a.id === seq.emailAccountId) || null}
                         sender={{ name: selfName, company: selfCompany }}
                         apolloCampaignId={seq.apolloCampaignId}
+                        onUpdateDraft={(text) => onUpdateStep(step.id, { sampleBody: text })}
                       />
                     </div>
                   </div>
@@ -961,7 +966,7 @@ function SequenceDetail({
         <input
           type="number"
           min={0}
-          max={stepWaitUnit === "hours" ? MAX_WAIT_HOURS : 7}
+          max={stepWaitUnit === "hours" ? MAX_WAIT_HOURS : Math.round(MAX_WAIT_HOURS / 24)}
           value={stepWaitValue}
           onChange={(e) => setStepWaitValue(Number(e.target.value))}
           style={{ width: 60, border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 12.5 }}
@@ -1308,12 +1313,14 @@ function EmailPreview({
   account,
   sender,
   apolloCampaignId,
+  onUpdateDraft,
 }: {
   step: SequenceStep;
   contacts: Contact[];
   account: EmailAccount | null;
   sender: { name: string; company: string };
   apolloCampaignId?: string | null;
+  onUpdateDraft?: (text: string) => void;
 }) {
   const [search, setSearch] = useState("");
   const [pickedId, setPickedId] = useState<string>("");
@@ -1345,14 +1352,37 @@ function EmailPreview({
     return [...scored].sort((a, b) => Number(Boolean(b.email)) - Number(Boolean(a.email))).slice(0, 50);
   }, [contacts, search]);
 
+  // The previewed lead must be one the dropdown is actually showing —
+  // otherwise narrowing the search leaves the <select> displaying
+  // candidates[0] while the preview below still describes a hidden
+  // contact, and the two silently disagree.
   const picked = useMemo(
-    () => contacts.find((c) => c.id === pickedId) || candidates[0] || null,
-    [contacts, pickedId, candidates]
+    () => candidates.find((c) => c.id === pickedId) || candidates[0] || null,
+    [pickedId, candidates]
   );
 
+  // A LinkedIn step is not an email: it has no subject, no sending
+  // account and no envelope, so running the email composer over it
+  // produced a red "Would not send" it could never clear. Preview its
+  // note instead.
+  const isEmailStep = step.channel === "email";
   const composed = useMemo(
-    () => (picked ? composeStepEmail(step, picked, account, sender) : null),
-    [step, picked, account, sender]
+    () => (picked && isEmailStep ? composeStepEmail(step, picked, account, sender) : null),
+    [step, picked, account, sender, isEmailStep]
+  );
+  const noteRendered = useMemo(
+    () => (picked ? renderMerge(step.body || "", { contact: picked, senderName: sender.name, senderCompany: sender.company }).text : ""),
+    [step.body, picked, sender]
+  );
+  const bodyMode = resolveBodyMode(step);
+  // The draft. On an AI step the real body is written per contact at send
+  // time and this app has no model to write it — so what is previewed is
+  // a draft kept ON the step, merged for whichever lead is picked. It is
+  // an example of what the prompts produce, not a promise of what will
+  // send, and the panel says so.
+  const draftRendered = useMemo(
+    () => (picked ? renderMerge(step.sampleBody || "", { contact: picked, senderName: sender.name, senderCompany: sender.company }).text : ""),
+    [step.sampleBody, picked, sender]
   );
 
   // The prompts as they would actually reach a model: merge fields
@@ -1416,7 +1446,17 @@ function EmailPreview({
         </div>
       )}
 
-      {picked && composed && (
+      {picked && !isEmailStep && (
+        <>
+          <label style={label}>Note — as it would send</label>
+          <div style={mono}>{noteRendered || "(this step sends a connection request with no note)"}</div>
+          <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 6 }}>
+            A LinkedIn step has no subject or sending account — it generates a task you send from LinkedIn yourself.
+          </div>
+        </>
+      )}
+
+      {picked && isEmailStep && composed && (
         <>
           {/* Would this actually go out? Same check the sender runs. */}
           <div
@@ -1446,7 +1486,7 @@ To:   ${composed.toName}${composed.to ? ` <${composed.to}>` : " (no email on fil
 Subj: ${composed.subject || "(none)"}`}
           </div>
 
-          {step.bodyMode === "ai" ? (
+          {bodyMode === "ai" ? (
             <>
               <div style={{ fontSize: 11.5, color: "var(--muted)", margin: "10px 0 0", lineHeight: 1.5 }}>
                 This step&rsquo;s body is written per contact from the two prompts below. They are shown here{" "}
@@ -1455,6 +1495,28 @@ Subj: ${composed.subject || "(none)"}`}
                 connected to this app, so the finished body cannot be generated here — what you are checking is that
                 the instructions are right.
               </div>
+              <label style={label}>Draft — merged for {(picked.fullName || `${picked.firstName} ${picked.lastName}`).trim() || "this lead"}</label>
+              {draftRendered ? (
+                <div style={mono}>{draftRendered}</div>
+              ) : (
+                <div style={{ fontSize: 11.5, color: "var(--muted)", lineHeight: 1.5 }}>
+                  No draft saved on this step yet. Paste one below and it will render here merged for whichever lead
+                  you pick — useful for judging the prompts against real wording.
+                </div>
+              )}
+              <textarea
+                aria-label="Draft"
+                defaultValue={step.sampleBody || ""}
+                onBlur={(e) => onUpdateDraft?.(e.target.value)}
+                placeholder="Paste a draft here — {{contact.first_name}} and {{account.name}} merge per lead."
+                rows={4}
+                style={{ width: "100%", border: "1px solid var(--border)", borderRadius: 7, padding: "7px 9px", fontSize: 11.5, lineHeight: 1.5, resize: "vertical", boxSizing: "border-box", marginTop: 6, fontFamily: "var(--font-mono, ui-monospace, monospace)" }}
+              />
+              <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 4 }}>
+                A draft is an example of what these prompts produce. The body that actually sends is written per contact
+                at send time.
+              </div>
+
               {/* Real output. Apollo has no preview API — checked — but it
                   does have every email this sequence already sent, written
                   by these same prompts. Real delivered copy beats an
