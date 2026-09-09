@@ -32,6 +32,7 @@ const MAX_ENRICH_BATCH = 10;
 // Same page size Scanner's results table uses — see the pagination note
 // below for the measured render cost this avoids.
 const PAGE_SIZE = 25;
+const PAGE_SIZE_CHOICES = [25, 50, 100, 250, 500] as const;
 
 const TIER_META: Record<Tier, { label: string; color: string; bg: string }> = {
   signal: { label: "Strong Signal", color: "#2CC295", bg: "#E7F1EA" },
@@ -122,6 +123,7 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
   // button is clicked, and every contact's outcome is shown individually
   // below, not collapsed into one spinner.
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZE);
   const [enriching, setEnriching] = useState(false);
   const [enrichOutcomes, setEnrichOutcomes] = useState<EnrichOutcome[] | null>(null);
   const [enrichError, setEnrichError] = useState<string | null>(null);
@@ -286,12 +288,27 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
   // switch into, with ~250ms of lag on every keystroke in the search box
   // (each one re-rendered all 3,000 rows). Scanner already solved exactly
   // this with a 25-per-page slice; this is the same fix, same shape.
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(Math.max(1, page), totalPages);
   const pageItems = useMemo(
-    () => filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
-    [filtered, currentPage]
+    () => filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [filtered, currentPage, pageSize]
   );
+
+  // Mass selection, same contract as Scanner's: the header checkbox acts
+  // on THIS PAGE only (set the page size to choose how many that is), and
+  // reaching past it takes the explicit "Select all N matching" link — so
+  // an enrichment run can never quietly include rows you never saw.
+  const pageAllSelected = pageItems.length > 0 && pageItems.every((c) => selected.has(c.id));
+  const pageSomeSelected = pageItems.some((c) => selected.has(c.id));
+  function toggleSelectPage() {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (pageAllSelected) pageItems.forEach((c) => next.delete(c.id));
+      else pageItems.forEach((c) => next.add(c.id));
+      return next;
+    });
+  }
   // Any filter/search/sort change puts you back on page 1 — otherwise
   // narrowing 3,000 contacts down to 12 while sitting on page 40 shows an
   // empty table rather than the results.
@@ -521,6 +538,11 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
         {selected.size > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#EAF3FC", border: "1px solid #CFE3F7", borderRadius: 11, padding: "10px 14px", marginBottom: 12, flexWrap: "wrap" }}>
             <span style={{ fontWeight: 700, color: "#0A4A85" }}>{selected.size} selected</span>
+            {pageAllSelected && selected.size < filtered.length && (
+              <button className="bulkbar-selectall" onClick={() => setSelected(new Set(filtered.map((c) => c.id)))}>
+                Select all {filtered.length.toLocaleString()} matching
+              </button>
+            )}
             <button
               onClick={runEnrichment}
               disabled={enriching || selected.size > MAX_ENRICH_BATCH}
@@ -604,7 +626,17 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
           <table>
             <thead>
               <tr style={{ background: "var(--bg)", textAlign: "left" }}>
-                <th style={{ width: 30 }}></th>
+                <th style={{ width: 30 }}>
+                  <input
+                    type="checkbox"
+                    aria-label={pageAllSelected ? "Clear selection on this page" : "Select every contact on this page"}
+                    title={pageAllSelected ? "Clear this page's selection" : `Select all ${pageItems.length} on this page`}
+                    checked={pageAllSelected}
+                    ref={(el) => { if (el) el.indeterminate = !pageAllSelected && pageSomeSelected; }}
+                    onChange={toggleSelectPage}
+                    disabled={pageItems.length === 0}
+                  />
+                </th>
                 <th style={{ padding: "9px 12px" }}>Contact</th>
                 <th style={{ padding: "9px 12px" }}>Company</th>
                 <th style={{ padding: "9px 12px" }}>Title</th>
@@ -765,11 +797,21 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
             </tbody>
           </table>
         </div>
-        {filtered.length > PAGE_SIZE && (
+        {filtered.length > PAGE_SIZE_CHOICES[0] && (
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 12, alignItems: "center", fontSize: 12.5 }}>
             <span style={{ color: "var(--muted)" }}>
-              Showing {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length}
+              Showing {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, filtered.length)} of {filtered.length}
             </span>
+            <label className="pager-size">
+              Rows
+              <select
+                aria-label="Rows per page"
+                value={pageSize}
+                onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
+              >
+                {PAGE_SIZE_CHOICES.map((n) => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </label>
             <button
               disabled={currentPage <= 1}
               onClick={() => setPage(currentPage - 1)}

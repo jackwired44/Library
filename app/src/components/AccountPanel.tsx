@@ -11,7 +11,15 @@ import { useEffect, useState } from "react";
 import { loadProfile, saveProfile, type Profile } from "../lib/profile";
 import ProfileAccess from "./ProfileAccess";
 import type { PlatformUser, UserRole } from "../lib/users";
-import { formatTimeInZone, localTimeZone, zoneAbbrev, zoneLabel } from "../lib/timezones";
+import {
+  browserTimeZone,
+  formatTimeInZone,
+  lockedTimeZone,
+  setLockedTimeZone,
+  TIME_ZONE_CHOICES,
+  zoneAbbrev,
+  zoneLabel,
+} from "../lib/timezones";
 import { useNow } from "../lib/useNow";
 
 interface AccountPanelProps {
@@ -52,9 +60,20 @@ export default function AccountPanel({ onOpenSettings, onOpenNotes, users, onAdd
   // using the platform" as the reference every contact's offset is
   // measured against (see lib/timezones.ts).
   const now = useNow();
-  const localZone = localTimeZone();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
+  // Held in state purely so the panel repaints the moment the lock
+  // changes; localTimeZone() is still the source of truth everywhere else.
+  const [locked, setLocked] = useState<string | null>(() => lockedTimeZone());
+  const [tzOpen, setTzOpen] = useState(false);
+  const localZone = locked || browserTimeZone();
+  const deviceZone = browserTimeZone();
+
+  function chooseZone(zone: string | null) {
+    setLockedTimeZone(zone);
+    setLocked(zone);
+    setTzOpen(false);
+  }
 
   useEffect(() => {
     loadProfile().then(setProfile);
@@ -88,7 +107,7 @@ export default function AccountPanel({ onOpenSettings, onOpenNotes, users, onAdd
             <div
               key={z.zone}
               className={`tz-cheat-cell${isYou ? " tz-cheat-you" : ""}`}
-              title={isYou ? `You are here — this browser reports ${zoneLabel(localZone)}` : undefined}
+              title={isYou ? (locked ? `You are here — locked to ${zoneLabel(localZone)}` : `You are here — this device reports ${zoneLabel(localZone)}`) : undefined}
             >
               <div className="tz-cheat-label">{z.label}</div>
               <div className="tz-cheat-time">{formatTimeInZone(z.zone, now)}</div>
@@ -96,6 +115,53 @@ export default function AccountPanel({ onOpenSettings, onOpenNotes, users, onAdd
             </div>
           );
         })}
+      </div>
+      {/* Per Jack: pick a zone and lock it, for travelling or for working
+          another region's hours. Locked pins what "you" means everywhere —
+          this clock, the highlighted row above, and every contact's
+          "+2h from you" offset. */}
+      <div className="tz-lock">
+        <button
+          className="tz-lock-btn"
+          onClick={() => setTzOpen((v) => !v)}
+          aria-expanded={tzOpen}
+          title={
+            locked
+              ? `Locked to ${zoneLabel(locked)}. This device reports ${zoneLabel(deviceZone)}.`
+              : `Following this device (${zoneLabel(deviceZone)}). Click to lock a zone.`
+          }
+        >
+          <span className="tz-lock-icon" aria-hidden="true">{locked ? "🔒" : "📍"}</span>
+          <span className="tz-lock-text">
+            {formatTimeInZone(localZone, now)} {zoneAbbrev(localZone, now)}
+            <span className="tz-lock-sub">{locked ? "Locked" : "Follows this device"}</span>
+          </span>
+        </button>
+        {tzOpen && (
+          <div className="tz-lock-pop">
+            <label className="tz-lock-label" htmlFor="tz-lock-select">Your time zone</label>
+            <select
+              id="tz-lock-select"
+              aria-label="Your time zone"
+              className="tz-lock-select"
+              value={locked || ""}
+              onChange={(e) => chooseZone(e.target.value || null)}
+            >
+              <option value="">Follow this device ({zoneLabel(deviceZone)})</option>
+              {TIME_ZONE_CHOICES.map((c) => (
+                <option key={c.zone} value={c.zone}>{c.label}</option>
+              ))}
+            </select>
+            <p className="tz-lock-note">
+              {locked
+                ? "Locked — stays put even if you open this from another machine or another country."
+                : "Following whatever zone this device reports, so it moves when you travel."}
+            </p>
+            {locked && (
+              <button className="tz-lock-clear" onClick={() => chooseZone(null)}>Unlock, follow this device</button>
+            )}
+          </div>
+        )}
       </div>
       <button onClick={onOpenSettings} title="Settings — qualification rules, hot signals, thresholds, dispositions" className="account-gear account-gear-standalone">
         ⚙ Settings

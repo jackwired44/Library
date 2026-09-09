@@ -129,13 +129,54 @@ export function mostCommonZone(zones: (string | null)[]): string | null {
   return best;
 }
 
-// The person using the platform — what the browser reports.
-export function localTimeZone(): string {
+// What the browser itself reports — follows the device, so it changes
+// when you travel.
+export function browserTimeZone(): string {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   } catch {
     return "UTC";
   }
+}
+
+// Per Jack: be able to pick a zone and lock it, "in case someone's
+// travelling or wanting to select it to a different" one. A locked zone
+// pins what "you" means everywhere — the sidebar clock, which US row is
+// highlighted, and every "+2h from you" offset on a contact — instead of
+// silently following whatever machine you happen to open the app on.
+//
+// Deliberately localStorage, not the Profile record in IndexedDB, for one
+// hard reason: localTimeZone() is called synchronously during render by
+// several components, and IndexedDB is async — a profile-backed value
+// would render wrong on first paint and then jump. It is also genuinely a
+// per-device display preference, same class as the theme toggle.
+export const LOCKED_TZ_KEY = "lockedTimeZone";
+
+export function lockedTimeZone(): string | null {
+  try {
+    const raw = window.localStorage.getItem(LOCKED_TZ_KEY);
+    // A zone saved by an older build, or an id this browser's ICU data
+    // doesn't know, must not brick every clock in the app.
+    return raw && isValidZone(raw) ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+// null clears the lock and goes back to following the device.
+export function setLockedTimeZone(zone: string | null): void {
+  try {
+    if (zone && isValidZone(zone)) window.localStorage.setItem(LOCKED_TZ_KEY, zone);
+    else window.localStorage.removeItem(LOCKED_TZ_KEY);
+  } catch {
+    /* private mode / storage disabled — the lock just doesn't persist */
+  }
+}
+
+// The person using the platform: their locked choice if they made one,
+// otherwise whatever this device reports.
+export function localTimeZone(): string {
+  return lockedTimeZone() || browserTimeZone();
 }
 
 function isValidZone(zone: string): boolean {

@@ -47,6 +47,55 @@ import type { UploadedFile } from "../App";
 
 const MAX_FILES = 5;
 const PAGE_SIZE = 25;
+const PAGE_SIZE_CHOICES = [25, 50, 100, 250, 500] as const;
+
+// One definition of "which rows are showing", used by both the table and
+// every count badge above it. Keeping these in one place is the whole
+// point: they drifted apart precisely because the table filtered in one
+// function and the badges each counted in their own.
+interface Facets {
+  tier: Tier | "all";
+  category: CategoryKey | "all";
+  m365Sub: "all" | "google" | "other";
+  dynSub: "all" | "businessCentral" | "salesCrm" | "other";
+  dupOnly: boolean;
+  prioOnly: boolean;
+  q: string;
+}
+
+function applyFacets(rows: ResultRow[], f: Facets): ResultRow[] {
+  let list = rows;
+  if (f.tier !== "all") list = list.filter((r) => r.tier === f.tier);
+  if (f.category !== "all") list = list.filter((r) => r.category === f.category);
+  // Sub-views are children of their category — they only narrow anything
+  // while that category is the active filter, same as in the UI.
+  if (f.category === "m365Tenant" && f.m365Sub !== "all") {
+    list = list.filter((r) => (f.m365Sub === "google" ? r.isGoogleToMicrosoft : !r.isGoogleToMicrosoft));
+  }
+  if (f.category === "dynamics365" && f.dynSub !== "all") {
+    list = list.filter((r) => {
+      if (f.dynSub === "businessCentral") return r.isBusinessCentral;
+      if (f.dynSub === "salesCrm") return r.isSalesCrm;
+      return !r.isBusinessCentral && !r.isSalesCrm;
+    });
+  }
+  if (f.dupOnly) list = list.filter((r) => r.isDuplicate);
+  if (f.prioOnly) list = list.filter((r) => r.priority);
+  const q = f.q.trim().toLowerCase();
+  if (q) {
+    list = list.filter((r) => {
+      const rf = r.row.__f;
+      return (
+        String(rf.company || "").toLowerCase().includes(q) ||
+        getFullName(rf).toLowerCase().includes(q) ||
+        r.categories.join(" ").toLowerCase().includes(q) ||
+        (r.notesSummary || "").toLowerCase().includes(q)
+      );
+    });
+  }
+  return list;
+}
+
 const TIER_CYCLE: Tier[] = ["signal", "mention", "dq"];
 
 interface ScannerProps {
@@ -216,6 +265,7 @@ export default function Scanner({
   const [priorityOnly, setPriorityOnly] = useState(false);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZE);
   const [bulkTarget, setBulkTarget] = useState<CategoryKey>("dynamics365");
   const [bulkDisposition, setBulkDisposition] = useState<Disposition>("none");
   const [bulkPriorityMonth, setBulkPriorityMonth] = useState("");
@@ -407,78 +457,74 @@ export default function Scanner({
     setLibraryFiledForBatch(true);
   }
 
+  const facets: Facets = {
+    tier: tierFilter,
+    category: categoryFilter,
+    m365Sub: m365SubView,
+    dynSub: dynamicsSubView,
+    dupOnly: duplicatesOnly,
+    prioOnly: priorityOnly,
+    q: search,
+  };
+
   const filtered = useMemo(() => {
     if (!results) return [];
-    let list = results;
-    if (tierFilter !== "all") list = list.filter((r) => r.tier === tierFilter);
-    if (categoryFilter !== "all") list = list.filter((r) => r.category === categoryFilter);
-    if (categoryFilter === "m365Tenant" && m365SubView !== "all") {
-      list = list.filter((r) => (m365SubView === "google" ? r.isGoogleToMicrosoft : !r.isGoogleToMicrosoft));
-    }
-    if (categoryFilter === "dynamics365" && dynamicsSubView !== "all") {
-      list = list.filter((r) => {
-        if (dynamicsSubView === "businessCentral") return r.isBusinessCentral;
-        if (dynamicsSubView === "salesCrm") return r.isSalesCrm;
-        return !r.isBusinessCentral && !r.isSalesCrm;
-      });
-    }
-    if (duplicatesOnly) list = list.filter((r) => r.isDuplicate);
-    if (priorityOnly) list = list.filter((r) => r.priority);
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      list = list.filter((r) => {
-        const f = r.row.__f;
-        return (
-          String(f.company || "").toLowerCase().includes(q) ||
-          getFullName(f).toLowerCase().includes(q) ||
-          r.categories.join(" ").toLowerCase().includes(q) ||
-          (r.notesSummary || "").toLowerCase().includes(q)
-        );
-      });
-    }
+    const list = applyFacets(results, facets);
     // Always-on: viewing Dynamics 365 leads ranks them by stated seat/user/
     // license count (direction togglable below), regardless of which tier
     // tab is active. Module-tier grouping (ERP block, then Sales/CRM, then
     // the rest) never flips.
-    if (categoryFilter === "dynamics365") list = sortByDynamicsSeatCount(list, dynamicsSortDesc);
-    return list;
+    return categoryFilter === "dynamics365" ? sortByDynamicsSeatCount(list, dynamicsSortDesc) : list;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [results, tierFilter, categoryFilter, duplicatesOnly, priorityOnly, search, dynamicsSortDesc, m365SubView, dynamicsSubView]);
 
-  const tierCounts = useMemo(() => {
-    let signal = 0, mention = 0, dq = 0;
-    (results || []).forEach((r) => { if (r.tier === "signal") signal++; else if (r.tier === "dq") dq++; else mention++; });
-    return { signal, mention, dq, total: (results || []).length };
-  }, [results]);
+  // Every count badge is computed with EVERY OTHER active filter applied,
+  // but not its own — so the number on a button is exactly how many rows
+  // you get when you click it.
+  //
+  // Before this, each badge used its own arbitrary base: tier counts came
+  // off the whole batch (ignoring category, sub-view, search and the two
+  // toggles), category and sub-view counts came off tier only, and the
+  // Duplicates/Priority counts ignored everything. So searching a name
+  // while on Dynamics 365 → Business Central left "Needs review (33)" and
+  // "Dynamics 365 (30)" sitting above a four-row table. The numbers were
+  // each individually true of some base, just never of what was on screen.
+  const counts = useMemo(() => {
+    const rows = results || [];
+    const n = (o: Partial<Facets>) => applyFacets(rows, { ...facets, ...o }).length;
+    const category: Record<string, number> = { all: n({ category: "all" }) };
+    (Object.keys(CATEGORY_META) as CategoryKey[]).forEach((k) => { category[k] = n({ category: k }); });
+    return {
+      tier: {
+        signal: n({ tier: "signal" }),
+        mention: n({ tier: "mention" }),
+        dq: n({ tier: "dq" }),
+        total: n({ tier: "all" }),
+      },
+      category,
+      m365Sub: {
+        all: n({ category: "m365Tenant", m365Sub: "all" }),
+        google: n({ category: "m365Tenant", m365Sub: "google" }),
+        other: n({ category: "m365Tenant", m365Sub: "other" }),
+      },
+      dynSub: {
+        all: n({ category: "dynamics365", dynSub: "all" }),
+        businessCentral: n({ category: "dynamics365", dynSub: "businessCentral" }),
+        salesCrm: n({ category: "dynamics365", dynSub: "salesCrm" }),
+        other: n({ category: "dynamics365", dynSub: "other" }),
+      },
+      duplicates: n({ dupOnly: true }),
+      priority: n({ prioOnly: true }),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [results, tierFilter, categoryFilter, duplicatesOnly, priorityOnly, search, m365SubView, dynamicsSubView]);
 
-  const categoryCounts = useMemo(() => {
-    const base = tierFilter === "all" ? results || [] : (results || []).filter((r) => r.tier === tierFilter);
-    const counts: Record<string, number> = { all: base.length };
-    (Object.keys(CATEGORY_META) as CategoryKey[]).forEach((k) => { counts[k] = 0; });
-    base.forEach((r) => { counts[r.category] = (counts[r.category] || 0) + 1; });
-    return counts;
-  }, [results, tierFilter]);
-
-  const duplicateCount = useMemo(() => (results || []).filter((r) => r.isDuplicate).length, [results]);
-  const priorityCount = useMemo(() => (results || []).filter((r) => r.priority).length, [results]);
-
-  // Counts for the M365/Azure sub-view tabs — same tier-filtered base as
-  // categoryCounts above, further narrowed to the M365/Azure category.
-  const m365SubViewCounts = useMemo(() => {
-    const base = tierFilter === "all" ? results || [] : (results || []).filter((r) => r.tier === tierFilter);
-    const m365 = base.filter((r) => r.category === "m365Tenant");
-    const google = m365.filter((r) => r.isGoogleToMicrosoft).length;
-    return { all: m365.length, google, other: m365.length - google };
-  }, [results, tierFilter]);
-
-  // Same, for the Dynamics 365 sub-view tabs.
-  const dynamicsSubViewCounts = useMemo(() => {
-    const base = tierFilter === "all" ? results || [] : (results || []).filter((r) => r.tier === tierFilter);
-    const dynamics = base.filter((r) => r.category === "dynamics365");
-    const businessCentral = dynamics.filter((r) => r.isBusinessCentral).length;
-    const salesCrm = dynamics.filter((r) => r.isSalesCrm).length;
-    const other = dynamics.filter((r) => !r.isBusinessCentral && !r.isSalesCrm).length;
-    return { all: dynamics.length, businessCentral, salesCrm, other };
-  }, [results, tierFilter]);
+  const tierCounts = counts.tier;
+  const categoryCounts = counts.category;
+  const duplicateCount = counts.duplicates;
+  const priorityCount = counts.priority;
+  const m365SubViewCounts = counts.m365Sub;
+  const dynamicsSubViewCounts = counts.dynSub;
 
   // High Priority panel (landing screen) — every priority lead across all
   // of History, not scoped to the active scan. sourceFile (the actual CSV
@@ -855,9 +901,28 @@ export default function Scanner({
     );
   }
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(Math.max(1, page), totalPages);
-  const pageItems = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const pageItems = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  // Mass selection. The header checkbox acts on THIS PAGE only — which is
+  // why the page size is settable: "select 250 at a time" is expressed by
+  // showing 250. Reaching past the page needs the explicit "Select all N
+  // matching" link, so a click can never quietly act on rows you haven't
+  // seen.
+  const pageAllSelected = pageItems.length > 0 && pageItems.every((r) => selected.has(r.id));
+  const pageSomeSelected = pageItems.some((r) => selected.has(r.id));
+  function toggleSelectPage() {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (pageAllSelected) pageItems.forEach((r) => next.delete(r.id));
+      else pageItems.forEach((r) => next.add(r.id));
+      return next;
+    });
+  }
+  function selectAllMatching() {
+    setSelected(new Set(filtered.map((r) => r.id)));
+  }
 
   return (
     <div>
@@ -1211,6 +1276,14 @@ export default function Scanner({
       {selected.size > 0 && (
         <div className="bulkbar">
           <span className="bulkbar-count">{selected.size} lead{selected.size === 1 ? "" : "s"} selected</span>
+          {pageAllSelected && selected.size < filtered.length && (
+            <button className="bulkbar-selectall" onClick={selectAllMatching}>
+              Select all {filtered.length.toLocaleString()} matching
+            </button>
+          )}
+          {selected.size > 0 && (
+            <button className="bulkbar-selectall" onClick={() => setSelected(new Set())}>Clear</button>
+          )}
           <div className="bulkbar-divider" />
           <span className="bulkbar-label">Move to</span>
           <select value={bulkTarget} onChange={(e) => setBulkTarget(e.target.value as CategoryKey)} className="field">
@@ -1275,7 +1348,17 @@ export default function Scanner({
         <table className="data-table">
           <thead>
             <tr>
-              <th style={{ width: 32 }}></th>
+              <th style={{ width: 32 }}>
+                <input
+                  type="checkbox"
+                  aria-label={pageAllSelected ? "Clear selection on this page" : "Select every lead on this page"}
+                  title={pageAllSelected ? "Clear this page's selection" : `Select all ${pageItems.length} on this page`}
+                  checked={pageAllSelected}
+                  ref={(el) => { if (el) el.indeterminate = !pageAllSelected && pageSomeSelected; }}
+                  onChange={toggleSelectPage}
+                  disabled={pageItems.length === 0}
+                />
+              </th>
               <th>Company</th>
               <th>Contact</th>
               <th>Detected</th>
@@ -1420,7 +1503,17 @@ export default function Scanner({
 
       {filtered.length > 0 && (
         <div className="pager">
-          <span>Showing {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length}</span>
+          <span>Showing {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, filtered.length)} of {filtered.length}</span>
+          <label className="pager-size">
+            Rows
+            <select
+              aria-label="Rows per page"
+              value={pageSize}
+              onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
+            >
+              {PAGE_SIZE_CHOICES.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </label>
           <button className="btn btn-sm btn-secondary" disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)}>Prev</button>
           <span>Page {currentPage} of {totalPages}</span>
           <button className="btn btn-sm btn-secondary" disabled={currentPage >= totalPages} onClick={() => setPage(currentPage + 1)}>Next</button>
