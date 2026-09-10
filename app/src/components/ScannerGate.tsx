@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { checkScannerPassword, setScannerUnlocked } from "../lib/auth";
+import { checkScannerPassword } from "../lib/auth";
 
 // The Scanner's own gate. Deliberately NOT the full-screen lock the
 // sign-in uses — the rest of the platform stays visible and usable behind
@@ -14,7 +14,8 @@ export default function ScannerGate({ onUnlock }: { onUnlock: () => void }) {
     const ok = await checkScannerPassword(value);
     setChecking(false);
     if (ok) {
-      setScannerUnlocked(true);
+      // Nothing is stored — App holds the unlock in state only, so it is
+      // gone on reload or on leaving the tab.
       onUnlock();
     } else {
       setError("Wrong password.");

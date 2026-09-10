@@ -73,7 +73,13 @@ async function serverUp() {
     });
     const out = `${r.stdout || ""}${r.stderr || ""}`;
     const tally = (out.match(/(\d+)\s*\/\s*(\d+)/g) || []).pop() || "";
-    const ok = r.status === 0;
+    // Belt and braces: a suite that forgets to set an exit code would
+    // otherwise report PASS next to a losing tally, which is exactly how
+    // two real failures hid in audit-fixes. If the tally says some checks
+    // failed, that is a failure regardless of the exit status.
+    const m = /(\d+)\s*\/\s*(\d+)/.exec(tally);
+    const tallyOk = !m || Number(m[1]) === Number(m[2]);
+    const ok = r.status === 0 && tallyOk;
     results.push({ name, ok, tally, out });
     console.log(ok ? `PASS ${tally}` : `FAIL ${tally}`);
   }

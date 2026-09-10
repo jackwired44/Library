@@ -63,7 +63,11 @@ const out = []; const ck = (n,c) => { out.push(!!c); console.log((c?'PASS':'FAIL
   // ---- FIX 5: Save to Lead Library from a History-reopened batch ----
   await nav('History');
   const v = page.locator('main button').filter({ hasText: /^View \/ edit$/ }).first();
+  // "View / edit" lands on the Scanner, which is always locked now, so the
+  // gate has to be cleared before the batch is on screen. This is not the
+  // nav helper's path, which is why it needs its own unlock here.
   if (await v.count()) { await v.click(); await sleep(1200); }
+  await __unlockScanner();
   const saveBtn = page.locator('main button').filter({ hasText: /Save to Lead Library|✓ Filed/ }).first();
   const present = await saveBtn.count();
   const enabled = present ? await saveBtn.isEnabled() : false;
@@ -74,4 +78,8 @@ const out = []; const ck = (n,c) => { out.push(!!c); console.log((c?'PASS':'FAIL
   ck('no page errors', errs.length === 0); if (errs.length) console.log(errs.slice(0,4));
   console.log(`\n${out.filter(Boolean).length}/${out.length}`);
   await br.close();
+  // This suite used to end without an exit code, so it reported success
+  // no matter how many checks failed — the runner only reads the exit
+  // status. A test that cannot fail is not a test.
+  process.exit(out.filter(Boolean).length === out.length ? 0 : 1);
 })();

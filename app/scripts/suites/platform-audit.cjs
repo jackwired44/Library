@@ -75,6 +75,24 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await page.locator('button:has-text("Unlock scanner")').click(); await sleep(500);
   check('Scanner: correct password unlocks it', (await page.locator('input[type=file]').count()) > 0);
   check('Scanner: can be re-locked on demand', (await page.locator('button:has-text("Lock scanner")').count()) === 1);
+  // Always locked, per Jack: leaving the tab and coming back must ask
+  // again. Nothing about the unlock is persisted, so a reload re-locks it
+  // too.
+  await nav('Home'); await sleep(400);
+  await nav('Scanner'); await sleep(400);
+  check('Scanner: re-locks after leaving the tab', (await page.locator('input[aria-label="Scanner password"]').count()) === 1);
+  await page.locator('input[aria-label="Scanner password"]').fill('changeme');
+  await page.locator('button:has-text("Unlock scanner")').click(); await sleep(500);
+  await page.reload(); await sleep(1200);
+  if (await page.locator('input[aria-label="Email"]').count()) {
+    await page.locator('input[aria-label="Email"]').fill('jack@wiredcio.com');
+    await page.locator('input[type="password"]').fill('changeme');
+    await page.locator('button:has-text("Unlock")').click(); await sleep(800);
+  }
+  await nav('Scanner'); await sleep(500);
+  check('Scanner: re-locks after a reload', (await page.locator('input[aria-label="Scanner password"]').count()) === 1);
+  await page.locator('input[aria-label="Scanner password"]').fill('changeme');
+  await page.locator('button:has-text("Unlock scanner")').click(); await sleep(500);
 
   const csv = [
     'Company Name,First Name,Last Name,Email,Work Phone,Title,Comments',
@@ -149,6 +167,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   check('History: Library-linked badge on the filed entry', /Library-linked/.test(b));
   const viewBtn = page.locator('main button:has-text("View")').first();
   if (await viewBtn.count()) { await viewBtn.click(); await sleep(500); }
+  // "View" lands on the Scanner, which is always locked — so it asks for
+  // the password before showing the batch. The batch itself is already
+  // loaded behind the gate; unlocking reveals it rather than reloading it.
+  check('History: "View" hits the Scanner lock first', (await page.locator('input[aria-label="Scanner password"]').count()) === 1);
+  await page.locator('input[aria-label="Scanner password"]').fill('changeme');
+  await page.locator('button:has-text("Unlock scanner")').click(); await sleep(600);
   check('History: "View" reopens the batch in Scanner with the real rows-read figure', /Scan results/.test(await body()) && /7\s*read/.test(await page.locator('.scan-note').innerText()));
 
   // ---------- 5. Engage: Contacts ----------

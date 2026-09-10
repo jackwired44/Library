@@ -44,29 +44,14 @@ const STORAGE_KEY = "wc-scanner-unlocked";
 const SCANNER_PASSWORD_HASH = "961789a62433a03a8a48e955c88ea3a35b91b12b9536f0197deea9e561b882fe";
 const EFFECTIVE_SCANNER_HASH =
   (import.meta.env?.VITE_APP_SCANNER_HASH as string | undefined) || SCANNER_PASSWORD_HASH;
-const SCANNER_STORAGE_KEY = "wc-scanner-tab-unlocked";
-
+// Per Jack: the Scanner is ALWAYS locked. Unlike the sign-in gate there
+// is deliberately no persistence at all — not localStorage, not
+// sessionStorage — so the password is required every single time the
+// screen is opened, and a reload or a trip to any other tab re-locks it.
+// The unlock lives only in React state in App.tsx, which is why there is
+// nothing here to read or write it.
 export async function checkScannerPassword(input: string): Promise<boolean> {
   return (await sha256Hex(`${APP_SALT}:${input}`)) === EFFECTIVE_SCANNER_HASH;
-}
-export function isScannerUnlocked(): boolean {
-  try {
-    return sessionStorage.getItem(SCANNER_STORAGE_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-// sessionStorage, NOT localStorage, deliberately: this one re-locks when
-// the tab closes. A gate meant for "someone else is about to look at my
-// screen" is worth little if unlocking it once leaves it open forever on
-// that machine. The sign-in gate stays remembered per device as before.
-export function setScannerUnlocked(value: boolean) {
-  try {
-    if (value) sessionStorage.setItem(SCANNER_STORAGE_KEY, "1");
-    else sessionStorage.removeItem(SCANNER_STORAGE_KEY);
-  } catch {
-    /* storage unavailable — the gate simply reappears, the safe direction */
-  }
 }
 
 export async function sha256Hex(text: string): Promise<string> {

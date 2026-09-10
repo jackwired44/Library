@@ -38,7 +38,7 @@ import {
 } from "./lib/history";
 import { loadRuleOverrides, persistRuleOverrides } from "./lib/ruleOverrides";
 import { loadTasksFromDB, persistTask, deleteTaskFromDB, createTask, createContactTask, type Task, type TaskPriority } from "./lib/tasks";
-import { isUnlocked, setUnlocked, isScannerUnlocked, setScannerUnlocked } from "./lib/auth";
+import { isUnlocked, setUnlocked } from "./lib/auth";
 import {
   loadLeadListsFromDB,
   persistLeadList,
@@ -194,8 +194,20 @@ export interface UploadedFile {
 // legacy/unified-tool.js's single global `state` object had to its DB.
 export default function App() {
   const [unlocked, setUnlockedState] = useState(isUnlocked());
-  const [scannerUnlocked, setScannerUnlockedState] = useState(isScannerUnlocked());
+  // The Scanner tab is always locked, per Jack. Held in React state ONLY —
+  // never persisted — so it re-locks on a reload and on every trip to
+  // another tab, and the password is required each time the screen is
+  // opened. Note Scanner already unmounts when you navigate away (it is
+  // rendered conditionally), so nothing is lost by re-locking that was not
+  // being discarded anyway.
+  const [scannerUnlocked, setScannerUnlockedState] = useState(false);
   const [view, setView] = useState<View>("home");
+  // Leaving the Scanner re-locks it. Without this, unlocking once and
+  // then bouncing to Contacts and back would leave it open for the rest
+  // of the page's life — which is not "always locked".
+  useEffect(() => {
+    if (view !== "scanner") setScannerUnlockedState(false);
+  }, [view]);
   // Seeds Engage's initial tab when navigating there from the sidebar
   // sub-nav or a Home tile — reset when Engage is opened any other way
   // so a stale seed doesn't linger.
@@ -1402,7 +1414,7 @@ export default function App() {
               <button
                 className="btn btn-sm btn-ghost"
                 title="Lock the Scanner again — the rest of the platform stays open"
-                onClick={() => { setScannerUnlocked(false); setScannerUnlockedState(false); }}
+                onClick={() => setScannerUnlockedState(false)}
               >
                 🔒 Lock scanner
               </button>
