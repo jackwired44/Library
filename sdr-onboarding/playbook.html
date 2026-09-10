@@ -447,11 +447,24 @@
   .foot-nav-btn.next { text-align: right; align-items: flex-end; margin-left: auto; }
 
   /* Book folio -- a page number at the bottom center, between prev/next,
-     the way a physical book prints one on every page. */
+     the way a physical book prints one on every page. Doubles as the
+     single, consistent way to jump back out to the Table of Contents. */
   .page-folio {
-    font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--muted);
-    letter-spacing: 0.06em; white-space: nowrap; padding-top: 2px; flex-shrink: 0;
+    font: inherit; font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--muted);
+    letter-spacing: 0.06em; white-space: nowrap; padding: 2px 0 0; flex-shrink: 0;
+    background: none; border: none; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
   }
+  .page-folio .toc-label {
+    font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted);
+    opacity: 0.75;
+  }
+  .page-folio:hover, .page-folio:hover .toc-label { color: var(--track-color, var(--accent)); }
+
+  /* Table of Contents footer -- same bottom-center "continue" pattern as
+     every other page, so the TOC reads as page one of the book, not a
+     separate menu screen. */
+  .toc-footer-nav { display: flex; justify-content: center; margin: 40px 0 8px; }
 
   /* Page-turn: content arrives from the right when moving forward (next),
      from the left when moving back (prev) -- like turning a book page. */
@@ -536,6 +549,9 @@
   <div class="track-filters" id="trackFilters"></div>
   <div class="toc-heading">Table of Contents</div>
   <div class="card-grid" id="cardGrid"></div>
+  <div class="toc-footer-nav">
+    <button class="foot-nav-btn next" id="tocContinueBtn"><span class="dir">Begin Reading</span><span>Company Profile &rarr;</span></button>
+  </div>
 </div>
 
 <div class="detail-view" id="detailView" hidden>
@@ -1472,7 +1488,12 @@
   let currentPageIdx = null;
 
   function neighborButton(key, dir) {
-    if (!key) return `<span></span>`;
+    if (!key) {
+      if (dir === "prev") {
+        return `<button class="foot-nav-btn prev" data-goto=""><span class="dir">Previous</span><span>Table of Contents</span></button>`;
+      }
+      return `<span></span>`;
+    }
     const s = byKey[key];
     return `<button class="foot-nav-btn ${dir}" data-goto="${key}"><span class="dir">${dir === "next" ? "Next" : "Previous"}</span><span>${s.title}</span></button>`;
   }
@@ -1497,9 +1518,10 @@
 
     const prevKey = orderedKeys[idx - 1] || null;
     const nextKey = orderedKeys[idx + 1] || null;
-    prevBtn.disabled = !prevKey;
+    prevBtn.disabled = false;
+    prevBtn.setAttribute("aria-label", prevKey ? "Previous section" : "Back to Table of Contents");
     nextBtn.disabled = !nextKey;
-    prevBtn.onclick = () => prevKey && (location.hash = prevKey);
+    prevBtn.onclick = () => { location.hash = prevKey || ""; };
     nextBtn.onclick = () => nextKey && (location.hash = nextKey);
 
     const direction = currentPageIdx === null ? null : idx > currentPageIdx ? "next" : idx < currentPageIdx ? "prev" : null;
@@ -1513,7 +1535,7 @@
       `<div class="doc-subtitle">${section.subtitle}</div>` +
       `<hr class="doc-divider">` +
       renderDetail(section) +
-      `<div class="doc-footer-nav">${neighborButton(prevKey, "prev")}<span class="page-folio">&mdash; ${idx + 1} &mdash;</span>${neighborButton(nextKey, "next")}</div>`;
+      `<div class="doc-footer-nav">${neighborButton(prevKey, "prev")}<button class="page-folio" data-goto="">&mdash; ${idx + 1} &mdash;<span class="toc-label">Table of Contents</span></button>${neighborButton(nextKey, "next")}</div>`;
 
     detailContent.querySelectorAll("[data-goto]").forEach((btn) => {
       btn.addEventListener("click", () => { location.hash = btn.dataset.goto; });
@@ -1549,6 +1571,7 @@
   document.getElementById("askBackLink").addEventListener("click", () => { location.hash = ""; });
   document.getElementById("brandHome").addEventListener("click", () => { location.hash = ""; });
   document.getElementById("askBtn").addEventListener("click", () => { location.hash = "ask"; });
+  document.getElementById("tocContinueBtn").addEventListener("click", () => { location.hash = orderedKeys[0]; });
   routeFromHash();
 
   // ---------------------------------------------------------------------
