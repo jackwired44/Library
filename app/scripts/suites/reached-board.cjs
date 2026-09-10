@@ -14,7 +14,7 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
  page.on('console',m=>{if(m.type()==='error'&&!/favicon|font|net::|googleapis|Failed to load resource/i.test(m.text()))errs.push(m.text());});
  page.on('dialog',d=>d.accept());
  await page.goto(P);
- await page.fill('input[type=password]','changeme');
+ await page.fill('input[aria-label="Email"]','jack@wiredcio.com'); await page.fill('input[type=password]','changeme');
  await page.click('button:has-text("Unlock")'); await sleep(900);
 
  const csv=`First Name,Last Name,Title,Company,Email,Phone,Comments
@@ -72,7 +72,7 @@ Dana,Whitfield,IT Director,Ridgeline Orthopedics,dana@ridgelineortho.com,(312) 5
 
  // Reload -> persistence
  await page.reload(); await sleep(1400);
- if (await page.locator('input[type=password]').count()) { await page.fill('input[type=password]','changeme'); await page.click('button:has-text("Unlock")'); await sleep(900); }
+ if (await page.locator('input[type=password]').count()) { await page.fill('input[aria-label="Email"]','jack@wiredcio.com'); await page.fill('input[type=password]','changeme'); await page.click('button:has-text("Unlock")'); await sleep(900); }
  await page.click('.side-nav-btn:has-text("Contacts")'); await sleep(900);
  t = await page.locator('main').innerText();
  ok('attempts survive a reload', /2×/.test(t), t.slice(0,300));

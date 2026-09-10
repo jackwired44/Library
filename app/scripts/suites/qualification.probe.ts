@@ -1,4 +1,4 @@
-import { scanParsedFiles, type ParsedFile } from "../../src/lib/detection";
+import { scanParsedFiles, scanRowLicensing, type ParsedFile } from "../../src/lib/detection";
 
 // Capture + precision audit for the qualification rules. Two halves that
 // pull against each other on purpose: the first proves real leads are not
@@ -89,11 +89,62 @@ const cases:[string,string,string[]][]=[
  ["10 seats at new min","Microsoft 365 Business Premium for 10 users.",["signal"]],
  ["12 seats over new min","Microsoft 365 Business Premium for 12 users.",["signal"]],
 ];
+const ADVERSARIAL = 14;
+let advBad = 0;
+const advChk = (n: string, cond: boolean, d: string) => {
+  cond ? console.log("  ok  ", n) : (advBad++, console.log("  BAD ", n, "->", d));
+};
+const scanOne = (c: string) => {
+  const s = scanParsedFiles([{ name: "t.csv", fields: HEAD_N, data: [{ "First Name": "A", "Last Name": "B", Title: "IT", Company: "Co Inc", Email: "a@cocorp.com", Phone: "(312) 555-0100", Comments: c }] }]);
+  return s.results[0] || null;
+};
+const countOf = (c: string) => scanRowLicensing({ Comments: c }, ["Comments"])?.count ?? null;
+
+function ADV_RUN() {
+  console.log("\n-- adversarial: seat-count extraction --");
+  const counts: [string, string, number | null][] = [
+    ["real gapped count", "They have 348 Microsoft 365 G3 licenses.", 348],
+    ["direct count", "Microsoft 365 E3 for 120 users.", 120],
+    ["no count at all", "They run Microsoft 365 E3 across the org.", null],
+    ["365 is never a count", "Rolling out Microsoft 365 E5 company-wide.", null],
+    ["version is never a count", "Support on upgrade from our current version which is 15, on E3.", null],
+    ["ticket number is never a count", "E3 tenant. Support Ticket ID: 4521", null],
+    ["number belongs to the later unit", "We run E3 across 3 offices with 240 seats.", 240],
+    ["year is never a count", "Been on E3 since 2019 with 60 users.", 60],
+    ["phone digits are never a count", "E3 tenant, call (312) 555-0142 for 45 users.", 45],
+  ];
+  counts.forEach(([n, text, want]) => { const got = countOf(text); advChk(n, got === want, `got ${got}, want ${want}`); });
+
+  console.log("\n-- adversarial: the 260-char gate window --");
+  const filler = "The account has been with us for several years and the notes below were copied from an older record that nobody has cleaned up since the last review cycle completed. ";
+  const near = "Azure spend keeps climbing. " + filler + "Leadership decided to bring in a Microsoft partner.";
+  advChk("partner language within reach counts", scanOne(near)?.tier === "signal", JSON.stringify(scanOne(near)?.tier));
+  const far = "Azure is where the workloads sit. " + filler + filler + filler + "Unrelated: we also resell through a partner for hardware.";
+  advChk("partner language beyond the window does not", scanOne(far)?.tier !== "signal", JSON.stringify(scanOne(far)?.tier));
+
+  console.log("\n-- adversarial: widened partner gate must not over-fire --");
+  advChk("a lead that IS a partner", scanOne("We are a Microsoft partner and resell Azure to our own clients.")?.tier !== "signal", "over-qualified");
+  advChk("Partner: is a CRM field, not intent", scanOne("Azure tenant. Partner: SIS LLC. Owner of this opportunity is Dana.")?.tier !== "signal", "over-qualified");
+
+  console.log(`\n${ADVERSARIAL - advBad}/${ADVERSARIAL} adversarial cases behaved`);
+}
+
 let bad=0;
 console.log("\n-- precision: these must NOT over-qualify --");
 cases.forEach(([n,c,want])=>{const got=t(c);const okc=want.includes(got);if(!okc)bad++;
  console.log(`${okc?"ok  ":"BAD "} ${n.padEnd(22)} got=${got.padEnd(8)} allowed=${want.join("/")}`);});
 console.log(`\n${cases.length-bad}/${cases.length} behaved`);
-const total = 28 + cases.length;
-console.log(`\n${total - miss - bad}/${total} passed`);
-process.exit(miss || bad ? 1 : 0);
+const total = 28 + cases.length + ADVERSARIAL;
+ADV_RUN();
+console.log(`\n${total - miss - bad - advBad}/${total} passed`);
+process.exit(miss || bad || advBad ? 1 : 0);
+
+
+/* ---------------------------------------------------------------- *
+ * Adversarial: the seat-count extractor and the widened gate window.
+ * These two carry the most risk of the qualification pass, because a
+ * wrong count does not just miss a lead — it DQs one ("348 Microsoft
+ * 365 E3 licenses" was read as 3 seats and auto-DQ'd under the
+ * threshold). Digits that belong to a product name, a version, a
+ * ticket number, a year or a phone number must never be read as seats.
+ * ---------------------------------------------------------------- */

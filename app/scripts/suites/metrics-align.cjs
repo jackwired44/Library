@@ -22,7 +22,7 @@ const store = (page, name) => page.evaluate(async (s) => {
  page.on('console',m=>{if(m.type()==='error'&&!/favicon|font|net::|googleapis|Failed to load/i.test(m.text()))errs.push(m.text());});
  page.on('dialog',d=>d.accept());
  await page.goto(BASE);
- await page.fill('input[type=password]','changeme'); await page.click('button:has-text("Unlock")'); await sleep(1100);
+ await page.fill('input[aria-label="Email"]','jack@wiredcio.com'); await page.fill('input[type=password]','changeme'); await page.click('button:has-text("Unlock")'); await sleep(1100);
 
  // 10 rows: 1 duplicate pair, 2 with no signal, the rest real leads
  // across both product lines and both tiers.

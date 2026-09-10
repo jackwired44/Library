@@ -21,6 +21,7 @@ const out=[]; const ck=(n,c)=>{out.push(!!c);console.log((c?'PASS':'FAIL')+'  '+
    'Summit Managed Services,Ann,Ray,ann@summitms.com,,CEO,"Dynamics 365 Business Central for 40 users"'].join('\n');
   fs.writeFileSync(`${SP}/comp.csv`, csv);
   await page.goto(BASE); await sleep(500);
+  await page.locator('input[aria-label="Email"]').fill('jack@wiredcio.com');
   await page.locator('input[type="password"]').fill('changeme');
   await page.locator('button').filter({hasText:/Unlock/}).click(); await sleep(700);
   await nav('Scanner');

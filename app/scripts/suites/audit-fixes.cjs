@@ -20,6 +20,7 @@ const out = []; const ck = (n,c) => { out.push(!!c); console.log((c?'PASS':'FAIL
     'Northwind Logistics,Sam,Reed,sam@northwindlog.com,+1 415 555 0100,COO,"Google Workspace to Microsoft 365 migration, bringing in a partner"'].join('\n');
   fs.writeFileSync(`${SP}/vfix.csv`, csv);
   await page.goto(BASE); await sleep(400);
+  await page.locator('input[aria-label="Email"]').fill('jack@wiredcio.com');
   await page.locator('input[type="password"]').fill('changeme');
   await page.locator('button').filter({hasText:/Unlock/}).click(); await sleep(600);
   await nav('Scanner');

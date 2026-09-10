@@ -23,6 +23,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const engage = async t => { await nav(ENGAGE_LABEL[t] || t); await sleep(450); };
 
   await page.goto(BASE); await sleep(400);
+  await page.locator('input[aria-label="Email"]').fill('jack@wiredcio.com');
   await page.locator('input[type="password"]').fill('changeme');
   await page.locator('button:has-text("Unlock")').click(); await sleep(500);
 
@@ -97,7 +98,8 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
   // 7. Persistence
   await page.reload(); await sleep(900);
-  if (await page.locator('input[type="password"]').count()) { await page.locator('input[type="password"]').fill('changeme'); await page.locator('button:has-text("Unlock")').click(); await sleep(600); }
+  if (await page.locator('input[type="password"]').count()) { await page.locator('input[aria-label="Email"]').fill('jack@wiredcio.com');
+  await page.locator('input[type="password"]').fill('changeme'); await page.locator('button:has-text("Unlock")').click(); await sleep(600); }
   await engage('contacts');
   await page.locator('.filter-btn').first().click(); await sleep(400);
   b = await body();

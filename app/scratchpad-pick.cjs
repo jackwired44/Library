@@ -1,0 +1,25 @@
+const BASE='http://localhost:4173';
+const EXE='/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+const {chromium}=require('playwright');
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+(async()=>{
+ const b=await chromium.launch({executablePath:EXE});
+ const page=await (await b.newContext({viewport:{width:1500,height:950},timezoneId:'America/Chicago'})).newPage();
+ page.on('dialog',d=>d.accept());
+ await page.goto(BASE);
+ await page.fill('input[type=password]','changeme');
+ await page.click('button:has-text("Unlock")'); await sleep(1200);
+ await page.click('.side-nav-btn:has-text("Scanner")'); await sleep(500);
+ const csv='First Name,Last Name,Title,Company,Email,Phone,Comments\nAda,Brant,IT Director,Northwind Freight,ada@nw.com,(312) 555-0101,"Dynamics 365 Business Central for 40 users, looking for an implementation partner"';
+ await page.setInputFiles('input[type=file]',{name:'p.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});
+ await sleep(2200);
+ const sel=page.locator('select[aria-label="Lead Library folder"]');
+ const stateValue = await sel.inputValue();
+ const opts = await sel.locator('option').evaluateAll(os=>os.map(o=>({v:o.value,t:o.textContent})));
+ const shown = await sel.evaluate(s=>s.options[s.selectedIndex]?.textContent);
+ console.log('select value (state):', stateValue);
+ console.log('option actually shown:', shown);
+ console.log('value matches a real option:', opts.some(o=>o.v===stateValue));
+ console.log('options:', JSON.stringify(opts.slice(0,8)));
+ await b.close();
+})();

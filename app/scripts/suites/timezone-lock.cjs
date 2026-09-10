@@ -21,7 +21,7 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
  page.on('console',m=>{if(m.type()==='error'&&!/favicon|font|net::|googleapis|Failed to load resource/i.test(m.text()))errs.push(m.text());});
  page.on('dialog',d=>d.accept());
  await page.goto(P);
- await page.fill('input[type=password]','changeme');
+ await page.fill('input[aria-label="Email"]','jack@wiredcio.com'); await page.fill('input[type=password]','changeme');
  await page.click('button:has-text("Unlock")'); await sleep(900);
 
  // A contact with a 212 (Eastern) number, so "from you" has something to move.
@@ -67,7 +67,7 @@ Marcus,Ellery,IT Director,Ellery Freight,marcus@elleryfreight.com,(212) 555-0144
  // for whichever actually renders rather than guessing with a sleep.
  await page.locator('input[type=password], .tz-lock-btn').first().waitFor({state:'visible',timeout:20000});
  if (await page.locator('input[type=password]').count()) {
-   await page.fill('input[type=password]','changeme');
+   await page.fill('input[aria-label="Email"]','jack@wiredcio.com'); await page.fill('input[type=password]','changeme');
    await page.click('button:has-text("Unlock")');
  }
  await page.locator('.tz-lock-btn').waitFor({state:'visible',timeout:20000}); await sleep(400);

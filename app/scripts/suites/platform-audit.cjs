@@ -35,15 +35,30 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await page.goto(BASE);
   await sleep(400);
   check('Lock: password gate shown on fresh browser', (await page.locator('input[type="password"]').count()) === 1);
+  check('Lock: email is required too', (await page.locator('input[aria-label="Email"]').count()) === 1);
+
+  // Right email, wrong password.
+  await page.locator('input[aria-label="Email"]').fill('jack@wiredcio.com');
   await page.locator('input[type="password"]').fill('wrong');
   await page.locator('button:has-text("Unlock")').click();
   await sleep(300);
   check('Lock: wrong password stays locked', (await page.locator('input[type="password"]').count()) === 1);
+
+  // Right password, wrong email — must be refused just the same, and the
+  // message must not reveal which field was wrong.
+  await page.locator('input[aria-label="Email"]').fill('someone@else.com');
+  await page.locator('input[type="password"]').fill('changeme');
+  await page.locator('button:has-text("Unlock")').click();
+  await sleep(300);
+  check('Lock: wrong email stays locked', (await page.locator('input[type="password"]').count()) === 1);
+  check('Lock: error does not say which field was wrong', /Wrong email or password/.test(await body()));
+
+  await page.locator('input[aria-label="Email"]').fill('  JACK@WiredCIO.com  ');
   await page.locator('input[type="password"]').fill('changeme');
   await page.locator('button:has-text("Unlock")').click();
   await sleep(500);
   // Home now greets by time of day rather than a fixed "Welcome".
-  check('Lock: correct password unlocks to Home', /Good (morning|afternoon|evening),/.test(await body()));
+  check('Lock: correct credentials unlock (email case/space tolerant)', /Good (morning|afternoon|evening),/.test(await body()));
 
   // ---------- 2. Scanner: upload, edit, save to library ----------
   await nav('Scanner');
@@ -266,7 +281,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   // Unlock persists per-browser (lib/auth.ts), so the gate only reappears
   // when the session was cleared — handle both.
   if (await page.locator('input[type="password"]').count()) {
-    await page.locator('input[type="password"]').fill('changeme');
+    await page.locator('input[aria-label="Email"]').fill('jack@wiredcio.com');
+  await page.locator('input[type="password"]').fill('changeme');
     await page.locator('button:has-text("Unlock")').click(); await sleep(600);
   }
   await page.locator('.side-nav-btn').first().waitFor({ timeout: 10000 });

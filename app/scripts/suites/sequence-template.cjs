@@ -17,7 +17,7 @@ const ok=(n,c,d='')=>{ c?(pass++,console.log('  PASS',n)):(fail++,console.log(' 
   page.on('console', m => { if(m.type()==='error' && !/favicon|font|net::|fonts\.googleapis|Failed to load resource/i.test(m.text())) errs.push(m.text()); });
 
   await page.goto(P);
-  await page.fill('input[type=password]', 'changeme');
+  await page.fill('input[aria-label="Email"]','jack@wiredcio.com'); await page.fill('input[type=password]', 'changeme');
   await page.click('button:has-text("Unlock")');
   await page.waitForTimeout(700);
 

@@ -268,6 +268,25 @@ export default function Scanner({
   // Same adopt pattern for a reopened batch's dropped rows, so the two
   // audit tabs work on a batch loaded from History or the Lead Library,
   // not only on a fresh upload.
+  // The folder picker lists EXISTING folders by group id and only offers a
+  // month key for a month that has no folder yet. Month folders are
+  // auto-seeded on load, so the current month almost always already has
+  // one — which meant the default state value (a month key) matched no
+  // option at all. A controlled <select> with an unmatched value falls
+  // back to displaying its first option, so the picker read "May 2026"
+  // while the state still said September: clicking Save without touching
+  // the dropdown filed into a different folder than the one on screen.
+  // Normalizing the key to the real group id keeps what is shown and what
+  // is saved the same thing. Safe against looping: once it holds a group
+  // id it is already a valid option and this does nothing.
+  useEffect(() => {
+    if (uploadMonthKey === NEW_FOLDER_OPTION) return;
+    if (libraryGroups.some((g) => g.id === uploadMonthKey)) return;
+    const label = monthLabelFromKey(uploadMonthKey);
+    const existing = libraryGroups.find((g) => g.name === label);
+    if (existing) setUploadMonthKey(existing.id);
+  }, [libraryGroups, uploadMonthKey]);
+
   useEffect(() => {
     if (!loadedDropped) return;
     setNoSignalRows(loadedDropped.noSignalRows);
@@ -520,6 +539,12 @@ export default function Scanner({
     setError(null);
     setNewFolderName("");
   }
+
+  // Months that do not have a folder yet — the ones worth offering as a
+  // month key rather than an existing group id.
+  const monthOptionsWithoutFolder = getMonthOptionsForFiling().filter(
+    (o) => !libraryGroups.some((g) => g.name === monthLabelFromKey(o.key))
+  );
 
   const facets: Facets = {
     tier: tierFilter,
@@ -1049,13 +1074,13 @@ export default function Scanner({
                   ))}
                 </optgroup>
               )}
-              <optgroup label="Month folders">
-                {getMonthOptionsForFiling()
-                  .filter((o) => !libraryGroups.some((g) => g.name === monthLabelFromKey(o.key)))
-                  .map((o) => (
+              {monthOptionsWithoutFolder.length > 0 && (
+                <optgroup label="Month folders">
+                  {monthOptionsWithoutFolder.map((o) => (
                     <option key={o.key} value={o.key}>{o.label}</option>
                   ))}
-              </optgroup>
+                </optgroup>
+              )}
               <optgroup label="New">
                 <option value={NEW_FOLDER_OPTION}>＋ Create a new folder…</option>
               </optgroup>

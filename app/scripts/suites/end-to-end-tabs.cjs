@@ -21,7 +21,7 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
  const go=async n=>{await page.click(`.side-nav-btn:has-text("${n}")`); await sleep(900);};
 
  await page.goto(P);
- await page.fill('input[type=password]','changeme');
+ await page.fill('input[aria-label="Email"]','jack@wiredcio.com'); await page.fill('input[type=password]','changeme');
  await page.click('button:has-text("Unlock")'); await sleep(1000);
 
  // ---------- SCANNER ----------
@@ -139,7 +139,7 @@ Ann,Vo,Director,Summit Managed Services,ann@summitmsp.com,(206) 555-0122,We prov
 
  // ---------- persistence ----------
  await page.reload(); await sleep(1400);
- await page.fill('input[type=password]','changeme').catch(()=>{});
+ await page.fill('input[aria-label="Email"]','jack@wiredcio.com').catch(()=>{}); await page.fill('input[type=password]','changeme').catch(()=>{});
  await page.click('button:has-text("Unlock")').catch(()=>{}); await sleep(1200);
  await go('Contacts'); t=await main();
  ok('Persistence','contacts survive reload', /Dana Whitfield/.test(t), t.slice(0,200));

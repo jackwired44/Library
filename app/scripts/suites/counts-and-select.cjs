@@ -40,7 +40,7 @@ const num = t => { const m=/\((\d[\d,]*)\)/.exec(t); return m?Number(m[1].replac
  page.on('console',m=>{if(m.type()==='error'&&!/favicon|font|net::|googleapis|Failed to load resource/i.test(m.text()))errs.push(m.text());});
  page.on('dialog',d=>d.accept());
  await page.goto(P);
- await page.fill('input[type=password]','changeme');
+ await page.fill('input[aria-label="Email"]','jack@wiredcio.com'); await page.fill('input[type=password]','changeme');
  await page.click('button:has-text("Unlock")'); await sleep(900);
  await page.click('.side-nav-btn:has-text("Scanner")'); await sleep(400);
  await page.setInputFiles('input[type=file]',{name:'counts.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});

@@ -14,7 +14,7 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
  page.on('console',m=>{if(m.type()==='error'&&!/favicon|font|net::|googleapis|Failed to load/i.test(m.text()))errs.push(m.text());});
  page.on('dialog',d=>d.accept());
  await page.goto(BASE);
- await page.fill('input[type=password]','changeme'); await page.click('button:has-text("Unlock")'); await sleep(1100);
+ await page.fill('input[aria-label="Email"]','jack@wiredcio.com'); await page.fill('input[type=password]','changeme'); await page.click('button:has-text("Unlock")'); await sleep(1100);
  const csv=`First Name,Last Name,Title,Company,Email,Phone,Comments
 Justin,Bartlett,Ops Manager,Legacy Labor,justin@legacylabor.com,(312) 555-0110,Business Central for 40 users and want a partner
 Nora,Ellis,CFO,Harbor Dental,nora@harbordental.com,(415) 555-0144,Google Workspace to Microsoft 365 with a partner`;

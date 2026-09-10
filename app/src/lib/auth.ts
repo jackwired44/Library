@@ -10,7 +10,23 @@
 // To change the password: run `npm run hash-password -- "new password"`
 // from app/, then paste the printed hash in as PASSWORD_HASH below.
 const APP_SALT = "wired-cio-lead-scanner-v1";
-const PASSWORD_HASH = "0b39f2293df026a351657d70aacb9154ff19102dd93b4f75888b68e7eeb7ad6c"; // placeholder for "changeme" — CHANGE BEFORE REAL USE
+// Jack's real password. Only the salted hash is here — the password
+// itself is not in this repo, and reading this file does not reveal it.
+// To change it: `npm run hash-password -- "new password"` from app/, paste
+// the printed hash in here, rebuild, republish.
+const PASSWORD_HASH = "149345bd7cd3eefd1dc84b4e7ca23ce825935593779e3013c5e0f8c577f32039";
+// The gate now asks for an email as well as a password. Be clear about
+// what that does and does not buy: it is a SECOND THING TO KNOW, not an
+// account. There is no server, so nothing verifies an identity — the page
+// simply refuses to unlock unless both fields match. Real per-user
+// sign-in needs a backend and is still an open decision (CLAUDE.md,
+// Access & ownership). Do not describe this as user accounts.
+export const AUTH_EMAIL = "jack@wiredcio.com";
+
+// A password hash can be overridden at build time so a throwaway build
+// (the test harness) never needs the real one:
+//   VITE_APP_PASSWORD_HASH=<hash> npm run build
+const EFFECTIVE_HASH = (import.meta.env?.VITE_APP_PASSWORD_HASH as string | undefined) || PASSWORD_HASH;
 
 const STORAGE_KEY = "wc-scanner-unlocked";
 
@@ -21,7 +37,17 @@ export async function sha256Hex(text: string): Promise<string> {
 }
 
 export async function checkPassword(input: string): Promise<boolean> {
-  return (await sha256Hex(`${APP_SALT}:${input}`)) === PASSWORD_HASH;
+  return (await sha256Hex(`${APP_SALT}:${input}`)) === EFFECTIVE_HASH;
+}
+
+// Both must match. The email comparison is case- and whitespace-
+// insensitive because nobody types their own address consistently, and
+// being strict about it would only ever lock the owner out — it is not
+// the part doing the security work.
+export async function checkCredentials(email: string, password: string): Promise<boolean> {
+  const emailOk = email.trim().toLowerCase() === AUTH_EMAIL;
+  const passwordOk = await checkPassword(password);
+  return emailOk && passwordOk;
 }
 
 export function isUnlocked(): boolean {

@@ -27,7 +27,7 @@ const csv=[HEAD,...rows].join('\n');
  page.on('console',m=>{if(m.type()==='error'&&!/favicon|font|net::|googleapis|Failed to load resource/i.test(m.text()))errs.push(m.text());});
  page.on('dialog',d=>d.accept());
  await page.goto(P);
- await page.fill('input[type=password]','changeme');
+ await page.fill('input[aria-label="Email"]','jack@wiredcio.com'); await page.fill('input[type=password]','changeme');
  await page.click('button:has-text("Unlock")'); await sleep(900);
  await page.click('.side-nav-btn:has-text("Scanner")'); await sleep(400);
  await page.setInputFiles('input[type=file]',{name:'dl.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});
@@ -49,6 +49,19 @@ const csv=[HEAD,...rows].join('\n');
  // --- folder picker: existing folders, month folders, and create-new ---
  const sel = page.locator('select[aria-label="Lead Library folder"]');
  ok('folder picker present', await sel.count() === 1);
+
+ // Month folders are auto-seeded, so the current month almost always
+ // already has a folder and is offered as a group id, not a month key.
+ // The picker used to hold the month key in state while a controlled
+ // <select> with no matching option displayed its FIRST entry — so it
+ // read "May 2026" and filed into September. What is shown and what is
+ // saved must be the same folder.
+ const shownLabel = await sel.evaluate(el => el.options[el.selectedIndex] && el.options[el.selectedIndex].textContent);
+ const thisMonth = new Date().toLocaleString('en-US',{month:'long'}) + ' ' + new Date().getFullYear();
+ ok('picker preselects the current month', shownLabel === thisMonth, `shows "${shownLabel}", expected "${thisMonth}"`);
+ const selValue = await sel.inputValue();
+ const optValues = await sel.locator('option').evaluateAll(os => os.map(o => o.value));
+ ok('picker value matches a real option', optValues.includes(selValue), `${selValue} not in [${optValues.join(', ')}]`);
  const opts = await sel.locator('option').allInnerTexts();
  ok('offers a create-new option', opts.some(o=>/Create a new folder/.test(o)), opts.slice(0,6).join(' | '));
  ok('offers month folders', opts.some(o=>/\b20\d\d\b/.test(o)), opts.slice(0,6).join(' | '));
@@ -73,7 +86,7 @@ const csv=[HEAD,...rows].join('\n');
  // --- the folder really exists in the Lead Library, and survives a reload ---
  await page.reload(); await sleep(1500);
  if (await page.locator('input[type=password]').count()) {
-   await page.fill('input[type=password]','changeme');
+   await page.fill('input[aria-label="Email"]','jack@wiredcio.com'); await page.fill('input[type=password]','changeme');
    await page.click('button:has-text("Unlock")');
  }
  await page.locator('.side-nav-btn:has-text("Lead library")').click(); await sleep(1200);

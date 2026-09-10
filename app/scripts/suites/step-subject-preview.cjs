@@ -15,7 +15,7 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
  page.on('console',m=>{if(m.type()==='error'&&!/favicon|font|net::|googleapis|Failed to load/i.test(m.text()))errs.push(m.text());});
  page.on('dialog',d=>d.accept());
  await page.goto(BASE);
- await page.fill('input[type=password]','changeme'); await page.click('button:has-text("Unlock")'); await sleep(1100);
+ await page.fill('input[aria-label="Email"]','jack@wiredcio.com'); await page.fill('input[type=password]','changeme'); await page.click('button:has-text("Unlock")'); await sleep(1100);
 
  // A directory big enough that the picker must really search it.
  const names = [];
@@ -37,7 +37,7 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
  await subj.fill('Dynamics for your team');
  await page.locator('main').click({position:{x:5,y:5}}); await sleep(800);
  await page.reload(); await sleep(1400);
- await page.fill('input[type=password]','changeme').catch(()=>{});
+ await page.fill('input[aria-label="Email"]','jack@wiredcio.com').catch(()=>{}); await page.fill('input[type=password]','changeme').catch(()=>{});
  await page.click('button:has-text("Unlock")').catch(()=>{}); await sleep(1200);
  await page.click('.side-nav-btn:has-text("Sequences")'); await sleep(1000);
  // A reload collapses the card; open it again before reading the row.

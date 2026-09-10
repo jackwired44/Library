@@ -1,20 +1,23 @@
 import { useState } from "react";
-import { checkPassword, setUnlocked } from "../lib/auth";
+import { checkCredentials, setUnlocked } from "../lib/auth";
 
 export default function LockScreen({ onUnlock }: { onUnlock: () => void }) {
+  const [email, setEmail] = useState("");
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
 
   async function tryUnlock() {
     setChecking(true);
-    const ok = await checkPassword(value);
+    const ok = await checkCredentials(email, value);
     setChecking(false);
     if (ok) {
       setUnlocked(true);
       onUnlock();
     } else {
-      setError("Wrong password.");
+      // Deliberately does not say WHICH field was wrong — naming it would
+      // confirm a valid email to anyone guessing.
+      setError("Wrong email or password.");
       setValue("");
     }
   }
@@ -33,10 +36,22 @@ export default function LockScreen({ onUnlock }: { onUnlock: () => void }) {
     >
       <div style={{ background: "#fff", borderRadius: 16, padding: "32px 28px", width: "100%", maxWidth: 340, textAlign: "center" }}>
         <div style={{ fontSize: 19, fontWeight: 700, color: "#081E22" }}>Wired CIO Lead Scanner</div>
-        <div style={{ fontSize: 13, color: "#6b7480", marginTop: 6 }}>Enter the password to continue.</div>
+        <div style={{ fontSize: 13, color: "#6b7480", marginTop: 6 }}>Sign in to continue.</div>
+        <input
+          type="email"
+          autoFocus
+          autoComplete="username"
+          aria-label="Email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && tryUnlock()}
+          placeholder="Email"
+          style={{ width: "100%", marginTop: 10, padding: "11px 13px", fontSize: 15, border: "1px solid var(--border)", borderRadius: 9, boxSizing: "border-box" }}
+        />
         <input
           type="password"
-          autoFocus
+          autoComplete="current-password"
+          aria-label="Password"
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && tryUnlock()}
