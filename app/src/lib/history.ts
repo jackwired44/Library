@@ -4,7 +4,7 @@
 // section. See CLAUDE.md for the product rules this encodes.
 
 import { dbGetAll, dbPut, dbDelete, STORE_HISTORY } from "./db";
-import type { ResultRow, ParsedFile } from "./detection";
+import type { ResultRow, ParsedFile, NoSignalRow, DuplicateRow } from "./detection";
 import { monthKeyFromDate, monthLabelFromKey } from "./library";
 
 export interface HistoryEntry {
@@ -24,6 +24,16 @@ export interface HistoryEntry {
   // and consolidated," not as data quietly vanishing.
   largestDuplicateGroup?: number;
   results: ResultRow[];
+  // The rows this import DROPPED, kept so a past batch stays auditable
+  // rather than only countable. Both optional: an entry recorded before
+  // these existed simply shows no tab for them, which is honest — those
+  // rows were genuinely never kept.
+  //
+  // Deliberately the light NoSignalRow/DuplicateRow shapes, not
+  // ResultRows: no raw CSV row is attached, so each costs a fraction of
+  // what a single kept result already costs this store.
+  noSignalRows?: NoSignalRow[];
+  duplicateRows?: DuplicateRow[];
   tag: string;
   notes: string;
   libraryEntryIds: string[];
@@ -35,7 +45,7 @@ function newId() {
 
 export function buildHistoryEntry(
   parsedFiles: ParsedFile[],
-  scan: { results: ResultRow[]; rowsScanned: number; duplicatesRemoved?: number; largestDuplicateGroup?: number },
+  scan: { results: ResultRow[]; rowsScanned: number; duplicatesRemoved?: number; largestDuplicateGroup?: number; noSignalRows?: NoSignalRow[]; duplicateRows?: DuplicateRow[] },
   opts: { tag?: string; libraryEntryIds?: string[] } = {}
 ): HistoryEntry {
   return {
@@ -47,6 +57,8 @@ export function buildHistoryEntry(
     duplicatesRemoved: scan.duplicatesRemoved || 0,
     largestDuplicateGroup: scan.largestDuplicateGroup || 0,
     results: scan.results,
+    noSignalRows: scan.noSignalRows || [],
+    duplicateRows: scan.duplicateRows || [],
     tag: opts.tag || "",
     notes: "",
     libraryEntryIds: opts.libraryEntryIds || [],
@@ -226,12 +238,18 @@ export function getFilteredHistory(history: HistoryEntry[], search: string): His
 // have a row id like "0-0" (ids are only ever scoped to one import at a
 // time), so a plain merge risks one row's edit landing on a different
 // import's row that happens to share the same id.
-export function combineHistoryEntries(entries: HistoryEntry[]): { results: ResultRow[]; rowsScanned: number; duplicatesRemoved: number; largestDuplicateGroup: number } {
+export function combineHistoryEntries(entries: HistoryEntry[]): { results: ResultRow[]; rowsScanned: number; duplicatesRemoved: number; largestDuplicateGroup: number; noSignalRows: NoSignalRow[]; duplicateRows: DuplicateRow[] } {
   const results: ResultRow[] = [];
+  const noSignalRows: NoSignalRow[] = [];
+  const duplicateRows: DuplicateRow[] = [];
   let rowsScanned = 0;
   let duplicatesRemoved = 0;
   let largestDuplicateGroup = 0;
   entries.forEach((h) => {
+    // Namespaced by entry id so combining two batches can't collide two
+    // dropped rows that happened to share a within-batch index.
+    (h.noSignalRows || []).forEach((r) => noSignalRows.push({ ...r, id: `${h.id}::${r.id}` }));
+    (h.duplicateRows || []).forEach((r) => duplicateRows.push({ ...r, id: `${h.id}::${r.id}` }));
     h.results.forEach((r) => {
       results.push({ ...r, id: `${h.id}::${r.id}`, __sourceEntryId: h.id, __sourceRowId: r.id });
     });
@@ -239,7 +257,7 @@ export function combineHistoryEntries(entries: HistoryEntry[]): { results: Resul
     duplicatesRemoved += h.duplicatesRemoved || 0;
     largestDuplicateGroup = Math.max(largestDuplicateGroup, h.largestDuplicateGroup || 0);
   });
-  return { results, rowsScanned, duplicatesRemoved, largestDuplicateGroup };
+  return { results, rowsScanned, duplicatesRemoved, largestDuplicateGroup, noSignalRows, duplicateRows };
 }
 
 // Writes a category/tier/cross-out/disposition/priority edit made on a row

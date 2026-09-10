@@ -20,7 +20,7 @@ import {
 } from "./lib/outreachAttempts";
 import { sequenceFromTemplate, type SequenceTemplate } from "./lib/sequenceTemplates";
 import DispositionManager from "./components/DispositionManager";
-import type { ParsedFile, ResultRow, RuleOverrides } from "./lib/detection";
+import type { ParsedFile, ResultRow, RuleOverrides, NoSignalRow, DuplicateRow } from "./lib/detection";
 import { scanParsedFiles, DEFAULT_RULE_OVERRIDES } from "./lib/detection";
 import { loadLibraryFromDB, ensureMonthFoldersExist, pruneEmptyMonthFoldersBefore, persistGroup, deleteGroupFromDB, type LibraryEntry, type LibraryGroup } from "./lib/library";
 import { applyCompetitorDQ } from "./lib/companyProfiles";
@@ -249,6 +249,9 @@ export default function App() {
   // loadHistoryIntoScanner below) — Scanner adopts this once, into its own
   // local lastScanStats, since a fresh upload computes its own instead.
   const [loadedScanStats, setLoadedScanStats] = useState<{ rowsScanned: number; duplicatesRemoved: number; largestDuplicateGroup: number } | null>(null);
+  // The rows a loaded batch dropped (no signal, and duplicates merged),
+  // handed to Scanner for its two read-only audit tabs.
+  const [loadedDropped, setLoadedDropped] = useState<{ noSignalRows: NoSignalRow[]; duplicateRows: DuplicateRow[] } | null>(null);
 
   const [attempts, setAttempts] = useState<OutreachAttempt[]>([]);
   const [libraryEntries, setLibraryEntries] = useState<LibraryEntry[]>([]);
@@ -1055,7 +1058,13 @@ export default function App() {
   // IndexedDB when the batch was reopened FROM History (viewingHistoryId)
   // — a fresh scan's later edits stayed in memory only. Tagging every
   // fresh scan the same way closes that gap rather than reproducing it.
-  function recordHistory(parsedFiles: ParsedFile[], scanned: ResultRow[], tag = "", duplicatesRemoved = 0) {
+  function recordHistory(
+    parsedFiles: ParsedFile[],
+    scanned: ResultRow[],
+    tag = "",
+    duplicatesRemoved = 0,
+    dropped: { noSignalRows?: NoSignalRow[]; duplicateRows?: DuplicateRow[] } = {}
+  ) {
     // The true row count read from the file(s), not just the subset that
     // cleared detection — see Scanner.tsx's lastScanStats for the same fix
     // on the live "Rows scanned" stat. A History entry's own rowsScanned
@@ -1065,7 +1074,11 @@ export default function App() {
     // though duplicates themselves were already dropped before `scanned`
     // — see markDuplicateLeads — so this doesn't need to be passed in.
     const largestDuplicateGroup = Math.max(0, ...scanned.map((r) => r.duplicateGroupSize || 0));
-    const entry = buildHistoryEntry(parsedFiles, { results: scanned, rowsScanned, duplicatesRemoved, largestDuplicateGroup }, { tag });
+    const entry = buildHistoryEntry(
+      parsedFiles,
+      { results: scanned, rowsScanned, duplicatesRemoved, largestDuplicateGroup, noSignalRows: dropped.noSignalRows, duplicateRows: dropped.duplicateRows },
+      { tag }
+    );
     scanned.forEach((r) => {
       r.__sourceEntryId = entry.id;
       r.__sourceRowId = r.id;
@@ -1168,13 +1181,16 @@ export default function App() {
   }
 
   function loadParsedFilesIntoScanner(parsedFiles: ParsedFile[], tag = "Loaded from Lead Library") {
-    const { results: scanned, duplicatesRemoved } = scanParsedFiles(parsedFiles, ruleOverrides);
+    const { results: scanned, duplicatesRemoved, noSignalRows, duplicateRows } = scanParsedFiles(parsedFiles, ruleOverrides);
     applyStickyState(scanned, contacts);
     applyCompetitorDQ(scanned, companyProfiles);
     setResults(scanned);
     setUploadedFiles(parsedFiles.map((pf) => ({ name: pf.name, rows: pf.data.length })));
+    // This path bypasses Scanner's own handleFiles, so the dropped rows
+    // have to be handed over explicitly or the audit tabs come up empty.
+    setLoadedDropped({ noSignalRows, duplicateRows });
     setView("scanner");
-    recordHistory(parsedFiles, scanned, tag, duplicatesRemoved);
+    recordHistory(parsedFiles, scanned, tag, duplicatesRemoved, { noSignalRows, duplicateRows });
     return scanned;
   }
 
@@ -1194,10 +1210,14 @@ export default function App() {
   function loadHistoryIntoScanner(entryIds: string[]) {
     const entries = historyEntries.filter((h) => entryIds.includes(h.id));
     if (!entries.length) return;
-    const { results: combined, rowsScanned, duplicatesRemoved, largestDuplicateGroup } = combineHistoryEntries(entries);
+    const { results: combined, rowsScanned, duplicatesRemoved, largestDuplicateGroup, noSignalRows, duplicateRows } = combineHistoryEntries(entries);
     setResults(combined);
     setUploadedFiles(entries.flatMap((h) => h.files));
     setLoadedScanStats({ rowsScanned, duplicatesRemoved, largestDuplicateGroup });
+    // Reopening a batch restores its dropped rows too — previously these
+    // were Scanner-local and simply vanished, so a past import could be
+    // counted but never inspected.
+    setLoadedDropped({ noSignalRows, duplicateRows });
     // Give Scanner the History entry this batch came from so its "Save to
     // Lead Library" button can stamp StoredRow.__historyEntryId correctly.
     // Combining several entries has no single id to stamp, so it stays
@@ -1391,6 +1411,7 @@ export default function App() {
               ruleOverrides={ruleOverrides}
               contacts={contacts}
               loadedScanStats={loadedScanStats}
+              loadedDropped={loadedDropped}
               loadedHistoryEntryId={loadedHistoryEntryId}
               leadLists={leadLists}
               onAddSelectedToList={addSelectedToList}

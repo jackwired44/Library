@@ -18,6 +18,7 @@ import {
   type Tier,
   type BucketKey,
   type NoSignalRow,
+  type DuplicateRow,
 } from "../lib/detection";
 import { dispositionMetaFor, type CustomDisposition } from "../lib/dispositions";
 import DispositionOptions from "./DispositionOptions";
@@ -45,7 +46,17 @@ import { applyCompetitorDQ, type CompanyProfile } from "../lib/companyProfiles";
 import { MAX_COMPANY_BATCH } from "../lib/apolloEnrich";
 import type { UploadedFile } from "../App";
 
-const MAX_FILES = 5;
+// Raised from 5. The old cap is what forced Jack to upload 14 CSVs as
+// three separate batches — and splitting an upload is exactly what makes
+// duplicate detection (which is scoped to one batch) miss repeats that
+// span the files, so the batches sum to more leads than the same files
+// scanned together. One pass over everything is both faster and more
+// correct, so the cap should only be low enough to protect the browser.
+const MAX_FILES = 25;
+// A ceiling on total rows in one upload, so a mis-picked export can't
+// lock the tab up with no way back. Scanning is synchronous, so this is
+// the real protection — the file count barely matters next to it.
+const MAX_TOTAL_ROWS = 60000;
 const PAGE_SIZE = 25;
 const PAGE_SIZE_CHOICES = [25, 50, 100, 250, 500] as const;
 
@@ -113,7 +124,16 @@ interface ScannerProps {
   // created entry so a Library-save right after can stamp its rows with
   // the REAL History entry id (see handleFiles below) instead of a
   // throwaway one.
-  onRecordHistory: (parsedFiles: ParsedFile[], scanned: ResultRow[], tag?: string, duplicatesRemoved?: number) => HistoryEntry;
+  onRecordHistory: (
+    parsedFiles: ParsedFile[],
+    scanned: ResultRow[],
+    tag?: string,
+    duplicatesRemoved?: number,
+    dropped?: { noSignalRows?: NoSignalRow[]; duplicateRows?: DuplicateRow[] }
+  ) => HistoryEntry;
+  // Dropped rows for a batch loaded in from History or the Lead Library —
+  // Scanner sets its own on a fresh upload, but those paths bypass it.
+  loadedDropped?: { noSignalRows: NoSignalRow[]; duplicateRows: DuplicateRow[] } | null;
   // Edits made to a row loaded FROM History (tagged with __sourceEntryId —
   // see lib/history.ts) get written back to the History entry it came from.
   // A no-op for an ordinary fresh-scan row.
@@ -179,6 +199,7 @@ export default function Scanner({
   libraryGroups,
   setLibraryGroups,
   onRecordHistory,
+  loadedDropped,
   onSyncToHistory,
   recentUploads,
   onOpenRecentUpload,
@@ -239,6 +260,15 @@ export default function Scanner({
   useEffect(() => {
     if (loadedScanStats) setLastScanStats(loadedScanStats);
   }, [loadedScanStats]);
+  // Same adopt pattern for a reopened batch's dropped rows, so the two
+  // audit tabs work on a batch loaded from History or the Lead Library,
+  // not only on a fresh upload.
+  useEffect(() => {
+    if (!loadedDropped) return;
+    setNoSignalRows(loadedDropped.noSignalRows);
+    setDuplicateRows(loadedDropped.duplicateRows);
+    setDroppedView("none");
+  }, [loadedDropped]);
   // Same adopt pattern for the reopened batch's History entry id.
   useEffect(() => {
     if (loadedHistoryEntryId) setCurrentHistoryEntryId(loadedHistoryEntryId);
@@ -259,7 +289,11 @@ export default function Scanner({
   // into History — see CLAUDE.md, History already keeps every row
   // forever with no cap, and these would only add to that).
   const [noSignalRows, setNoSignalRows] = useState<NoSignalRow[]>([]);
-  const [showNoSignal, setShowNoSignal] = useState(false);
+  const [duplicateRows, setDuplicateRows] = useState<DuplicateRow[]>([]);
+  // Which audit tab, if any, replaces the results table. Both are
+  // read-only views of rows this batch dropped, so every row read from the
+  // file is reachable: processed + no signal + merged duplicates.
+  const [droppedView, setDroppedView] = useState<"none" | "noSignal" | "duplicates">("none");
   const [categoryFilter, setCategoryFilter] = useState<CategoryKey | "all">("all");
   const [duplicatesOnly, setDuplicatesOnly] = useState(false);
   const [priorityOnly, setPriorityOnly] = useState(false);
@@ -314,25 +348,35 @@ export default function Scanner({
     let notice: string | null = null;
     if (all.length > MAX_FILES) {
       files = all.slice(0, MAX_FILES);
-      notice = `You dropped ${all.length} files — only the first ${MAX_FILES} were scanned. Upload the rest in a second batch.`;
+      notice = `You dropped ${all.length} files — only the first ${MAX_FILES} were scanned. Upload the rest in a second batch, then combine them from History so duplicates across the two are still caught.`;
     }
     setError(notice);
     setFiledNotice(null);
     try {
       const parsedFiles = await Promise.all(files.map(parseCSVFile));
-      const { results: scanned, rowsScanned, duplicatesRemoved, noSignalRows: skipped } = scanParsedFiles(parsedFiles, ruleOverrides);
+      // Scanning is synchronous, so an oversized upload freezes the tab
+      // rather than failing — refuse it with a real number instead.
+      const totalRows = parsedFiles.reduce((n, pf) => n + pf.data.length, 0);
+      if (totalRows > MAX_TOTAL_ROWS) {
+        setError(
+          `That's ${totalRows.toLocaleString()} rows across ${parsedFiles.length} file${parsedFiles.length === 1 ? "" : "s"} — over the ${MAX_TOTAL_ROWS.toLocaleString()}-row limit for one scan. ` +
+          `Split it and combine the batches from History afterwards, which still catches duplicates across them.`
+        );
+        return;
+      }
+      const { results: scanned, rowsScanned, duplicatesRemoved, noSignalRows: skipped, duplicateRows: merged } = scanParsedFiles(parsedFiles, ruleOverrides);
       applyStickyState(scanned, contacts);
-    applyCompetitorDQ(scanned, companyProfiles);
       applyCompetitorDQ(scanned, companyProfiles);
       setResults(scanned);
       setUploadedFiles(parsedFiles.map((pf) => ({ name: pf.name, rows: pf.data.length })));
       const largestDuplicateGroup = Math.max(0, ...scanned.map((r) => r.duplicateGroupSize || 0));
       setLastScanStats({ rowsScanned, duplicatesRemoved, largestDuplicateGroup });
       setNoSignalRows(skipped);
-      setShowNoSignal(false);
+      setDuplicateRows(merged);
+      setDroppedView("none");
       setPage(1);
       setSelected(new Set());
-      const historyEntry = onRecordHistory(parsedFiles, scanned, "", duplicatesRemoved);
+      const historyEntry = onRecordHistory(parsedFiles, scanned, "", duplicatesRemoved, { noSignalRows: skipped, duplicateRows: merged });
       setCurrentHistoryEntryId(historyEntry.id);
       setLibraryFiledForBatch(false);
       // Per Jack: no duplicate (exact name+company match within this same
@@ -360,7 +404,8 @@ export default function Scanner({
     setM365SubView("all");
     setDynamicsSubView("all");
     setNoSignalRows([]);
-    setShowNoSignal(false);
+    setDuplicateRows([]);
+    setDroppedView("none");
     setPage(1);
     setSelected(new Set());
     // Saving is an explicit, per-batch choice — never carries over to the
@@ -419,17 +464,18 @@ export default function Scanner({
       rawText = entry.rawText;
     }
     const parsed = parseCSVText(fileName, rawText);
-    const { results: scanned, rowsScanned, duplicatesRemoved, noSignalRows: skipped } = scanParsedFiles([parsed], ruleOverrides);
+    const { results: scanned, rowsScanned, duplicatesRemoved, noSignalRows: skipped, duplicateRows: merged } = scanParsedFiles([parsed], ruleOverrides);
     applyStickyState(scanned, contacts);
     setResults(scanned);
     setUploadedFiles([{ name: parsed.name, rows: parsed.data.length }]);
     const largestDuplicateGroup = Math.max(0, ...scanned.map((r) => r.duplicateGroupSize || 0));
     setLastScanStats({ rowsScanned, duplicatesRemoved, largestDuplicateGroup });
     setNoSignalRows(skipped);
-    setShowNoSignal(false);
+    setDuplicateRows(merged);
+    setDroppedView("none");
     setPage(1);
     setSelected(new Set());
-    const historyEntry = onRecordHistory([parsed], scanned, "", duplicatesRemoved);
+    const historyEntry = onRecordHistory([parsed], scanned, "", duplicatesRemoved, { noSignalRows: skipped, duplicateRows: merged });
     setCurrentHistoryEntryId(historyEntry.id);
     setLibraryFiledForBatch(false);
     setPickerFolderId("");
@@ -518,6 +564,16 @@ export default function Scanner({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [results, tierFilter, categoryFilter, duplicatesOnly, priorityOnly, search, m365SubView, dynamicsSubView]);
+
+  // The KPI rail describes the BATCH, not the current view — it sits next
+  // to "Rows scanned", which is always the whole upload. Wiring it to the
+  // facet-aware counts below made it silently drop whenever a category
+  // filter or search was active, which reads as leads disappearing.
+  const batchTotals = useMemo(() => {
+    let signal = 0, mention = 0, dq = 0;
+    (results || []).forEach((r) => { if (r.tier === "signal") signal++; else if (r.tier === "dq") dq++; else mention++; });
+    return { signal, mention, dq, total: (results || []).length };
+  }, [results]);
 
   const tierCounts = counts.tier;
   const categoryCounts = counts.category;
@@ -1039,9 +1095,9 @@ export default function Scanner({
       <div className="kpi-row">
         {[
           { label: "Rows scanned", value: lastScanStats?.rowsScanned ?? results.length, color: "var(--ink)" },
-          { label: "Strong Signal", value: tierCounts.signal, color: "#2CC295" },
-          { label: "Needs review", value: tierCounts.mention, color: "#9A5B22" },
-          { label: "Bad leads", value: tierCounts.dq, color: "#B5443B" },
+          { label: "Strong Signal", value: batchTotals.signal, color: "#2CC295" },
+          { label: "Needs review", value: batchTotals.mention, color: "#9A5B22" },
+          { label: "Bad leads", value: batchTotals.dq, color: "#B5443B" },
         ].map((s) => (
           <div key={s.label} className="kpi" style={{ borderLeftColor: s.color }}>
             <div className="kpi-label">{s.label}</div>
@@ -1127,26 +1183,35 @@ export default function Scanner({
             {(["signal", "mention", "dq"] as const).map((t) => (
               <button
                 key={t}
-                onClick={() => { setTierFilter(t); setShowNoSignal(false); setPage(1); }}
-                className={`seg-btn${!showNoSignal && tierFilter === t ? " active" : ""}`}
+                onClick={() => { setTierFilter(t); setDroppedView("none"); setPage(1); }}
+                className={`seg-btn${droppedView === "none" && tierFilter === t ? " active" : ""}`}
               >
                 {t === "signal" ? `Strong Signal (${tierCounts.signal})` : t === "mention" ? `Needs review (${tierCounts.mention})` : `Bad Leads (${tierCounts.dq})`}
               </button>
             ))}
             <button
-              onClick={() => { setTierFilter("all"); setShowNoSignal(false); setPage(1); }}
-              className={`seg-btn${!showNoSignal && tierFilter === "all" ? " active" : ""}`}
+              onClick={() => { setTierFilter("all"); setDroppedView("none"); setPage(1); }}
+              className={`seg-btn${droppedView === "none" && tierFilter === "all" ? " active" : ""}`}
             >
               All ({tierCounts.total})
             </button>
           </div>
           {noSignalRows.length > 0 && (
             <button
-              onClick={() => setShowNoSignal(true)}
+              onClick={() => setDroppedView("noSignal")}
               title="Rows with no Dynamics 365/M365/Azure/licensing signal at all — never scored, kept here for manual review only"
-              className={`chip-btn${showNoSignal ? " active" : ""}`}
+              className={`chip-btn${droppedView === "noSignal" ? " active" : ""}`}
             >
               Non Relevant ({noSignalRows.length})
+            </button>
+          )}
+          {duplicateRows.length > 0 && (
+            <button
+              onClick={() => setDroppedView("duplicates")}
+              title="Repeats of a lead already in this batch (same name + company). The strongest copy was kept; these were merged into it."
+              className={`chip-btn${droppedView === "duplicates" ? " active" : ""}`}
+            >
+              Merged duplicates ({duplicateRows.length})
             </button>
           )}
           <div className="toolbar-spacer" />
@@ -1180,7 +1245,7 @@ export default function Scanner({
           )}
         </div>
 
-        {!showNoSignal && (
+        {droppedView === "none" && (
           <>
             <div className="toolbar-row">
               <span className="toolbar-label">Product line</span>
@@ -1268,8 +1333,10 @@ export default function Scanner({
         )}
       </div>
 
-      {showNoSignal ? (
+      {droppedView === "noSignal" ? (
         <NonRelevantTable rows={noSignalRows} />
+      ) : droppedView === "duplicates" ? (
+        <MergedDuplicatesTable rows={duplicateRows} />
       ) : (
       <>
 
@@ -1531,6 +1598,54 @@ export default function Scanner({
 // snippet (these never ran through detection), no bulk actions, no
 // download, no filing — just enough per row to review it and decide by
 // hand. Current-batch-only, not retained in History.
+// Read-only audit view of the repeats duplicate detection merged away.
+// Deliberately no actions on it: these rows were consolidated into a
+// surviving lead, so "restoring" one would recreate the duplicate the
+// merge exists to prevent. The point is to make the number checkable.
+function MergedDuplicatesTable({ rows }: { rows: DuplicateRow[] }) {
+  const crossFile = rows.filter((r) => r.sourceFile !== r.mergedIntoSourceFile).length;
+  return (
+    <div>
+      <p className="scan-note" style={{ marginBottom: 10 }}>
+        <strong>{rows.length.toLocaleString()}</strong> row{rows.length === 1 ? " was" : "s were"} recognized as a repeat of a
+        lead already in this upload (exact name + company match) and merged into it — not discarded.
+        {crossFile > 0 && <> <strong>{crossFile.toLocaleString()}</strong> of them came from a different file than the copy that was kept, which is what makes a combined upload smaller than the sum of its parts.</>}
+        {" "}The copy kept is the strongest one in the batch, not whichever happened to be uploaded first.
+      </p>
+      <div className="table-card">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Company</th>
+              <th>Contact</th>
+              <th>Title</th>
+              <th>Email</th>
+              <th>Phone</th>
+              <th>From file</th>
+              <th>Merged into copy from</th>
+              <th>Times seen</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id}>
+                <td>{r.company || "—"}</td>
+                <td>{r.contact || "—"}</td>
+                <td>{r.title || "—"}</td>
+                <td>{r.email || "—"}</td>
+                <td>{r.phone || "—"}</td>
+                <td>{r.sourceFile}</td>
+                <td>{r.mergedIntoSourceFile}</td>
+                <td>{r.groupSize}×</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function NonRelevantTable({ rows }: { rows: NoSignalRow[] }) {
   return (
     <div>

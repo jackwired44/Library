@@ -1186,9 +1186,35 @@ export function buildExportRow(r: Pick<ResultRow, "row" | "category" | "notesSum
 export function normalizeDupKey(s: unknown): string {
   return String(s || "").trim().toLowerCase().replace(/\s+/g, " ");
 }
+// Which copy of a duplicated lead is worth keeping. Lower sorts first.
+//
+// This used to be "whichever one was seen first", which made the result
+// depend on the order the files happened to be dropped in — the same
+// person can appear in a broad list with thin notes AND in a targeted
+// export carrying the real detail, and first-seen would keep whichever
+// landed first. Jack hit this directly: the same files scanned twice gave
+// 170 Strong Signal / 18 Needs review one way and 188 / 0 the other, with
+// identical processed and no-signal counts. Reproduced exactly — 50 rows
+// flipped between Strong Signal and Needs review on file order alone.
+//
+// Keeping the strongest copy instead makes the outcome order-independent
+// AND never downgrades a lead that has a good version somewhere in the
+// batch. Every key below is deterministic, so re-scanning the same rows
+// in any order now always produces the same survivor.
+function duplicateKeepRank(r: ResultRow): [number, number, number] {
+  const tierRank = r.tier === "signal" ? 0 : r.tier === "mention" ? 1 : 2;
+  const f = r.row.__f;
+  // Then the more complete record — an outbound lead you can actually
+  // reach beats one you can't.
+  const filled = (f.email ? 1 : 0) + (f.workPhone || f.mobilePhone ? 1 : 0) + (f.title ? 1 : 0);
+  // Then the one carrying more evidence, so the kept row's snippet and
+  // seat count come from the richer source text.
+  const evidence = String(f.comments || "").length;
+  return [tierRank, -filled, -evidence];
+}
+
 export function markDuplicateLeads(results: ResultRow[]): void {
-  const firstSeenId = new Map<string, string>();
-  const groupSize = new Map<string, number>();
+  const groups = new Map<string, ResultRow[]>();
   results.forEach((r) => {
     const f = r.row.__f;
     const nameKey = normalizeDupKey(getFullName(f));
@@ -1196,24 +1222,61 @@ export function markDuplicateLeads(results: ResultRow[]): void {
     r.isDuplicate = false;
     r.duplicateOfId = null;
     r.dupKey = null;
+    // A row missing either half can't be keyed reliably, so it is never
+    // matched against anything — unchanged.
     if (!nameKey || !companyKey) return;
     const key = `${nameKey}|||${companyKey}`;
     r.dupKey = key;
-    groupSize.set(key, (groupSize.get(key) || 0) + 1);
-    if (firstSeenId.has(key)) {
-      r.isDuplicate = true;
-      r.duplicateOfId = firstSeenId.get(key)!;
-    } else {
-      firstSeenId.set(key, r.id);
-    }
+    const g = groups.get(key);
+    if (g) g.push(r);
+    else groups.set(key, [r]);
   });
-  results.forEach((r) => { if (r.dupKey) r.duplicateGroupSize = groupSize.get(r.dupKey); });
+  groups.forEach((group) => {
+    let keep = group[0];
+    let keepRank = duplicateKeepRank(keep);
+    // Strict > only, so an equal-ranking row never displaces the earlier
+    // one — position in the batch is the final, stable tie-break.
+    group.forEach((r, i) => {
+      if (i === 0) return;
+      const rank = duplicateKeepRank(r);
+      for (let k = 0; k < rank.length; k++) {
+        if (rank[k] === keepRank[k]) continue;
+        if (rank[k] < keepRank[k]) { keep = r; keepRank = rank; }
+        break;
+      }
+    });
+    group.forEach((r) => {
+      r.duplicateGroupSize = group.length;
+      if (r === keep) return;
+      r.isDuplicate = true;
+      r.duplicateOfId = keep.id;
+    });
+  });
 }
 
 export interface ParsedFile {
   name: string;
   fields: string[];
   data: Record<string, unknown>[];
+}
+
+// A repeat that duplicate detection removed, kept in a light shape so the
+// merge is auditable instead of just a number. Per Jack, after a combined
+// upload of three overlapping exports came back 110 short of the sum of
+// the three: a count alone can't tell you whether 110 leads were merged
+// or lost, and those are very different things.
+export interface DuplicateRow {
+  id: string;
+  sourceFile: string;
+  company: string;
+  contact: string;
+  title: string;
+  email: string;
+  phone: string;
+  // The surviving (first-seen) row this one was merged into, and which
+  // file that row came from — so a cross-file merge is visible as such.
+  mergedIntoSourceFile: string;
+  groupSize: number;
 }
 
 // Column-guessing + per-row field resolution, factored out of the scan
@@ -1266,7 +1329,7 @@ export interface NoSignalRow {
 export function scanParsedFiles(
   parsedFiles: ParsedFile[],
   overrides: RuleOverrides = DEFAULT_RULE_OVERRIDES
-): { results: ResultRow[]; rowsScanned: number; duplicatesRemoved: number; noSignalRows: NoSignalRow[] } {
+): { results: ResultRow[]; rowsScanned: number; duplicatesRemoved: number; noSignalRows: NoSignalRow[]; duplicateRows: DuplicateRow[] } {
   let rowsScanned = 0;
   const results: ResultRow[] = [];
   const noSignalRows: NoSignalRow[] = [];
@@ -1312,7 +1375,27 @@ export function scanParsedFiles(
   // reaches the Scanner table, History, or the Library to begin with.
   const deduped = results.filter((r) => !r.isDuplicate);
   const duplicatesRemoved = results.length - deduped.length;
-  return { results: deduped, rowsScanned, duplicatesRemoved, noSignalRows };
+  // Record WHO was merged, and into which row, before the repeats are
+  // gone. Without this the merge is a bare number you have to trust.
+  const byId = new Map(results.map((r) => [r.id, r]));
+  const duplicateRows: DuplicateRow[] = results
+    .filter((r) => r.isDuplicate)
+    .map((r) => {
+      const f = r.row.__f;
+      const kept = r.duplicateOfId ? byId.get(r.duplicateOfId) : undefined;
+      return {
+        id: `dup-${r.id}`,
+        sourceFile: r.sourceFile,
+        company: f.company || "",
+        contact: getFullName(f),
+        title: f.title || "",
+        email: f.email || "",
+        phone: f.workPhone || f.mobilePhone || "",
+        mergedIntoSourceFile: kept?.sourceFile || r.sourceFile,
+        groupSize: r.duplicateGroupSize || 2,
+      };
+    });
+  return { results: deduped, rowsScanned, duplicatesRemoved, noSignalRows, duplicateRows };
 }
 
 // Dynamics 365 ranking, top to bottom: Business Central/ERP leads first,

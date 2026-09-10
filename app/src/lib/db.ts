@@ -105,8 +105,28 @@ export async function dbGetAll<T>(storeName: string): Promise<T[]> {
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => db.close();
     tx.onerror = () => db.close();
-    tx.onabort = () => db.close();
+    // An aborted transaction fires onabort, NOT onerror — and the most
+    // common cause is the browser's storage quota. Closing without
+    // settling left the promise pending forever, so an await on a write
+    // that failed for lack of space simply hung, with nothing shown
+    // anywhere. Reject, and name the quota case so it reads as "out of
+    // room" rather than a mystery stall.
+    tx.onabort = () => { db.close(); reject(describeTxError(tx.error)); };
   });
+}
+
+// IndexedDB reports a full store as an AbortError/QuotaExceededError on
+// the transaction. Neither name means anything to someone looking at a
+// lead list, so translate it once, here.
+function describeTxError(err: DOMException | null): Error {
+  const name = err?.name || "";
+  if (name === "QuotaExceededError" || /quota/i.test(err?.message || "")) {
+    return new Error(
+      "This browser is out of storage for the app, so the change could not be saved. " +
+      "Back up from the Lead library, then clear old History imports to free space."
+    );
+  }
+  return err instanceof Error ? err : new Error(err?.message || "The local database rejected the write.");
 }
 
 export async function dbPut<T>(storeName: string, entry: T): Promise<void> {
@@ -116,7 +136,13 @@ export async function dbPut<T>(storeName: string, entry: T): Promise<void> {
     tx.objectStore(storeName).put(entry);
     tx.oncomplete = () => { db.close(); resolve(); };
     tx.onerror = () => { db.close(); reject(tx.error); };
-    tx.onabort = () => db.close();
+    // An aborted transaction fires onabort, NOT onerror — and the most
+    // common cause is the browser's storage quota. Closing without
+    // settling left the promise pending forever, so an await on a write
+    // that failed for lack of space simply hung, with nothing shown
+    // anywhere. Reject, and name the quota case so it reads as "out of
+    // room" rather than a mystery stall.
+    tx.onabort = () => { db.close(); reject(describeTxError(tx.error)); };
   });
 }
 
@@ -127,6 +153,12 @@ export async function dbDelete(storeName: string, id: string): Promise<void> {
     tx.objectStore(storeName).delete(id);
     tx.oncomplete = () => { db.close(); resolve(); };
     tx.onerror = () => { db.close(); reject(tx.error); };
-    tx.onabort = () => db.close();
+    // An aborted transaction fires onabort, NOT onerror — and the most
+    // common cause is the browser's storage quota. Closing without
+    // settling left the promise pending forever, so an await on a write
+    // that failed for lack of space simply hung, with nothing shown
+    // anywhere. Reject, and name the quota case so it reads as "out of
+    // room" rather than a mystery stall.
+    tx.onabort = () => { db.close(); reject(describeTxError(tx.error)); };
   });
 }

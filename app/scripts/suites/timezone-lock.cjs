@@ -42,7 +42,8 @@ Marcus,Ellery,IT Director,Ellery Freight,marcus@elleryfreight.com,(212) 555-0144
  await page.locator('td', {hasText:'Marcus Ellery'}).first().click(); await sleep(800);
  let rec = await page.locator('body').innerText();
  ok('contact offset is +1h from a Central rep', /\+1h from you/.test(rec), (rec.match(/[-+\u2212]\d+h from you/)||[])[0]||'none');
- await page.locator('div[style*="position: fixed"] button', {hasText:'✕'}).first().click(); await sleep(500);
+ await page.locator('div[style*="position: fixed"] button', {hasText:'✕'}).first().click({timeout:15000});
+ await page.locator('.tz-lock-btn').waitFor({state:'visible',timeout:15000}); await sleep(300);
 
  // --- lock to Eastern ---
  await page.click('.tz-lock-btn'); await sleep(300);
@@ -57,12 +58,19 @@ Marcus,Ellery,IT Director,Ellery Freight,marcus@elleryfreight.com,(212) 555-0144
  await page.locator('td', {hasText:'Marcus Ellery'}).first().click(); await sleep(900);
  rec = await page.locator('body').innerText();
  ok('offset follows the lock, not the device', /same as you/i.test(rec), (rec.match(/(same as you|[-+\u2212]\d+h from you)/i)||[])[0]||'none');
- await page.locator('div[style*="position: fixed"] button', {hasText:'✕'}).first().click(); await sleep(500);
+ await page.locator('div[style*="position: fixed"] button', {hasText:'✕'}).first().click({timeout:15000});
+ await page.locator('.tz-lock-btn').waitFor({state:'visible',timeout:15000}); await sleep(300);
 
  // --- survives a reload ---
- await page.reload(); await sleep(1400);
- await page.fill('input[type=password]','changeme').catch(()=>{});
- await page.click('button:has-text("Unlock")').catch(()=>{}); await sleep(900);
+ await page.reload();
+ // Unlock persists per-browser, so the gate may or may not appear. Wait
+ // for whichever actually renders rather than guessing with a sleep.
+ await page.locator('input[type=password], .tz-lock-btn').first().waitFor({state:'visible',timeout:20000});
+ if (await page.locator('input[type=password]').count()) {
+   await page.fill('input[type=password]','changeme');
+   await page.click('button:has-text("Unlock")');
+ }
+ await page.locator('.tz-lock-btn').waitFor({state:'visible',timeout:20000}); await sleep(400);
  t = await page.locator('.tz-lock').innerText();
  ok('lock survives a reload', /Locked/.test(t) && /E[DS]T/.test(t), t);
 

@@ -6,6 +6,8 @@ import {
   EXPORT_LABELS,
   PERSONAL_PROSPECT_LABEL,
   scanParsedFiles,
+  type NoSignalRow,
+  type DuplicateRow,
   type BucketKey,
   type Disposition,
   type ExportLabel,
@@ -84,7 +86,13 @@ interface LibraryProps {
   // Scanner uses) and files its Strong Signal rows into THIS folder's
   // category files — every scan gets recorded to History too, same as a
   // Scanner upload, via the same callback Scanner itself uses.
-  onRecordHistory: (parsedFiles: ParsedFile[], scanned: ResultRow[], tag?: string, duplicatesRemoved?: number) => HistoryEntry;
+  onRecordHistory: (
+    parsedFiles: ParsedFile[],
+    scanned: ResultRow[],
+    tag?: string,
+    duplicatesRemoved?: number,
+    dropped?: { noSignalRows?: NoSignalRow[]; duplicateRows?: DuplicateRow[] }
+  ) => HistoryEntry;
   ruleOverrides: RuleOverrides;
 }
 
@@ -176,7 +184,7 @@ export default function LibraryView({ backup, contacts, companyProfiles, entries
     setUploadNotice(null);
     try {
       const parsedFiles = await Promise.all(csvFiles.map(parseCSVFile));
-      const { results: scanned, duplicatesRemoved } = scanParsedFiles(parsedFiles, ruleOverrides);
+      const { results: scanned, duplicatesRemoved, noSignalRows, duplicateRows } = scanParsedFiles(parsedFiles, ruleOverrides);
       // Carry each person's sticky cross-out/disposition onto the fresh
       // rows BEFORE anything reads them — same call, same position, as
       // Scanner's own upload paths. See CLAUDE.md "Sticky crossed-out/
@@ -187,7 +195,7 @@ export default function LibraryView({ backup, contacts, companyProfiles, entries
       const folderName = groups.find((g) => g.id === groupId)?.name || "this folder";
       // Record History FIRST so the Library filing below can stamp its rows
       // with the real History entry id, not a throwaway one.
-      const historyEntry = onRecordHistory(parsedFiles, scanned, `Uploaded into ${folderName}`, duplicatesRemoved);
+      const historyEntry = onRecordHistory(parsedFiles, scanned, `Uploaded into ${folderName}`, duplicatesRemoved, { noSignalRows, duplicateRows });
       const { entries: nextEntries, touchedIds } = fileSignalRowsIntoGroup(entries, groups, groupId, signalRows, historyEntry.id);
       setEntries(nextEntries);
       const touchedEntries = nextEntries.filter((e) => touchedIds.includes(e.id));
