@@ -360,6 +360,25 @@
   .play-lead b { font-weight: 600; }
   .play-lead { margin-bottom: 8px; }
 
+  /* Call opener: the literal line an SDR leads with, set apart from the
+     analysis/reference sections below it -- a script, not a summary. */
+  .opener-block {
+    background: var(--surface-sunken);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--track-color, var(--accent));
+    border-radius: 8px;
+    padding: 18px 20px;
+    margin-bottom: 28px;
+  }
+  .opener-label {
+    display: flex; align-items: center; gap: 7px;
+    font-family: "IBM Plex Mono", monospace; font-size: 10.5px; font-weight: 700;
+    letter-spacing: 0.08em; text-transform: uppercase; color: var(--track-color, var(--accent));
+    margin-bottom: 10px;
+  }
+  .opener-line { font-size: 15.5px; line-height: 1.65; color: var(--ink); font-style: italic; }
+  .opener-line b { font-style: normal; font-weight: 600; }
+
   /* Document sections: a single flowing column, separated by a rule and
      a small caps label -- reads like a printed reference manual, not a
      dashboard of cards. */
@@ -414,18 +433,42 @@
   .cross b { color: var(--ink); }
 
   .doc-footer-nav {
-    display: flex; justify-content: space-between; gap: 12px;
+    display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;
     margin-top: 8px; padding-top: 26px; border-top: 1px solid var(--border);
   }
   .foot-nav-btn {
     font: inherit; text-align: left; background: none; border: none;
     padding: 0; cursor: pointer; color: var(--ink);
-    max-width: 46%; display: flex; flex-direction: column; gap: 4px;
+    max-width: 40%; display: flex; flex-direction: column; gap: 4px;
   }
   .foot-nav-btn span:last-child { font-weight: 600; }
   .foot-nav-btn:hover span:last-child { color: var(--track-color, var(--accent)); }
   .foot-nav-btn .dir { font-family: "IBM Plex Mono", monospace; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
   .foot-nav-btn.next { text-align: right; align-items: flex-end; margin-left: auto; }
+
+  /* Book folio -- a page number at the bottom center, between prev/next,
+     the way a physical book prints one on every page. */
+  .page-folio {
+    font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--muted);
+    letter-spacing: 0.06em; white-space: nowrap; padding-top: 2px; flex-shrink: 0;
+  }
+
+  /* Page-turn: content arrives from the right when moving forward (next),
+     from the left when moving back (prev) -- like turning a book page. */
+  .detail-view { perspective: 1400px; }
+  .detail-content.turning-next { animation: pageTurnNext 0.36s ease; transform-origin: left center; }
+  .detail-content.turning-prev { animation: pageTurnPrev 0.36s ease; transform-origin: right center; }
+  @keyframes pageTurnNext {
+    from { opacity: 0; transform: translateX(36px) rotateY(-6deg); }
+    to { opacity: 1; transform: translateX(0) rotateY(0deg); }
+  }
+  @keyframes pageTurnPrev {
+    from { opacity: 0; transform: translateX(-36px) rotateY(6deg); }
+    to { opacity: 1; transform: translateX(0) rotateY(0deg); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .detail-content.turning-next, .detail-content.turning-prev { animation: none; }
+  }
 
   /* ---------------- misc ---------------- */
 
@@ -633,7 +676,8 @@
       subtitle: "How an SDR performs and executes an outbound call &mdash; from dial to booked Discovery.",
       overview: [
         "An SDR&rsquo;s job on an outbound call is narrow and specific: qualify fit and interest fast, using the language in this playbook, and book a Discovery call. You are selling the next step &mdash; a 20-30 minute Discovery conversation &mdash; not the IT services themselves. Don&rsquo;t over-pitch on the first call.",
-        "Keep the call under 8 minutes, every time &mdash; 12 minutes is the absolute max, aim for 6&ndash;8. That&rsquo;s enough time to get the 4&ndash;7 important, high-level questions (below) answered so the first call funnels into a real, detailed 30-minute Discovery call &mdash; it&rsquo;s not the place to go deep yourself.",
+        "Stay in question/discovery mode for the whole call &mdash; this is not a pitch call. Ask at least 4&ndash;8 real, high-level questions every time (see the non-negotiables below), and if the prospect monologues or dumps a lot of information at once, don&rsquo;t just absorb it &mdash; come back with a specific follow-up question that keeps the call moving through discovery instead of drifting into a one-sided update.",
+        "Keep the call tight &mdash; aim for 6&ndash;10 minutes, 14 minutes is the absolute max. That&rsquo;s enough time to get those questions answered so the first call funnels into a real, detailed 30-minute Discovery call &mdash; it&rsquo;s not the place to go deep yourself.",
         "Every lead an SDR works has already been triaged by Wired CIO&rsquo;s own detection engine into a tier (Strong Signal / Needs Review / Bad Lead) and a product-line category (Dynamics 365 or M365/Azure) before it ever reaches a dial list. Know which tier and category a lead landed in before you call &mdash; it tells you which section of this playbook to open.",
         "Leads are assigned by Jack, not self-serve &mdash; you work what you&rsquo;re given. Each lead gets a sequence of 4&ndash;7 touch steps (calls/emails), and follow-ups and next steps must be noted for every lead and logged properly after each touch. A lead with no logged next step is a lead about to go cold &mdash; Wired CIO is fully remote, so this playbook and clean logging are how the team stays coordinated without being in the same room.",
       ],
@@ -654,7 +698,7 @@
       wiredAngle: {
         heading: "Call Flow",
         items: [
-          "<b>1. Open on their situation, not our services, and set the Up-Front Contract (Sandler&rsquo;s UFC method).</b> Mirror the trigger that got them on the list &mdash; don&rsquo;t lead with a features pitch. Then agree the agenda out loud before diving in: how long this will take, what you&rsquo;re trying to figure out together, and what happens next depending on fit. Getting that buy-in early is what makes the close at the end feel expected instead of pushy.",
+          "<b>1. Open on their situation, not our services, and set the Up-Front Contract (Sandler&rsquo;s UFC method).</b> Mirror the trigger that got them on the list &mdash; don&rsquo;t lead with a features pitch. Lead with credibility first, briefly: we&rsquo;re a Microsoft Solutions Partner &mdash; a real, certified Microsoft designation, not a reseller claim &mdash; and the reason for the call is ongoing support/partnership on whatever platform or trigger brought them onto the list, not a one-off pitch. Each service-line page has its own opener line built on this same frame &mdash; use it, then set the agenda out loud: how long this will take, what you&rsquo;re trying to figure out together, and what happens next depending on fit. Getting that buy-in early is what makes the close at the end feel expected instead of pushy.",
           "<b>2. Confirm the trigger.</b> What changed, or what are they actively dealing with right now? This is where you find out if the signal that qualified them is still real.",
           "<b>3. Run the category-specific discovery questions</b> from the matching service-line page (Dynamics 365, MSP, Custom App Dev, Licensing, etc.).",
           "<b>4. Never answer a question you can&rsquo;t back up in real detail.</b> Off-ramp instead, every time, no exceptions: refer it back to the team or a solutions architect, say you&rsquo;ll come prepared to answer it at the next meeting, or follow up by email. Don&rsquo;t guess. Applies on every service-line page, not just one.",
@@ -765,6 +809,9 @@
         "Dynamics 365 is Microsoft&rsquo;s combined ERP and CRM product family. Wired CIO&rsquo;s ERP practice is Business Central (the modern successor to NAV, GP, and AX) &mdash; plus the CRM side (Dynamics 365 Sales, Customer Engagement, Customer Insights, Field Service) and project-based business management (Project Operations). <b>We do NOT do Finance and Operations</b> &mdash; that&rsquo;s Microsoft&rsquo;s separate, larger enterprise-tier ERP product, outside our practice and outside our SMB ICP. If a lead specifically names Finance and Operations, that&rsquo;s a sign it&rsquo;s not a fit, not a Business Central opportunity in disguise.",
         "Most prospects won&rsquo;t say “Dynamics 365” by name &mdash; they&rsquo;ll describe the pain (an aging ERP, a spreadsheet-based sales process, a system that doesn&rsquo;t talk to their other tools) or name the specific product/module (“Business Central,” “CRM,” “NAV,” “GP”). Learn to recognize both.",
       ],
+      opener: {
+        line: "&ldquo;Hi [Name], this is [you] with Wired CIO &mdash; we&rsquo;re a certified Microsoft Solutions Partner with a specialty practice in Business Applications, so Dynamics 365 is actually our core focus, not a side offering. The reason for the call: [mirror the trigger &mdash; e.g. a platform they&rsquo;re named as running, or an ERP/CRM initiative you saw signal on], and I wanted to see where that stands and whether ongoing support on the platform &mdash; not just the initial build &mdash; is worth a real conversation.&rdquo;",
+      },
       wiredAngle: {
         heading: "Wired CIO&rsquo;s Angle",
         items: [
@@ -825,6 +872,9 @@
         "This is the single highest-priority Dynamics conversation for us. ERP replacements are large, multi-year, deeply embedded engagements &mdash; once a company is live on Business Central, it becomes the system of record for the whole business, not just one department.",
         "<b>Not the same product as Dynamics 365 Finance and Operations.</b> F&amp;O is Microsoft&rsquo;s separate, larger enterprise-tier ERP &mdash; Wired CIO does not do F&amp;O implementations. If a lead specifically names Finance and Operations (not just &ldquo;ERP&rdquo; generically), treat it as a different product than this page, not a bigger version of Business Central.",
       ],
+      opener: {
+        line: "&ldquo;Hi [Name], this is [you] with Wired CIO &mdash; we&rsquo;re a certified Microsoft Solutions Partner, and Business Central is our highest-priority ERP practice specifically. The reason for the call: [mirror the trigger &mdash; e.g. what they&rsquo;re running finance/operations on today], and I wanted to see whether Business Central, and the ongoing support that comes with it once it&rsquo;s live, is worth a real conversation.&rdquo;",
+      },
       questions: {
         heading: "Discovery Questions &mdash; Ask On the Call",
         items: [
@@ -870,6 +920,9 @@
         "Covers Dynamics 365 Sales, Customer Engagement, Customer Insights, Field Service, Marketing, and Contact Center &mdash; the CRM side of the Dynamics family, as opposed to the ERP side (Business Central).",
         "Note: Business Central/ERP language always takes priority internally &mdash; if a lead mentions both ERP and CRM/Sales language, it&rsquo;s worked as an ERP opportunity, not a CRM one. Don&rsquo;t double-pitch a lead that&rsquo;s really an ERP conversation.",
       ],
+      opener: {
+        line: "&ldquo;Hi [Name], this is [you] with Wired CIO &mdash; we&rsquo;re a certified Microsoft Solutions Partner with a specialty practice in Business Applications, so Dynamics 365 Sales and CRM is core to what we do. The reason for the call: [mirror the trigger &mdash; e.g. what they&rsquo;re using for CRM/sales process today], and I wanted to see where that stands and whether the platform, plus the ongoing support behind it, is worth a real conversation.&rdquo;",
+      },
       questions: {
         heading: "Discovery Questions &mdash; Ask On the Call",
         items: [
@@ -906,6 +959,9 @@
         "Project Operations is built for project-based businesses &mdash; professional services, engineering, construction, consulting firms &mdash; that need to manage resourcing, time and expense tracking, and project accounting in one system, tied to sales and (ideally) financials.",
         "It&rsquo;s technically one of the Dynamics 365 Sales/CRM-family modules internally, but it&rsquo;s a distinct enough conversation to prep for separately: the buyer is usually a services-firm operations or finance lead, not a traditional sales director.",
       ],
+      opener: {
+        line: "&ldquo;Hi [Name], this is [you] with Wired CIO &mdash; we&rsquo;re a certified Microsoft Solutions Partner with a specialty practice in Business Applications, including Dynamics 365 Project Operations. The reason for the call: [mirror the trigger &mdash; e.g. how they track project time/budgets/resourcing today], and I wanted to see where that stands and whether the platform, plus ongoing support once it&rsquo;s live, is worth a real conversation.&rdquo;",
+      },
       questions: {
         heading: "Discovery Questions &mdash; Ask On the Call",
         items: [
@@ -933,6 +989,9 @@
         "From wiredcio.com: &ldquo;Wired CIO&rsquo;s Managed IT service gives you a complete IT department covering monitoring, support, security, and strategy, for a predictable monthly cost. They resolve issues before they become downtime, keep every system patched and protected, and report on everything they improve. Built on the Microsoft stack and run by a full team of specialists, it is the in-house IT leadership you would hire internally, without the overhead, training, or turnover.&rdquo;",
         "This is Wired CIO&rsquo;s core, recurring-revenue offering, and it&rsquo;s the umbrella almost every other conversation (security, backup/DR, compliance, licensing, cloud) can nest under.",
       ],
+      opener: {
+        line: "&ldquo;Hi [Name], this is [you] with Wired CIO &mdash; we&rsquo;re a certified Microsoft Solutions Partner and a full Managed IT provider, basically the outsourced IT department for growing companies, built on the Microsoft stack. The reason for the call: [mirror the trigger &mdash; e.g. how IT support is handled today, or growth outpacing current infrastructure], and I wanted to see what ongoing support looks like for you right now and whether a real conversation makes sense.&rdquo;",
+      },
       facts: {
         heading: "From the Site &mdash; Know This Cold",
         items: [
@@ -988,6 +1047,9 @@
         "Fully Managed: Wired CIO is the entire IT department &mdash; no internal IT staff, or the client wants out of IT entirely.",
         "Co-Managed: there&rsquo;s an internal IT person or team already, and Wired CIO supplements them &mdash; extra hands, specialized expertise (security, cloud), after-hours coverage, or a second set of eyes on things the internal team doesn&rsquo;t have bandwidth or skill for.",
       ],
+      opener: {
+        line: "&ldquo;Hi [Name], this is [you] with Wired CIO &mdash; we&rsquo;re a certified Microsoft Solutions Partner offering both fully managed and co-managed IT. The reason for the call: [mirror the trigger &mdash; e.g. an internal IT hire or team already in place], and I wanted to see where the gaps are and whether ongoing, supplemental support is worth a real conversation &mdash; not a replacement pitch.&rdquo;",
+      },
       wiredAngle: {
         heading: "Positioning Tip",
         items: [
@@ -1021,6 +1083,9 @@
       overview: [
         "Wired CIO builds custom solutions on the Microsoft platform &mdash; Power Apps and Power Automate, fully custom Azure-hosted applications, custom extensions/development on top of Business Central itself, and integrations with Dynamics 365 and M365. This is a project-based (not purely recurring) conversation, usually triggered by a specific manual process or gap that no off-the-shelf product solves.",
       ],
+      opener: {
+        line: "&ldquo;Hi [Name], this is [you] with Wired CIO &mdash; we&rsquo;re a certified Microsoft Solutions Partner that builds custom applications on the Microsoft platform, end to end. The reason for the call: [mirror the trigger &mdash; e.g. a manual/paper-based process you saw signal on], and I wanted to see what that process looks like today and whether building it out, plus ongoing support once it&rsquo;s live, is worth a real conversation.&rdquo;",
+      },
       wiredAngle: {
         heading: "Engagement Model",
         items: [
@@ -1063,6 +1128,9 @@
       overview: [
         "Azure Document Intelligence is an AI service that extracts structured data from documents &mdash; invoices, forms, contracts, ID documents, claims paperwork. Wired CIO builds it into custom applications and workflows; we don&rsquo;t sell it as a standalone product.",
       ],
+      opener: {
+        line: "&ldquo;Hi [Name], this is [you] with Wired CIO &mdash; we&rsquo;re a certified Microsoft Solutions Partner, and one of the things we build most on Azure right now is document-processing automation. The reason for the call: [mirror the trigger &mdash; e.g. documents/forms being processed manually today], and I wanted to see what that volume looks like and whether automating it, plus ongoing support on the build, is worth a real conversation.&rdquo;",
+      },
       wiredAngle: {
         heading: "Wired CIO&rsquo;s Angle",
         items: [
@@ -1101,6 +1169,9 @@
         "From wiredcio.com&rsquo;s Cloud Services page: migration, hosting, management, and backup solutions &ldquo;designed to simplify your operations, protect your data, and empower your workforce&rdquo; &mdash; &ldquo;strategic, secure, and scalable solutions from start to finish.&rdquo; This page is the CSP-billing-specific angle within that broader Cloud Services offering.",
         "Wired CIO can act as the CSP (Cloud Solution Provider) partner of record for a prospect&rsquo;s Azure environment &mdash; consolidating billing, providing cost management, and giving them a real support relationship instead of being on their own with Microsoft direct.",
       ],
+      opener: {
+        line: "&ldquo;Hi [Name], this is [you] with Wired CIO &mdash; we&rsquo;re a certified Microsoft Solutions Partner and CSP. The reason for the call: [mirror the trigger &mdash; e.g. how their Azure billing/support is set up today], and I wanted to see whether routing that through a real partner &mdash; better billing, and ongoing support instead of a portal &mdash; is worth a real conversation.&rdquo;",
+      },
       wiredAngle: {
         heading: "Wired CIO&rsquo;s Angle",
         items: [
@@ -1147,6 +1218,9 @@
       overview: [
         "Wired CIO sells and supports Microsoft licensing as a CSP: M365 Business Basic/Standard/Premium, O365/M365 E1/E3/E5, F1/F3, EMS, Power BI Pro/Premium, M365 Copilot, Defender variants, Entra ID P1/P2, Teams Phone, and Intune, among others.",
       ],
+      opener: {
+        line: "&ldquo;Hi [Name], this is [you] with Wired CIO &mdash; we&rsquo;re a certified Microsoft Solutions Partner and CSP for licensing. The reason for the call: [mirror the trigger &mdash; e.g. who manages their licenses today, or a renewal coming up], and I wanted to see whether having a real support relationship and escalation path &mdash; not just Microsoft direct &mdash; on your licensing is worth a real conversation.&rdquo;",
+      },
       wiredAngle: {
         heading: "Wired CIO&rsquo;s Angle",
         items: [
@@ -1259,6 +1333,10 @@
   // binder) or a dashboard-style card grid.
   function renderDetail(section) {
     let html = `<div class="play-lead">${section.overview.map((p) => `<p>${p}</p>`).join("")}</div>`;
+
+    if (section.opener) {
+      html += `<div class="opener-block"><div class="opener-label">&#9742; ${section.opener.heading || "How To Open The Call"}</div><div class="opener-line">${section.opener.line}</div></div>`;
+    }
 
     const meta = countMeta(section);
     if (meta.length) {
@@ -1391,6 +1469,7 @@
   const detailIdx = document.getElementById("detailIdx");
   const prevBtn = document.getElementById("prevBtn");
   const nextBtn = document.getElementById("nextBtn");
+  let currentPageIdx = null;
 
   function neighborButton(key, dir) {
     if (!key) return `<span></span>`;
@@ -1414,7 +1493,7 @@
     detailView.style.setProperty("--track-color", t.color);
     detailKicker.textContent = section.kicker;
     detailKicker.style.color = t.color;
-    detailIdx.textContent = `${String(idx + 1).padStart(2, "0")} / ${SECTIONS.length}`;
+    detailIdx.textContent = `Page ${String(idx + 1).padStart(2, "0")} of ${SECTIONS.length}`;
 
     const prevKey = orderedKeys[idx - 1] || null;
     const nextKey = orderedKeys[idx + 1] || null;
@@ -1423,23 +1502,33 @@
     prevBtn.onclick = () => prevKey && (location.hash = prevKey);
     nextBtn.onclick = () => nextKey && (location.hash = nextKey);
 
+    const direction = currentPageIdx === null ? null : idx > currentPageIdx ? "next" : idx < currentPageIdx ? "prev" : null;
+    currentPageIdx = idx;
+
     detailContent.style.setProperty("--track-color", t.color);
+    detailContent.classList.remove("turning-next", "turning-prev");
     detailContent.innerHTML =
       `<div class="doc-eyebrow">${section.kicker}</div>` +
       `<div class="doc-title">${section.title}</div>` +
       `<div class="doc-subtitle">${section.subtitle}</div>` +
       `<hr class="doc-divider">` +
       renderDetail(section) +
-      `<div class="doc-footer-nav">${neighborButton(prevKey, "prev")}${neighborButton(nextKey, "next")}</div>`;
+      `<div class="doc-footer-nav">${neighborButton(prevKey, "prev")}<span class="page-folio">&mdash; ${idx + 1} &mdash;</span>${neighborButton(nextKey, "next")}</div>`;
 
     detailContent.querySelectorAll("[data-goto]").forEach((btn) => {
       btn.addEventListener("click", () => { location.hash = btn.dataset.goto; });
     });
 
+    if (direction) {
+      void detailContent.offsetWidth;
+      detailContent.classList.add(direction === "next" ? "turning-next" : "turning-prev");
+    }
+
     window.scrollTo({ top: 0, behavior: "instant" in window ? "instant" : "auto" });
   }
 
   function showIndex() {
+    currentPageIdx = null;
     setView("index");
   }
 
