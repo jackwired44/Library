@@ -152,21 +152,61 @@
   .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
   .btn.primary:hover { filter: brightness(1.06); color: var(--accent-ink); }
 
-  /* ---------------- index view ---------------- */
+  /* ---------------- index view : book cover ---------------- */
 
+  /* A fixed, deliberate "jacket" look -- like a physical book cover, it
+     doesn't switch with the reader's light/dark preference. */
   .index-hero {
-    padding: 40px clamp(18px, 4vw, 44px) 22px;
+    --cover-bg: #11151d;
+    --cover-ink: #f4f1e8;
+    --cover-muted: #9aa6b8;
+    --cover-accent: #6fa8ef;
+    background: var(--cover-bg);
+    color: var(--cover-ink);
+    text-align: center;
+    padding: clamp(48px, 9vw, 88px) clamp(20px, 5vw, 44px) clamp(36px, 6vw, 56px);
     border-bottom: 1px solid var(--border);
+    display: flex; flex-direction: column; align-items: center;
+  }
+  .cover-imprint {
+    font-family: "IBM Plex Mono", monospace; font-size: 12px; font-weight: 600;
+    letter-spacing: 0.28em; text-transform: uppercase; color: var(--cover-accent);
+    margin-bottom: 18px;
+  }
+  .cover-rule {
+    width: 46px; height: 2px; background: var(--cover-accent); border: none;
+    margin: 0 0 26px; opacity: 0.85;
+  }
+  .index-hero .cover-eyebrow {
+    font-family: "IBM Plex Mono", monospace; font-size: 11px; font-weight: 600;
+    letter-spacing: 0.16em; text-transform: uppercase; color: var(--cover-muted);
+    margin-bottom: 14px;
   }
   .index-hero h1 {
     font-family: "Archivo", sans-serif;
-    font-size: clamp(26px, 3.2vw, 36px);
+    font-size: clamp(32px, 5vw, 52px);
     font-weight: 800;
     letter-spacing: -0.015em;
-    margin: 10px 0 8px;
+    line-height: 1.08;
+    color: var(--cover-ink);
+    margin: 0 0 16px;
+    max-width: 18ch;
   }
-  .index-hero .tagline { margin: 0 0 16px; color: var(--muted); font-size: 15px; max-width: 62ch; line-height: 1.5; }
-  .hero-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+  .index-hero .tagline {
+    margin: 0 0 30px; color: var(--cover-muted); font-size: 16px; font-style: italic;
+    max-width: 52ch; line-height: 1.6;
+  }
+  .hero-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-bottom: 30px; }
+  .index-hero .btn.primary {
+    background: var(--cover-accent); color: var(--cover-bg); border: none;
+  }
+  .index-hero .btn.primary:hover { filter: brightness(1.08); }
+  .cover-colophon {
+    font-family: "IBM Plex Mono", monospace; font-size: 10.5px; font-weight: 600;
+    letter-spacing: 0.1em; text-transform: uppercase; color: var(--cover-muted);
+    padding-top: 22px; border-top: 1px solid rgba(255, 255, 255, 0.12);
+    width: 100%; max-width: 420px;
+  }
 
   .track-filters {
     display: flex; flex-wrap: wrap; gap: 8px;
@@ -539,12 +579,15 @@
 
 <div class="index-view" id="indexView">
   <div class="index-hero">
-    <span class="eyebrow" style="color:var(--accent)">Internal &middot; Outbound Sales</span>
+    <div class="cover-imprint">Wired CIO</div>
+    <hr class="cover-rule">
+    <div class="cover-eyebrow">Internal &middot; Outbound Sales</div>
     <h1>The Outbound Playbook</h1>
-    <p class="tagline">&ldquo;When your technology works, so do your people.&rdquo; Read it front to back like a reference manual &mdash; each page turns to the next &mdash; or jump straight to what you need below.</p>
+    <p class="tagline">&ldquo;When your technology works, so do your people.&rdquo; The SDR onboarding and call reference manual &mdash; read front to back, or jump straight to what you need below.</p>
     <div class="hero-actions">
       <a class="btn primary" href="#company-profile">Start Reading &rarr;</a>
     </div>
+    <div class="cover-colophon">Confidential &mdash; Internal Use Only</div>
   </div>
   <div class="track-filters" id="trackFilters"></div>
   <div class="toc-heading">Table of Contents</div>
@@ -605,7 +648,7 @@
       title: "Company Profile",
       subtitle: "Wired CIO, and who we target, at a high level.",
       overview: [
-        "Wired CIO is a Microsoft Solutions Partner (specialty practice in Dynamics/Business Applications) building the IT department of the future for growing SMBs &mdash; fully managed or co-managed, one partner for the whole Microsoft stack. The mission, per Jack: give SMBs enterprise-level support so they can compete with bigger companies, stay secure, and focus on growth.",
+        "Wired CIO is a Microsoft Solutions Partner (specialty practice in Dynamics/Business Applications) building the IT department of the future for growing SMBs &mdash; fully managed or co-managed, one partner for the whole Microsoft stack. The mission: give SMBs enterprise-level support so they can compete with bigger companies, stay secure, and focus on growth.",
         "This page is the high-level targeting filter &mdash; who we go after, who we don&rsquo;t, and who&rsquo;s the priority right now. For the deeper pitch and objection handling, see Who Is Wired CIO. For the full call-by-call qualification framework, see Outbound Execution.",
       ],
       signalsGood: {
@@ -648,9 +691,9 @@
       title: "Who Is Wired CIO",
       subtitle: "“When your technology works, so do your people.” — what every SDR needs to know cold before the first dial.",
       overview: [
-        "Wired CIO builds the IT department of the future: one Microsoft-aligned partner to grow, protect, automate, and align a business &mdash; fully managed or co-managed, accountable for the whole stack, not just the help desk. Founded in 2022 by Russell (15 years in IT, deep Microsoft expertise), originally as a traditional MSP shop before a deliberate pivot to today&rsquo;s front-end-problem/wedge model. A Microsoft Solutions Partner with a specialty practice in Dynamics (Business Applications).",
+        "Wired CIO builds the IT department of the future: one Microsoft-aligned partner to grow, protect, automate, and align a business &mdash; fully managed or co-managed, accountable for the whole stack, not just the help desk. Founded in 2022, originally as a traditional MSP shop before a deliberate pivot to today&rsquo;s front-end-problem/wedge model. A Microsoft Solutions Partner with a specialty practice in Dynamics (Business Applications).",
         "Team of about 14 &mdash; 6 solution architects (contracted and full-time, all stateside), plus an offshore help desk. HQ: 3432 W Diversey Ave, Chicago, IL, also serving Cincinnati. Website: wiredcio.com.",
-        "Mission, per Jack: give SMBs enterprise-level support so they can compete with bigger companies, stay secure, and focus on growth.",
+        "Mission: give SMBs enterprise-level support so they can compete with bigger companies, stay secure, and focus on growth.",
       ],
       wiredAngle: {
         heading: "Why This Is a Different Pitch Than “We Do IT Support”",
@@ -695,7 +738,7 @@
         "Stay in question/discovery mode for the whole call &mdash; this is not a pitch call. Ask at least 4&ndash;8 real, high-level questions every time (see the non-negotiables below), and if the prospect monologues or dumps a lot of information at once, don&rsquo;t just absorb it &mdash; come back with a specific follow-up question that keeps the call moving through discovery instead of drifting into a one-sided update.",
         "Keep the call tight &mdash; aim for 6&ndash;10 minutes, 14 minutes is the absolute max. That&rsquo;s enough time to get those questions answered so the first call funnels into a real, detailed 30-minute Discovery call &mdash; it&rsquo;s not the place to go deep yourself.",
         "Every lead an SDR works has already been triaged by Wired CIO&rsquo;s own detection engine into a tier (Strong Signal / Needs Review / Bad Lead) and a product-line category (Dynamics 365 or M365/Azure) before it ever reaches a dial list. Know which tier and category a lead landed in before you call &mdash; it tells you which section of this playbook to open.",
-        "Leads are assigned by Jack, not self-serve &mdash; you work what you&rsquo;re given. Each lead gets a sequence of 4&ndash;7 touch steps (calls/emails), and follow-ups and next steps must be noted for every lead and logged properly after each touch. A lead with no logged next step is a lead about to go cold &mdash; Wired CIO is fully remote, so this playbook and clean logging are how the team stays coordinated without being in the same room.",
+        "Leads are assigned by sales leadership, not self-serve &mdash; you work what you&rsquo;re given. Each lead gets a sequence of 4&ndash;7 touch steps (calls/emails), and follow-ups and next steps must be noted for every lead and logged properly after each touch. A lead with no logged next step is a lead about to go cold &mdash; Wired CIO is fully remote, so this playbook and clean logging are how the team stays coordinated without being in the same room.",
       ],
       gate: {
         heading: "Book No Matter What &mdash; The Non-Negotiables",
@@ -1214,7 +1257,7 @@
       facts: {
         heading: "Quoting &amp; Payment Terms",
         items: [
-          "Quotes can turn around within a day. Every quote gets confirmed with Jack or Mike before it goes out, and prices are cross-checked against Arrow for the current, updated numbers &mdash; never send a number that hasn&rsquo;t been checked.",
+          "Quotes can turn around within a day. Every quote gets confirmed internally before it goes out, and prices are cross-checked against Arrow for the current, updated numbers &mdash; never send a number that hasn&rsquo;t been checked.",
           "Seat count for licenses factors into pricing too, not just Azure usage spend.",
           "For annual-commit SKUs, annual payment is always preferred over monthly &mdash; one check-in and one payment a year, rather than monthly billing.",
         ],
@@ -1272,7 +1315,7 @@
       facts: {
         heading: "Quoting &amp; Payment Terms",
         items: [
-          "Quotes can turn around within a day. Every quote gets confirmed with Jack or Mike before it goes out, and prices are cross-checked against Arrow for the current, updated numbers &mdash; never send a number that hasn&rsquo;t been checked.",
+          "Quotes can turn around within a day. Every quote gets confirmed internally before it goes out, and prices are cross-checked against Arrow for the current, updated numbers &mdash; never send a number that hasn&rsquo;t been checked.",
           "A tenant&rsquo;s license CSV export (from the Microsoft 365 admin center) is what makes a fast, simple quote possible &mdash; ask for it on the call.",
           "Discounting is real depending on which SKUs and how much annual spend is involved &mdash; but lead with the support relationship, not the discount.",
           "For annual-commit SKUs, annual payment is always preferred over monthly &mdash; one check-in and one payment a year, rather than monthly billing.",
