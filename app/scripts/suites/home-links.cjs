@@ -24,7 +24,7 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 Dana,Whitfield,IT Director,Ridgeline Orthopedics,dana@ridgelineortho.com,(312) 555-0110,Looking at Dynamics 365 Business Central for 40 users and want a partner
 Marcus,Lyle,CFO,Northbay Freight,marcus@northbayfreight.com,(415) 555-0144,Migrating from Google Workspace to Microsoft 365 and need a partner
 Ruth,Okafor,Ops Lead,Kestrel Labs,ruth@kestrellabs.com,(212) 555-0190,Just asking about parking validation`;
- await page.click('.side-nav-btn:has-text("Scanner")'); await sleep(400); await unlockScanner();
+ await page.keyboard.press('Control+Shift+S'); await page.waitForTimeout(450); await sleep(400); await unlockScanner();
  await page.setInputFiles('input[type=file]',{name:'s.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});
  await sleep(2200);
  await page.click('.side-nav-btn:has-text("Home")'); await sleep(1000);

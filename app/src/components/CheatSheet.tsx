@@ -19,6 +19,8 @@ interface CheatSheetProps {
   // before this shared shell existed.
   onSwitchToNotes?: () => void;
   onSwitchToDispositions?: () => void;
+  // Deliberately tucked in here rather than the sidebar — see App.tsx.
+  onOpenScanner?: () => void;
 }
 
 type SettingsPane = "rules" | "licensing" | "product" | "views" | "dq" | "dupes";
@@ -32,7 +34,7 @@ const PANES: { key: SettingsPane; label: string; hint: string }[] = [
   { key: "dupes", label: "Duplicates", hint: "How repeats are matched" },
 ];
 
-export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrides, onSwitchToNotes, onSwitchToDispositions }: CheatSheetProps) {
+export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrides, onSwitchToNotes, onSwitchToDispositions , onOpenScanner }: CheatSheetProps) {
   const [pane, setPane] = useState<SettingsPane>("rules");
   return (
     <div className="settings-backdrop" onClick={onClose}>
@@ -58,9 +60,15 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
                 <span className="settings-rail-hint">{p.hint}</span>
               </button>
             ))}
-            {(onSwitchToDispositions || onSwitchToNotes) && (
+            {(onSwitchToDispositions || onSwitchToNotes || onOpenScanner) && (
               <>
                 <div className="settings-rail-group">Elsewhere</div>
+                {onOpenScanner && (
+                  <button className="settings-rail-btn" onClick={onOpenScanner}>
+                    <span className="settings-rail-label">Open Scanner</span>
+                    <span className="settings-rail-hint">Ctrl/Cmd + Shift + S</span>
+                  </button>
+                )}
                 {onSwitchToDispositions && (
                   <button className="settings-rail-btn" onClick={onSwitchToDispositions}>
                     <span className="settings-rail-label">Call dispositions</span>

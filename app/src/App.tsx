@@ -149,7 +149,6 @@ const NAV_GROUPS: { group: string | null; items: NavDest[] }[] = [
   {
     group: "Pipeline",
     items: [
-      { key: "scanner", label: "Scanner", icon: "\u{1F50E}" },
       { key: "library", label: "Lead library", icon: "\u{1F4DA}", count: "library" },
       { key: "engage", tab: "lists", label: "Lists", icon: "\u{1F5C2}\uFE0F", count: "lists" },
       { key: "history", label: "History", icon: "\u{1F558}", count: "history" },
@@ -208,6 +207,23 @@ export default function App() {
   useEffect(() => {
     if (view !== "scanner") setScannerUnlockedState(false);
   }, [view]);
+
+  // Per Jack the Scanner is off the sidebar — this platform is now shared
+  // with the team, and the Scanner is his own. It is still fully present,
+  // just not advertised: Ctrl/Cmd+Shift+S opens it, and there is a way in
+  // from the Settings panel for when the shortcut is forgotten. Its own
+  // password still guards it either way, so hiding it is convenience, not
+  // the security boundary.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "S" || e.key === "s")) {
+        e.preventDefault();
+        setView("scanner");
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   // Seeds Engage's initial tab when navigating there from the sidebar
   // sub-nav or a Home tile — reset when Engage is opened any other way
   // so a stale seed doesn't linger.

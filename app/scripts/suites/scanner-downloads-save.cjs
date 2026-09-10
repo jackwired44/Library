@@ -33,7 +33,7 @@ const csv=[HEAD,...rows].join('\n');
  await page.goto(P);
  await page.fill('input[aria-label="Email"]','jack@wiredcio.com'); await page.fill('input[type=password]','changeme');
  await page.click('button:has-text("Unlock")'); await sleep(900);
- await page.click('.side-nav-btn:has-text("Scanner")'); await sleep(400); await unlockScanner();
+ await page.keyboard.press('Control+Shift+S'); await page.waitForTimeout(450); await sleep(400); await unlockScanner();
  await page.setInputFiles('input[type=file]',{name:'dl.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});
  await sleep(2200);
 

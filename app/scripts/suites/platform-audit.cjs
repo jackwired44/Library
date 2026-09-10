@@ -65,7 +65,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   // A second lock on the Scanner view only, so the platform can be shown
   // to someone without handing them the file-processing screen. Separate
   // password, separate state: signing in does not unlock it.
-  await nav('Scanner');
+  await page.keyboard.press('Control+Shift+S'); await page.waitForTimeout(450);
+  check('Scanner: not advertised in the sidebar', (await page.locator('aside button:has-text("Scanner")').count()) === 0);
+  check('Scanner: reachable on the shortcut', /Scanner/.test(await page.locator('main').innerText()));
   check('Scanner: locked behind its own password', (await page.locator('input[aria-label="Scanner password"]').count()) === 1);
   check('Scanner: the rest of the platform is still reachable', (await page.locator('aside button').count()) > 0);
   await page.locator('input[aria-label="Scanner password"]').fill('nope');
@@ -79,7 +81,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   // again. Nothing about the unlock is persisted, so a reload re-locks it
   // too.
   await nav('Home'); await sleep(400);
-  await nav('Scanner'); await sleep(400);
+  await page.keyboard.press('Control+Shift+S'); await page.waitForTimeout(450); await sleep(400);
   check('Scanner: re-locks after leaving the tab', (await page.locator('input[aria-label="Scanner password"]').count()) === 1);
   await page.locator('input[aria-label="Scanner password"]').fill('changeme');
   await page.locator('button:has-text("Unlock scanner")').click(); await sleep(500);
@@ -89,7 +91,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     await page.locator('input[type="password"]').fill('changeme');
     await page.locator('button:has-text("Unlock")').click(); await sleep(800);
   }
-  await nav('Scanner'); await sleep(500);
+  await page.keyboard.press('Control+Shift+S'); await page.waitForTimeout(450); await sleep(500);
   check('Scanner: re-locks after a reload', (await page.locator('input[aria-label="Scanner password"]').count()) === 1);
   await page.locator('input[aria-label="Scanner password"]').fill('changeme');
   await page.locator('button:has-text("Unlock scanner")').click(); await sleep(500);

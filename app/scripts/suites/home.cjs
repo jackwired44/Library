@@ -25,7 +25,7 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 Dana,Whitfield,IT Director,Ridgeline Orthopedics,dana@ridgelineortho.com,(312) 555-0110,Looking at Dynamics 365 Business Central for 40 users this year and want a partner
 Marcus,Ely,COO,Cedar Freight,marcus@cedarfreight.com,(415) 555-0144,We need a CSP partner to handle our Azure billing and a full migration off on-prem
 Priya,Raman,Office Manager,Tiny Dental,priya@tinydental.com,(212) 555-0199,Just checking in about our invoice`;
- await page.click('.side-nav-btn:has-text("Scanner")'); await sleep(300); await unlockScanner();
+ await page.keyboard.press('Control+Shift+S'); await page.waitForTimeout(450); await sleep(300); await unlockScanner();
  await page.setInputFiles('input[type=file]',{name:'seed.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});
  await sleep(1600);
 
@@ -62,7 +62,7 @@ Priya,Raman,Office Manager,Tiny Dental,priya@tinydental.com,(212) 555-0199,Just 
  ok('Week row shows which day it is due', /in \d+d\b/i.test(weekBlock), weekBlock.slice(0,300));
  ok('Week block relabels', /due this week/i.test(t));
 
- await page.click('.side-nav-btn:has-text("Scanner")'); await sleep(700); await unlockScanner();
+ await page.keyboard.press('Control+Shift+S'); await page.waitForTimeout(450); await sleep(700); await unlockScanner();
  const row = page.locator('.data-table tbody tr', {hasText:'Cedar Freight'}).first();
  await row.locator('select').nth(1).selectOption('call-back-scheduled'); await sleep(800);
  await page.click('.side-nav-btn:has-text("Home")'); await sleep(900);

@@ -35,7 +35,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     'Acme Dynamics Co,Jane,Doe,jane@acmedynamics.com,(212) 555-0100,IT Director,"Dynamics 365 Business Central for 40 users"',
     'Northwind Logistics,Sam,Reed,sam@northwindlog.com,+1 415 555 0100,COO,"Migrate from Google Workspace to Microsoft 365, bringing in a partner"'].join('\n');
   fs.writeFileSync(`${SP}/disp2.csv`, csv);
-  await nav('Scanner');
+  await page.keyboard.press('Control+Shift+S'); await page.waitForTimeout(450); await __unlockScanner();
   await page.locator('input[type="file"][accept=".csv"]').setInputFiles(`${SP}/disp2.csv`);
   await page.locator('.kpi').first().waitFor(); await sleep(500);
 
@@ -58,7 +58,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   await page.locator('button:has-text("Enroll 1 contact")').last().click(); await sleep(500);
   check('Enrolled before opt-out', /Enrolled 1 contact/.test(await body()));
 
-  await nav('Scanner');
+  await page.keyboard.press('Control+Shift+S'); await page.waitForTimeout(450); await __unlockScanner();
   await rowSel.selectOption('do-not-contact'); await sleep(600);
   await engage('sequences');
   await expandSeq();
@@ -76,7 +76,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   await expandSeq();
   await pick('Sam Reed');
   await page.locator('button:has-text("Enroll 1 contact")').last().click(); await sleep(500);
-  await nav('Scanner');
+  await page.keyboard.press('Control+Shift+S'); await page.waitForTimeout(450); await __unlockScanner();
   const rowSel2 = page.locator('.data-table tbody tr', { hasText: 'Northwind' }).first().locator('select').nth(1);
   await rowSel2.selectOption('left-voicemail'); await sleep(600);
   await engage('sequences');

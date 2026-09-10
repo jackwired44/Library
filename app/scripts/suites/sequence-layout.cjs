@@ -23,7 +23,7 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
  await page.fill('input[aria-label="Email"]','jack@wiredcio.com'); await page.fill('input[type=password]','changeme'); await page.click('button:has-text("Unlock")'); await sleep(1100);
  const csv=`First Name,Last Name,Title,Company,Email,Phone,Comments
 Dana,Whitfield,IT Director,Ridgeline Orthopedics,dana@ridgelineortho.com,(312) 555-0110,Business Central for 40 users with a partner`;
- await page.click('.side-nav-btn:has-text("Scanner")'); await sleep(400); await unlockScanner();
+ await page.keyboard.press('Control+Shift+S'); await page.waitForTimeout(450); await sleep(400); await unlockScanner();
  await page.setInputFiles('input[type=file]',{name:'l.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});
  await sleep(2200);
  await page.click('.side-nav-btn:has-text("Sequences")'); await sleep(900);

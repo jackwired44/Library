@@ -28,7 +28,7 @@ const ok=(n,c,d='')=>{ c?(pass++,console.log('  PASS',n)):(fail++,console.log(' 
   // Seed a contact so the merge preview has real data.
   const csv = `First Name,Last Name,Title,Company,Email,Phone,Comments
 Dana,Whitfield,IT Director,Ridgeline Orthopedics,dana@ridgelineortho.com,(312) 555-0110,Looking at Dynamics 365 Business Central for 40 users this year`;
-  await page.click('.side-nav-btn:has-text("Scanner")'); await unlockScanner();
+  await page.keyboard.press('Control+Shift+S'); await page.waitForTimeout(450); await unlockScanner();
   await page.waitForTimeout(300);
   await page.setInputFiles('input[type=file]', { name:'seed.csv', mimeType:'text/csv', buffer: Buffer.from(csv) });
   await page.waitForTimeout(1500);

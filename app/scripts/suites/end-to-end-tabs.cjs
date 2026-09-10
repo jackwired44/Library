@@ -36,7 +36,7 @@ Priya,Raman,VP Sales,Cobalt Dynamics,priya@cobaltdynamics.com,(212) 555-0190,Int
 Ruth,Okafor,Ops Lead,Kestrel Labs,ruth@kestrellabs.com,(602) 555-0133,Asking about parking validation for the office
 Tom,Reddy,Owner,Reddy Consulting,tom@gmail.com,(305) 555-0177,Need Microsoft 365 Business Premium for 30 users with a partner
 Ann,Vo,Director,Summit Managed Services,ann@summitmsp.com,(206) 555-0122,We provide managed IT services and Microsoft 365 support`;
- await go('Scanner');
+ await page.keyboard.press('Control+Shift+S'); await page.waitForTimeout(450); await __unlockScanner();
  await page.setInputFiles('input[type=file]',{name:'e2e.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});
  await sleep(2500);
  let t=await main();

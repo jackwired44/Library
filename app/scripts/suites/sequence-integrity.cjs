@@ -31,7 +31,7 @@ const store = (page, name) => page.evaluate(async (s) => {
 
  const csv=`First Name,Last Name,Title,Company,Email,Phone,Comments
 Dana,Whitfield,IT Director,Ridgeline Orthopedics,dana@ridgelineortho.com,(312) 555-0110,Business Central for 40 users with a partner`;
- await page.click('.side-nav-btn:has-text("Scanner")'); await sleep(400); await unlockScanner();
+ await page.keyboard.press('Control+Shift+S'); await page.waitForTimeout(450); await sleep(400); await unlockScanner();
  await page.setInputFiles('input[type=file]',{name:'i.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});
  await sleep(2200);
 
@@ -62,7 +62,7 @@ Dana,Whitfield,IT Director,Ridgeline Orthopedics,dana@ridgelineortho.com,(312) 5
  let contacts = await store(page,'contacts');
  ok('disposition landed on the contact', contacts[0] && contacts[0].disposition === 'meeting-booked', JSON.stringify(contacts[0]||{}).slice(0,120));
  ok('meetingBookedAt was stamped', Boolean(contacts[0] && contacts[0].meetingBookedAt));
- await page.click('.side-nav-btn:has-text("Scanner")'); await sleep(1000); await unlockScanner();
+ await page.keyboard.press('Control+Shift+S'); await page.waitForTimeout(450); await sleep(1000); await unlockScanner();
  const tierPill = page.locator('.data-table tbody tr').first().locator('button:has-text("Strong Signal"), button:has-text("Needs review"), button:has-text("Bad lead")').first();
  if (await tierPill.count()) { await tierPill.click(); await sleep(1200); }
  contacts = await store(page,'contacts');
