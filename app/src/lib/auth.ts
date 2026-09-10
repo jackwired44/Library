@@ -30,6 +30,45 @@ const EFFECTIVE_HASH = (import.meta.env?.VITE_APP_PASSWORD_HASH as string | unde
 
 const STORAGE_KEY = "wc-scanner-unlocked";
 
+// A SECOND gate, on the Scanner view only, per Jack: "lock the actual
+// scanner in the platform for now." The point is to be able to open the
+// platform in front of someone without also handing them the machine that
+// processes raw lead files. Its own password, its own unlock state — so
+// signing in does not unlock the Scanner, and locking the Scanner does not
+// sign you out.
+//
+// Same honest ceiling as the sign-in gate: a salted hash in the page, no
+// server, no rate limiting. It keeps someone out of a screen; it is not
+// an authorization boundary, and the data behind it still lives in this
+// browser either way.
+const SCANNER_PASSWORD_HASH = "961789a62433a03a8a48e955c88ea3a35b91b12b9536f0197deea9e561b882fe";
+const EFFECTIVE_SCANNER_HASH =
+  (import.meta.env?.VITE_APP_SCANNER_HASH as string | undefined) || SCANNER_PASSWORD_HASH;
+const SCANNER_STORAGE_KEY = "wc-scanner-tab-unlocked";
+
+export async function checkScannerPassword(input: string): Promise<boolean> {
+  return (await sha256Hex(`${APP_SALT}:${input}`)) === EFFECTIVE_SCANNER_HASH;
+}
+export function isScannerUnlocked(): boolean {
+  try {
+    return sessionStorage.getItem(SCANNER_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+// sessionStorage, NOT localStorage, deliberately: this one re-locks when
+// the tab closes. A gate meant for "someone else is about to look at my
+// screen" is worth little if unlocking it once leaves it open forever on
+// that machine. The sign-in gate stays remembered per device as before.
+export function setScannerUnlocked(value: boolean) {
+  try {
+    if (value) sessionStorage.setItem(SCANNER_STORAGE_KEY, "1");
+    else sessionStorage.removeItem(SCANNER_STORAGE_KEY);
+  } catch {
+    /* storage unavailable — the gate simply reappears, the safe direction */
+  }
+}
+
 export async function sha256Hex(text: string): Promise<string> {
   const data = new TextEncoder().encode(text);
   const digest = await crypto.subtle.digest("SHA-256", data);

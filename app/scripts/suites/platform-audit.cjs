@@ -61,7 +61,21 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   check('Lock: correct credentials unlock (email case/space tolerant)', /Good (morning|afternoon|evening),/.test(await body()));
 
   // ---------- 2. Scanner: upload, edit, save to library ----------
+  // ---------- Scanner's own gate ----------
+  // A second lock on the Scanner view only, so the platform can be shown
+  // to someone without handing them the file-processing screen. Separate
+  // password, separate state: signing in does not unlock it.
   await nav('Scanner');
+  check('Scanner: locked behind its own password', (await page.locator('input[aria-label="Scanner password"]').count()) === 1);
+  check('Scanner: the rest of the platform is still reachable', (await page.locator('aside button').count()) > 0);
+  await page.locator('input[aria-label="Scanner password"]').fill('nope');
+  await page.locator('button:has-text("Unlock scanner")').click(); await sleep(300);
+  check('Scanner: wrong password stays locked', (await page.locator('input[aria-label="Scanner password"]').count()) === 1);
+  await page.locator('input[aria-label="Scanner password"]').fill('changeme');
+  await page.locator('button:has-text("Unlock scanner")').click(); await sleep(500);
+  check('Scanner: correct password unlocks it', (await page.locator('input[type=file]').count()) > 0);
+  check('Scanner: can be re-locked on demand', (await page.locator('button:has-text("Lock scanner")').count()) === 1);
+
   const csv = [
     'Company Name,First Name,Last Name,Email,Work Phone,Title,Comments',
     'Acme Dynamics Co,Jane,Doe,jane@acmedynamics.com,(212) 555-0100,IT Director,"Looking at Dynamics 365 Business Central for 40 users"',

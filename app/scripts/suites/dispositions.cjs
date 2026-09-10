@@ -14,7 +14,11 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const page = await ctx.newPage();
   const errs = []; page.on('pageerror', e => errs.push(e.message)); page.on('dialog', d => d.accept());
   const body = () => page.locator('body').innerText();
-  const nav = async l => { await page.locator(`aside button:has-text("${l}")`).first().click(); await sleep(350); };
+ const __unlockScanner = async () => {
+   const f = page.locator('input[aria-label="Scanner password"]');
+   if (await f.count()) { await f.fill('changeme'); await page.locator('button:has-text("Unlock scanner")').click(); await page.waitForTimeout(500); }
+ };
+  const nav = async l => { await page.locator(`aside button:has-text("${l}")`).first().click(); await sleep(350); await __unlockScanner(); };
   const seqCard = () => page.locator('main button').filter({ hasText: 'DQ seq' }).filter({ hasNotText: '(copy)' }).first();
   const expandSeq = async () => { const t = await seqCard().innerText(); if (t.startsWith('▸')) { await seqCard().click(); await sleep(500); } };
   // Flat sidebar: every former Engage sub-tab is its own destination now,

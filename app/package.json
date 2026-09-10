@@ -14,7 +14,7 @@
     "company-overview": "node scripts/company-overview.cjs",
     "suites": "node scripts/run-suites.cjs",
     "test": "npm run build:test && node scripts/run-suites.cjs",
-    "build:test": "VITE_APP_PASSWORD_HASH=0b39f2293df026a351657d70aacb9154ff19102dd93b4f75888b68e7eeb7ad6c tsc -b && VITE_APP_PASSWORD_HASH=0b39f2293df026a351657d70aacb9154ff19102dd93b4f75888b68e7eeb7ad6c vite build"
+    "build:test": "VITE_APP_PASSWORD_HASH=0b39f2293df026a351657d70aacb9154ff19102dd93b4f75888b68e7eeb7ad6c VITE_APP_SCANNER_HASH=0b39f2293df026a351657d70aacb9154ff19102dd93b4f75888b68e7eeb7ad6c tsc -b && VITE_APP_PASSWORD_HASH=0b39f2293df026a351657d70aacb9154ff19102dd93b4f75888b68e7eeb7ad6c VITE_APP_SCANNER_HASH=0b39f2293df026a351657d70aacb9154ff19102dd93b4f75888b68e7eeb7ad6c vite build"
   },
   "dependencies": {
     "papaparse": "^5.4.1",

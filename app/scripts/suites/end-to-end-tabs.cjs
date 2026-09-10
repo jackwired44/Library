@@ -18,7 +18,11 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
  page.on('dialog',d=>d.accept());
  const shot=async n=>{await page.screenshot({path:`/tmp/e2e-${n}.png`,fullPage:true});};
  const main=async()=>page.locator('main').innerText();
- const go=async n=>{await page.click(`.side-nav-btn:has-text("${n}")`); await sleep(900);};
+ const __unlockScanner = async () => {
+   const f = page.locator('input[aria-label="Scanner password"]');
+   if (await f.count()) { await f.fill('changeme'); await page.locator('button:has-text("Unlock scanner")').click(); await page.waitForTimeout(500); }
+ };
+ const go=async n=>{await page.click(`.side-nav-btn:has-text("${n}")`); await sleep(900); await __unlockScanner();};
 
  await page.goto(P);
  await page.fill('input[aria-label="Email"]','jack@wiredcio.com'); await page.fill('input[type=password]','changeme');

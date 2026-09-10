@@ -13,6 +13,10 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
  const errs=[];page.on('pageerror',e=>errs.push(String(e)));
  page.on('console',m=>{if(m.type()==='error'&&!/favicon|font|net::|googleapis|Failed to load/i.test(m.text()))errs.push(m.text());});
  page.on('dialog',d=>d.accept());
+ const unlockScanner = async () => {
+   const f = page.locator('input[aria-label="Scanner password"]');
+   if (await f.count()) { await f.fill('changeme'); await page.locator('button:has-text("Unlock scanner")').click(); await page.waitForTimeout(500); }
+ };
  await page.goto(BASE);
  await page.fill('input[aria-label="Email"]','jack@wiredcio.com'); await page.fill('input[type=password]','changeme');
  await page.click('button:has-text("Unlock")'); await sleep(1000);
@@ -20,7 +24,7 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 Dana,Whitfield,IT Director,Ridgeline Orthopedics,dana@ridgelineortho.com,(312) 555-0110,Looking at Dynamics 365 Business Central for 40 users and want a partner
 Marcus,Lyle,CFO,Northbay Freight,marcus@northbayfreight.com,(415) 555-0144,Migrating from Google Workspace to Microsoft 365 and need a partner
 Ruth,Okafor,Ops Lead,Kestrel Labs,ruth@kestrellabs.com,(212) 555-0190,Just asking about parking validation`;
- await page.click('.side-nav-btn:has-text("Scanner")'); await sleep(400);
+ await page.click('.side-nav-btn:has-text("Scanner")'); await sleep(400); await unlockScanner();
  await page.setInputFiles('input[type=file]',{name:'s.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});
  await sleep(2200);
  await page.click('.side-nav-btn:has-text("Home")'); await sleep(1000);

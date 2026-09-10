@@ -17,6 +17,10 @@ const ok=(n,c,d='')=>{ c?(pass++,console.log('  PASS',n)):(fail++,console.log(' 
   page.on('console', m => { if(m.type()==='error' && !/favicon|font|net::|fonts\.googleapis|Failed to load resource/i.test(m.text())) errs.push(m.text()); });
 
   await page.goto(P);
+ const unlockScanner = async () => {
+   const f = page.locator('input[aria-label="Scanner password"]');
+   if (await f.count()) { await f.fill('changeme'); await page.locator('button:has-text("Unlock scanner")').click(); await page.waitForTimeout(500); }
+ };
   await page.fill('input[aria-label="Email"]','jack@wiredcio.com'); await page.fill('input[type=password]', 'changeme');
   await page.click('button:has-text("Unlock")');
   await page.waitForTimeout(700);
@@ -24,7 +28,7 @@ const ok=(n,c,d='')=>{ c?(pass++,console.log('  PASS',n)):(fail++,console.log(' 
   // Seed a contact so the merge preview has real data.
   const csv = `First Name,Last Name,Title,Company,Email,Phone,Comments
 Dana,Whitfield,IT Director,Ridgeline Orthopedics,dana@ridgelineortho.com,(312) 555-0110,Looking at Dynamics 365 Business Central for 40 users this year`;
-  await page.click('.side-nav-btn:has-text("Scanner")');
+  await page.click('.side-nav-btn:has-text("Scanner")'); await unlockScanner();
   await page.waitForTimeout(300);
   await page.setInputFiles('input[type=file]', { name:'seed.csv', mimeType:'text/csv', buffer: Buffer.from(csv) });
   await page.waitForTimeout(1500);

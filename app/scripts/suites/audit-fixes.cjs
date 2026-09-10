@@ -12,7 +12,11 @@ const out = []; const ck = (n,c) => { out.push(!!c); console.log((c?'PASS':'FAIL
   const page = await (await br.newContext({ viewport:{width:1500,height:1000}, timezoneId:'America/Chicago' })).newPage();
   const errs=[]; page.on('pageerror', e=>errs.push(e.message)); page.on('dialog', d=>d.accept());
   const body = () => page.locator('body').innerText();
-  const nav = async l => { await page.locator(`aside button`).filter({hasText:l}).first().click(); await sleep(450); };
+ const __unlockScanner = async () => {
+   const f = page.locator('input[aria-label="Scanner password"]');
+   if (await f.count()) { await f.fill('changeme'); await page.locator('button:has-text("Unlock scanner")').click(); await page.waitForTimeout(500); }
+ };
+  const nav = async l => { await page.locator(`aside button`).filter({hasText:l}).first().click(); await sleep(450); await __unlockScanner(); };
   const TAB_LABEL={sequences:'Sequences',tasks:'Tasks',calls:'Calls',emails:'Emails',companies:'Companies',contacts:'Contacts',lists:'Lists'};
   const engage = async t => { await nav(TAB_LABEL[t]); await sleep(550); };
   const csv = ['Company Name,First Name,Last Name,Email,Work Phone,Title,Comments',

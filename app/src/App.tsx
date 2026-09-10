@@ -3,6 +3,7 @@ import Scanner from "./components/Scanner";
 import LibraryView from "./components/Library";
 import HistoryView from "./components/History";
 import LockScreen from "./components/LockScreen";
+import ScannerGate from "./components/ScannerGate";
 import BackupRestore from "./components/BackupRestore";
 import CheatSheet from "./components/CheatSheet";
 import PlatformNotes from "./components/PlatformNotes";
@@ -37,7 +38,7 @@ import {
 } from "./lib/history";
 import { loadRuleOverrides, persistRuleOverrides } from "./lib/ruleOverrides";
 import { loadTasksFromDB, persistTask, deleteTaskFromDB, createTask, createContactTask, type Task, type TaskPriority } from "./lib/tasks";
-import { isUnlocked, setUnlocked } from "./lib/auth";
+import { isUnlocked, setUnlocked, isScannerUnlocked, setScannerUnlocked } from "./lib/auth";
 import {
   loadLeadListsFromDB,
   persistLeadList,
@@ -193,6 +194,7 @@ export interface UploadedFile {
 // legacy/unified-tool.js's single global `state` object had to its DB.
 export default function App() {
   const [unlocked, setUnlockedState] = useState(isUnlocked());
+  const [scannerUnlocked, setScannerUnlockedState] = useState(isScannerUnlocked());
   const [view, setView] = useState<View>("home");
   // Seeds Engage's initial tab when navigating there from the sidebar
   // sub-nav or a Home tile — reset when Engage is opened any other way
@@ -1388,7 +1390,23 @@ export default function App() {
               uploadCount={historyEntries.length}
             />
           )}
-          {view === "scanner" && (
+          {view === "scanner" && !scannerUnlocked && (
+            <ScannerGate onUnlock={() => setScannerUnlockedState(true)} />
+          )}
+          {view === "scanner" && scannerUnlocked && (
+            <>
+            {/* Re-lock without signing out or closing the tab — the whole
+                point of this gate is handing someone the screen, so there
+                has to be a way to close it again on demand. */}
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+              <button
+                className="btn btn-sm btn-ghost"
+                title="Lock the Scanner again — the rest of the platform stays open"
+                onClick={() => { setScannerUnlocked(false); setScannerUnlockedState(false); }}
+              >
+                🔒 Lock scanner
+              </button>
+            </div>
             <Scanner
               results={results}
               setResults={setResults}
@@ -1405,8 +1423,6 @@ export default function App() {
               setLibraryGroups={setLibraryGroups}
               onRecordHistory={recordHistory}
               onSyncToHistory={syncToHistory}
-              recentUploads={historyEntries.slice(0, 6)}
-              onOpenRecentUpload={(id) => loadHistoryIntoScanner([id])}
               allHistory={historyEntries}
               ruleOverrides={ruleOverrides}
               contacts={contacts}
@@ -1424,6 +1440,7 @@ export default function App() {
               companyEnriching={companyEnriching}
               onRunCompanyEnrichment={runPendingCompanyEnrichment}
             />
+            </>
           )}
           {view === "engage" && (
             <Engage

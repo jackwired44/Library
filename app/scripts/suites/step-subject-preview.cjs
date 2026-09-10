@@ -14,6 +14,10 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
  const errs=[];page.on('pageerror',e=>errs.push(String(e)));
  page.on('console',m=>{if(m.type()==='error'&&!/favicon|font|net::|googleapis|Failed to load/i.test(m.text()))errs.push(m.text());});
  page.on('dialog',d=>d.accept());
+ const unlockScanner = async () => {
+   const f = page.locator('input[aria-label="Scanner password"]');
+   if (await f.count()) { await f.fill('changeme'); await page.locator('button:has-text("Unlock scanner")').click(); await page.waitForTimeout(500); }
+ };
  await page.goto(BASE);
  await page.fill('input[aria-label="Email"]','jack@wiredcio.com'); await page.fill('input[type=password]','changeme'); await page.click('button:has-text("Unlock")'); await sleep(1100);
 
@@ -22,7 +26,7 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
  for (let i=0;i<80;i++) names.push([`First${i}`,`Last${i}`,'Director',`Company ${i}`,`p${i}@co${i}.com`,'(312) 555-0100','Business Central for 40 users with a partner']);
  names.push(['Zephyra','Quillfeather','COO','Nimbus Rail','zephyra@nimbusrail.com','(415) 555-0199','Dynamics 365 Business Central with a partner']);
  const csv='First Name,Last Name,Title,Company,Email,Phone,Comments\n'+names.map(r=>r.join(',')).join('\n');
- await page.click('.side-nav-btn:has-text("Scanner")'); await sleep(400);
+ await page.click('.side-nav-btn:has-text("Scanner")'); await sleep(400); await unlockScanner();
  await page.setInputFiles('input[type=file]',{name:'big.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});
  await sleep(3500);
 

@@ -142,11 +142,7 @@ interface ScannerProps {
   // see lib/history.ts) get written back to the History entry it came from.
   // A no-op for an ordinary fresh-scan row.
   onSyncToHistory: (row: ResultRow, opts?: { syncContact?: boolean }) => void;
-  // Shown on the empty/upload screen so a recent batch is one click away
-  // without switching to the History tab first.
-  recentUploads: HistoryEntry[];
-  onOpenRecentUpload: (id: string) => void;
-  // Full History (not just the 6-most-recent recentUploads slice) — the
+  // Full History — the
   // High Priority panel on the landing screen searches every past upload,
   // since a priority lead can be tagged long after its own batch scrolled
   // out of "recent."
@@ -205,8 +201,6 @@ export default function Scanner({
   onRecordHistory,
   loadedDropped,
   onSyncToHistory,
-  recentUploads,
-  onOpenRecentUpload,
   allHistory,
   ruleOverrides,
   contacts,
@@ -333,7 +327,6 @@ export default function Scanner({
   const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
-  const [recentUploadsCollapsed, setRecentUploadsCollapsed] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // High Priority panel (landing screen) — filter by which source CSV a
   // priority lead came from; "all" shows every priority lead across all
@@ -923,37 +916,14 @@ export default function Scanner({
           <div style={{ color: "var(--muted)", fontSize: 13.5 }}>or click to browse — scanned for licensing AND platform signals in one pass.</div>
         </div>
         {error && <div style={{ marginTop: 16, color: "#9A5B22" }}>{error}</div>}
-
-        {recentUploads.length > 0 && (
-          <div style={{ marginTop: 24, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "14px 16px" }}>
-            <button
-              onClick={() => setRecentUploadsCollapsed((v) => !v)}
-              style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", border: "none", background: "none", cursor: "pointer", padding: 0, marginBottom: recentUploadsCollapsed ? 0 : 10 }}
-            >
-              <span style={{ fontSize: 10, color: "var(--muted)" }}>{recentUploadsCollapsed ? "▸" : "▾"}</span>
-              <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase" }}>Recent uploads ({recentUploads.length})</span>
-            </button>
-            {!recentUploadsCollapsed && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {recentUploads.map((h) => {
-                const signalCount = h.results.filter((r) => r.tier === "signal").length;
-                return (
-                  <button
-                    key={h.id}
-                    onClick={() => onOpenRecentUpload(h.id)}
-                    style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, textAlign: "left", background: "var(--surface-sunken)", border: "1px solid var(--border)", borderRadius: 10, padding: "9px 12px", cursor: "pointer" }}
-                  >
-                    <span style={{ fontWeight: 600, fontSize: 13 }}>{h.fileName}</span>
-                    <span style={{ fontSize: 11.5, color: "var(--muted)", whiteSpace: "nowrap" }}>
-                      {new Date(h.importedAt).toLocaleString()} · {h.rowsScanned} rows · {signalCount} Strong Signal
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-            )}
-          </div>
-        )}
+        {/* The "Recent uploads" panel that used to sit here was a
+            six-item slice of History with a View button. History has the
+            same thing for EVERY upload, grouped by month/week/day and
+            searchable, so keeping a shorter copy of it on this screen was
+            duplication — this points at the real one instead. */}
+        <div style={{ marginTop: 14, fontSize: 12.5, color: "var(--muted)" }}>
+          Past uploads are in <b>History</b> — open one there to reload it into the Scanner.
+        </div>
 
         {priorityLeads.length > 0 && (
           <div style={{ marginTop: 20, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "14px 16px" }}>

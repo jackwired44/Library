@@ -13,12 +13,16 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
  const errs=[];page.on('pageerror',e=>errs.push(String(e)));
  page.on('console',m=>{if(m.type()==='error'&&!/favicon|font|net::|googleapis|Failed to load/i.test(m.text()))errs.push(m.text());});
  page.on('dialog',d=>d.accept());
+ const unlockScanner = async () => {
+   const f = page.locator('input[aria-label="Scanner password"]');
+   if (await f.count()) { await f.fill('changeme'); await page.locator('button:has-text("Unlock scanner")').click(); await page.waitForTimeout(500); }
+ };
  await page.goto(BASE);
  await page.fill('input[aria-label="Email"]','jack@wiredcio.com'); await page.fill('input[type=password]','changeme'); await page.click('button:has-text("Unlock")'); await sleep(1100);
  const csv=`First Name,Last Name,Title,Company,Email,Phone,Comments
 Justin,Bartlett,Ops Manager,Legacy Labor,justin@legacylabor.com,(312) 555-0110,Business Central for 40 users and want a partner
 Nora,Ellis,CFO,Harbor Dental,nora@harbordental.com,(415) 555-0144,Google Workspace to Microsoft 365 with a partner`;
- await page.click('.side-nav-btn:has-text("Scanner")'); await sleep(400);
+ await page.click('.side-nav-btn:has-text("Scanner")'); await sleep(400); await unlockScanner();
  await page.setInputFiles('input[type=file]',{name:'p.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});
  await sleep(2200);
 
