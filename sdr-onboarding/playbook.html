@@ -418,6 +418,10 @@
   }
   .opener-line { font-size: 15.5px; line-height: 1.65; color: var(--ink); font-style: italic; }
   .opener-line b { font-style: normal; font-weight: 600; }
+  .opener-label-alt {
+    color: var(--muted);
+    margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--border);
+  }
 
   /* Document sections: a single flowing column, separated by a rule and
      a small caps label -- reads like a printed reference manual, not a
@@ -713,7 +717,7 @@
           "<b>3. Run that service line&rsquo;s discovery questions.</b>",
           "<b>4. Can&rsquo;t back up a question in real detail? Off-ramp.</b> Refer it to the team, or follow up by email &mdash; never guess.",
           "<b>5. Qualify against the tier framework</b> before you ask for the meeting.",
-          "<b>6. Close one of four ways, never open-ended &mdash; always spell out next steps out loud:</b> not a fit &mdash; say so, or a short thank-you email. Ready &mdash; book live on a Teams meeting (call over email, always), confirm the invite landed, thank them, ask for any docs to share, and lock the exact next date/time out loud. Not ready but worth it &mdash; a specific call-back date, never &ldquo;I&rsquo;ll be in touch.&rdquo; Unsure &mdash; tell them you&rsquo;ll circle back internally to discuss, then open a time slot for them to meet &mdash; don&rsquo;t book blind.",
+          "<b>6. Close one of four ways, never open-ended &mdash; always spell out next steps out loud:</b> not a fit &mdash; say so, or a short thank-you email. This is a completely fine outcome, not a failure &mdash; the data behind outreach isn&rsquo;t always accurate, and a clean, graceful off-ramp is exactly what should happen when there&rsquo;s truly no need. Ready &mdash; book live on a Teams meeting (call over email, always), confirm the invite landed, thank them, ask for any docs to share, and lock the exact next date/time out loud. Not ready but worth it &mdash; a specific call-back date, never &ldquo;I&rsquo;ll be in touch.&rdquo; Unsure &mdash; tell them you&rsquo;ll circle back internally to discuss, then open a time slot for them to meet &mdash; don&rsquo;t book blind.",
         ],
       },
       signalsGood: {
@@ -735,17 +739,6 @@
           "Wants Microsoft&rsquo;s own direct support, not a partner.",
           "Internal CRM/Opportunity notes about a deal someone else already owns.",
           "Free-advice / small-project language: “pick your brain,” “no budget,” “not looking to hire.”",
-        ],
-      },
-      objections: {
-        heading: "Objection Framework (Generic &mdash; See Each Page for Specifics)",
-        rows: [
-          ["Any objection", "Not every one is worth chasing &mdash; if it doesn&rsquo;t make sense for us to engage, let it go. We&rsquo;re qualifying fit both ways, not just being sold on."],
-          ["“How much does this cost?”", "Never quote cold, don&rsquo;t chase it. Check real priority first; if it&rsquo;s not there, log a follow-up instead of selling harder."],
-          ["“We already have someone.”", "Find out if it&rsquo;s a full replacement, or a co-managed gap."],
-          ["“Just send me some info.”", "Treat as a soft no &mdash; get one more answer, lock a specific follow-up date."],
-          ["“Not the right time.”", "Ask what would change, and when their next budget cycle starts."],
-          ["“Where did you get our data?”", "Apollo, plus public tenant/platform signals &mdash; none of it private."],
         ],
       },
       crossSell: {
@@ -812,11 +805,13 @@
       ],
       opener: {
         line: "&ldquo;Hi [Name], this is [you] with Wired CIO &mdash; we&rsquo;re a Microsoft Solutions Partner. We received a referral through a partner channel indicating you may need support around your Dynamics 365 platform &mdash; ERP or CRM &mdash; or are looking for ongoing support solutions on it. [Mirror the trigger if you have one], and I wanted to see where that actually stands.&rdquo;",
+        noSignal: "&ldquo;Hi [Name], this is [you] with Wired CIO &mdash; we&rsquo;re a Microsoft Solutions Partner supporting the Dynamics 365 ecosystem, and wanted to see whether that&rsquo;s something you need support with right now.&rdquo; Stay in question mode either way. If there&rsquo;s truly no need, that&rsquo;s a fine outcome &mdash; off-ramp gracefully. The data behind outreach isn&rsquo;t always accurate.",
       },
       wiredAngle: {
         heading: "Wired CIO&rsquo;s Angle",
         items: [
           "Wired CIO isn&rsquo;t a pure Dynamics reseller &mdash; we&rsquo;re the partner for the whole Microsoft stack. A Dynamics deal almost always comes bundled with a tenant, licensing, and ongoing support conversation, which is our real differentiator against a Dynamics-only VAR: one partner, one relationship, for the ERP/CRM AND everything it runs on.",
+          "In the SMB space, Dynamics is only ever supported and implemented through a partner like Wired CIO &mdash; Microsoft doesn&rsquo;t implement or support it directly at this tier. That&rsquo;s not a nice-to-have, it&rsquo;s the only real path in.",
           "Internally we work Dynamics leads in priority order: Business Central/ERP first, then Sales/CRM, then everything else in the family (Project Operations, HR, Marketing, Field Service, Customer Insights). ERP conversations tend to be the biggest, stickiest engagements &mdash; lead with those when a prospect could go either way.",
         ],
       },
@@ -853,14 +848,6 @@
           "Small one-off project or free-advice language: “pick your brain,” “free consultation,” “no budget,” “not looking to hire/engage/pay.”",
         ],
       },
-      objections: {
-        heading: "Objection Handling",
-        rows: [
-          ["“We already have a system.”", "Ask what&rsquo;s not working, or whether it&rsquo;s approaching end-of-life / out of support. Most Dynamics conversations start as a replacement, not a first buy."],
-          ["“That sounds expensive.”", "Don&rsquo;t argue past it &mdash; see the Outbound Execution page&rsquo;s objection framework. Price sensitivity this early is a waste-of-time signal, not something to overcome with a pitch; check priority and willingness to solve it, and follow up later if it&rsquo;s not there yet."],
-          ["“Not a priority right now.”", "Ask what would need to be true for it to become one, and when their next budget cycle starts. Log a follow-up, don&rsquo;t just drop it."],
-        ],
-      },
       crossSell: { text: "Every Dynamics deployment needs a tenant, licensing, and ongoing support &mdash; always ask about their M365/Azure and licensing situation even on a pure Dynamics call." },
     },
     {
@@ -875,6 +862,7 @@
       ],
       opener: {
         line: "&ldquo;Hi [Name], this is [you] with Wired CIO &mdash; we&rsquo;re a Microsoft Solutions Partner. We received a referral through a partner channel indicating you may need support around Business Central, or your ERP platform generally, or are looking for ongoing support solutions on it. [Mirror the trigger if you have one], and I wanted to see where that actually stands.&rdquo;",
+        noSignal: "&ldquo;Hi [Name], this is [you] with Wired CIO &mdash; we&rsquo;re a Microsoft Solutions Partner supporting the Business Central / ERP ecosystem, and wanted to see whether that&rsquo;s something you need support with right now.&rdquo; Stay in question mode either way. If there&rsquo;s truly no need, that&rsquo;s a fine outcome &mdash; off-ramp gracefully. The data behind outreach isn&rsquo;t always accurate.",
       },
       questions: {
         heading: "Discovery Questions &mdash; Ask On the Call",
@@ -902,14 +890,6 @@
           "“Finance and Operations” or standalone “Supply Chain Management” named specifically &mdash; that&rsquo;s Microsoft&rsquo;s separate enterprise-tier ERP. Wired CIO does not do F&amp;O; don&rsquo;t treat this as a bigger Business Central deal.",
         ],
       },
-      objections: {
-        heading: "Objection Handling",
-        rows: [
-          ["“We already have an ERP.”", "Ask what&rsquo;s not working, or if it&rsquo;s end-of-life / no longer supported by the vendor. That&rsquo;s usually the real trigger."],
-          ["“Too expensive to replace.”", "Ask about the current total cost &mdash; licensing, maintenance, consultants, workarounds &mdash; most legacy ERPs cost more than people realize."],
-          ["“Not now.”", "Ask about their budget cycle and log a follow-up for that window &mdash; ERP decisions are planned well in advance, so timing matters more than urgency."],
-        ],
-      },
       crossSell: { text: "Business Central customers almost always need Azure hosting/tenant support and M365 licensing alongside the ERP itself &mdash; always ask. Custom extensions or development on top of Business Central itself (see Custom Application Development) is also part of Wired CIO&rsquo;s practice, not just the base implementation." },
     },
     {
@@ -923,6 +903,7 @@
       ],
       opener: {
         line: "&ldquo;Hi [Name], this is [you] with Wired CIO &mdash; we&rsquo;re a Microsoft Solutions Partner. We received a referral through a partner channel indicating you may need support around Dynamics 365 Sales or CRM, or are looking for ongoing support solutions on it. [Mirror the trigger if you have one], and I wanted to see where that actually stands.&rdquo;",
+        noSignal: "&ldquo;Hi [Name], this is [you] with Wired CIO &mdash; we&rsquo;re a Microsoft Solutions Partner supporting the Dynamics 365 Sales/CRM ecosystem, and wanted to see whether that&rsquo;s something you need support with right now.&rdquo; Stay in question mode either way. If there&rsquo;s truly no need, that&rsquo;s a fine outcome &mdash; off-ramp gracefully. The data behind outreach isn&rsquo;t always accurate.",
       },
       questions: {
         heading: "Discovery Questions &mdash; Ask On the Call",
@@ -962,6 +943,7 @@
       ],
       opener: {
         line: "&ldquo;Hi [Name], this is [you] with Wired CIO &mdash; we&rsquo;re a Microsoft Solutions Partner. We received a referral through a partner channel indicating you may need support around Dynamics 365 Project Operations &mdash; project accounting, resourcing, time and expense &mdash; or are looking for ongoing support solutions on it. [Mirror the trigger if you have one], and I wanted to see where that actually stands.&rdquo;",
+        noSignal: "&ldquo;Hi [Name], this is [you] with Wired CIO &mdash; we&rsquo;re a Microsoft Solutions Partner supporting the Dynamics 365 Project Operations ecosystem, and wanted to see whether that&rsquo;s something you need support with right now.&rdquo; Stay in question mode either way. If there&rsquo;s truly no need, that&rsquo;s a fine outcome &mdash; off-ramp gracefully. The data behind outreach isn&rsquo;t always accurate.",
       },
       questions: {
         heading: "Discovery Questions &mdash; Ask On the Call",
@@ -992,6 +974,7 @@
       ],
       opener: {
         line: "&ldquo;Hi [Name], this is [you] with Wired CIO &mdash; we&rsquo;re a Microsoft Solutions Partner. We received a referral through a partner channel indicating you may need support around your IT / your 365 tenant, or are looking for ongoing support solutions. [Mirror the trigger if you have one], and I wanted to see what that actually looks like for you today.&rdquo;",
+        noSignal: "&ldquo;Hi [Name], this is [you] with Wired CIO &mdash; we&rsquo;re a Microsoft Solutions Partner supporting the Managed IT ecosystem, and wanted to see whether that&rsquo;s something you need support with right now.&rdquo; Stay in question mode either way. If there&rsquo;s truly no need, that&rsquo;s a fine outcome &mdash; off-ramp gracefully. The data behind outreach isn&rsquo;t always accurate.",
       },
       facts: {
         heading: "From the Site &mdash; Know This Cold",
@@ -1031,13 +1014,6 @@
           "Rude to you or the team on the call &mdash; a hard line regardless of how well everything else fits. Flag it and walk away.",
         ],
       },
-      objections: {
-        heading: "Objection Handling",
-        rows: [
-          ["“We already have an IT provider.”", "Ask what&rsquo;s working and what isn&rsquo;t &mdash; response time, proactive vs. reactive, security posture. Most MSP switches come from a specific frustration."],
-          ["“We handle it in-house.”", "Ask about co-managed instead of a full replacement &mdash; augmenting, not replacing, internal IT."],
-        ],
-      },
       crossSell: { text: "Cybersecurity, Backup/DR, Compliance, and licensing all sell naturally once an MSP relationship is on the table &mdash; MSP is the umbrella." },
     },
     {
@@ -1050,6 +1026,7 @@
       ],
       opener: {
         line: "&ldquo;Hi [Name], this is [you] with Wired CIO &mdash; we&rsquo;re a Microsoft Solutions Partner. We received a referral through a partner channel indicating you may need support around your IT setup &mdash; either your own team or your 365 tenant &mdash; or are looking for ongoing/supplemental support solutions. [Mirror the trigger if you have one], and I wanted to see where the gaps actually are.&rdquo;",
+        noSignal: "&ldquo;Hi [Name], this is [you] with Wired CIO &mdash; we&rsquo;re a Microsoft Solutions Partner supporting the Managed IT ecosystem, and wanted to see whether that&rsquo;s something you need support with right now.&rdquo; Stay in question mode either way. If there&rsquo;s truly no need, that&rsquo;s a fine outcome &mdash; off-ramp gracefully. The data behind outreach isn&rsquo;t always accurate.",
       },
       wiredAngle: {
         heading: "Positioning Tip",
@@ -1086,6 +1063,7 @@
       ],
       opener: {
         line: "&ldquo;Hi [Name], this is [you] with Wired CIO &mdash; we&rsquo;re a Microsoft Solutions Partner. We received a referral through a partner channel indicating you may need support around a custom application build, or are looking for ongoing support on one already in place. [Mirror the trigger if you have one], and I wanted to see what that process looks like today.&rdquo;",
+        noSignal: "&ldquo;Hi [Name], this is [you] with Wired CIO &mdash; we&rsquo;re a Microsoft Solutions Partner supporting the custom application development ecosystem, and wanted to see whether that&rsquo;s something you need support with right now.&rdquo; Stay in question mode either way. If there&rsquo;s truly no need, that&rsquo;s a fine outcome &mdash; off-ramp gracefully. The data behind outreach isn&rsquo;t always accurate.",
       },
       wiredAngle: {
         heading: "Engagement Model",
@@ -1131,6 +1109,7 @@
       ],
       opener: {
         line: "&ldquo;Hi [Name], this is [you] with Wired CIO &mdash; we&rsquo;re a Microsoft Solutions Partner. We received a referral through a partner channel indicating you may need support around document processing/automation, or are looking for ongoing support solutions on it. [Mirror the trigger if you have one], and I wanted to see what that volume actually looks like.&rdquo;",
+        noSignal: "&ldquo;Hi [Name], this is [you] with Wired CIO &mdash; we&rsquo;re a Microsoft Solutions Partner supporting the Azure document automation ecosystem, and wanted to see whether that&rsquo;s something you need support with right now.&rdquo; Stay in question mode either way. If there&rsquo;s truly no need, that&rsquo;s a fine outcome &mdash; off-ramp gracefully. The data behind outreach isn&rsquo;t always accurate.",
       },
       wiredAngle: {
         heading: "Wired CIO&rsquo;s Angle",
@@ -1172,6 +1151,7 @@
       ],
       opener: {
         line: "&ldquo;Hi [Name], this is [you] with Wired CIO &mdash; we&rsquo;re a Cloud Solutions Partner. We received a referral through a partner channel indicating you may need support around your Azure environment or billing, or are looking for ongoing support solutions. [Mirror the trigger if you have one], and I wanted to see how that&rsquo;s set up today.&rdquo;",
+        noSignal: "&ldquo;Hi [Name], this is [you] with Wired CIO &mdash; we&rsquo;re a Cloud Solutions Partner supporting the Azure / cloud ecosystem, and wanted to see whether that&rsquo;s something you need support with right now.&rdquo; Stay in question mode either way. If there&rsquo;s truly no need, that&rsquo;s a fine outcome &mdash; off-ramp gracefully. The data behind outreach isn&rsquo;t always accurate.",
       },
       wiredAngle: {
         heading: "Wired CIO&rsquo;s Angle",
@@ -1204,12 +1184,6 @@
           "For annual-commit SKUs, annual payment is always preferred over monthly &mdash; one check-in and one payment a year, rather than monthly billing.",
         ],
       },
-      objections: {
-        heading: "Objection Handling",
-        rows: [
-          ["“We&rsquo;re direct with Microsoft, why switch?”", "Ask about their support experience today &mdash; direct billing usually means no dedicated support contact, just a portal."],
-        ],
-      },
       crossSell: { text: "A strong opener for a broader MSP, security, or Dynamics conversation once trust is established on billing." },
     },
     {
@@ -1221,6 +1195,7 @@
       ],
       opener: {
         line: "&ldquo;Hi [Name], this is [you] with Wired CIO &mdash; we&rsquo;re a Cloud Solutions Partner. We received a referral through a partner channel indicating you may need support around your Microsoft 365 tenant or licensing, or are looking for ongoing support solutions. [Mirror the trigger if you have one], and I wanted to see who manages that for you today.&rdquo;",
+        noSignal: "&ldquo;Hi [Name], this is [you] with Wired CIO &mdash; we&rsquo;re a Cloud Solutions Partner supporting the Microsoft 365 licensing ecosystem, and wanted to see whether that&rsquo;s something you need support with right now.&rdquo; Stay in question mode either way. If there&rsquo;s truly no need, that&rsquo;s a fine outcome &mdash; off-ramp gracefully. The data behind outreach isn&rsquo;t always accurate.",
       },
       wiredAngle: {
         heading: "Wired CIO&rsquo;s Angle",
@@ -1336,7 +1311,9 @@
     let html = `<div class="play-lead">${section.overview.map((p) => `<p>${p}</p>`).join("")}</div>`;
 
     if (section.opener) {
-      html += `<div class="opener-block"><div class="opener-label">&#9742; ${section.opener.heading || "How To Open The Call"}</div><div class="opener-line">${section.opener.line}</div></div>`;
+      html += `<div class="opener-block"><div class="opener-label">&#9742; ${section.opener.heading || "How To Open The Call"}</div><div class="opener-line">${section.opener.line}</div>` +
+        (section.opener.noSignal ? `<div class="opener-label opener-label-alt">No signal to reference? Open like this instead</div><div class="opener-line">${section.opener.noSignal}</div>` : "") +
+        `</div>`;
     }
 
     const meta = countMeta(section);
