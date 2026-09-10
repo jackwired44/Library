@@ -165,8 +165,8 @@
     color: var(--cover-ink);
     text-align: center;
     padding: clamp(48px, 9vw, 88px) clamp(20px, 5vw, 44px) clamp(36px, 6vw, 56px);
-    border-bottom: 1px solid var(--border);
-    display: flex; flex-direction: column; align-items: center;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 100dvh;
   }
   .cover-imprint {
     font-family: "IBM Plex Mono", monospace; font-size: 12px; font-weight: 600;
@@ -577,18 +577,19 @@
   <span><span class="dot" style="background:var(--bad)"></span>Red flag — disqualify</span>
 </div>
 
-<div class="index-view" id="indexView">
-  <div class="index-hero">
-    <div class="cover-imprint">Wired CIO</div>
-    <hr class="cover-rule">
-    <div class="cover-eyebrow">Internal &middot; Outbound Sales</div>
-    <h1>The Outbound Playbook</h1>
-    <p class="tagline">&ldquo;When your technology works, so do your people.&rdquo; The SDR onboarding and call reference manual &mdash; read front to back, or jump straight to what you need below.</p>
-    <div class="hero-actions">
-      <a class="btn primary" href="#company-profile">Start Reading &rarr;</a>
-    </div>
-    <div class="cover-colophon">Confidential &mdash; Internal Use Only</div>
+<div class="index-hero" id="coverView">
+  <div class="cover-imprint">Wired CIO</div>
+  <hr class="cover-rule">
+  <div class="cover-eyebrow">Internal &middot; Outbound Sales</div>
+  <h1>The Outbound Playbook</h1>
+  <p class="tagline">&ldquo;When your technology works, so do your people.&rdquo; The SDR onboarding and call reference manual.</p>
+  <div class="hero-actions">
+    <a class="btn primary" href="#toc">Open the Playbook &rarr;</a>
   </div>
+  <div class="cover-colophon">Confidential &mdash; Internal Use Only</div>
+</div>
+
+<div class="index-view" id="indexView" hidden>
   <div class="track-filters" id="trackFilters"></div>
   <div class="toc-heading">Table of Contents</div>
   <div class="card-grid" id="cardGrid"></div>
@@ -1461,6 +1462,7 @@
   // ---------------------------------------------------------------------
   // Detail view + routing
   // ---------------------------------------------------------------------
+  const coverView = document.getElementById("coverView");
   const indexView = document.getElementById("indexView");
   const detailView = document.getElementById("detailView");
   const askView = document.getElementById("askView");
@@ -1474,7 +1476,7 @@
   function neighborButton(key, dir) {
     if (!key) {
       if (dir === "prev") {
-        return `<button class="foot-nav-btn prev" data-goto=""><span class="dir">Previous</span><span>Table of Contents</span></button>`;
+        return `<button class="foot-nav-btn prev" data-goto="toc"><span class="dir">Previous</span><span>Table of Contents</span></button>`;
       }
       return `<span></span>`;
     }
@@ -1483,6 +1485,7 @@
   }
 
   function setView(which) {
+    coverView.hidden = which !== "cover";
     indexView.hidden = which !== "index";
     detailView.hidden = which !== "detail";
     askView.hidden = which !== "ask";
@@ -1505,7 +1508,7 @@
     prevBtn.disabled = false;
     prevBtn.setAttribute("aria-label", prevKey ? "Previous section" : "Back to Table of Contents");
     nextBtn.disabled = !nextKey;
-    prevBtn.onclick = () => { location.hash = prevKey || ""; };
+    prevBtn.onclick = () => { location.hash = prevKey || "toc"; };
     nextBtn.onclick = () => nextKey && (location.hash = nextKey);
 
     const direction = currentPageIdx === null ? null : idx > currentPageIdx ? "next" : idx < currentPageIdx ? "prev" : null;
@@ -1519,7 +1522,7 @@
       `<div class="doc-subtitle">${section.subtitle}</div>` +
       `<hr class="doc-divider">` +
       renderDetail(section) +
-      `<div class="doc-footer-nav">${neighborButton(prevKey, "prev")}<button class="page-folio" data-goto="">&mdash; ${idx + 1} &mdash;<span class="toc-label">Table of Contents</span></button>${neighborButton(nextKey, "next")}</div>`;
+      `<div class="doc-footer-nav">${neighborButton(prevKey, "prev")}<button class="page-folio" data-goto="toc">&mdash; ${idx + 1} &mdash;<span class="toc-label">Table of Contents</span></button>${neighborButton(nextKey, "next")}</div>`;
 
     detailContent.querySelectorAll("[data-goto]").forEach((btn) => {
       btn.addEventListener("click", () => { location.hash = btn.dataset.goto; });
@@ -1531,6 +1534,11 @@
     }
 
     window.scrollTo({ top: 0, behavior: "instant" in window ? "instant" : "auto" });
+  }
+
+  function showCover() {
+    currentPageIdx = null;
+    setView("cover");
   }
 
   function showIndex() {
@@ -1546,13 +1554,14 @@
   function routeFromHash() {
     const raw = location.hash.replace(/^#/, "");
     if (raw === "ask") { showAsk(); return; }
+    if (raw === "toc") { showIndex(); return; }
     if (raw && byKey[raw]) { showDetail(raw); return; }
-    showIndex();
+    showCover();
   }
 
   window.addEventListener("hashchange", routeFromHash);
-  document.getElementById("backLink").addEventListener("click", () => { location.hash = ""; });
-  document.getElementById("askBackLink").addEventListener("click", () => { location.hash = ""; });
+  document.getElementById("backLink").addEventListener("click", () => { location.hash = "toc"; });
+  document.getElementById("askBackLink").addEventListener("click", () => { location.hash = "toc"; });
   document.getElementById("brandHome").addEventListener("click", () => { location.hash = ""; });
   document.getElementById("askBtn").addEventListener("click", () => { location.hash = "ask"; });
   document.getElementById("tocContinueBtn").addEventListener("click", () => { location.hash = orderedKeys[0]; });
@@ -1638,7 +1647,7 @@
 
   function renderAskAnswer(question, results) {
     if (!results.length) {
-      return `<div class="ask-a"><div class="ask-a-snippet">No direct match in the playbook for that. Try different wording, or <button class="ask-a-open" data-goto="">browse all sections →</button></div></div>`;
+      return `<div class="ask-a"><div class="ask-a-snippet">No direct match in the playbook for that. Try different wording, or <button class="ask-a-open" data-goto="toc">browse all sections →</button></div></div>`;
     }
     const top = results[0];
     const t = TRACKS[top.section.track];
