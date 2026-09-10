@@ -11,6 +11,17 @@ export async function loadRuleOverrides(): Promise<RuleOverrides> {
   const rows = await dbGetAll<RuleOverrides & { id: string }>(STORE_RULE_OVERRIDES);
   const stored = rows.find((r) => r.id === RECORD_ID);
   if (!stored) return DEFAULT_RULE_OVERRIDES;
+  // The qualify threshold moved 15 -> 10 per Jack. A browser that had ever
+  // opened the threshold editor holds its own stored copy, which would
+  // silently keep scanning at 15 while the app says the minimum is 10 —
+  // the worst kind of disagreement, since nothing on screen contradicts
+  // itself. A stored value equal to the OLD default is treated as "never
+  // deliberately chosen" and adopts the new one; any other value was a
+  // real decision and is left exactly as set.
+  const PREVIOUS_DEFAULT_THRESHOLD = 15;
+  if (stored.qualifyThreshold === PREVIOUS_DEFAULT_THRESHOLD) {
+    stored.qualifyThreshold = DEFAULT_RULE_OVERRIDES.qualifyThreshold;
+  }
   // Defensive merge — an older/partial record (or a future field Jack
   // hasn't set yet) should never leave a category's keyword list undefined.
   return {

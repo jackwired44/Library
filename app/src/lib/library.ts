@@ -226,10 +226,18 @@ export async function loadLibraryFromDB(): Promise<{ entries: LibraryEntry[]; gr
 // Only ever called with a real month label (monthLabelFromKey) — see
 // ensureMonthFoldersExist and Scanner's "save to library" filing — so the
 // created group is always a genuine auto-managed month folder.
-export function getOrCreateGroupByName(groups: LibraryGroup[], label: string): { groups: LibraryGroup[]; group: LibraryGroup } {
+export function getOrCreateGroupByName(
+  groups: LibraryGroup[],
+  label: string,
+  // A folder Jack names himself is a CUSTOM folder, not one of the
+  // auto-managed month folders — the distinction is what keeps a custom
+  // folder that happens to be named like a month from being pruned or
+  // re-created by the month seeding pass (see pruneEmptyMonthFoldersBefore).
+  isAutoMonthFolder = true
+): { groups: LibraryGroup[]; group: LibraryGroup } {
   const existing = groups.find((g) => g.name === label);
   if (existing) return { groups, group: existing };
-  const group: LibraryGroup = { id: newId("grp"), name: label, notes: "", createdAt: new Date().toISOString(), isPrivate: false, passwordHash: null, passwordSalt: null, isAutoMonthFolder: true };
+  const group: LibraryGroup = { id: newId("grp"), name: label, notes: "", createdAt: new Date().toISOString(), isPrivate: false, passwordHash: null, passwordSalt: null, isAutoMonthFolder };
   return { groups: [...groups, group], group };
 }
 

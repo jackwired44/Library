@@ -78,6 +78,45 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
           </nav>
 
           <div className="settings-content">
+        <Section
+          show={pane === "rules"}
+          title="How a lead is scored"
+          blurb="Every row read from a file lands in exactly one of these four. They always add up to the rows scanned — Scanner's accounting line shows the arithmetic."
+        >
+          <ul style={{ margin: 0, paddingLeft: 20, display: "flex", flexDirection: "column", gap: 8 }}>
+            <li>
+              <b style={{ color: "#2CC295" }}>Strong Signal</b> — a product match PLUS proof of intent. Proof means any
+              one of: a stated seat/user/license count at or above the qualify threshold; partner, vendor, consultant,
+              MSP or CSP language; a Google&nbsp;&rarr;&nbsp;Microsoft move; security design or hardening work; Azure
+              billing, an on-prem-to-cloud migration, Document Intelligence or a custom app build; or — for Dynamics
+              only — a generic trigger word (upgrade, budget, this year), ERP and CRM named together, or a bare number
+              sitting next to the product.
+            </li>
+            <li>
+              <b style={{ color: "#9A5B22" }}>Needs review</b> — a product match with no proof of intent behind it.
+              Someone named a Microsoft product but nothing in the note says they are actually buying. Nothing is lost
+              here; it is the pile to read by hand.
+            </li>
+            <li>
+              <b style={{ color: "#B5443B" }}>Bad Leads</b> — an Auto-DQ fired. These cut across everything and always
+              win, whatever the row would otherwise have scored: single seat or freelancer, explicit rejection, happy
+              with their current provider, personal use, a password or login issue, wanting Microsoft direct, a one-off
+              project or free advice, internal CRM opportunity notes, CRM metadata with no lead content, a competitor
+              or IT-services company, a missing company name, a placeholder email, a personal email domain, or a
+              confirmed seat count under the threshold. Still fully visible and reversible — just out of the CSV
+              downloads.
+            </li>
+            <li>
+              <b>Non Relevant</b> — no Dynamics, M365, Azure or licensing language anywhere in the row, so it was never
+              scored at all. Its own tab, read-only, for manual review.
+            </li>
+          </ul>
+          <p style={{ marginTop: 10, marginBottom: 0, color: "var(--muted)" }}>
+            One more bucket sits outside the four: repeats of a lead already in the same upload are merged into the
+            strongest copy and listed under <b>Merged duplicates</b>, so the count still reconciles.
+          </p>
+        </Section>
+
         <Section show={pane === "rules"} title="Hot signals right now" blurb="These skip the trigger-word and seat-count requirements entirely — clearing one of these gates is itself proof of intent, so the hit is Strong Signal on its own.">
           <p style={{ marginBottom: 8 }}>
             These clear a category match AND jump straight to Strong Signal on their own — no trigger word or seat count

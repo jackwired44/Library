@@ -72,15 +72,75 @@ export const SKU_CATALOGUE: { label: string; pattern: RegExp }[] = [
   { label: "Teams Calling Plan", pattern: /\bteams\s*calling\s*plan\b/i },
   { label: "Intune", pattern: /\bintune\b/i },
   { label: "Bare E3 / E5 mention", pattern: /(?<![a-z0-9])(e[35])(?![a-z0-9])/i },
+  // --- Added after a capture audit found these missing outright. Each is
+  // a product Wired CIO actually sells, so a row naming one was
+  // previously invisible: not Needs Review, not a Bad Lead, absent.
+  { label: "Microsoft 365 Government (G1/G3/G5)", pattern: /\b(m(?:icrosoft)?\s*365\s*g[135]|o(?:ffice)?\s*365\s*g[135]|gcc\s*high|\bgcc\b)\b/i },
+  { label: "Microsoft 365 Education (A1/A3/A5)", pattern: /\b(m(?:icrosoft)?\s*365\s*a[135]|o(?:ffice)?\s*365\s*a[135])\b/i },
+  { label: "Microsoft 365 Business Basic", pattern: /\bbusiness\s*basic\b/i },
+  { label: "Microsoft 365 Apps", pattern: /\b(m(?:icrosoft)?\s*365\s*apps|office\s*365\s*pro\s*plus|o365\s*proplus|proplus)\b/i },
+  { label: "Exchange Online", pattern: /\bexchange\s*online\b/i },
+  { label: "SharePoint Online", pattern: /\bsharepoint(?:\s*online)?\b/i },
+  { label: "OneDrive for Business", pattern: /\bonedrive(?:\s*for\s*business)?\b/i },
+  { label: "Windows 365 / Cloud PC", pattern: /\b(windows\s*365|cloud\s*pc)\b/i },
+  { label: "Azure Virtual Desktop", pattern: /\b(azure\s*virtual\s*desktop|\bavd\b|windows\s*virtual\s*desktop|\bwvd\b)\b/i },
+  { label: "Teams Rooms", pattern: /\bteams\s*rooms?\b/i },
+  { label: "Microsoft Copilot", pattern: /\bcopilot\b/i },
+  { label: "Intune / Endpoint Manager", pattern: /\b(endpoint\s*manager|microsoft\s*endpoint)\b/i },
+  { label: "Microsoft Purview", pattern: /\bpurview\b/i },
+  { label: "Visio", pattern: /\bvisio\b/i },
+  { label: "Project (Plan 1/3/5)", pattern: /\bproject\s*plan\s*[135]\b/i },
 ];
+// Digits that belong to a PRODUCT NAME, never to a seat count. Masked out
+// of the window before any count pattern runs.
+//
+// This was silently destroying large licensing leads. In "348 Microsoft
+// 365 E3 licenses" the first count pattern found the "3" of "E3" sitting
+// directly before "licenses" and read the count as 3 — under the
+// 15-seat threshold, so a 348-seat renewal was auto-DQ'd as a Bad Lead.
+// Every SKU with a digit does it: E3->3, E5->5, G3->3, F1->1, P1->1.
+//
+// Order matters: the longer "microsoft 365" style tokens are stripped
+// before the bare plan codes, so "365" can never be left behind to be
+// read as a count either (which is what sank the earlier attempt at
+// widening the adjacency rule).
+const PRODUCT_TOKEN_RE = new RegExp(
+  [
+    "\\b(?:microsoft|office|dynamics|windows)\\s*365\\b",
+    "\\b[mo]365\\b",
+    "\\bd\\s*365\\b",
+    "\\bpower\\s*bi\\b",
+    "\\bsql\\s*server\\s*\\d{4}\\b",
+    "\\bserver\\s*\\d{4}\\b",
+    "\\bwindows\\s*(?:1[01]|7|8)\\b",
+    "\\bexchange\\s*\\d{4}\\b",
+    // Plan/SKU codes: E1/E3/E5/E7, F1/F3, G1/G3/G5, A1/A3/A5, P1/P2, plus
+    // "Plan 1"/"Plan 2".
+    "(?<![a-z0-9])[efgap][1-7](?![a-z0-9])",
+    "\\bplan\\s*[12]\\b",
+    // Version numbers — "current version which is 15" was a real false read.
+    "\\bv(?:ersion)?\\s*\\d{1,4}(?:\\.\\d+)*\\b",
+  ].join("|"),
+  "gi"
+);
+// Replaced with same-length spaces so every index in the window still
+// lines up with the original text.
+function maskProductTokens(win: string): string {
+  return win.replace(PRODUCT_TOKEN_RE, (m) => " ".repeat(m.length));
+}
+
 const COUNT_PATTERNS: RegExp[] = [
-  /(\d{1,4})\s*\+?\s*(users?|seats?|licenses?|licences?|employees?|people|mailboxes?)\b/i,
-  /\b(users?|seats?|licenses?|licences?)\s*[:\-]?\s*(\d{1,4})\b/i,
+  // A number, then optionally a couple of product words, then the unit —
+  // so "348 Microsoft 365 G3 licenses" reads as 348. Safe only because
+  // the product tokens above are masked first; without that, the gap
+  // would let "365" itself be read as the count.
+  /(\d{1,4})\s*\+?\s*(?:[A-Za-z][\w-]*\s+){0,3}(users?|seats?|licenses?|licences?|employees?|people|mailboxes?)\b/i,
+  /\b(users?|seats?|licenses?|licences?)\s*(?:for\s*)?[:\-]?\s*(\d{1,4})\b/i,
   /\bx\s*(\d{1,4})\b/i,
   /(\d{1,4})\s*x\b/i,
 ];
 const WINDOW = 65;
-export const QUALIFY_THRESHOLD = 15; // seats/users below this auto-DQ — lowered from 20 per Jack's rules audit
+export const QUALIFY_THRESHOLD = 10; // seats/users below this auto-DQ - 20 -> 15 -> 10, each step per Jack
 
 // User-editable layer on top of the rules above (see CLAUDE.md and the
 // Cheat Sheet) — a per-installation override, never a change to the base
@@ -103,9 +163,10 @@ function extractCountNear(haystack: string, matchIndex: number, matchLength: num
   const start = Math.max(0, matchIndex - WINDOW);
   const end = Math.min(haystack.length, matchIndex + matchLength + WINDOW);
   const win = haystack.slice(start, end);
+  const searchable = maskProductTokens(win);
   let best: number | null = null;
   for (const re of COUNT_PATTERNS) {
-    const m = win.match(re);
+    const m = searchable.match(re);
     if (m) {
       const num = parseInt(m[1] && /^\d+$/.test(m[1]) ? m[1] : m[2], 10);
       if (!Number.isNaN(num)) {
@@ -163,6 +224,18 @@ const ONGOING_PARTNER_SRC =
   "\\b(msp|managed\\s*(?:it\\s*)?services?|managed\\s*service\\s*providers?|co-?managed\\s*it|outsourced?\\s*it|it\\s*outsourcing|long[\\s-]?term\\s*(?:partner|relationship)|ongoing\\s*(?:it\\s*)?support|dedicated\\s*(?:it\\s*)?partner|trusted\\s*(?:it\\s*)?partner|strategic\\s*(?:it\\s*)?partner|extension\\s*of\\s*(?:our|their|my)\\s*team|third[\\s-]?party\\s*(?:support|help|it)|3rd[\\s-]?party\\s*(?:support|help|it)|committed\\s*(?:it\\s*)?relationship|(?:full|deep)\\s*(?:partner\\s*)?engagement|partner\\s*engagement)\\b";
 // Security design/hardening work — hot per Jack's ask, part of the
 // original "security measures" scope named when M365/Azure was merged.
+// Microsoft workloads Wired CIO sells that had no platform-engine entry at
+// all — they existed only as licensing SKUs, so without a seat count over
+// the threshold they could never reach Strong Signal no matter how clear
+// the intent ("Purview for compliance, bringing in a partner" sat in Needs
+// Review). Spliced into Tenant Support's pattern below rather than given
+// their own category, so they inherit exactly its tightened gating: a bare
+// mention is still only Needs Review, and partner/CSP language, a real
+// seat count, a Google->Microsoft move or security-design work is what
+// promotes them.
+const MS_WORKLOAD_SRC =
+  "\\b(purview|sharepoint(?:\\s*online)?|onedrive(?:\\s*for\\s*business)?|exchange\\s*online|teams\\s*rooms?|teams\\s*phone|intune|endpoint\\s*manager|microsoft\\s*endpoint|windows\\s*365|cloud\\s*pc|azure\\s*virtual\\s*desktop|avd|virtual\\s*desktop|copilot|microsoft\\s*sentinel|defender\\s*for\\s*(?:business|office\\s*365|endpoint|cloud|identity)|m(?:icrosoft)?\\s*365\\s*[aeg][1-7]|o(?:ffice)?\\s*365\\s*[aeg][1-7]|gcc\\s*high|business\\s*(?:basic|standard|premium))\\b";
+
 const SECURITY_DESIGN_SRC =
   "\\bsecurity\\s*(?:design|architecture|hardening|posture|assessment|audit|review)\\b|\\bharden(?:ing)?\\s*(?:our|their|my)?\\s*security\\b";
 
@@ -170,7 +243,14 @@ const PLATFORM_CATALOGUE: { label: string; pattern: RegExp }[] = [
   {
     label: "Dynamics 365",
     pattern:
-      /\b(dynamics\s*365|d\s*365|dyn\s*365|dynamics\s*crm|dynamics\s*ax|dynamics\s*nav|dynamics\s*gp|business\s*central|finance\s*(?:and|&)\s*operations|customer\s*engagement|supply\s*chain(?:\s*management)?|erp)\b/i,
+      // Extended after a capture audit: the module names below were only
+      // ever used for the seat-count RANKING (DYNAMICS_CRM_RE/
+      // DYNAMICS_ERP_RE), never for matching — so a row that named only
+      // "Field Service" or "Project Operations" produced no Dynamics hit
+      // at all. Legacy product names (Navision/Great Plains/Axapta) are
+      // what an older shop actually calls its ERP, and Power Platform is
+      // the same implementation practice Jack sells Dynamics through.
+      /\b(dynamics\s*365|d\s*365|dyn\s*365|dynamics\s*crm|dynamics\s*ax|dynamics\s*nav|dynamics\s*gp|business\s*central|finance\s*(?:and|&)\s*operations|customer\s*engagement|customer\s*insights?|customer\s*service|field\s*service|project\s*operations|human\s*resources|supply\s*chain(?:\s*management)?|erp|navision|great\s*plains|axapta|power\s*apps|power\s*automate|power\s*platform|power\s*pages|dataverse|common\s*data\s*service)\b/i,
   },
   {
     label: "Power BI",
@@ -187,7 +267,7 @@ const PLATFORM_CATALOGUE: { label: string; pattern: RegExp }[] = [
   {
     label: TENANT_SUPPORT_LABEL,
     pattern: new RegExp(
-      `${GOOGLE_TO_MICROSOFT_SRC}|\\btenant\\s*(?:creation|setup|set\\s*up|provisioning|onboarding|migration|support)\\b|\\b(?:create|creating|set(?:ting)?\\s*up|stand(?:ing)?\\s*up|provision(?:ing)?)\\s*(?:a\\s*)?(?:new\\s*)?tenant\\b|\\bnew\\s*tenant\\b|${ONGOING_PARTNER_SRC}|${SECURITY_DESIGN_SRC}|\\bit\\s*support\\b|\\btechnical\\s*support\\b|\\bhelp\\s*desk\\b|\\bhelpdesk\\b|\\bsupport\\s*(?:contract|plan|request|ticket|team)\\b|\\bneed(?:s|ing)?\\s*(?:it\\s*)?support\\b|\\blooking\\s*for\\s*(?:it\\s*)?support\\b`,
+      `${GOOGLE_TO_MICROSOFT_SRC}|\\btenant\\s*(?:creation|setup|set\\s*up|provisioning|onboarding|migration|support)\\b|\\b(?:create|creating|set(?:ting)?\\s*up|stand(?:ing)?\\s*up|provision(?:ing)?)\\s*(?:a\\s*)?(?:new\\s*)?tenant\\b|\\bnew\\s*tenant\\b|${ONGOING_PARTNER_SRC}|${SECURITY_DESIGN_SRC}|${MS_WORKLOAD_SRC}|\\bit\\s*support\\b|\\btechnical\\s*support\\b|\\bhelp\\s*desk\\b|\\bhelpdesk\\b|\\bsupport\\s*(?:contract|plan|request|team)\\b|\\bsupport\\s*ticket(?!\\s*(?:id|no|num|number|#|:))\\b|\\bneed(?:s|ing)?\\s*(?:it\\s*)?support\\b|\\blooking\\s*for\\s*(?:it\\s*)?support\\b`,
       "i"
     ),
   },
@@ -206,8 +286,11 @@ const PLATFORM_LABEL_TO_KEY: Record<string, CategoryKey> = {
   [TENANT_SUPPORT_LABEL]: "m365Tenant",
 };
 
+// `\w+` required at least one letter AFTER the stem, so the bare verb
+// never matched: "want a partner to implement." and "ready to deploy."
+// both failed while "implementing"/"deploying" passed. `\w*` fixes it.
 const TRIGGER_WORDS_RE =
-  /\b(migrat\w+|implement\w+|replac\w+|upgrad\w+|evaluat\w+|rfp|roll\s*out|go[\s-]?live|deploy\w+|modern\w+|switch\w+|outgrow\w+|budget|timeline|planning\s*to|looking\s*to|considering|this\s*year|next\s*quarter|q[1-4]\b)/i;
+  /\b(migrat\w*|implement\w*|replac\w*|upgrad\w*|evaluat\w*|rfp|roll\s*out|go[\s-]?live|deploy\w*|modern\w*|switch\w*|outgrow\w*|budget|timeline|planning\s*to|looking\s*to|looking\s*at|considering|this\s*year|next\s*quarter|q[1-4]\b)/i;
 const LICENSE_COUNT_RE = /\b(?!1\s*(?:users?|seats?|licenses?|licences?|suers)\b)\d+\s*(?:users?|seats?|licenses?|licences?|suers)\b/i;
 const GROWTH_OVERLOAD_RE =
   /\b(growing\s*(?:fast|rapidly|quickly)?|growth|scaling\s*(?:up|fast)?|too\s*much\s*on\s*(?:our|my|their)\s*plate|stretched\s*(?:too\s*)?thin|wearing\s*too\s*many\s*hats|understaffed|short[\s-]?staffed|overwhelmed|can'?t\s*keep\s*up|need(?:s|ing)?\s*(?:extra|additional|outside|external|more)\s*help|no\s*(?:internal\s*)?it\s*(?:staff|team|department)|don'?t\s*have\s*(?:an\s*)?it\s*(?:staff|team|department)|outgrow\w+)\b/i;
@@ -227,8 +310,33 @@ const SECURITY_DESIGN_RE = new RegExp(SECURITY_DESIGN_SRC, "i");
 // Power BI only counts when there's language about actually bringing in a
 // partner/vendor/consultant/reseller/CSP for it — generic "we want better
 // dashboards" text alone no longer qualifies.
-const PARTNER_ENGAGEMENT_RE =
-  /\b(looking\s*for\s*(?:a\s*)?(?:partner|vendor|consultant|provider|reseller|msp|csp)|bring(?:ing)?\s*in\s*(?:a\s*)?(?:partner|vendor|consultant)|need(?:s|ing)?\s*(?:a\s*)?(?:partner|vendor|consultant|reseller|csp)|hire(?:ing)?\s*(?:a\s*)?(?:consultant|vendor|partner)|outsourc\w*|work(?:ing)?\s*with\s*a\s*partner|engage\s*(?:a\s*)?(?:partner|vendor|consultant)|\bcsp\b|cloud\s*solution\s*provider)\b/i;
+// This gate decides whether Power BI, Azure, Fabric and Migration count as
+// a hit at all, and it promotes Tenant Support and Dynamics - so anything
+// it misses is a lead that never surfaces.
+//
+// It used to require the noun IMMEDIATELY after the verb
+// ("need\s*(?:a\s*)?partner"), which meant the two most natural phrasings
+// both failed: "need a MICROSOFT partner" (a word in between) and "WANT a
+// partner" ("want" was not a listed verb at all). The verb and the noun
+// are now matched separately with a short gap allowed between them, plus
+// the standalone forms that carry the same meaning without a verb.
+const PARTNER_VERB_SRC =
+  "(?:look(?:ing)?\\s*(?:for|at|into)|search(?:ing)?\\s*for|bring(?:ing)?\\s*(?:in|on)|need(?:s|ing)?|want(?:s|ing)?|seek(?:s|ing)?|hir(?:e|ing)|engag(?:e|ing)|onboard(?:ing)?|evaluat(?:e|ing)|consider(?:ing)?|work(?:ing)?\\s*with|partner(?:ing)?\\s*with|select(?:ing)?|choos(?:e|ing)|switch(?:ing)?\\s*to|mov(?:e|ing)\\s*to)";
+const PARTNER_NOUN_SRC =
+  "(?:implementation\\s*partner|managed\\s*service\\s*provider|systems?\\s*integrator|solution\\s*provider|partner|vendor|consultant|consultancy|consulting\\s*firm|reseller|integrator|msp|csp)";
+const PARTNER_ENGAGEMENT_RE = new RegExp(
+  [
+    // verb ... noun, with up to three words of slack between them
+    "\\b" + PARTNER_VERB_SRC + "\\b(?:\\s+[\\w'-]+){0,3}?\\s+\\b" + PARTNER_NOUN_SRC + "\\b",
+    // standalone phrasings that mean the same thing without a verb
+    "\\b(?:with|through|via|using)\\s+(?:a\\s+|an\\s+|our\\s+|their\\s+|the\\s+)?(?:new\\s+|outside\\s+|external\\s+|microsoft\\s+)?" + PARTNER_NOUN_SRC + "\\b",
+    "\\bpartner[\\s-]led\\b",
+    "\\boutsourc\\w*",
+    "\\bcsp\\b",
+    "\\bcloud\\s*solution\\s*provider\\b",
+  ].join("|"),
+  "i"
+);
 // Azure Document Intelligence and full custom-app builds are hot per
 // Jack's ask — shared sub-patterns so Azure's own gate and Fabric's project
 // gate below both recognize them the same way.
@@ -327,6 +435,9 @@ function fallbackSummary(categories: string[]) {
   return `Interested in ${categories.map((c) => CATEGORY_BLURBS[c] || c.toLowerCase()).join(" and ")}.`;
 }
 const SIGNAL_WINDOW = 70;
+// Wider view used only by the qualification GATES (Power BI / Azure /
+// Fabric / Migration), never for the displayed snippet.
+const GATE_WINDOW = 260;
 function collapseAbbreviations(text: string) {
   return text.replace(/\b(?:[A-Z]\.){2,}/g, (match, offset: number, full: string) => {
     const letters = match.replace(/\./g, "");
@@ -494,23 +605,33 @@ export function scanRowPlatform(
       extended = 0;
       while (start > 0 && /\w/.test(combined[start - 1]) && extended < 15) { start--; extended++; }
       const win = combined.slice(start, end).trim();
+      // The GATE below asks a different question than the snippet does:
+      // "is there evidence anywhere near this mention that it is a real
+      // engagement", not "what sentence should I show". Real CRM notes run
+      // several sentences, so a +/-70 char snippet window routinely put
+      // the partner/billing language out of reach and the whole hit was
+      // dropped - the lead vanished rather than landing in Needs Review.
+      // The gate gets a wider view; the snippet stays tight.
+      const gateWin = combined
+        .slice(Math.max(0, m.index - GATE_WINDOW), Math.min(combined.length, m.index + m[0].length + GATE_WINDOW))
+        .trim();
 
       // Power BI and Azure no longer qualify on a bare product mention —
       // see PARTNER_ENGAGEMENT_RE/AZURE_BILLING_RE above. Skip the hit
       // entirely (not just its Strong Signal trigger) if the window
       // doesn't clear the tightened bar for that specific bucket.
-      if (cat.label === "Power BI" && !PARTNER_ENGAGEMENT_RE.test(win)) {
+      if (cat.label === "Power BI" && !PARTNER_ENGAGEMENT_RE.test(gateWin)) {
         if (m.index === re.lastIndex) re.lastIndex++;
         continue;
       }
       if (
         cat.label === "Azure" &&
-        !(AZURE_MIGRATION_OVERRIDE_RE.test(win) || AZURE_BILLING_RE.test(win) || PARTNER_ENGAGEMENT_RE.test(win) || DOCUMENT_INTELLIGENCE_RE.test(win) || APP_BUILD_RE.test(win))
+        !(AZURE_MIGRATION_OVERRIDE_RE.test(gateWin) || AZURE_BILLING_RE.test(gateWin) || PARTNER_ENGAGEMENT_RE.test(gateWin) || DOCUMENT_INTELLIGENCE_RE.test(gateWin) || APP_BUILD_RE.test(gateWin))
       ) {
         if (m.index === re.lastIndex) re.lastIndex++;
         continue;
       }
-      if (cat.label === "Microsoft Fabric" && !FABRIC_PROJECT_RE.test(win)) {
+      if (cat.label === "Microsoft Fabric" && !FABRIC_PROJECT_RE.test(gateWin)) {
         if (m.index === re.lastIndex) re.lastIndex++;
         continue;
       }
@@ -519,7 +640,7 @@ export function scanRowPlatform(
       // no longer counts — needs partner/vendor/consultant/MSP/CSP
       // language nearby to prove it's a real engagement, not just
       // background color in the notes.
-      if (cat.label === MIGRATION_LABEL && !PARTNER_ENGAGEMENT_RE.test(win)) {
+      if (cat.label === MIGRATION_LABEL && !PARTNER_ENGAGEMENT_RE.test(gateWin)) {
         if (m.index === re.lastIndex) re.lastIndex++;
         continue;
       }
@@ -555,8 +676,15 @@ export function scanRowPlatform(
           // as a seat count and wrongly promoted to Strong Signal. Real
           // seat/user/license counts elsewhere still count via
           // LICENSE_COUNT_RE above, which requires an actual unit word.
+          // Partner/vendor/consultant/MSP/CSP language is already what
+          // proves intent for Power BI, Azure, Fabric and Migration, and
+          // what promotes Tenant Support. It was never wired to Dynamics,
+          // so "want a partner to implement Field Service for 30 techs"
+          // sat in Needs Review. Same evidence, same conclusion.
           (cat.label === "Dynamics 365" &&
-            (DYNAMICS_MULTI_MODULE_RE.test(win) ||
+            (PARTNER_ENGAGEMENT_RE.test(win) ||
+              ONGOING_PARTNER_RE.test(win) ||
+              DYNAMICS_MULTI_MODULE_RE.test(win) ||
               (DYNAMICS_SPECIFIC_INSTANCE_RE.test(win) && (LICENSE_COUNT_RE.test(win) || DYNAMICS_ESTIMATED_COUNT_RE.test(win))) ||
               hasBareTrailingCount(combined.slice(m.index + m[0].length, m.index + m[0].length + 80)) ||
               hasBareLeadingCount(combined.slice(Math.max(0, m.index - 80), m.index)))),
@@ -1321,6 +1449,12 @@ export interface NoSignalRow {
   email: string;
   phone: string;
   notes: string;
+  // Same condensed one-line summary every scored row shows, so the
+  // Non Relevant tab reads like the rest of the app instead of dumping
+  // the raw comment field. Email/phone/date/serial content is scrubbed
+  // out by the same rules, so nothing leaks into it that already has its
+  // own column.
+  notesSummary: string;
 }
 
 // The mapping + scan pass — runs once per upload/reload, feeds both the
@@ -1349,6 +1483,7 @@ export function scanParsedFiles(
           email: resolved.email || "",
           phone: resolved.workPhone || resolved.mobilePhone || "",
           notes: resolved.comments || "",
+          notesSummary: summarizeNotes(resolved.comments, []),
         });
         return;
       }

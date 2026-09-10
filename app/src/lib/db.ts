@@ -126,7 +126,9 @@ function describeTxError(err: DOMException | null): Error {
       "Back up from the Lead library, then clear old History imports to free space."
     );
   }
-  return err instanceof Error ? err : new Error(err?.message || "The local database rejected the write.");
+  // DOMException is not an Error subclass in the TS lib types, so just
+  // carry its message across rather than trying to narrow it.
+  return new Error(err?.message || "The local database rejected the write.");
 }
 
 export async function dbPut<T>(storeName: string, entry: T): Promise<void> {

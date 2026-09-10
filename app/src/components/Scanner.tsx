@@ -57,6 +57,10 @@ const MAX_FILES = 25;
 // lock the tab up with no way back. Scanning is synchronous, so this is
 // the real protection — the file count barely matters next to it.
 const MAX_TOTAL_ROWS = 60000;
+const MERGED_FILE_NAME = "wired-cio-all-strong-signal-leads.csv";
+// Sentinel value for the folder dropdown, distinct from any month key or
+// group id.
+const NEW_FOLDER_OPTION = "__new_folder__";
 const PAGE_SIZE = 25;
 const PAGE_SIZE_CHOICES = [25, 50, 100, 250, 500] as const;
 
@@ -228,6 +232,7 @@ export default function Scanner({
   // files after theyre scan... put it after so i can store after
   // uploading." Decide once results are actually visible, not before.
   const [uploadMonthKey, setUploadMonthKey] = useState(() => monthKeyFromDate(new Date()));
+  const [newFolderName, setNewFolderName] = useState("");
   const [filedNotice, setFiledNotice] = useState<string | null>(null);
   // The History entry this exact batch was recorded under — needed so a
   // later "Save to Lead Library" click can correctly link
@@ -490,8 +495,19 @@ export default function Scanner({
   // create real duplicate rows — the button disables itself once filed.
   function saveStrongSignalToLibrary() {
     if (!results || !currentHistoryEntryId || libraryFiledForBatch) return;
-    const monthLabel = monthLabelFromKey(uploadMonthKey);
-    const { groups: groupsWithMonth, group } = getOrCreateGroupByName(libraryGroups, monthLabel);
+    // Per Jack: file into any EXISTING Lead Library folder, or create a new
+    // one right here, instead of only ever the month dropdown. A folder he
+    // names himself is created as a custom folder so the month-seeding and
+    // pruning passes leave it alone.
+    const creatingNew = uploadMonthKey === NEW_FOLDER_OPTION;
+    const customName = newFolderName.trim();
+    if (creatingNew && !customName) {
+      setError("Name the new folder before saving to it.");
+      return;
+    }
+    const existingGroup = libraryGroups.find((g) => g.id === uploadMonthKey);
+    const monthLabel = creatingNew ? customName : existingGroup ? existingGroup.name : monthLabelFromKey(uploadMonthKey);
+    const { groups: groupsWithMonth, group } = getOrCreateGroupByName(libraryGroups, monthLabel, !creatingNew);
     const signalRows = results.filter((r) => r.tier === "signal" && !r.isDuplicate);
     const isNewGroup = groupsWithMonth !== libraryGroups;
     const { entries: nextEntries, touchedIds } = fileSignalRowsIntoGroup(libraryEntries, groupsWithMonth, group.id, signalRows, currentHistoryEntryId);
@@ -501,6 +517,8 @@ export default function Scanner({
     Promise.all([isNewGroup ? persistGroup(group) : Promise.resolve(), persistLibraryEntries(touchedEntries)]);
     setFiledNotice(signalRows.length > 0 ? `Filed ${signalRows.length} Strong Signal lead${signalRows.length === 1 ? "" : "s"} into the ${monthLabel} folder.` : "No Strong Signal leads in this batch — nothing to file.");
     setLibraryFiledForBatch(true);
+    setError(null);
+    setNewFolderName("");
   }
 
   const facets: Facets = {
@@ -780,6 +798,17 @@ export default function Scanner({
     const fileName = /\.csv$/i.test(raw) ? raw : `${raw}.csv`;
     downloadCSV(fileName, bucketRowsFor(bucketKey), EXPORT_LABELS);
   }
+  // Per Jack: keep the two product-line files exactly as they are, and add
+  // one combined file alongside them. Built by concatenating the same
+  // per-bucket exports rather than re-deriving from results, so a lead
+  // appears in the merged file if and only if it appears in one of the
+  // two — the files can never disagree about who qualified.
+  function mergedRows() {
+    return ACTIVE_BUCKET_KEYS.flatMap((bk) => bucketRowsFor(bk));
+  }
+  function exportMerged() {
+    downloadCSV(MERGED_FILE_NAME, mergedRows(), EXPORT_LABELS);
+  }
 
   if (!results) {
     return (
@@ -1002,7 +1031,7 @@ export default function Scanner({
         <div className="panel-head">
           <div>
             <div className="panel-title">Save to Lead Library</div>
-            <div className="panel-sub">Files this batch's Strong Signal leads into the selected month folder.</div>
+            <div className="panel-sub">Files this batch's Strong Signal leads into any existing folder, or a new one you name here.</div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <select
@@ -1011,11 +1040,37 @@ export default function Scanner({
               onChange={(e) => setUploadMonthKey(e.target.value)}
               className="field"
               style={{ fontWeight: 600 }}
+              aria-label="Lead Library folder"
             >
-              {getMonthOptionsForFiling().map((o) => (
-                <option key={o.key} value={o.key}>{o.label}</option>
-              ))}
+              {libraryGroups.length > 0 && (
+                <optgroup label="Existing folders">
+                  {libraryGroups.map((g) => (
+                    <option key={g.id} value={g.id}>{g.name}</option>
+                  ))}
+                </optgroup>
+              )}
+              <optgroup label="Month folders">
+                {getMonthOptionsForFiling()
+                  .filter((o) => !libraryGroups.some((g) => g.name === monthLabelFromKey(o.key)))
+                  .map((o) => (
+                    <option key={o.key} value={o.key}>{o.label}</option>
+                  ))}
+              </optgroup>
+              <optgroup label="New">
+                <option value={NEW_FOLDER_OPTION}>＋ Create a new folder…</option>
+              </optgroup>
             </select>
+            {uploadMonthKey === NEW_FOLDER_OPTION && (
+              <input
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                placeholder="New folder name"
+                aria-label="New folder name"
+                disabled={libraryFiledForBatch}
+                className="field"
+                style={{ width: 180 }}
+              />
+            )}
             <button
               onClick={saveStrongSignalToLibrary}
               disabled={libraryFiledForBatch || !currentHistoryEntryId}
@@ -1156,8 +1211,14 @@ export default function Scanner({
             </span>
           );
         })}
+        <span className="dl-item">
+          <button disabled={mergedRows().length === 0} onClick={exportMerged} className="btn btn-sm btn-secondary">
+            ⬇ All Strong Signal
+            <span className="dl-count">{mergedRows().length}</span>
+          </button>
+        </span>
         <span className="control-spacer" />
-        <span className="dl-hint">Every Strong Signal lead lands in exactly one file.</span>
+        <span className="dl-hint">Two product-line files, plus one combined file holding the same leads.</span>
       </div>
       {renamingBucket && (
         <div className="dl-rename">
@@ -1661,7 +1722,7 @@ function NonRelevantTable({ rows }: { rows: NoSignalRow[] }) {
               <th>Title</th>
               <th>Email</th>
               <th>Phone</th>
-              <th>Notes</th>
+              <th>Matched snippet</th>
               <th>Source file</th>
             </tr>
           </thead>
@@ -1673,9 +1734,11 @@ function NonRelevantTable({ rows }: { rows: NoSignalRow[] }) {
                 <td style={{ padding: "9px 12px", color: "var(--muted)" }}>{r.title || "—"}</td>
                 <td style={{ padding: "9px 12px" }}>{r.email || "—"}</td>
                 <td style={{ padding: "9px 12px" }}>{r.phone || "—"}</td>
-                <td style={{ padding: "9px 12px", maxWidth: 320, color: "var(--muted)", fontSize: 12 }} title={r.notes || undefined}>
-                  {r.notes ? (
-                    <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.notes}</span>
+                <td style={{ padding: "9px 12px", maxWidth: 340, color: "var(--muted)", fontSize: 12 }} title={r.notes || undefined}>
+                  {r.notesSummary || r.notes ? (
+                    <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {r.notesSummary || r.notes}
+                    </span>
                   ) : (
                     "—"
                   )}
