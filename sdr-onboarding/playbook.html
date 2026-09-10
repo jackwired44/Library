@@ -14,6 +14,7 @@
     --accent: #0a66c2;
     --accent-ink: #ffffff;
     --accent-soft: #e6f0fb;
+    --brand-green: #0e8f76;
     --good: #1e7b4d;
     --good-soft: #e6f4ec;
     --bad: #b5443b;
@@ -39,6 +40,7 @@
       --accent: #5aa4ec;
       --accent-ink: #0b1622;
       --accent-soft: #1a2a3c;
+      --brand-green: #3fc39f;
       --good: #45b083;
       --good-soft: #163526;
       --bad: #e2766a;
@@ -63,6 +65,7 @@
     --accent: #5aa4ec;
     --accent-ink: #0b1622;
     --accent-soft: #1a2a3c;
+    --brand-green: #3fc39f;
     --good: #45b083;
     --good-soft: #163526;
     --bad: #e2766a;
@@ -119,7 +122,7 @@
   .brand { display: flex; align-items: center; gap: 9px; flex-shrink: 0; cursor: pointer; background: none; border: none; padding: 0; }
   .brand-mark {
     width: 26px; height: 26px; border-radius: 6px;
-    background: var(--accent); color: var(--accent-ink);
+    background: linear-gradient(135deg, var(--accent), var(--brand-green)); color: var(--accent-ink);
     display: grid; place-items: center;
     font-family: "IBM Plex Mono", monospace; font-weight: 700; font-size: 11px;
   }
@@ -146,7 +149,7 @@
     border: 1px solid var(--border); background: var(--surface);
     color: var(--ink); cursor: pointer;
     display: inline-flex; align-items: center; gap: 6px;
-    white-space: nowrap;
+    white-space: nowrap; text-decoration: none;
   }
   .btn:hover { border-color: var(--accent); color: var(--accent); }
   .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
@@ -160,7 +163,7 @@
     --cover-bg: #11151d;
     --cover-ink: #f4f1e8;
     --cover-muted: #9aa6b8;
-    --cover-accent: #6fa8ef;
+    --cover-accent: #2bbf9e;
     background: var(--cover-bg);
     color: var(--cover-ink);
     text-align: center;
@@ -369,7 +372,7 @@
   .pager button:hover:not(:disabled) { border-color: var(--track-color, var(--accent)); color: var(--track-color, var(--accent)); }
   .pager button:disabled { opacity: 0.35; cursor: default; }
 
-  .detail-content { max-width: 780px; margin: 0 auto; padding: 48px clamp(20px, 5vw, 48px) 100px; }
+  .detail-content { max-width: 780px; margin: 0 auto; padding: 22px clamp(20px, 5vw, 48px) 80px; }
 
   .doc-eyebrow {
     display: flex; align-items: center; gap: 8px;
@@ -427,10 +430,14 @@
      a small caps label -- reads like a printed reference manual, not a
      dashboard of cards. */
   .doc-section {
-    padding: 26px 0;
-    border-top: 1px solid var(--border);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 22px 24px;
+    margin-bottom: 14px;
+    box-shadow: var(--shadow);
   }
-  .doc-section:first-of-type { padding-top: 0; }
+  .doc-section:last-of-type { margin-bottom: 0; }
 
   .block-heading {
     font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em;
