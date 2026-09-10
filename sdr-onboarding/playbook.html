@@ -577,7 +577,7 @@
 </header>
 
 <div class="legend-strip">
-  <span><span class="dot" style="background:var(--good)"></span>Buying signal — listen for this</span>
+  <span><span class="dot" style="background:var(--good)"></span>Good fit — pursue</span>
   <span><span class="dot" style="background:var(--bad)"></span>Red flag — disqualify</span>
 </div>
 
@@ -621,7 +621,7 @@
     <div class="pager"></div>
   </div>
   <div class="ask-content">
-    <p class="ask-intro">Type a question the way you&rsquo;d actually ask it on a call. This searches every page&rsquo;s discovery questions, buying signals, red flags, and objection responses for the closest match &mdash; <b>it&rsquo;s a keyword search over this playbook, not a live AI model</b> (that upgrade comes once this is wired into the real platform/website/extension).</p>
+    <p class="ask-intro">Type a question the way you&rsquo;d actually ask it on a call. This searches every page&rsquo;s discovery questions and category-specific guidance for the closest match &mdash; <b>it&rsquo;s a keyword search over this playbook, not a live AI model</b> (that upgrade comes once this is wired into the real platform/website/extension).</p>
     <div class="ask-chips" id="askChips"></div>
     <div class="ask-thread" id="askThread"></div>
     <form class="ask-form" id="askForm">
@@ -751,7 +751,7 @@
       title: "Platform Reference",
       subtitle: "Every Microsoft platform and SKU Wired CIO works with, in plain language.",
       overview: [
-        "This page is a glossary, not a script &mdash; use it when a prospect names a specific SKU or product and you need a one-line, accurate answer for what it actually is. Discovery questions and buying signals for each area live on their own pages; this page is just the reference.",
+        "This page is a glossary, not a script &mdash; use it when a prospect names a specific SKU or product and you need a one-line, accurate answer for what it actually is. Discovery questions for each area live on their own pages; this page is just the reference.",
       ],
       snapshot: {
         heading: "Microsoft 365 Licensing SKUs",
@@ -792,7 +792,7 @@
       },
       crossSell: {
         heading: "Where to Go Next",
-        text: "Each platform has its own page with discovery questions, buying signals, and objection handling: Business Central/ERP, Dynamics 365 Sales/CRM, Project Operations, Custom Application Development, Azure Document Intelligence, Azure Partner/CSP Billing, and Microsoft Licensing Support/CSP.",
+        text: "Each platform has its own page with discovery questions and category-specific guidance: Business Central/ERP, Dynamics 365 Sales/CRM, Project Operations, Custom Application Development, Azure Document Intelligence, Azure Partner/CSP Billing, and Microsoft Licensing Support/CSP.",
       },
     },
     {
@@ -826,28 +826,6 @@
           "How does what we could offer compare to what they have now?",
         ],
       },
-      signalsGood: {
-        heading: "Buying Signals &mdash; Listen For This Language",
-        items: [
-          "A named module (Business Central, D365 Sales, CRM, Project Operations, etc.) mentioned alongside a real or estimated user/seat count.",
-          "ERP and CRM mentioned together in the same conversation &mdash; usually a bigger, more strategic project.",
-          "Trigger language: “upgrade,” “budget,” “this year,” a specific timeline.",
-          "Any bare number sitting next to a Dynamics product mention (often a seat count described informally, e.g. “Business Central &mdash; 25 users”).",
-        ],
-      },
-      signalsBad: {
-        heading: "Red Flags &mdash; Not a Fit / Disqualify",
-        items: [
-          "Single-user or freelancer language &mdash; not a real seat-count opportunity.",
-          "Flat rejection: “not interested,” “unsubscribe.”",
-          "“We&rsquo;re happy with our current provider” / locked into an existing contract.",
-          "Personal, non-business use.",
-          "A one-off support issue (password reset, locked out) &mdash; not a system project.",
-          "They want Microsoft&rsquo;s own direct support, not a partner/reseller.",
-          "Internal CRM/Opportunity notes describing a deal someone else already owns (“owner of this opportunity,” “Partner: [name],” “advancing the sales cycle”) &mdash; this is pipeline management language, not a fresh lead&rsquo;s own interest.",
-          "Small one-off project or free-advice language: “pick your brain,” “free consultation,” “no budget,” “not looking to hire/engage/pay.”",
-        ],
-      },
       crossSell: { text: "Every Dynamics deployment needs a tenant, licensing, and ongoing support &mdash; always ask about their M365/Azure and licensing situation even on a pure Dynamics call." },
     },
     {
@@ -873,21 +851,6 @@
           "What&rsquo;s forcing the change &mdash; end-of-life support, you&rsquo;ve outgrown the current system, an acquisition, a compliance requirement?",
           "What&rsquo;s the target go-live window?",
           "Do you have an internal champion (CFO, Controller, Ops lead) driving this?",
-        ],
-      },
-      signalsGood: {
-        heading: "Buying Signals &mdash; Listen For This Language",
-        items: [
-          "“Business Central,” “ERP,” “NAV,” “GP,” or “AX” mentioned by name.",
-          "A stated or estimated user count alongside any of the above.",
-          "End-of-life / no-longer-supported language about a current system.",
-          "Multi-department scope (finance + supply chain + operations together) &mdash; as long as it&rsquo;s Business Central&rsquo;s version of that, not Finance and Operations.",
-        ],
-      },
-      signalsBad: {
-        heading: "Red Flags &mdash; Not a Fit / Disqualify",
-        items: [
-          "“Finance and Operations” or standalone “Supply Chain Management” named specifically &mdash; that&rsquo;s Microsoft&rsquo;s separate enterprise-tier ERP. Wired CIO does not do F&amp;O; don&rsquo;t treat this as a bigger Business Central deal.",
         ],
       },
       crossSell: { text: "Business Central customers almost always need Azure hosting/tenant support and M365 licensing alongside the ERP itself &mdash; always ask. Custom extensions or development on top of Business Central itself (see Custom Application Development) is also part of Wired CIO&rsquo;s practice, not just the base implementation." },
@@ -916,20 +879,6 @@
           "Is there a data migration involved &mdash; how much historical data, from what system?",
         ],
       },
-      signalsGood: {
-        heading: "Buying Signals &mdash; Listen For This Language",
-        items: [
-          "“Sales,” “CRM,” “Customer Engagement,” “Customer Service,” “Field Service,” “Marketing,” or “Insights” mentioned by name, with a real or estimated user count.",
-          "Trigger language: “upgrade,” “budget,” “this year.”",
-          "Explicit dissatisfaction with a current CRM or a manual/spreadsheet process.",
-        ],
-      },
-      signalsBad: {
-        heading: "Red Flags",
-        items: [
-          "If Business Central/ERP language also appears in the same lead, treat it as an ERP opportunity &mdash; don&rsquo;t pitch CRM in parallel.",
-        ],
-      },
       crossSell: { text: "Power BI &amp; Fabric Analytics &mdash; from wiredcio.com, &ldquo;a modern data platform that turns the numbers scattered across your systems into dashboards leadership can act on,&rdquo; reading live from ERP, CRM, and other systems &mdash; is a real site offering and a natural next conversation on top of CRM data, alongside Azure for any custom integrations." },
     },
     {
@@ -953,13 +902,6 @@
           "Do you need project accounting tied directly to your financials/ERP?",
           "What&rsquo;s the biggest pain point &mdash; utilization visibility, resource scheduling, billing accuracy, forecasting?",
           "Are you already on (or planning) Business Central or another Dynamics ERP?",
-        ],
-      },
-      signalsGood: {
-        heading: "Buying Signals &mdash; Listen For This Language",
-        items: [
-          "“Project Operations,” “PSA,” “resource scheduling,” or “project accounting” mentioned, even in otherwise generic phrasing.",
-          "Any project-based services company (consulting, engineering, construction, agencies) describing manual/spreadsheet-based project tracking.",
         ],
       },
       crossSell: { text: "Pairs naturally with Business Central for a full project-to-cash workflow &mdash; always ask about ERP plans in the same conversation." },
@@ -997,23 +939,6 @@
           "Do you have any compliance requirements (HIPAA, CMMC, PCI, cyber insurance requirements) driving this?",
         ],
       },
-      signalsGood: {
-        heading: "Buying Signals &mdash; Listen For This Language",
-        items: [
-          "“IT support,” “help desk,” managed services / MSP language.",
-          "Growth or overload language: “stretched thin,” “overwhelmed,” “understaffed.”",
-          "A growing company scaling past its current infrastructure &mdash; the trigger is outgrowing what they already have, not just wanting IT support in the abstract.",
-          "Explicit dissatisfaction with a current provider.",
-        ],
-      },
-      signalsBad: {
-        heading: "Red Flags &mdash; Not a Fit / Disqualify",
-        items: [
-          "A single, basic support issue (password reset, locked out) &mdash; that&rsquo;s a one-off ticket, not an MSP relationship opportunity.",
-          "They want Microsoft&rsquo;s own direct support rather than a reseller/MSP partner.",
-          "Rude to you or the team on the call &mdash; a hard line regardless of how well everything else fits. Flag it and walk away.",
-        ],
-      },
       crossSell: { text: "Cybersecurity, Backup/DR, Compliance, and licensing all sell naturally once an MSP relationship is on the table &mdash; MSP is the umbrella." },
     },
     {
@@ -1042,14 +967,6 @@
           "Are you looking to replace internal IT entirely, or augment what you already have?",
           "Where&rsquo;s the gap &mdash; security expertise, cloud/Azure expertise, after-hours coverage, project capacity?",
           "How does the internal IT person feel about bringing in outside help &mdash; is this their idea or leadership&rsquo;s?",
-        ],
-      },
-      signalsGood: {
-        heading: "Buying Signals &mdash; Listen For This Language",
-        items: [
-          "An internal IT hire mentioned alongside a specific gap (security, cloud, after-hours, project work).",
-          "“Co-managed,” “supplement,” “extra support,” or similar augmentation language.",
-          "A growing company scaling past its current infrastructure, whether or not they have internal IT already &mdash; same trigger as full MSP, just with an existing team in the mix.",
         ],
       },
       crossSell: { text: "Security, backup/DR, and cloud are the most common co-managed add-on scopes &mdash; lead with whichever gap the internal team named." },
@@ -1082,20 +999,6 @@
           "What&rsquo;s driving the timeline &mdash; is there urgency, or is this exploratory?",
           "Who owns this internally &mdash; IT, an operations lead, a specific department?",
           "Do you want us to hand this off fully built once it&rsquo;s live, or keep us on for ongoing support?",
-        ],
-      },
-      signalsGood: {
-        heading: "Buying Signals &mdash; Listen For This Language",
-        items: [
-          "“Custom app,” “app build,” “custom development,” “Power Apps,” or “Power Automate” mentioned specifically.",
-          "A document-heavy manual process combined with wanting automation &mdash; see the Azure Document Intelligence page, this is usually the same conversation.",
-        ],
-      },
-      signalsBad: {
-        heading: "Red Flags &mdash; Not a Fit / Disqualify",
-        items: [
-          "Small one-off project or free-advice language: “just want some advice,” “quick question,” “pick your brain,” “no budget.” We build engagements, not favors.",
-          "Wants us to help with a piece of a custom app build rather than own it end-to-end &mdash; we engage fully or not at all, not as an add-on hire alongside someone else&rsquo;s build.",
         ],
       },
       crossSell: { text: "Azure hosting, Document Intelligence for anything document-heavy, and Dynamics/Power Platform integration are the natural next questions." },
@@ -1132,13 +1035,6 @@
           "Is there already an app or workflow in mind, or is this purely the manual-processing pain point so far?",
         ],
       },
-      signalsGood: {
-        heading: "Buying Signals &mdash; Listen For This Language",
-        items: [
-          "“Document Intelligence” mentioned by name.",
-          "Any document-heavy manual process (invoice processing, forms, claims, contracts) combined with wanting a custom app or automation.",
-        ],
-      },
       crossSell: { text: "Business Central/ERP (invoice processing is the most common use case), custom app dev (the delivery vehicle), and Azure hosting/billing." },
     },
     {
@@ -1167,13 +1063,6 @@
           "Roughly what&rsquo;s your monthly or annual Azure spend?",
           "Any pain with current billing or support &mdash; surprise costs, no one to call, confusing invoices?",
           "Are you planning any migration or expansion that would change your spend (on-prem to cloud, new workloads)?",
-        ],
-      },
-      signalsGood: {
-        heading: "Buying Signals &mdash; Listen For This Language",
-        items: [
-          "Azure billing/cost language, or explicitly looking for a partner/CSP to route billing through.",
-          "On-prem-to-cloud migration or lift-and-shift language paired with Azure.",
         ],
       },
       facts: {
@@ -1213,20 +1102,6 @@
           "When does your current agreement renew?",
           "Who owns procurement and budget for this?",
           "Can you download the license/CSV export from your tenant (Microsoft 365 admin center) and send it over? &mdash; That&rsquo;s what lets us turn a quote around quickly and simply, instead of guessing at seat counts and SKUs.",
-        ],
-      },
-      signalsGood: {
-        heading: "Buying Signals &mdash; Listen For This Language",
-        items: [
-          "A confirmed seat count of 15 or more is our internal strong-signal threshold &mdash; smaller confirmed counts still get worked, just at lower priority.",
-          "Any of the named SKUs above mentioned by name.",
-        ],
-      },
-      signalsBad: {
-        heading: "Red Flags &mdash; Not a Fit / Disqualify",
-        items: [
-          "Single-seat/freelancer language.",
-          "They want Microsoft&rsquo;s own direct support instead of a partner.",
         ],
       },
       facts: {
