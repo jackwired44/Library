@@ -72,7 +72,7 @@ Priya,Raman,Office Manager,Tiny Dental,priya@tinydental.com,(212) 555-0199,Just 
  ok('Call-back lead left the hot list', /1 hot lead\b/.test(t), (t.match(/\d+ hot leads?/i)||[''])[0]);
 
  await page.reload(); await sleep(1300);
- if (await page.locator('input[type=password]').count()) { await page.fill('input[aria-label="Email"]','jack@wiredcio.com'); await page.fill('input[type=password]','changeme'); await page.click('button:has-text("Unlock")'); await sleep(800); }
+ if (await page.locator('input[aria-label="Email"]').count()) { await page.fill('input[aria-label="Email"]','jack@wiredcio.com'); await page.fill('input[type=password]','changeme'); await page.click('button:has-text("Unlock")'); await sleep(800); }
  t = await page.locator('main').innerText();
  ok('Survives reload', /call back/i.test(t) && /hot lead/i.test(t));
  ok('No page errors', errs.length===0, errs.slice(0,2).join(' | '));

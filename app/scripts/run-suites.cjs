@@ -18,6 +18,22 @@ const http = require("http");
 const PORT = Number(process.env.PORT || 4173);
 const BASE = `http://localhost:${PORT}`;
 const SUITES_DIR = path.join(__dirname, "suites");
+
+// The suites sign in with the placeholder password, which only exists in
+// a build made by `npm run build:test`. Running them against a
+// production build (the one made for publishing, carrying the real
+// password) fails EVERY browser suite at the sign-in screen — which looks
+// exactly like a catastrophic code regression and is nothing of the kind.
+// Say so up front rather than letting 21 red lines imply otherwise.
+const PLACEHOLDER_HASH = "0b39f2293df026a351657d70aacb9154ff19102dd93b4f75888b68e7eeb7ad6c";
+const distFile = path.join(__dirname, "..", "dist", "index.html");
+if (fs.existsSync(distFile) && !fs.readFileSync(distFile, "utf8").includes(PLACEHOLDER_HASH)) {
+  console.error(
+    "dist/ was built with a real password, so the suites cannot sign in.\n" +
+    "Run `npm test` (build:test + suites) instead of `npm run suites`.\n"
+  );
+  process.exit(2);
+}
 const filter = process.argv[2] || "";
 
 const suites = fs

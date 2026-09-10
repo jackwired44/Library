@@ -102,7 +102,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
   // 7. Persistence
   await page.reload(); await sleep(900);
-  if (await page.locator('input[type="password"]').count()) { await page.locator('input[aria-label="Email"]').fill('jack@wiredcio.com');
+  if (await page.locator('input[aria-label="Email"]').count()) { await page.locator('input[aria-label="Email"]').fill('jack@wiredcio.com');
   await page.locator('input[type="password"]').fill('changeme'); await page.locator('button:has-text("Unlock")').click(); await sleep(600); }
   await engage('contacts');
   await page.locator('.filter-btn').first().click(); await sleep(400);

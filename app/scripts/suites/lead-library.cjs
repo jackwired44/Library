@@ -51,7 +51,7 @@ Dana,Whitfield,IT Director,Ridgeline Orthopedics,dana@ridgelineortho.com,(312) 5
 
  // Reload: prune must be idempotent and must not resurrect anything.
  await page.reload(); await sleep(1400);
- if (await page.locator('input[type=password]').count()) { await page.fill('input[aria-label="Email"]','jack@wiredcio.com'); await page.fill('input[type=password]','changeme'); await page.click('button:has-text("Unlock")'); await sleep(900); }
+ if (await page.locator('input[aria-label="Email"]').count()) { await page.fill('input[aria-label="Email"]','jack@wiredcio.com'); await page.fill('input[type=password]','changeme'); await page.click('button:has-text("Unlock")'); await sleep(900); }
  await page.click('.side-nav-btn:has-text("Lead library")'); await sleep(900);
  t = await page.locator('main').innerText();
  const months2=[...new Set(t.match(/(January|February|March|April|May|June|July|August|September|October|November|December) 20\d\d/g)||[])];

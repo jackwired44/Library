@@ -76,7 +76,7 @@ Dana,Whitfield,IT Director,Ridgeline Orthopedics,dana@ridgelineortho.com,(312) 5
 
  // Reload -> persistence
  await page.reload(); await sleep(1400);
- if (await page.locator('input[type=password]').count()) { await page.fill('input[aria-label="Email"]','jack@wiredcio.com'); await page.fill('input[type=password]','changeme'); await page.click('button:has-text("Unlock")'); await sleep(900); }
+ if (await page.locator('input[aria-label="Email"]').count()) { await page.fill('input[aria-label="Email"]','jack@wiredcio.com'); await page.fill('input[type=password]','changeme'); await page.click('button:has-text("Unlock")'); await sleep(900); }
  await page.click('.side-nav-btn:has-text("Contacts")'); await sleep(900);
  t = await page.locator('main').innerText();
  ok('attempts survive a reload', /2×/.test(t), t.slice(0,300));

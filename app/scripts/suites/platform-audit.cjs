@@ -318,7 +318,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await page.reload(); await sleep(900);
   // Unlock persists per-browser (lib/auth.ts), so the gate only reappears
   // when the session was cleared — handle both.
-  if (await page.locator('input[type="password"]').count()) {
+  if (await page.locator('input[aria-label="Email"]').count()) {
     await page.locator('input[aria-label="Email"]').fill('jack@wiredcio.com');
   await page.locator('input[type="password"]').fill('changeme');
     await page.locator('button:has-text("Unlock")').click(); await sleep(600);

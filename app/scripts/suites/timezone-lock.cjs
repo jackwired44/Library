@@ -70,7 +70,7 @@ Marcus,Ellery,IT Director,Ellery Freight,marcus@elleryfreight.com,(212) 555-0144
  // Unlock persists per-browser, so the gate may or may not appear. Wait
  // for whichever actually renders rather than guessing with a sleep.
  await page.locator('input[type=password], .tz-lock-btn').first().waitFor({state:'visible',timeout:20000});
- if (await page.locator('input[type=password]').count()) {
+ if (await page.locator('input[aria-label="Email"]').count()) {
    await page.fill('input[aria-label="Email"]','jack@wiredcio.com'); await page.fill('input[type=password]','changeme');
    await page.click('button:has-text("Unlock")');
  }
