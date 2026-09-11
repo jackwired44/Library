@@ -27,7 +27,7 @@ const out = []; const ck = (n,c) => { out.push(!!c); console.log((c?'PASS':'FAIL
   await page.locator('input[aria-label="Email"]').fill('jack@wiredcio.com');
   await page.locator('input[type="password"]').fill('changeme');
   await page.locator('button').filter({hasText:/Unlock/}).click(); await sleep(600);
-  await page.keyboard.press('Control+Shift+S'); await page.waitForTimeout(450); await __unlockScanner();
+  await page.keyboard.press('Shift+J'); await page.waitForTimeout(450); await __unlockScanner();
   await page.locator('input[type="file"][accept=".csv"]').setInputFiles(`${SP}/vfix.csv`);
   await page.locator('.kpi').first().waitFor({timeout:15000}); await sleep(700);
   const row = n => page.locator('.data-table tbody tr', { hasText: n }).first();
@@ -40,7 +40,7 @@ const out = []; const ck = (n,c) => { out.push(!!c); console.log((c?'PASS':'FAIL
   ck('setup: Contacts shows Meeting booked', /Meeting booked/.test(await body()));
 
   // ---- FIX 2: High Priority Unmark must not revert the live disposition ----
-  await page.keyboard.press('Control+Shift+S'); await page.waitForTimeout(450); await __unlockScanner();
+  await page.keyboard.press('Shift+J'); await page.waitForTimeout(450); await __unlockScanner();
   await page.locator('button:has-text("Start over")').first().click(); await sleep(800);
   const hp = /High Priority/i.test(await body());
   ck('High Priority panel is present on the landing screen', hp);

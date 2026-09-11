@@ -31,7 +31,7 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
  // A contact with a 212 (Eastern) number, so "from you" has something to move.
  const csv=`First Name,Last Name,Title,Company,Email,Phone,Comments
 Marcus,Ellery,IT Director,Ellery Freight,marcus@elleryfreight.com,(212) 555-0144,Wants Dynamics 365 Business Central for 40 users with a partner`;
- await page.keyboard.press('Control+Shift+S'); await page.waitForTimeout(450); await sleep(400); await unlockScanner();
+ await page.keyboard.press('Shift+J'); await page.waitForTimeout(450); await sleep(400); await unlockScanner();
  await page.setInputFiles('input[type=file]',{name:'tz.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});
  await sleep(1800);
 

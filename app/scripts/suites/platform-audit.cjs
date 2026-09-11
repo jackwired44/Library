@@ -65,8 +65,28 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   // A second lock on the Scanner view only, so the platform can be shown
   // to someone without handing them the file-processing screen. Separate
   // password, separate state: signing in does not unlock it.
-  await page.keyboard.press('Control+Shift+S'); await page.waitForTimeout(450);
+  await page.keyboard.press('Shift+J'); await page.waitForTimeout(450);
   check('Scanner: not advertised in the sidebar', (await page.locator('aside button:has-text("Scanner")').count()) === 0);
+  // Shift+J is an unmodified capital J, so it must NOT fire while typing.
+  // Without the guard, searching for "Jack" would navigate mid-word.
+  await nav('Lead library'); await sleep(400);
+  const typeTarget = page.locator('main input[type=text], main input:not([type])').first();
+  if (await typeTarget.count()) {
+    await typeTarget.click();
+    await typeTarget.type('Jack');
+    await sleep(400);
+    check('Shift+J does not fire while typing a capital J', (await typeTarget.inputValue()) === 'Jack' && (await page.locator('input[aria-label="Scanner password"]').count()) === 0);
+    await typeTarget.fill('');
+    // Focus is still in the field, where the shortcut is correctly
+    // inert — move it out before the reachability check below.
+    await page.locator('body').click({ position: { x: 5, y: 5 } });
+    await sleep(200);
+  } else {
+    check('Shift+J does not fire while typing a capital J', true, 'no text field on this screen to type into');
+  }
+  // The typing test navigated away, so press it again — this is what
+  // actually proves the shortcut reaches the Scanner.
+  await page.keyboard.press('Shift+J'); await sleep(450);
   check('Scanner: reachable on the shortcut', /Scanner/.test(await page.locator('main').innerText()));
   check('Scanner: locked behind its own password', (await page.locator('input[aria-label="Scanner password"]').count()) === 1);
   check('Scanner: the rest of the platform is still reachable', (await page.locator('aside button').count()) > 0);
@@ -81,7 +101,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   // again. Nothing about the unlock is persisted, so a reload re-locks it
   // too.
   await nav('Home'); await sleep(400);
-  await page.keyboard.press('Control+Shift+S'); await page.waitForTimeout(450); await sleep(400);
+  await page.keyboard.press('Shift+J'); await page.waitForTimeout(450); await sleep(400);
   check('Scanner: re-locks after leaving the tab', (await page.locator('input[aria-label="Scanner password"]').count()) === 1);
   await page.locator('input[aria-label="Scanner password"]').fill('changeme');
   await page.locator('button:has-text("Unlock scanner")').click(); await sleep(500);
@@ -91,7 +111,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     await page.locator('input[type="password"]').fill('changeme');
     await page.locator('button:has-text("Unlock")').click(); await sleep(800);
   }
-  await page.keyboard.press('Control+Shift+S'); await page.waitForTimeout(450); await sleep(500);
+  await page.keyboard.press('Shift+J'); await page.waitForTimeout(450); await sleep(500);
   check('Scanner: re-locks after a reload', (await page.locator('input[aria-label="Scanner password"]').count()) === 1);
   await page.locator('input[aria-label="Scanner password"]').fill('changeme');
   await page.locator('button:has-text("Unlock scanner")').click(); await sleep(500);

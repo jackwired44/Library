@@ -24,7 +24,7 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
  const csv=`First Name,Last Name,Title,Company,Email,Phone,Comments
 Dana,Whitfield,IT Director,Ridgeline Orthopedics,dana@ridgelineortho.com,(312) 555-0110,Business Central for 40 users and want a partner
 Marcus,Lyle,CFO,Northbay Freight,marcus@northbayfreight.com,(415) 555-0144,Google Workspace to Microsoft 365 migration with a partner`;
- await page.keyboard.press('Control+Shift+S'); await page.waitForTimeout(450); await sleep(400); await unlockScanner();
+ await page.keyboard.press('Shift+J'); await page.waitForTimeout(450); await sleep(400); await unlockScanner();
  await page.setInputFiles('input[type=file]',{name:'t.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});
  await sleep(2200);
 

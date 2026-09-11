@@ -41,7 +41,7 @@ const store = (page, name) => page.evaluate(async (s) => {
  ];
  const csv = 'First Name,Last Name,Title,Company,Email,Phone,Comments\n' +
    rows.map(r=>r.map(v=>/[",]/.test(v)?`"${v}"`:v).join(',')).join('\n');
- await page.keyboard.press('Control+Shift+S'); await page.waitForTimeout(450); await sleep(400); await unlockScanner();
+ await page.keyboard.press('Shift+J'); await page.waitForTimeout(450); await sleep(400); await unlockScanner();
  await page.setInputFiles('input[type=file]',{name:'m.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});
  await sleep(2500);
 

@@ -66,7 +66,7 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
                 {onOpenScanner && (
                   <button className="settings-rail-btn" onClick={onOpenScanner}>
                     <span className="settings-rail-label">Open Scanner</span>
-                    <span className="settings-rail-hint">Ctrl/Cmd + Shift + S</span>
+                    <span className="settings-rail-hint">Shift + J</span>
                   </button>
                 )}
                 {onSwitchToDispositions && (

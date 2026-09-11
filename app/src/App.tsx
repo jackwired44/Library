@@ -210,16 +210,23 @@ export default function App() {
 
   // Per Jack the Scanner is off the sidebar — this platform is now shared
   // with the team, and the Scanner is his own. It is still fully present,
-  // just not advertised: Ctrl/Cmd+Shift+S opens it, and there is a way in
+  // just not advertised: Shift+J opens it, and there is a way in
   // from the Settings panel for when the shortcut is forgotten. Its own
   // password still guards it either way, so hiding it is convenience, not
   // the security boundary.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "S" || e.key === "s")) {
-        e.preventDefault();
-        setView("scanner");
-      }
+      if (!e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key !== "J" && e.key !== "j") return;
+      // Shift+J carries no modifier, so it is also just a capital J —
+      // without this guard, typing "Jack" into a search box or a note
+      // would navigate away mid-word. Anything focused that accepts text
+      // keeps the keystroke.
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el?.isContentEditable) return;
+      e.preventDefault();
+      setView("scanner");
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
