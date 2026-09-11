@@ -46,6 +46,20 @@ function normalizeCompanyKey(name: string): string {
 // Same exact-match normalization Contacts already uses for its own
 // name+company dedup fallback — no fuzzy matching, so "Adams Co" and
 // "Adams Co." group separately until/unless that's asked for.
+// The number of distinct companies, using the SAME key the Companies page
+// groups by. Home used to count with its own inline Set that lowercased
+// and trimmed but did not collapse internal whitespace, so "Acme  Corp"
+// and "Acme Corp" counted as two there and one here — Home's Pipeline
+// tile disagreed with the page it linked to.
+export function countCompanies(contacts: Contact[]): number {
+  const seen = new Set<string>();
+  contacts.forEach((c) => {
+    const name = (c.company || "").trim();
+    if (name) seen.add(normalizeCompanyKey(name));
+  });
+  return seen.size;
+}
+
 export function groupContactsByCompany(contacts: Contact[], profiles: CompanyProfile[] = []): Company[] {
   const byKey = new Map<string, Company>();
   contacts.forEach((c) => {

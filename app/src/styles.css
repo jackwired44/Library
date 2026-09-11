@@ -2156,3 +2156,18 @@ textarea:focus {
   background: none; border: none; padding: 0; font: inherit; font-size: 12px;
   color: var(--accent); text-decoration: underline; cursor: pointer;
 }
+
+/* Metrics integrity alert — shown only when a number disagrees with
+   itself. Deliberately loud: a silent reconciliation failure is how a
+   wrong count survives for weeks. */
+.integrity-alert {
+  border: 1px solid #E0B4AE;
+  background: #FBEAE8;
+  color: #7A2F27;
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  font-size: 13px;
+}
+.integrity-alert ul { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.integrity-detail { color: #8A5A52; }

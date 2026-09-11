@@ -7,7 +7,8 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { loadProfile, type Profile } from "../lib/profile";
 import { computeAutoActual, countCompletedChannelTasks, sameWeekdayAverage, weekProgressFraction, type WeeklyGoals } from "../lib/weeklyGoals";
 import { compareByTimeThenCreated, formatTaskTime, localDayKeyFromIso, startOfWeek, todayDateKey, weekRangeLabel, type Task } from "../lib/tasks";
-import type { Contact } from "../lib/contacts";
+import { isWorked, type Contact } from "../lib/contacts";
+import { countCompanies } from "../lib/companies";
 import { CATEGORY_META } from "../lib/detection";
 import { resolveStatus, type Sequence } from "../lib/sequences";
 import { SELF_USER_ID, userLabel, type PlatformUser } from "../lib/users";
@@ -280,24 +281,16 @@ export default function Home({
 
   // ---- Pipeline snapshot: what's actually in the system. Counts only,
   // all from props App already holds — no new data path.
-  const companyCount = useMemo(() => {
-    const set = new Set<string>();
-    contacts.forEach((c) => {
-      const n = (c.company || "").trim().toLowerCase();
-      if (n) set.add(n);
-    });
-    return set.size;
-  }, [contacts]);
+  // Both of these read the SAME helpers the Records pages use, so a tile
+  // can never disagree with the page it opens.
+  const companyCount = useMemo(() => countCompanies(contacts), [contacts]);
 
   const strongSignalContacts = useMemo(
     () => contacts.filter((c) => c.tier === "signal").length,
     [contacts]
   );
 
-  const notYetWorked = useMemo(
-    () => contacts.filter((c) => !(c.callCount || 0) && !(c.emailCount || 0)).length,
-    [contacts]
-  );
+  const notYetWorked = useMemo(() => contacts.filter((c) => !isWorked(c)).length, [contacts]);
 
   // ---- Recent activity: the last real outreach attempts, newest first.
   // Reads the attempt store (the only place with a per-attempt outcome and

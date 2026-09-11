@@ -10,7 +10,7 @@
 // and clicking "Enrich via Apollo" runs a live, viewer-driven Apollo
 // people-match pass (see lib/apolloEnrich.ts) — never automatic.
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { OUTREACH_STATUS_META, type Contact, searchContacts } from "../lib/contacts";
+import { OUTREACH_STATUS_META, isWorked, type Contact, searchContacts } from "../lib/contacts";
 import { CATEGORY_META, DISPOSITION_GROUP_LABEL, type Tier } from "../lib/detection";
 import { dispositionMetaFor, dispositionOptions, type CustomDisposition, isConnectedDisposition } from "../lib/dispositions";
 import { checkApolloAvailability, enrichContactsViaApollo, type EnrichOutcome } from "../lib/apolloEnrich";
@@ -903,5 +903,6 @@ export const WORKED_LABEL: Record<WorkedFilter, string> = {
   unworked: "Not worked yet",
   worked: "Worked at least once",
 };
-export const isWorked = (c: { callCount?: number; emailCount?: number }) =>
-  Boolean((c.callCount || 0) || (c.emailCount || 0));
+// Kept as a re-export so existing importers are unaffected; the
+// definition lives in lib/contacts.ts.
+export { isWorked };

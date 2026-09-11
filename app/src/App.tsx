@@ -120,6 +120,7 @@ import {
 } from "./lib/dispositions";
 import { loadCompanyProfilesFromDB, persistCompanyProfile, importCompanyRows, companiesNeedingEnrichment, upsertProfileFromApollo, type CompanyProfile, type ImportResult } from "./lib/companyProfiles";
 import { enrichCompaniesViaApollo, type CompanyEnrichOutcome } from "./lib/apolloEnrich";
+import { runIntegrityChecks, type IntegrityReport } from "./lib/metricsIntegrity";
 import { parseCSVFile } from "./lib/csv";
 import { loadProfile } from "./lib/profile";
 import {
@@ -201,6 +202,11 @@ export default function App() {
   // being discarded anyway.
   const [scannerUnlocked, setScannerUnlockedState] = useState(false);
   const [view, setView] = useState<View>("home");
+  // Metrics integrity — per Jack, the numbers get re-checked whenever the
+  // data behind them moves, not only when someone happens to look. Every
+  // check computes the same figure two ways and compares; a disagreement
+  // is surfaced rather than silently rendered.
+  const [integrity, setIntegrity] = useState<IntegrityReport | null>(null);
   // Leaving the Scanner re-locks it. Without this, unlocking once and
   // then bouncing to Contacts and back would leave it open for the rest
   // of the page's life — which is not "always locked".
@@ -319,6 +325,18 @@ export default function App() {
   // Lists" and lib/leadLists.ts.
   const [leadLists, setLeadLists] = useState<LeadList[]>([]);
   const [leadListsLoading, setLeadListsLoading] = useState(true);
+
+  // Re-run on every change to the data any metric is derived from —
+  // additions, edits and deletions alike. Cheap: these are array passes
+  // over data already in memory, and they only run when something moved.
+  useEffect(() => {
+    // Guard on the stores these checks actually compare. Without it,
+    // tasks loading before contacts makes every contact-linked task look
+    // unresolvable and fires a false alarm during startup.
+    if (contactsLoading || historyLoading || libraryLoading || leadListsLoading || tasksLoading) return;
+    setIntegrity(runIntegrityChecks({ contacts, historyEntries, libraryEntries, leadLists, tasks }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contacts, historyEntries, libraryEntries, leadLists, tasks, contactsLoading, historyLoading, libraryLoading, leadListsLoading, tasksLoading]);
   const [leadListsError, setLeadListsError] = useState<string | null>(null);
 
   // Native Sequences (Phase 1 of the Outbound Engine) — see CLAUDE.md
@@ -1394,6 +1412,25 @@ export default function App() {
       </aside>
 
       <main className="app-main">
+        {/* Metrics integrity. Visible on every screen because a number
+            that disagrees with itself is not a Home problem — and stating
+            both figures is the point: "13,863 counted vs 13,847 grouped"
+            is actionable, "something is wrong" is not. */}
+        {integrity && integrity.failed.length > 0 && (
+          <div className="integrity-alert" role="status">
+            <strong>
+              {integrity.failed.length} metric{integrity.failed.length === 1 ? "" : "s"} {integrity.failed.length === 1 ? "does" : "do"} not reconcile
+            </strong>
+            <ul>
+              {integrity.failed.map((c) => (
+                <li key={c.id}>
+                  {c.label} — {c.a.toLocaleString()} {c.aLabel} vs {c.b.toLocaleString()} {c.bLabel}.{" "}
+                  <span className="integrity-detail">{c.detail}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
           {view === "home" && (
             <Home

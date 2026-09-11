@@ -187,6 +187,15 @@ export function lookupContact(index: { byEmail: Map<string, Contact>; byNameComp
   return (emailKey && index.byEmail.get(emailKey)) || (nameCompanyKey && index.byNameCompany.get(nameCompanyKey)) || undefined;
 }
 
+// "Worked" means real outreach activity is recorded against this person.
+// Defined once here because three surfaces ask the question — Home's
+// "Not worked yet" tile, Contacts' worked filter, and the metrics
+// integrity check — and a metric that is computed two ways eventually
+// disagrees with itself.
+export function isWorked(c: { callCount?: number; emailCount?: number }): boolean {
+  return Boolean((c.callCount || 0) || (c.emailCount || 0));
+}
+
 export async function loadContactsFromDB(): Promise<Contact[]> {
   return dbGetAll<Contact>(STORE_CONTACTS);
 }
