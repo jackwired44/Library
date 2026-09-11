@@ -166,7 +166,6 @@ const NAV_GROUPS: { group: string | null; items: NavDest[] }[] = [
   {
     group: "Outreach",
     items: [
-      { key: "outbound", label: "Outbound success", icon: "\u{1F3AF}" },
       { key: "engage", tab: "sequences", label: "Sequences", icon: "\u{1F4E1}" },
       { key: "engage", tab: "emails", label: "Emails", icon: "\u2709\uFE0F" },
     ],
@@ -176,6 +175,7 @@ const NAV_GROUPS: { group: string | null; items: NavDest[] }[] = [
     items: [
       { key: "engage", tab: "contacts", label: "Contacts", icon: "\u{1F464}" },
       { key: "engage", tab: "companies", label: "Companies", icon: "\u{1F3E2}" },
+      { key: "outbound", label: "Outbound success", icon: "\u{1F3AF}" },
     ],
   },
 ];
