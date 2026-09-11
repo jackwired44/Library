@@ -57,7 +57,7 @@ Dana,Whitfield,IT Director,Ridgeline Orthopedics,dana@ridgelineortho.com,(312) 5
  t = await page.locator('.reached-board').innerText();
  ok('two attempts logged', /2[\s\S]{0,30}attempts/i.test(t));
  ok('reached count is now 1', /1[\s\S]{0,30}reached them/i.test(t));
- ok('both outcomes are in the history', /Meeting booked/.test(t) && /Left voicemail/.test(t));
+ ok('both outcomes are in the history', /Intro meeting booked/.test(t) && /Left voicemail/.test(t));
 
  // Close modal, check the column + that disposition wrote through
  // The modal closes on its ✕ or by clicking its fixed backdrop.
@@ -67,12 +67,12 @@ Dana,Whitfield,IT Director,Ridgeline Orthopedics,dana@ridgelineortho.com,(312) 5
  await sleep(800);
  t = await page.locator('main').innerText();
  ok('Reached cell shows the count', /2×/.test(t), t.slice(0,400));
- ok('disposition wrote through to the contact', /Meeting booked/.test(t));
+ ok('disposition wrote through to the contact', /Intro meeting booked/.test(t));
 
  // Home should now count the booking (proves meetingBookedAt was stamped)
  await page.click('.side-nav-btn:has-text("Home")'); await sleep(900);
  const home = await page.locator('main').innerText();
- ok('Home counts the meeting booked', /Meetings booked[\s\S]{0,40}1|1[\s\S]{0,30}Meetings booked/.test(home), home.slice(0,300));
+ ok('Home counts the meeting booked', /Intro meetings booked[\s\S]{0,40}1|1[\s\S]{0,30}Intro meetings booked/.test(home), home.slice(0,300));
 
  // Reload -> persistence
  await page.reload(); await sleep(1400);

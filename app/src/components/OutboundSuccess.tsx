@@ -33,7 +33,7 @@ const BUCKET_META: Record<Bucket, { label: string; blurb: string }> = {
     blurb: "Uploaded and sitting in the directory with zero calls, zero emails and zero logged attempts. Pure untouched inventory.",
   },
   booked: {
-    label: "Meetings booked",
+    label: "Intro meetings booked",
     blurb: "Currently sitting on a meeting-booked disposition. This is the outbound motion working.",
   },
 };
@@ -327,7 +327,7 @@ export default function OutboundSuccess({
           <div className="metric-delta">{activity.reached} of {activity.attempts} attempts</div>
         </div>
         <div className="metric" title="Attempts in this window whose outcome was a booked meeting">
-          <div className="metric-label">Meetings booked</div>
+          <div className="metric-label">Intro meetings booked</div>
           <div className="metric-value">{activity.booked}</div>
           <div className="metric-delta">
             {activity.reached === 0 ? "no connects yet" : `${Math.round((activity.booked / activity.reached) * 100)}% of connects`}
@@ -361,7 +361,7 @@ export default function OutboundSuccess({
           <div className="metric-delta">{pct(counts.reached)} of leads</div>
         </div>
         <div className="metric" title="Currently sitting on a meeting-booked disposition">
-          <div className="metric-label">Meetings booked</div>
+          <div className="metric-label">Intro meetings booked</div>
           <div className="metric-value">{counts.booked}</div>
           <div className="metric-delta">{pct(counts.booked)} of leads</div>
         </div>

@@ -26,7 +26,7 @@ export interface Company {
   // the person, Companies just sums/counts them for an at-a-glance view.
   totalCalls: number;
   totalEmails: number;
-  contactedCount: number; // outreachStatus set to anything but "not-contacted"/unset
+  contactedCount: number; // any real outreach signal — see the rollup below
   meetingBookedCount: number;
   // The most common resolved time zone among this company's contacts
   // (lib/timezones.ts — manual override, else phone area code). There is
@@ -72,8 +72,24 @@ export function groupContactsByCompany(contacts: Contact[], profiles: CompanyPro
     const name = c.company.trim();
     if (!name) return; // a contact with no company isn't grouped anywhere yet
     const key = normalizeCompanyKey(name);
-    const contacted = Boolean(c.outreachStatus && c.outreachStatus !== "not-contacted");
-    const meetingBooked = c.outreachStatus === "meeting-booked";
+    // Two independent fields can say a meeting is booked and they are set
+    // by different paths, so both have to count or the company card
+    // disagrees with the rest of the app:
+    //   - `disposition` is the authoritative lead outcome. It is what
+    //     Scanner's dropdown sets, what logging a call outcome writes,
+    //     what stamps meetingBookedAt, what finishes a sequence, and what
+    //     Home and Outbound success count.
+    //   - `outreachStatus` is the separate, manually-edited outreach
+    //     tracker on the contact detail view.
+    // This previously read outreachStatus ONLY, so a lead booked the
+    // normal way (disposition) showed as 0 booked on its company card
+    // while Home counted it — the same number computed two ways,
+    // disagreeing.
+    const contacted =
+      Boolean(c.outreachStatus && c.outreachStatus !== "not-contacted") ||
+      Boolean(c.disposition && c.disposition !== "none") ||
+      Boolean((c.callCount || 0) || (c.emailCount || 0));
+    const meetingBooked = c.outreachStatus === "meeting-booked" || c.disposition === "meeting-booked";
     const existing = byKey.get(key);
     if (existing) {
       existing.contactCount += 1;

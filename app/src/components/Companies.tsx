@@ -15,6 +15,7 @@ import { profileLocationLabel, PROFILE_FIELD_DEFS, type CompanyProfile, type Imp
 import { downloadBlob, toCSV } from "../lib/csv";
 import { getEmailDomain, isFreeEmailDomain, isCompetitorIndustry } from "../lib/detection";
 import { OUTREACH_STATUS_META, type Contact, type ManualContactInput } from "../lib/contacts";
+import type { CrmImportResult } from "../lib/crmImport";
 import { CATEGORY_META } from "../lib/detection";
 import { dispositionMetaFor, type CustomDisposition } from "../lib/dispositions";
 import ContactDetail from "./ContactDetail";
@@ -48,6 +49,7 @@ interface CompaniesProps {
   onRemoveAttempt: (id: string) => void;
   // Bulk Apollo export import — see lib/companyProfiles.ts.
   companyProfiles: CompanyProfile[];
+  onImportCrmDeals: (files: FileList | File[]) => Promise<CrmImportResult[]>;
   onImportCompanyProfiles: (files: FileList | File[]) => Promise<ImportResult[]>;
   // Removing a company means removing the contacts behind it — a company
   // here is a roll-up, it has no record of its own to delete.
@@ -56,7 +58,7 @@ interface CompaniesProps {
 
 type SortKey = "recent" | "name" | "contactCount";
 
-export default function Companies({ contacts, onAddContact, onUpdateContact, users, tasks, leadLists, sequences, enrollments, dispositions, companyProfiles, onImportCompanyProfiles, onDeleteContacts, attempts, onLogAttempt, onRemoveAttempt }: CompaniesProps) {
+export default function Companies({ contacts, onAddContact, onUpdateContact, users, tasks, leadLists, sequences, enrollments, dispositions, companyProfiles, onImportCrmDeals, onImportCompanyProfiles, onDeleteContacts, attempts, onLogAttempt, onRemoveAttempt }: CompaniesProps) {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("recent");
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
@@ -103,6 +105,41 @@ export default function Companies({ contacts, onAddContact, onUpdateContact, use
     if (!missingInfo.length) return;
     const cols = ["Company", "Website", "Industry", "# Employees", "Short Description"] as const;
     void downloadBlob(toCSV(missingInfo as unknown as Record<string, unknown>[], cols), "companies-missing-info.csv");
+  }
+
+  const crmInputRef = useRef<HTMLInputElement>(null);
+  const [importingCrm, setImportingCrm] = useState(false);
+
+  // Import CRM deals as booked intros. Every deal in the pipeline started
+  // at Intro Discovery, so a deal IS a booked intro — the import stamps
+  // each matched contact accordingly and the company rollup picks them up
+  // with no separate company import.
+  async function handleCrmImport(files: FileList | null) {
+    if (!files || !files.length) return;
+    setImportingCrm(true);
+    try {
+      const results = await onImportCrmDeals(files);
+      const rows = results.reduce((n, r) => n + r.rowsRead, 0);
+      const added = results.reduce((n, r) => n + r.added, 0);
+      const merged = results.reduce((n, r) => n + r.merged, 0);
+      const cos = results.reduce((n, r) => Math.max(n, r.companies), 0);
+      const skipped = results.reduce((n, r) => n + r.skippedNoIdentity, 0);
+      const unmapped = Array.from(new Set(results.flatMap((r) => r.unmapped)));
+      const parts = [
+        `Read ${rows.toLocaleString()} deal row${rows === 1 ? "" : "s"}`,
+        `${added} new contact${added === 1 ? "" : "s"}`,
+        `${merged} matched to someone already on file`,
+        `${cos} compan${cos === 1 ? "y" : "ies"}`,
+        "all marked Intro meeting booked",
+      ];
+      if (skipped) parts.push(`${skipped} skipped (no company or person)`);
+      if (unmapped.length) parts.push(`no column found for: ${unmapped.join(", ")}`);
+      setImportNotice(parts.join(" · ") + ".");
+    } catch (e) {
+      setImportNotice(`CRM import failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setImportingCrm(false);
+    }
   }
 
   async function handleImport(files: FileList | null) {
@@ -310,6 +347,23 @@ export default function Companies({ contacts, onAddContact, onUpdateContact, use
           {importing ? "Importing…" : "⬆ Import Apollo export"}
         </button>
         <button
+          onClick={() => crmInputRef.current?.click()}
+          disabled={importingCrm}
+          className="btn btn-secondary"
+          title="Import a CRM deal export (CSV). Every deal started at Intro Discovery, so each row's contact is matched into the directory and marked Intro meeting booked. Matching uses the same email-first / name+company ladder as every other import, so existing contacts merge rather than duplicate."
+        >
+          {importingCrm ? "Importing…" : "⬆ Import CRM deals"}
+        </button>
+        <input
+          ref={crmInputRef}
+          aria-label="Import CRM deals"
+          type="file"
+          accept=".csv"
+          multiple
+          style={{ display: "none" }}
+          onChange={(e) => { void handleCrmImport(e.target.files); e.target.value = ""; }}
+        />
+        <button
           onClick={exportMissingInfo}
           disabled={!missingInfo.length}
           className="btn btn-secondary"
@@ -319,6 +373,7 @@ export default function Companies({ contacts, onAddContact, onUpdateContact, use
         </button>
         <input
           ref={importInputRef}
+          aria-label="Import Apollo export"
           type="file"
           accept=".csv"
           multiple
@@ -446,7 +501,7 @@ export default function Companies({ contacts, onAddContact, onUpdateContact, use
                             <CompanyStat label="Calls made" value={co.totalCalls} />
                             <CompanyStat label="Emails sent" value={co.totalEmails} />
                             <CompanyStat label="Contacted" value={`${co.contactedCount} / ${co.contactCount}`} />
-                            <CompanyStat label="Meetings booked" value={co.meetingBookedCount} />
+                            <CompanyStat label="Intro meetings booked" value={co.meetingBookedCount} />
                             <div>
                               <div style={{ fontSize: 10, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase" }}>Local time</div>
                               <div style={{ fontSize: 13, fontWeight: 600, marginTop: 3 }}>

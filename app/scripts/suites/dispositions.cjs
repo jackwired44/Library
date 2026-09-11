@@ -44,7 +44,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const groups = await rowSel.locator('optgroup').evaluateAll(g => g.map(x => x.label));
   check('Scanner dropdown grouped: Reached / Didn\'t reach', groups.join('|') === "Reached them|Didn't reach them");
   const opts = await rowSel.locator('option').allTextContents();
-  check('All 9 outcomes + none present', opts.length === 10 && ['Meeting booked','Call back scheduled','Info requested','Not interested','Do not contact','Gatekeeper / front desk','Left voicemail','No answer','Wrong number'].every(l => opts.includes(l)));
+  check('All 9 outcomes + none present', opts.length === 10 && ['Intro meeting booked','Call back scheduled','Info requested','Not interested','Do not contact','Gatekeeper / front desk','Left voicemail','No answer','Wrong number'].every(l => opts.includes(l)));
   check('Retired built-ins gone from the picker', !opts.includes('No contact made') && !opts.includes('Other'));
 
   // 2. Enroll Acme in a sequence, then set Do not contact -> enrollment finishes

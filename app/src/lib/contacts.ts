@@ -135,7 +135,7 @@ export const OUTREACH_STATUS_META: Record<OutreachStatus, { label: string; color
   contacted: { label: "Contacted", color: "#3A4B8C", bg: "#EEF2FF" },
   "contacted-successfully": { label: "Contacted successfully", color: "#2CC295", bg: "#E7F1EA" },
   "not-interested": { label: "Not interested", color: "#B5443B", bg: "#FBEAE8" },
-  "meeting-booked": { label: "Meeting booked", color: "#8A5A00", bg: "#FFF7E5" },
+  "meeting-booked": { label: "Intro meeting booked", color: "#8A5A00", bg: "#FFF7E5" },
 };
 
 function newId() {
@@ -299,7 +299,7 @@ export async function deleteContactsFromDB(ids: string[]) {
   await Promise.all(ids.map((id) => dbDelete(STORE_CONTACTS, id)));
 }
 
-interface ContactInput {
+export interface ContactInput {
   resolved: ResolvedFields;
   sourceFile: string;
 }
@@ -335,7 +335,7 @@ function contactInputsFromParsedFiles(parsedFiles: ParsedFile[]): ContactInput[]
 // record instead of creating a duplicate. Uses the shared ContactIndex
 // rather than a private copy of the rules, so the ladder cannot drift
 // between this path and every read-only lookup elsewhere.
-function mergeContactInputs(existing: Contact[], inputs: ContactInput[]): { contacts: Contact[]; touched: Contact[]; added: number; updated: number } {
+export function mergeContactInputs(existing: Contact[], inputs: ContactInput[]): { contacts: Contact[]; touched: Contact[]; added: number; updated: number } {
   const byId = new Map<string, Contact>(existing.map((c) => [c.id, c]));
   // Same index, same ladder, same ambiguity rules as every other lookup
   // in this file — previously this path kept its own two-rung copy, which

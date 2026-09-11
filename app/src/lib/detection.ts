@@ -1223,7 +1223,13 @@ export const DISPOSITION_META: Record<BuiltInDisposition, DispositionMeta> = {
   // --- Reached them -------------------------------------------------
   // Blue for meeting booked, kept from the original set because the row
   // tint and the BOOKED stamp are already built on this exact colour.
-  "meeting-booked": { label: "Meeting booked", color: "#0A66C2", bg: "#EAF3FC", connected: true, group: "reached" },
+  // Label is "Intro meeting booked" per Jack — the pipeline's first stage is
+  // an Intro Discovery, so every booked meeting off outbound IS an intro.
+  // The KEY stays "meeting-booked": it is stamped on already-filed leads,
+  // drives sequence auto-finish (isConnectedDisposition), Home's booked
+  // counters and Contact.meetingBookedAt. Renaming the key would orphan
+  // every lead already carrying it.
+  "meeting-booked": { label: "Intro meeting booked", color: "#0A66C2", bg: "#EAF3FC", connected: true, group: "reached" },
   "call-back-scheduled": { label: "Call back scheduled", color: "#0F7A72", bg: "#DFF3F1", connected: true, group: "reached" },
   "info-requested": { label: "Info requested", color: "#3A4B8C", bg: "#EEF2FF", connected: true, group: "reached" },
   // Red, kept from the original set — this one auto-crosses the row out.

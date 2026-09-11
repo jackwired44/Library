@@ -48,7 +48,7 @@ const out=[]; const ck=(n,c)=>{out.push(!!c);console.log((c?'PASS':'FAIL')+'  '+
    'Vertex Health,https://vertexhealth.org,hospital & health care,900,Phoenix,AZ'].join('\n');
   fs.writeFileSync(`${SP}/apollo-comp.csv`, apollo);
   await nav('Companies');
-  await page.locator('main input[type="file"][accept=".csv"]').setInputFiles(`${SP}/apollo-comp.csv`); await sleep(1600);
+  await page.locator('main input[aria-label="Import Apollo export"]').setInputFiles(`${SP}/apollo-comp.csv`); await sleep(1600);
   ck('Apollo import reports its summary', /new|updated/i.test(await body()));
 
   // Filters popover

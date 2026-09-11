@@ -27,6 +27,7 @@ import { scanParsedFiles, DEFAULT_RULE_OVERRIDES } from "./lib/detection";
 import { loadLibraryFromDB, ensureMonthFoldersExist, pruneEmptyMonthFoldersBefore, persistGroup, deleteGroupFromDB, type LibraryEntry, type LibraryGroup } from "./lib/library";
 import { applyCompetitorDQ } from "./lib/companyProfiles";
 import { deleteContactsFromDB, dedupeExistingContacts } from "./lib/contacts";
+import { importCrmDeals, type CrmImportResult } from "./lib/crmImport";
 import { applyStickyState, attachScanResultsToContacts, loadContactsFromDB, mergeContactsFromParsedFiles, mergeManualContact, persistContact, type Contact, type ManualContactInput } from "./lib/contacts";
 import {
   loadHistoryFromDB,
@@ -1061,6 +1062,29 @@ export default function App() {
     return results;
   }
 
+  // Import CRM deals as booked intros. Each deal's contact is merged into
+  // the Contacts directory through the SAME dedup ladder every other
+  // import uses, so an existing lead is matched rather than duplicated,
+  // and the company rollup picks them up with no separate company import.
+  async function importCrmDealsFromFiles(files: FileList | File[]): Promise<CrmImportResult[]> {
+    const results: CrmImportResult[] = [];
+    let working = contacts;
+    const touched: Contact[] = [];
+    for (const file of Array.from(files)) {
+      const parsed = await parseCSVFile(file);
+      const out = importCrmDeals(working, [parsed]);
+      working = out.contacts;
+      touched.push(...out.touched);
+      results.push(out.result);
+    }
+    setContacts(working);
+    // Persist only what the import actually touched, not the whole
+    // directory — same rule as the duplicate cleanup.
+    const byId = new Map(touched.map((c) => [c.id, c]));
+    working.forEach((c) => { if (byId.has(c.id)) persistContact(c); });
+    return results;
+  }
+
   // --- Custom call dispositions (lib/dispositions.ts) ---
   // Returns false when the label is blank or collides with an existing
   // disposition (built-in or custom), so the manager UI can say why.
@@ -1649,6 +1673,7 @@ export default function App() {
               onManageDispositions={() => setNotesPanelTab("dispositions")}
               companyProfiles={companyProfiles}
               onImportCompanyProfiles={importCompanyProfilesFromFiles}
+              onImportCrmDeals={importCrmDealsFromFiles}
               onDeleteContacts={deleteContacts}
               initialTab={engageEntry.tab}
               initialContactsSearch={engageEntry.contactsQuery}

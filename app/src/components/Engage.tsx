@@ -18,6 +18,7 @@ import type { Task, TaskPriority } from "../lib/tasks";
 import type { OutreachAttempt, AttemptChannel } from "../lib/outreachAttempts";
 import type { SequenceTemplate } from "../lib/sequenceTemplates";
 import type { Contact, ManualContactInput } from "../lib/contacts";
+import type { CrmImportResult } from "../lib/crmImport";
 import type { Sequence, SequenceEnrollment, SequenceChannel, SequenceStatus } from "../lib/sequences";
 import type { PlatformUser } from "../lib/users";
 import type { SequenceGroup } from "../lib/sequenceGroups";
@@ -79,6 +80,7 @@ interface EngageProps {
   onRemoveAttempt: (id: string) => void;
   onManageDispositions: () => void;
   companyProfiles: CompanyProfile[];
+  onImportCrmDeals: (files: FileList | File[]) => Promise<CrmImportResult[]>;
   onImportCompanyProfiles: (files: FileList | File[]) => Promise<ImportResult[]>;
   onDeleteContacts: (ids: string[]) => void;
 
@@ -168,6 +170,7 @@ export default function Engage({
   onRemoveAttempt,
   onManageDispositions,
   companyProfiles,
+  onImportCrmDeals,
   onImportCompanyProfiles,
   onDeleteContacts,
   leadLists,
@@ -287,6 +290,7 @@ export default function Engage({
           onRemoveAttempt={onRemoveAttempt}
           companyProfiles={companyProfiles}
           onImportCompanyProfiles={onImportCompanyProfiles}
+          onImportCrmDeals={onImportCrmDeals}
           onDeleteContacts={onDeleteContacts}
         />
       )}

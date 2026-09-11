@@ -361,7 +361,7 @@ export default function Home({
       <div className="metric-row">
         <DayMetric label="Calls" value={callsToday} avg={callsAvg} />
         <DayMetric label="Emails" value={emailsToday} avg={emailsAvg} />
-        <DayMetric label="Meetings booked" value={meetingsBookedToday} />
+        <DayMetric label="Intro meetings booked" value={meetingsBookedToday} />
         <DayMetric label="Follow-ups due" value={followUpsDueToday} />
       </div>
 
@@ -565,7 +565,7 @@ export default function Home({
             <WeekRow label="Calls" value={callsThisWeek} />
             <WeekRow label="Emails" value={emailsThisWeek} />
             <WeekRow
-              label="Meetings booked"
+              label="Intro meetings booked"
               value={meetingsBookedInWeek}
               extra={
                 <span className="week-stepper">

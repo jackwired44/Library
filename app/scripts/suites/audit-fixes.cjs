@@ -43,7 +43,7 @@ const out = []; const ck = (n,c) => { out.push(!!c); console.log((c?'PASS':'FAIL
   await row('Acme Dynamics Co').locator('button:has-text("⭐")').first().click(); await sleep(500);
   ck('setup: Acme is Meeting booked and starred', /BOOKED/.test(await row('Acme Dynamics Co').innerText()));
   await engage('contacts');
-  ck('setup: Contacts shows Meeting booked', /Meeting booked/.test(await body()));
+  ck('setup: Contacts shows Meeting booked', /Intro meeting booked/.test(await body()));
 
   // ---- FIX 2: High Priority Unmark must not revert the live disposition ----
   await page.keyboard.press('Shift+J'); await page.waitForTimeout(450); await __unlockScanner();
@@ -55,7 +55,7 @@ const out = []; const ck = (n,c) => { out.push(!!c); console.log((c?'PASS':'FAIL
     if (await un.count()) { await un.click(); await sleep(800); }
   }
   await engage('contacts');
-  ck('FIX 2: disposition survives High Priority Unmark', /Meeting booked/.test(await body()));
+  ck('FIX 2: disposition survives High Priority Unmark', /Intro meeting booked/.test(await body()));
 
   // ---- FIX 1: Library folder upload must not wipe sticky state ----
   await nav('Lead library');
@@ -65,7 +65,7 @@ const out = []; const ck = (n,c) => { out.push(!!c); console.log((c?'PASS':'FAIL
   const up = page.locator('main input[type="file"]').first();
   if (await up.count()) { await up.setInputFiles(`${SP}/vfix.csv`); await sleep(2000); }
   await engage('contacts');
-  ck('FIX 1: disposition survives a Lead Library folder upload', /Meeting booked/.test(await body()));
+  ck('FIX 1: disposition survives a Lead Library folder upload', /Intro meeting booked/.test(await body()));
 
   // ---- FIX 5: Save to Lead Library from a History-reopened batch ----
   await nav('History');
