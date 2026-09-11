@@ -19,6 +19,8 @@ import {
   type BucketKey,
   type NoSignalRow,
   type DuplicateRow,
+  TIER_META,
+  TIER_ORDER,
 } from "../lib/detection";
 import { dispositionMetaFor, type CustomDisposition } from "../lib/dispositions";
 import DispositionOptions from "./DispositionOptions";
@@ -1145,9 +1147,9 @@ export default function Scanner({
       <div className="kpi-row">
         {[
           { label: "Rows scanned", value: lastScanStats?.rowsScanned ?? results.length, color: "var(--ink)" },
-          { label: "Strong Signal", value: batchTotals.signal, color: "#2CC295" },
-          { label: "Needs review", value: batchTotals.mention, color: "#9A5B22" },
-          { label: "Bad leads", value: batchTotals.dq, color: "#B5443B" },
+          // Colours come from the shared tier palette, not repeated hexes,
+          // so a restyle of a tier cannot leave this rail behind.
+          ...TIER_ORDER.map((t) => ({ label: TIER_META[t].label, value: batchTotals[t], color: TIER_META[t].color })),
         ].map((s) => (
           <div key={s.label} className="kpi" style={{ borderLeftColor: s.color }}>
             <div className="kpi-label">{s.label}</div>

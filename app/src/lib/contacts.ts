@@ -161,6 +161,31 @@ function nameCompanyKeyOf(fullName: unknown, company: unknown): string | null {
   return n && co ? `namecompany:${n}|||${co}` : null;
 }
 
+// Third and fourth rungs of the dedup ladder, added because the first two
+// left a real hole: a row carrying only a name, or only a company, keyed
+// as null under BOTH of the rules above and therefore matched nothing —
+// so re-uploading the same export filed a brand new record for that row
+// every single time. Reproduced with a 4-row file uploaded three times:
+// the name-only and company-only rows ended up as three records each,
+// while the email and name+company rows correctly stayed at one.
+//
+// These two rungs are deliberately narrower than the first two, because
+// a single field is weaker evidence of identity:
+//   - name-only matches ONLY when exactly one contact on file carries
+//     that name. Two different Ana Cruzes at two different companies
+//     stay separate, and the row files fresh exactly as it does today.
+//   - company-only matches ONLY another company-only record — never a
+//     named person at that company, which would silently attach a
+//     nameless placeholder row onto a real human being.
+function nameOnlyKeyOf(fullName: unknown): string | null {
+  const n = normalizeText(fullName);
+  return n ? `name:${n}` : null;
+}
+function companyOnlyKeyOf(company: unknown): string | null {
+  const co = normalizeText(company);
+  return co ? `company:${co}` : null;
+}
+
 function fillBlank(oldVal: string, newVal: unknown): string {
   return oldVal || String(newVal || "").trim();
 }
@@ -170,21 +195,83 @@ function fillBlank(oldVal: string, newVal: unknown): string {
 // email triple without folding new data into it (attachScanResultsToContacts,
 // applyStickyState). mergeContactInputs below keeps its own index since it
 // mutates/re-registers entries as it folds a batch in.
-export function buildContactIndex(contacts: Contact[]): { byEmail: Map<string, Contact>; byNameCompany: Map<string, Contact> } {
-  const byEmail = new Map<string, Contact>();
-  const byNameCompany = new Map<string, Contact>();
-  contacts.forEach((c) => {
-    const ek = emailKeyOf(c.email);
-    if (ek) byEmail.set(ek, c);
-    const nk = nameCompanyKeyOf(c.fullName, c.company);
-    if (nk) byNameCompany.set(nk, c);
-  });
-  return { byEmail, byNameCompany };
+export interface ContactIndex {
+  byEmail: Map<string, Contact>;
+  byNameCompany: Map<string, Contact>;
+  // null marks an AMBIGUOUS name — two or more contacts on file share it,
+  // so a name-only row must not be auto-attached to either of them.
+  byNameOnly: Map<string, Contact | null>;
+  // Only ever holds records that have a company and NO name — the
+  // nameless "company placeholder" rows. See companyOnlyKeyOf.
+  byCompanyOnly: Map<string, Contact>;
 }
-export function lookupContact(index: { byEmail: Map<string, Contact>; byNameCompany: Map<string, Contact> }, fullName: string, company: string, email: string): Contact | undefined {
+
+export function newContactIndex(): ContactIndex {
+  return { byEmail: new Map(), byNameCompany: new Map(), byNameOnly: new Map(), byCompanyOnly: new Map() };
+}
+
+// Registering is idempotent per contact id, so a record that is re-indexed
+// after being merged into (mergeContactInputs does exactly that) never
+// makes its own name look ambiguous against itself.
+export function registerInContactIndex(index: ContactIndex, c: Contact): void {
+  const ek = emailKeyOf(c.email);
+  if (ek) index.byEmail.set(ek, c);
+  const nk = nameCompanyKeyOf(c.fullName, c.company);
+  if (nk) index.byNameCompany.set(nk, c);
+  const nameKey = nameOnlyKeyOf(c.fullName);
+  if (nameKey) {
+    const prior = index.byNameOnly.get(nameKey);
+    if (prior === undefined) index.byNameOnly.set(nameKey, c);
+    else if (prior && prior.id !== c.id) index.byNameOnly.set(nameKey, null);
+    else if (prior && prior.id === c.id) index.byNameOnly.set(nameKey, c);
+  }
+  if (!normalizeText(c.fullName)) {
+    const coKey = companyOnlyKeyOf(c.company);
+    if (coKey) index.byCompanyOnly.set(coKey, c);
+  }
+}
+
+export function buildContactIndex(contacts: Contact[]): ContactIndex {
+  const index = newContactIndex();
+  contacts.forEach((c) => registerInContactIndex(index, c));
+  return index;
+}
+
+// The dedup ladder, in strength order. The first two rungs are unchanged
+// from the original design; the last two exist only to catch rows that
+// carry a single identifying field, which previously keyed as nothing at
+// all and so duplicated on every re-upload. Each weaker rung is gated so
+// it can only fire when the stronger evidence is genuinely absent from
+// the ROW (not merely absent from the match), which is why a name+company
+// row never falls through to the name-only rung: a differing company is
+// real evidence that these are different people.
+export function lookupContact(index: ContactIndex, fullName: string, company: string, email: string): Contact | undefined {
   const emailKey = emailKeyOf(email);
+  if (emailKey) {
+    const hit = index.byEmail.get(emailKey);
+    if (hit) return hit;
+  }
   const nameCompanyKey = nameCompanyKeyOf(fullName, company);
-  return (emailKey && index.byEmail.get(emailKey)) || (nameCompanyKey && index.byNameCompany.get(nameCompanyKey)) || undefined;
+  if (nameCompanyKey) {
+    const hit = index.byNameCompany.get(nameCompanyKey);
+    if (hit) return hit;
+  }
+  const hasName = Boolean(normalizeText(fullName));
+  const hasCompany = Boolean(normalizeText(company));
+  if (hasName && !hasCompany) {
+    const nameKey = nameOnlyKeyOf(fullName);
+    // `null` here means ambiguous, and ambiguous must read as "no match"
+    // rather than as a match on whichever record happened to be indexed
+    // first.
+    const hit = nameKey ? index.byNameOnly.get(nameKey) : undefined;
+    if (hit) return hit;
+  }
+  if (!hasName && hasCompany) {
+    const coKey = companyOnlyKeyOf(company);
+    const hit = coKey ? index.byCompanyOnly.get(coKey) : undefined;
+    if (hit) return hit;
+  }
+  return undefined;
 }
 
 // "Worked" means real outreach activity is recorded against this person.
@@ -245,18 +332,16 @@ function contactInputsFromParsedFiles(parsedFiles: ParsedFile[]): ContactInput[]
 // CSV-upload path (mergeContactsFromParsedFiles) and the manual-add path
 // (mergeManualContact) — same dedup rules either way, so manually adding
 // someone who's already in the directory merges into their existing
-// record instead of creating a duplicate.
+// record instead of creating a duplicate. Uses the shared ContactIndex
+// rather than a private copy of the rules, so the ladder cannot drift
+// between this path and every read-only lookup elsewhere.
 function mergeContactInputs(existing: Contact[], inputs: ContactInput[]): { contacts: Contact[]; touched: Contact[]; added: number; updated: number } {
   const byId = new Map<string, Contact>(existing.map((c) => [c.id, c]));
-  const byEmail = new Map<string, Contact>();
-  const byNameCompany = new Map<string, Contact>();
-  const index = (c: Contact) => {
-    const ek = emailKeyOf(c.email);
-    if (ek) byEmail.set(ek, c);
-    const nk = nameCompanyKeyOf(c.fullName, c.company);
-    if (nk) byNameCompany.set(nk, c);
-  };
-  existing.forEach(index);
+  // Same index, same ladder, same ambiguity rules as every other lookup
+  // in this file — previously this path kept its own two-rung copy, which
+  // is how the name-only/company-only hole went unnoticed here.
+  const idx = buildContactIndex(existing);
+  const index = (c: Contact) => registerInContactIndex(idx, c);
   const touchedIds = new Set<string>();
   const now = new Date().toISOString();
   let added = 0;
@@ -268,15 +353,11 @@ function mergeContactInputs(existing: Contact[], inputs: ContactInput[]): { cont
     const email = String(f.email || "").trim();
     if (!fullName && !company && !email) return;
 
-    // Email first, name+company fallback — but check BOTH against what's
-    // already on file, not just whichever key this particular row happens
-    // to carry. Otherwise a contact first seen with no email (matched only
-    // by name+company) would never be found again once a later upload
-    // supplies their email, and would get filed as a brand new duplicate
-    // instead of merged.
-    const emailKey = emailKeyOf(email);
-    const nameCompanyKey = nameCompanyKeyOf(fullName, company);
-    const match = (emailKey && byEmail.get(emailKey)) || (nameCompanyKey && byNameCompany.get(nameCompanyKey)) || undefined;
+    // Full ladder, in lookupContact — every rung is checked against what
+    // is already on file, not just whichever key this particular row
+    // happens to carry, so a contact first seen without an email is still
+    // found once a later upload supplies one.
+    const match = lookupContact(idx, fullName, company, email);
 
     if (match) {
       const merged: Contact = {
@@ -450,6 +531,124 @@ export function mergeManualContact(existing: Contact[], input: ManualContactInpu
     workPhone: input.workPhone,
   };
   return mergeContactInputs(existing, [{ resolved, sourceFile: "Manually added" }]);
+}
+
+// Does this contact carry anything the detection engine actually scored?
+// Per Jack: "i just need to know when theres no lead data with that
+// contact or company overall, not how many times the system has flat out
+// seen the name." A contact with no tier, no category and no matched
+// snippet never cleared detection on any upload it appeared in — the row
+// existed, it simply had no Dynamics/M365/licensing signal on it (see
+// scanRowUnified's early returns). That is the real gap worth surfacing,
+// and it is a derived read of fields that already exist — no new field,
+// no new store.
+export function hasLeadData(c: Contact): boolean {
+  return Boolean(c.tier || c.category || String(c.matchedSnippet || "").trim());
+}
+
+// Which of two records survives a merge. Richer wins, so the merged row
+// keeps the better identity rather than whichever happened to be created
+// first: an email beats no email, then more populated fields, then the
+// earlier firstSeenAt as a stable tiebreak so the result does not depend
+// on array order.
+function dedupeKeepRank(c: Contact): number {
+  let score = 0;
+  if (normalizeText(c.email)) score += 1000;
+  if (normalizeText(c.fullName)) score += 100;
+  if (normalizeText(c.company)) score += 100;
+  [c.title, c.workPhone, c.mobilePhone, c.linkedinUrl, c.companyWebsite].forEach((v) => {
+    if (String(v || "").trim()) score += 1;
+  });
+  return score;
+}
+
+// Folds `dup` into `keep`. Additive in exactly the same sense as
+// mergeContactInputs — a value already on `keep` is never blanked — with
+// two deliberate exceptions that are SUMMED rather than picked, because
+// they are cumulative counts rather than facts about the person:
+// timesSeen, callCount and emailCount. If a duplicate record accrued its
+// own call/email activity while it was masquerading as a separate person,
+// that activity really happened and must survive the merge.
+function foldContact(keep: Contact, dup: Contact): Contact {
+  const merged: Contact = {
+    ...keep,
+    firstName: fillBlank(keep.firstName, dup.firstName),
+    lastName: fillBlank(keep.lastName, dup.lastName),
+    fullName: keep.fullName || dup.fullName,
+    title: fillBlank(keep.title, dup.title),
+    company: keep.company || dup.company,
+    email: keep.email || dup.email,
+    workPhone: fillBlank(keep.workPhone, dup.workPhone),
+    mobilePhone: fillBlank(keep.mobilePhone, dup.mobilePhone),
+    employees: fillBlank(keep.employees, dup.employees),
+    productArea: fillBlank(keep.productArea, dup.productArea),
+    sourceFiles: Array.from(new Set([...keep.sourceFiles, ...dup.sourceFiles])),
+    firstSeenAt: keep.firstSeenAt < dup.firstSeenAt ? keep.firstSeenAt : dup.firstSeenAt,
+    lastSeenAt: keep.lastSeenAt > dup.lastSeenAt ? keep.lastSeenAt : dup.lastSeenAt,
+    timesSeen: (keep.timesSeen || 0) + (dup.timesSeen || 0),
+    callCount: (keep.callCount || 0) + (dup.callCount || 0),
+    emailCount: (keep.emailCount || 0) + (dup.emailCount || 0),
+    category: keep.category || dup.category,
+    tier: keep.tier || dup.tier,
+    matchedSnippet: keep.matchedSnippet || dup.matchedSnippet,
+    // Sticky/manual state: whichever record carries a real value wins, and
+    // a true flag always beats an unset one — un-merging is not possible,
+    // so losing a manual mark is the worse failure.
+    disposition: keep.disposition && keep.disposition !== "none" ? keep.disposition : dup.disposition,
+    dispositionNote: fillBlank(String(keep.dispositionNote || ""), dup.dispositionNote) || undefined,
+    crossedOut: Boolean(keep.crossedOut || dup.crossedOut),
+    onCrm: Boolean(keep.onCrm || dup.onCrm),
+    meetingBookedAt: keep.meetingBookedAt || dup.meetingBookedAt,
+    outreachStatus: keep.outreachStatus || dup.outreachStatus,
+    ownerId: keep.ownerId || dup.ownerId,
+    timeZone: keep.timeZone || dup.timeZone,
+    linkedinUrl: keep.linkedinUrl || dup.linkedinUrl,
+    companyWebsite: keep.companyWebsite || dup.companyWebsite,
+  };
+  if (!merged.dispositionNote) delete merged.dispositionNote;
+  return merged;
+}
+
+// One-time (and thereafter idempotent) cleanup of duplicates that piled up
+// in the directory BEFORE the name-only/company-only rungs existed. Nothing
+// is deleted on a guess: two records only collapse if the live ladder in
+// lookupContact says they are the same identity, which is the same rule
+// every future upload will use.
+//
+// `remap` is not optional bookkeeping — OutreachAttempt.contactId and
+// Task.contactId both point at a contact id, so a caller that deletes a
+// folded record without re-pointing those would orphan real logged calls
+// and real open tasks. The caller is expected to apply it.
+export function dedupeExistingContacts(contacts: Contact[]): { contacts: Contact[]; merged: number; remap: Map<string, string> } {
+  const byId = new Map<string, Contact>();
+  const index = newContactIndex();
+  const remap = new Map<string, string>();
+  let merged = 0;
+
+  // Strongest records first, so the survivor of any collision is the one
+  // the ladder would have matched against anyway.
+  const ordered = [...contacts].sort((a, b) => dedupeKeepRank(b) - dedupeKeepRank(a) || String(a.firstSeenAt).localeCompare(String(b.firstSeenAt)));
+
+  ordered.forEach((c) => {
+    const hit = lookupContact(index, c.fullName, c.company, c.email);
+    if (hit && hit.id !== c.id) {
+      const folded = foldContact(hit, c);
+      byId.set(folded.id, folded);
+      byId.delete(c.id);
+      remap.set(c.id, folded.id);
+      registerInContactIndex(index, folded);
+      merged++;
+      return;
+    }
+    byId.set(c.id, c);
+    registerInContactIndex(index, c);
+  });
+
+  // Preserve the caller's original ordering for everything that survived,
+  // so a cleanup with nothing to do returns a list in the same order it
+  // came in and the UI does not reshuffle for no reason.
+  const survivors = contacts.map((c) => byId.get(c.id)).filter((c): c is Contact => Boolean(c));
+  return { contacts: survivors, merged, remap };
 }
 
 export function searchContacts(contacts: Contact[], query: string): Contact[] {

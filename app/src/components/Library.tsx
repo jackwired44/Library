@@ -26,6 +26,8 @@ import {
   renameGroup,
   deleteGroup,
   isMonthFolder,
+  folderRequiresPassword,
+  monthKeyFromGroupName,
   earliestMonthFolderLabel,
   getFolderEntries,
   getCombinedFolderExport,
@@ -47,6 +49,7 @@ import {
   type StoredRow,
 } from "../lib/library";
 import { hashFolderPassword, checkFolderPassword } from "../lib/folderAuth";
+import { checkMonthFolderPassword } from "../lib/auth";
 import { toCSV } from "../lib/csv";
 
 // Fields editable inline per lead — Product Area is controlled via the
@@ -109,7 +112,15 @@ export default function LibraryView({ backup, contacts, companyProfiles, entries
   const [unlockedFolderIds, setUnlockedFolderIds] = useState<Set<string>>(new Set());
 
   const monthFolders = useMemo(
-    () => groups.filter(isMonthFolder).sort((a, b) => new Date(`1 ${b.name}`).getTime() - new Date(`1 ${a.name}`).getTime()),
+    // Sort on the month KEY, not on a Date parsed from the folder name:
+    // "April and Past 2026" is not a parseable date, so name-parsing put it
+    // at NaN and its position became arbitrary. Keys sort newest-first as
+    // plain strings, and the archive key sorts last, which is where a
+    // catch-all for everything older belongs.
+    () =>
+      groups
+        .filter(isMonthFolder)
+        .sort((a, b) => String(monthKeyFromGroupName(b.name) || "").localeCompare(String(monthKeyFromGroupName(a.name) || ""))),
     [groups]
   );
   const customFolders = useMemo(
@@ -154,7 +165,17 @@ export default function LibraryView({ backup, contacts, companyProfiles, entries
   }
   async function handleUnlockFolder(id: string, password: string): Promise<boolean> {
     const group = groups.find((g) => g.id === id);
-    if (!group || !group.passwordHash || !group.passwordSalt) return false;
+    if (!group) return false;
+    // An auto month folder is gated by the one shared month-folder
+    // password, which lives as a salted hash in lib/auth.ts and has no
+    // per-folder salt of its own. A folder the user made private keeps
+    // using its own salt+hash, unchanged.
+    if (isMonthFolder(group)) {
+      const monthOk = await checkMonthFolderPassword(password);
+      if (monthOk) setUnlockedFolderIds((prev) => new Set(prev).add(id));
+      return monthOk;
+    }
+    if (!group.passwordHash || !group.passwordSalt) return false;
     const ok = await checkFolderPassword(password, group.passwordHash, group.passwordSalt);
     if (ok) setUnlockedFolderIds((prev) => new Set(prev).add(id));
     return ok;
@@ -309,7 +330,7 @@ export default function LibraryView({ backup, contacts, companyProfiles, entries
 
   const openFolder = openFolderId ? groups.find((g) => g.id === openFolderId) : null;
   if (openFolder) {
-    if (openFolder.isPrivate && !unlockedFolderIds.has(openFolder.id)) {
+    if (folderRequiresPassword(openFolder) && !unlockedFolderIds.has(openFolder.id)) {
       return <FolderPasswordGate folder={openFolder} onBack={handleBack} onUnlock={(password) => handleUnlockFolder(openFolder.id, password)} />;
     }
     return (
@@ -426,9 +447,9 @@ function FolderCard({ group, fileCount, onOpen, onDelete }: { group: LibraryGrou
   return (
     <div data-folder-id={group.id} style={{ position: "relative", border: "1px solid var(--border)", borderRadius: 10, background: "#fff" }}>
       <button onClick={onOpen} style={{ width: "100%", border: "none", background: "none", padding: 16, textAlign: "left", cursor: "pointer" }}>
-        <div style={{ fontSize: 26, marginBottom: 6 }}>{group.isPrivate ? "🔒" : "🗂️"}</div>
+        <div style={{ fontSize: 26, marginBottom: 6 }}>{folderRequiresPassword(group) ? "🔒" : "🗂️"}</div>
         <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 2 }}>{group.name}</div>
-        <div style={{ fontSize: 11.5, color: "#9aa1ac" }}>{fileCount} of 3 files{group.isPrivate ? " · Private" : ""}</div>
+        <div style={{ fontSize: 11.5, color: "#9aa1ac" }}>{fileCount} of 3 files{group.isPrivate ? " · Private" : isMonthFolder(group) ? " · Locked" : ""}</div>
       </button>
       {onDelete && (
         <button onClick={onDelete} title="Delete folder (files stay, just ungrouped)" style={{ position: "absolute", top: 8, right: 8, border: "none", background: "none", color: "#B5443B", fontSize: 12 }}>✕</button>
@@ -506,7 +527,20 @@ function FolderContents({
           ⬆ Upload CSV
         </button>
         <input ref={uploadInputRef} type="file" accept=".csv" multiple style={{ display: "none" }} onChange={(e) => { onUpload(e.target.files); e.target.value = ""; }} />
-        <PrivacyControls folder={folder} onSetPrivate={onSetPrivate} onSetPublic={onSetPublic} />
+        {/* An auto month folder's lock is fixed (one shared password for
+            all of them), so it has no per-folder privacy to set or clear —
+            offering "Make private" here would stack a second, different
+            password on top of the one that already gated entry. */}
+        {isMonthFolder(folder) ? (
+          <span
+            title="Every month folder is locked with the shared month folder password"
+            style={{ border: "1px solid #E7C79A", background: "#FBF3E7", color: "#8A5A00", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" }}
+          >
+            🔒 Locked
+          </span>
+        ) : (
+          <PrivacyControls folder={folder} onSetPrivate={onSetPrivate} onSetPublic={onSetPublic} />
+        )}
       </div>
       <div style={{ color: "#9aa1ac", fontSize: 12.5, marginBottom: 8 }}>{folderEntries.length} category file{folderEntries.length === 1 ? "" : "s"} filed · {combined.rowCount} total leads</div>
       {uploadNotice && <div style={{ color: "#2CC295", fontWeight: 600, fontSize: 13, marginBottom: 12 }}>{uploadNotice}</div>}
@@ -849,14 +883,21 @@ function FolderPasswordGate({ folder, onBack, onUnlock }: { folder: LibraryGroup
       <button onClick={onBack} style={{ border: "none", background: "none", color: "#4c6167", fontWeight: 600, marginBottom: 14, padding: 0, cursor: "pointer" }}>← Back to folders</button>
       <div style={{ maxWidth: 360, margin: "60px auto", textAlign: "center" }}>
         <div style={{ fontSize: 30, marginBottom: 10 }}>🔒</div>
-        <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 4 }}>{folder.name} is private</div>
-        <div style={{ color: "#9aa1ac", fontSize: 13, marginBottom: 18 }}>Enter this folder's password to view its files.</div>
+        <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 4 }}>
+          {folder.name} is {isMonthFolder(folder) ? "locked" : "private"}
+        </div>
+        <div style={{ color: "#9aa1ac", fontSize: 13, marginBottom: 18 }}>
+          {isMonthFolder(folder)
+            ? "Every month folder is locked. Enter the month folder password to view its files."
+            : "Enter this folder's password to view its files."}
+        </div>
         <input
           type="password"
           autoFocus
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && submit()}
+          aria-label="Folder password"
           placeholder="Folder password"
           style={{ width: "100%", padding: "11px 13px", fontSize: 15, border: "1px solid var(--border)", borderRadius: 9, boxSizing: "border-box", marginBottom: 10 }}
         />

@@ -5,9 +5,12 @@
 // more data fields and closer to an actual Apollo down the road" — this is
 // the seed of that (see CLAUDE.md Roadmap's "richer company-level data"
 // item) — start with the roll-up, layer in real company fields later.
-import type { Contact } from "./contacts";
+import { hasLeadData, type Contact } from "./contacts";
 import { mostCommonZone, resolveContactTimeZone, timeZoneFromLocation } from "./timezones";
-import { profileForCompany, type CompanyProfile } from "./companyProfiles";
+// normalizeCompanyKey is imported rather than redefined: companies are
+// GROUPED by it, so a second copy drifting would silently split or merge
+// real companies.
+import { normalizeCompanyKey, profileForCompany, type CompanyProfile } from "./companyProfiles";
 
 export interface Company {
   name: string; // first-seen casing/spelling
@@ -37,11 +40,14 @@ export interface Company {
   // Where timeZone came from: the profile's HQ state/country when there is
   // one, else the contacts' phone area codes, else nothing.
   timeZoneSource: "hq" | "contacts" | "unknown";
+  // True when nothing here has been scored or enriched: no imported Apollo
+  // profile, and not one contact the detection engine ever gave a tier,
+  // category or matched snippet to. Per Jack: "I just need to know when
+  // there's no lead data with that contact or company overall." Derived,
+  // like every other field on this rollup.
+  hasNoLeadData: boolean;
 }
 
-function normalizeCompanyKey(name: string): string {
-  return name.trim().toLowerCase().replace(/\s+/g, " ");
-}
 
 // Same exact-match normalization Contacts already uses for its own
 // name+company dedup fallback — no fuzzy matching, so "Adams Co" and
@@ -97,6 +103,7 @@ export function groupContactsByCompany(contacts: Contact[], profiles: CompanyPro
         timeZone: null,
         profile: null,
         timeZoneSource: "unknown",
+        hasNoLeadData: false,
       });
     }
   });
@@ -107,6 +114,10 @@ export function groupContactsByCompany(contacts: Contact[], profiles: CompanyPro
       co.key,
       co.contacts.flatMap((c) => [c.companyWebsite || "", c.email || ""]).filter(Boolean)
     );
+    // Computed HERE, before the timezone branch below, because that branch
+    // returns early for any company with an HQ location — putting this
+    // after it would silently skip every enriched company.
+    co.hasNoLeadData = !co.profile && !co.contacts.some((c) => hasLeadData(c));
     // HQ location is the better signal when we have it; contacts' phones
     // are the fallback. Never guessed beyond those two.
     const fromHq = co.profile ? timeZoneFromLocation(co.profile.state, co.profile.country) : null;

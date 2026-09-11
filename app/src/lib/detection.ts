@@ -23,6 +23,19 @@ export interface CategoryMeta {
   bucket: BucketKey;
 }
 
+// The three qualification tiers, as one definition. This lived as three
+// byte-identical private copies in Contacts.tsx, ContactDetail.tsx and
+// Lists.tsx; a palette repeated per component drifts the moment one of
+// them is restyled, and tier colour carries real meaning here.
+export const TIER_META: Record<Tier, { label: string; color: string; bg: string }> = {
+  signal: { label: "Strong Signal", color: "#2CC295", bg: "#E7F1EA" },
+  mention: { label: "Needs Review", color: "#9A5B22", bg: "#FBEBDD" },
+  dq: { label: "Bad Lead", color: "#B5443B", bg: "#FBEAE8" },
+};
+// Strongest first — the order every tier filter and every tier-ranked
+// sort in the app reads.
+export const TIER_ORDER: Tier[] = ["signal", "mention", "dq"];
+
 export const CATEGORY_META: Record<CategoryKey, CategoryMeta> = {
   m365Tenant: { label: "M365 / Azure", color: "#B34A1F", bg: "#FBE7DB", bucket: "m365Tenant" },
   dynamics365: { label: "Dynamics 365", color: "#5B3FC4", bg: "#EEEAFC", bucket: "dynamics" },

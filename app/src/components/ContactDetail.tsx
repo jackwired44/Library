@@ -11,7 +11,7 @@
 import { useMemo, useState } from "react";
 import ReachedBoard from "./ReachedBoard";
 import type { OutreachAttempt, AttemptChannel } from "../lib/outreachAttempts";
-import { CATEGORY_META, type Tier } from "../lib/detection";
+import { CATEGORY_META, TIER_META } from "../lib/detection";
 import { dispositionMetaFor, type CustomDisposition } from "../lib/dispositions";
 import { OUTREACH_STATUS_META, OUTREACH_STATUS_ORDER, type Contact, type OutreachStatus } from "../lib/contacts";
 import { lastActivityForContact, type Task } from "../lib/tasks";
@@ -23,11 +23,6 @@ import { useNow } from "../lib/useNow";
 import LocalTime from "./LocalTime";
 
 // Same tier labels/colors Contacts.tsx's own filter row uses.
-const TIER_META: Record<Tier, { label: string; color: string; bg: string }> = {
-  signal: { label: "Strong Signal", color: "#2CC295", bg: "#E7F1EA" },
-  mention: { label: "Needs Review", color: "#9A5B22", bg: "#FBEBDD" },
-  dq: { label: "Bad Lead", color: "#B5443B", bg: "#FBEAE8" },
-};
 
 interface ContactDetailProps {
   // Per-attempt outreach history — see lib/outreachAttempts.ts. Read-only

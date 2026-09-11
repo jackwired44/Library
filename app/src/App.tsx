@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Scanner from "./components/Scanner";
 import LibraryView from "./components/Library";
 import HistoryView from "./components/History";
@@ -9,6 +9,7 @@ import CheatSheet from "./components/CheatSheet";
 import PlatformNotes from "./components/PlatformNotes";
 import Home from "./components/Home";
 import Engage, { type EngageTab } from "./components/Engage";
+import OutboundSuccess from "./components/OutboundSuccess";
 import AccountPanel from "./components/AccountPanel";
 import {
   loadAttemptsFromDB,
@@ -25,7 +26,7 @@ import type { ParsedFile, ResultRow, RuleOverrides, NoSignalRow, DuplicateRow } 
 import { scanParsedFiles, DEFAULT_RULE_OVERRIDES } from "./lib/detection";
 import { loadLibraryFromDB, ensureMonthFoldersExist, pruneEmptyMonthFoldersBefore, persistGroup, deleteGroupFromDB, type LibraryEntry, type LibraryGroup } from "./lib/library";
 import { applyCompetitorDQ } from "./lib/companyProfiles";
-import { deleteContactsFromDB } from "./lib/contacts";
+import { deleteContactsFromDB, dedupeExistingContacts } from "./lib/contacts";
 import { applyStickyState, attachScanResultsToContacts, loadContactsFromDB, mergeContactsFromParsedFiles, mergeManualContact, persistContact, type Contact, type ManualContactInput } from "./lib/contacts";
 import {
   loadHistoryFromDB,
@@ -134,7 +135,7 @@ import {
   type WeeklyGoals,
 } from "./lib/weeklyGoals";
 
-type View = "home" | "scanner" | "history" | "library" | "engage";
+type View = "home" | "scanner" | "history" | "library" | "engage" | "outbound";
 // Sidebar destinations, flat and grouped — Apollo's model: no nesting,
 // no collapsible group, every destination one click away. The Engage
 // sub-tabs are surfaced here as top-level entries; they still render the
@@ -165,6 +166,7 @@ const NAV_GROUPS: { group: string | null; items: NavDest[] }[] = [
   {
     group: "Outreach",
     items: [
+      { key: "outbound", label: "Outbound success", icon: "\u{1F3AF}" },
       { key: "engage", tab: "sequences", label: "Sequences", icon: "\u{1F4E1}" },
       { key: "engage", tab: "emails", label: "Emails", icon: "\u2709\uFE0F" },
     ],
@@ -297,6 +299,10 @@ export default function App() {
   const [loadedDropped, setLoadedDropped] = useState<{ noSignalRows: NoSignalRow[]; duplicateRows: DuplicateRow[] } | null>(null);
 
   const [attempts, setAttempts] = useState<OutreachAttempt[]>([]);
+  const [attemptsLoading, setAttemptsLoading] = useState(true);
+  // One-line report of the one-time duplicate cleanup, so a merge is never
+  // silent. null until the pass has actually run.
+  const [dedupeNotice, setDedupeNotice] = useState<string | null>(null);
   const [libraryEntries, setLibraryEntries] = useState<LibraryEntry[]>([]);
   const [libraryGroups, setLibraryGroups] = useState<LibraryGroup[]>([]);
   const [libraryLoading, setLibraryLoading] = useState(true);
@@ -337,6 +343,66 @@ export default function App() {
     setIntegrity(runIntegrityChecks({ contacts, historyEntries, libraryEntries, leadLists, tasks }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contacts, historyEntries, libraryEntries, leadLists, tasks, contactsLoading, historyLoading, libraryLoading, leadListsLoading, tasksLoading]);
+
+  // One-time duplicate cleanup. Contacts carrying only a name, or only a
+  // company, used to key as nothing at all and so filed a brand new record
+  // on every re-upload of the same export — reproduced by uploading one
+  // 4-row file three times and ending up with 8 contacts. The widened
+  // ladder in lib/contacts.ts stops that happening again; this pass folds
+  // together the duplicates that already accumulated.
+  //
+  // Gated on ALL THREE stores being loaded, not just contacts: folding a
+  // record deletes it, and OutreachAttempt.contactId / Task.contactId both
+  // point at a contact id. Running before those arrays are populated would
+  // re-point nothing and orphan real logged calls and real open tasks.
+  // Idempotent by construction — a second run finds nothing to merge — so
+  // there is no "already ran" flag persisted anywhere; the ref only stops
+  // it re-entering within a single mount.
+  const dedupeRan = useRef(false);
+  useEffect(() => {
+    if (dedupeRan.current) return;
+    if (contactsLoading || tasksLoading || attemptsLoading) return;
+    dedupeRan.current = true;
+    const { contacts: cleaned, merged, remap } = dedupeExistingContacts(contacts);
+    if (merged === 0) return;
+
+    // Persist only the SURVIVORS of a fold, not the whole directory — at
+    // Jack's real volume rewriting every contact would be thousands of
+    // needless IndexedDB writes.
+    const survivorIds = new Set(remap.values());
+    setContacts(cleaned);
+    cleaned.forEach((c) => { if (survivorIds.has(c.id)) persistContact(c); });
+    deleteContactsFromDB([...remap.keys()]);
+
+    // Re-point the two stores that reference a contact id. Computed OUT
+    // HERE, not inside the setState updaters: an updater can be invoked
+    // more than once for a single update, and writing to IndexedDB from
+    // inside one would fire those writes twice. Reading the arrays
+    // directly is safe because this effect only runs once both have
+    // finished loading.
+    const remappedAttempts = attempts
+      .filter((a) => remap.has(a.contactId))
+      .map((a) => ({ ...a, contactId: remap.get(a.contactId) as string }));
+    const remappedTasks = tasks
+      .filter((t) => t.contactId && remap.has(t.contactId))
+      .map((t) => ({ ...t, contactId: remap.get(t.contactId as string) as string }));
+    remappedAttempts.forEach(persistAttempt);
+    remappedTasks.forEach(persistTask);
+    if (remappedAttempts.length) {
+      const byId = new Map(remappedAttempts.map((a) => [a.id, a]));
+      setAttempts((prev) => prev.map((a) => byId.get(a.id) || a));
+    }
+    if (remappedTasks.length) {
+      const byId = new Map(remappedTasks.map((t) => [t.id, t]));
+      setTasks((prev) => prev.map((t) => byId.get(t.id) || t));
+    }
+
+    setDedupeNotice(
+      `Merged ${merged} duplicate contact record${merged === 1 ? "" : "s"} that had accumulated from re-uploading the same files. ` +
+        `Calls, emails, tasks and notes from each duplicate were kept and moved onto the surviving record — nothing was discarded.`
+    );
+  }, [contactsLoading, tasksLoading, attemptsLoading, contacts, tasks, attempts]);
+
   const [leadListsError, setLeadListsError] = useState<string | null>(null);
 
   // Native Sequences (Phase 1 of the Outbound Engine) — see CLAUDE.md
@@ -409,7 +475,9 @@ export default function App() {
         setLibraryError("Couldn't load previously saved files from this browser's local storage.");
         setLibraryLoading(false);
       });
-    loadAttemptsFromDB().then(setAttempts).catch(() => {});
+    loadAttemptsFromDB()
+      .then((loaded) => { setAttempts(loaded); setAttemptsLoading(false); })
+      .catch(() => { setAttemptsLoading(false); });
     loadHistoryFromDB()
       .then((entries) => {
         setHistoryEntries(entries);
@@ -1412,6 +1480,15 @@ export default function App() {
       </aside>
 
       <main className="app-main">
+        {dedupeNotice && (
+          <div className="integrity-alert" role="status" style={{ borderLeftColor: "var(--accent)" }}>
+            <div className="integrity-title">Duplicate contacts cleaned up</div>
+            <div className="integrity-detail" style={{ marginTop: 4 }}>{dedupeNotice}</div>
+            <div style={{ marginTop: 8 }}>
+              <button className="btn btn-sm btn-secondary" onClick={() => setDedupeNotice(null)}>Dismiss</button>
+            </div>
+          </div>
+        )}
         {/* Metrics integrity. Visible on every screen because a number
             that disagrees with itself is not a Home problem — and stating
             both figures is the point: "13,863 counted vs 13,847 grouped"
@@ -1591,6 +1668,14 @@ export default function App() {
               onUpdateEntry={updateHistoryEntry}
               onClearHistory={clearHistory}
               libraryEntries={libraryEntries}
+            />
+          )}
+          {view === "outbound" && (
+            <OutboundSuccess
+              contacts={contacts}
+              attempts={attempts}
+              dispositions={dispositions}
+              loading={contactsLoading}
             />
           )}
           {view === "library" && (

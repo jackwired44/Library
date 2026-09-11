@@ -74,6 +74,7 @@ export default function Companies({ contacts, onAddContact, onUpdateContact, use
   const [industryFilter, setIndustryFilter] = useState<Set<string>>(new Set());
   const [sizeFilter, setSizeFilter] = useState<string>("all");
   const [competitorFilter, setCompetitorFilter] = useState<"all" | "only" | "hide">("all");
+  const [leadDataFilter, setLeadDataFilter] = useState<"all" | "has" | "none">("all");
 
   const companies = useMemo(() => groupContactsByCompany(contacts, companyProfiles), [contacts, companyProfiles]);
   const enrichedCount = useMemo(() => companies.filter((c) => c.profile).length, [companies]);
@@ -148,11 +149,12 @@ export default function Companies({ contacts, onAddContact, onUpdateContact, use
   const competitorCount = useMemo(() => companies.filter(isCompetitor).length, [companies]);
 
   const activeFilterCount =
-    industryFilter.size + (sizeFilter !== "all" ? 1 : 0) + (competitorFilter !== "all" ? 1 : 0);
+    industryFilter.size + (sizeFilter !== "all" ? 1 : 0) + (competitorFilter !== "all" ? 1 : 0) + (leadDataFilter !== "all" ? 1 : 0);
   function clearAllFilters() {
     setIndustryFilter(new Set());
     setSizeFilter("all");
     setCompetitorFilter("all");
+    setLeadDataFilter("all");
   }
 
   const filtered = useMemo(() => {
@@ -164,13 +166,15 @@ export default function Companies({ contacts, onAddContact, onUpdateContact, use
     }
     if (competitorFilter === "only") list = list.filter(isCompetitor);
     else if (competitorFilter === "hide") list = list.filter((c) => !isCompetitor(c));
+    if (leadDataFilter === "has") list = list.filter((c) => !c.hasNoLeadData);
+    else if (leadDataFilter === "none") list = list.filter((c) => c.hasNoLeadData);
     const sorted = [...list];
     if (sort === "recent") sorted.sort((a, b) => new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime());
     else if (sort === "name") sorted.sort((a, b) => a.name.localeCompare(b.name));
     else if (sort === "contactCount") sorted.sort((a, b) => b.contactCount - a.contactCount);
     return sorted;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companies, search, sort, industryFilter, sizeFilter, competitorFilter]);
+  }, [companies, search, sort, industryFilter, sizeFilter, competitorFilter, leadDataFilter]);
 
   // Paginated for the same measured reason Contacts is (see the note in
   // Contacts.tsx) — a real directory rolls up to ~1,000 companies, and
@@ -228,6 +232,21 @@ export default function Companies({ contacts, onAddContact, onUpdateContact, use
                       </span>
                     </label>
                   ))}
+                </div>
+                <div className="filter-group">
+                  <div className="filter-group-title">Lead data</div>
+                  <label className="filter-opt">
+                    <input type="radio" name="colead" checked={leadDataFilter === "all"} onChange={() => setLeadDataFilter("all")} />
+                    All
+                  </label>
+                  <label className="filter-opt">
+                    <input type="radio" name="colead" checked={leadDataFilter === "has"} onChange={() => setLeadDataFilter("has")} />
+                    Has lead data
+                  </label>
+                  <label className="filter-opt" title="No Apollo profile, and no contact here was ever scored by detection">
+                    <input type="radio" name="colead" checked={leadDataFilter === "none"} onChange={() => setLeadDataFilter("none")} />
+                    No lead data
+                  </label>
                 </div>
                 <div className="filter-group">
                   <div className="filter-group-title">Competitors / IT services</div>
@@ -315,6 +334,9 @@ export default function Companies({ contacts, onAddContact, onUpdateContact, use
               <button title="Remove" onClick={() => setSizeFilter("all")}>✕</button>
             </span>
           )}
+          {leadDataFilter !== "all" && (
+            <span className="chip">{leadDataFilter === "has" ? "Has lead data" : "No lead data"}<button onClick={() => setLeadDataFilter("all")} title="Remove">✕</button></span>
+          )}
           {competitorFilter !== "all" && (
             <span className="chip">
               {competitorFilter === "only" ? "Competitors only" : "Competitors hidden"}
@@ -376,7 +398,7 @@ export default function Companies({ contacts, onAddContact, onUpdateContact, use
                 <th style={{ padding: "9px 12px" }}>Employees</th>
                 <th style={{ padding: "9px 12px" }}>HQ</th>
                 <th style={{ padding: "9px 12px" }}>Contacts</th>
-                <th style={{ padding: "9px 12px" }}>Times seen</th>
+                <th style={{ padding: "9px 12px" }} title="How many distinct uploaded files this company appears in — not how many rows mentioned it">In files</th>
                 <th style={{ padding: "9px 12px" }}>Last seen</th>
                 <th style={{ padding: "9px 12px" }}>Sources</th>
               </tr>
@@ -388,12 +410,27 @@ export default function Companies({ contacts, onAddContact, onUpdateContact, use
                   <Fragment key={co.key}>
                     <tr style={{ borderTop: "1px solid var(--border)", cursor: "pointer" }} onClick={() => setExpandedKey(expanded ? null : co.key)}>
                       <td style={{ padding: "9px 12px", color: "var(--muted)" }}>{expanded ? "▾" : "▸"}</td>
-                      <td style={{ padding: "9px 12px", fontWeight: 600 }}>{co.name}</td>
+                      <td style={{ padding: "9px 12px", fontWeight: 600 }}>
+                        {co.name}
+                        {co.hasNoLeadData && (
+                          <span
+                            style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700, color: "#8A5A00", background: "#FFF7E5", borderRadius: 999, padding: "2px 9px", whiteSpace: "nowrap" }}
+                            title="No Apollo profile imported, and not one contact here was ever scored by detection."
+                          >
+                            No lead data
+                          </span>
+                        )}
+                      </td>
                       <td style={{ padding: "9px 12px", color: "var(--muted)", fontSize: 12 }}>{co.profile?.industry || "—"}</td>
                       <td style={{ padding: "9px 12px", color: "var(--muted)", fontSize: 12 }}>{co.profile?.employees || "—"}</td>
                       <td style={{ padding: "9px 12px", color: "var(--muted)", fontSize: 12 }}>{profileLocationLabel(co.profile) || "—"}</td>
                       <td style={{ padding: "9px 12px" }}>{co.contactCount}</td>
-                      <td style={{ padding: "9px 12px" }}>{co.totalTimesSeen}×</td>
+                      <td
+                        style={{ padding: "9px 12px", whiteSpace: "nowrap" }}
+                        title={`Appears in ${co.sourceFiles.length} uploaded file${co.sourceFiles.length === 1 ? "" : "s"}. Raw row occurrences across every upload: ${co.totalTimesSeen}.`}
+                      >
+                        {co.sourceFiles.length}
+                      </td>
                       <td style={{ padding: "9px 12px", whiteSpace: "nowrap" }} title={new Date(co.lastSeenAt).toLocaleString()}>
                         {new Date(co.lastSeenAt).toLocaleDateString()}
                       </td>

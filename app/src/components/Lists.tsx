@@ -4,7 +4,7 @@
 // lists here. Adding happens in Scanner.tsx; this view only renames,
 // removes a lead, deletes a list, and downloads.
 import { useState } from "react";
-import { CATEGORY_META, EXPORT_LABELS } from "../lib/detection";
+import { CATEGORY_META, EXPORT_LABELS, TIER_META, type Tier } from "../lib/detection";
 import { downloadCSV } from "../lib/csv";
 import type { LeadList } from "../lib/leadLists";
 
@@ -16,12 +16,6 @@ interface ListsProps {
   onDelete: (id: string) => void;
   onRemoveRow: (listId: string, rowKey: string) => void;
 }
-
-const TIER_LABEL: Record<string, { label: string; color: string; bg: string }> = {
-  signal: { label: "Strong Signal", color: "#2CC295", bg: "#E7F1EA" },
-  mention: { label: "Needs Review", color: "#9A5B22", bg: "#FBEBDD" },
-  dq: { label: "Bad Lead", color: "#B5443B", bg: "#FBEAE8" },
-};
 
 export default function ListsView({ lists, loading, error, onRename, onDelete, onRemoveRow }: ListsProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -126,7 +120,7 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
                         <tbody>
                           {list.rows.map((r) => {
                             const catMeta = CATEGORY_META[r.__category];
-                            const tierMeta = TIER_LABEL[r.__tier] || TIER_LABEL.mention;
+                            const tierMeta = TIER_META[r.__tier as Tier] || TIER_META.mention;
                             return (
                               <tr key={r.__rowKey} style={{ borderTop: "1px solid var(--border)" }}>
                                 <td style={{ padding: "7px 12px", fontSize: 12.5 }}>{r["Company Name"] || "—"}</td>

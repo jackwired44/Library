@@ -10,8 +10,8 @@
 // and clicking "Enrich via Apollo" runs a live, viewer-driven Apollo
 // people-match pass (see lib/apolloEnrich.ts) — never automatic.
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { OUTREACH_STATUS_META, isWorked, type Contact, searchContacts } from "../lib/contacts";
-import { CATEGORY_META, DISPOSITION_GROUP_LABEL, type Tier } from "../lib/detection";
+import { OUTREACH_STATUS_META, hasLeadData, isWorked, type Contact, searchContacts } from "../lib/contacts";
+import { CATEGORY_META, DISPOSITION_GROUP_LABEL, TIER_META, TIER_ORDER, type Tier } from "../lib/detection";
 import { dispositionMetaFor, dispositionOptions, type CustomDisposition, isConnectedDisposition } from "../lib/dispositions";
 import { checkApolloAvailability, enrichContactsViaApollo, type EnrichOutcome } from "../lib/apolloEnrich";
 import ContactDetail from "./ContactDetail";
@@ -34,12 +34,6 @@ const MAX_ENRICH_BATCH = 10;
 const PAGE_SIZE = 25;
 const PAGE_SIZE_CHOICES = [25, 50, 100, 250, 500] as const;
 
-const TIER_META: Record<Tier, { label: string; color: string; bg: string }> = {
-  signal: { label: "Strong Signal", color: "#2CC295", bg: "#E7F1EA" },
-  mention: { label: "Needs Review", color: "#9A5B22", bg: "#FBEBDD" },
-  dq: { label: "Bad Lead", color: "#B5443B", bg: "#FBEAE8" },
-};
-const TIER_ORDER: Tier[] = ["signal", "mention", "dq"];
 
 interface ContactsProps {
   contacts: Contact[];
@@ -72,7 +66,7 @@ interface ContactsProps {
   initialWorkedFilter?: WorkedFilter;
 }
 
-type SortKey = "recent" | "name" | "company" | "timesSeen";
+type SortKey = "recent" | "name" | "company" | "fileCount";
 
 const PRIORITY_META: Record<TaskPriority, { label: string; color: string; bg: string; rank: number }> = {
   high: { label: "High", color: "#B5443B", bg: "#FBE4E1", rank: 0 },
@@ -111,6 +105,10 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
   // "Not worked yet" = no call and no email logged against them. The one
   // filter Home's pipeline tile needs that the list didn't already have.
   const [workedFilter, setWorkedFilter] = useState<WorkedFilter>(initialWorkedFilter || "all");
+  // "Does this contact have anything the engine actually scored?" — the
+  // gap Jack asked to surface, filterable so it can be worked, not just
+  // counted. Reads hasLeadData; adds no field of its own.
+  const [leadDataFilter, setLeadDataFilter] = useState<"all" | "has" | "none">("all");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -235,7 +233,7 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
     if (sort === "recent") sorted.sort((a, b) => new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime());
     else if (sort === "name") sorted.sort((a, b) => a.fullName.localeCompare(b.fullName));
     else if (sort === "company") sorted.sort((a, b) => a.company.localeCompare(b.company));
-    else if (sort === "timesSeen") sorted.sort((a, b) => b.timesSeen - a.timesSeen);
+    else if (sort === "fileCount") sorted.sort((a, b) => b.sourceFiles.length - a.sourceFiles.length);
     return sorted;
   }, [contacts, search, sort]);
 
@@ -267,6 +265,8 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
     if (tierFilter !== "all") list = list.filter((c) => c.tier === tierFilter);
     if (workedFilter === "unworked") list = list.filter((c) => !isWorked(c));
     if (workedFilter === "worked") list = list.filter((c) => isWorked(c));
+    if (leadDataFilter === "has") list = list.filter((c) => hasLeadData(c));
+    if (leadDataFilter === "none") list = list.filter((c) => !hasLeadData(c));
     // Compare LOCAL calendar days on both ends. lastSeenAt is a UTC ISO
     // stamp, so a contact merged at 8pm Central on the 8th reads as the
     // 9th in UTC and used to fall outside a "to the 8th" filter — every
@@ -274,7 +274,7 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
     if (dateFrom) list = list.filter((c) => localDayKeyFromIso(c.lastSeenAt) >= dateFrom);
     if (dateTo) list = list.filter((c) => localDayKeyFromIso(c.lastSeenAt) <= dateTo);
     return list;
-  }, [searched, dispositionFilter, tierFilter, workedFilter, dateFrom, dateTo]);
+  }, [searched, dispositionFilter, tierFilter, workedFilter, leadDataFilter, dateFrom, dateTo]);
 
   const workedCounts = useMemo(() => {
     let worked = 0;
@@ -328,11 +328,18 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
 
   // How many filters are actually narrowing the list — drives the count
   // badge on the Filters button and whether the chip row renders at all.
+  const leadDataCounts = useMemo(() => {
+    let has = 0;
+    searched.forEach((c) => { if (hasLeadData(c)) has++; });
+    return { has, none: searched.length - has };
+  }, [searched]);
+
   const activeFilterCount =
-    (tierFilter !== "all" ? 1 : 0) + dispositionFilter.size + (dateFrom || dateTo ? 1 : 0) + (workedFilter !== "all" ? 1 : 0);
+    (tierFilter !== "all" ? 1 : 0) + dispositionFilter.size + (dateFrom || dateTo ? 1 : 0) + (workedFilter !== "all" ? 1 : 0) + (leadDataFilter !== "all" ? 1 : 0);
   function clearAllFilters() {
     setTierFilter("all");
     setWorkedFilter("all");
+    setLeadDataFilter("all");
     setDispositionFilter(new Set());
     setDateFrom("");
     setDateTo("");
@@ -368,7 +375,7 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
           <option value="recent">Most recently seen</option>
           <option value="name">Name (A–Z)</option>
           <option value="company">Company (A–Z)</option>
-          <option value="timesSeen">Times seen (most first)</option>
+          <option value="fileCount">In most files</option>
         </select>
         <div className="filter-wrap">
           <button className={`filter-btn${activeFilterCount > 0 ? " on" : ""}`} onClick={() => setFiltersOpen((v) => !v)}>
@@ -379,6 +386,24 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
             <>
               <div className="filter-pop-backdrop" onClick={() => setFiltersOpen(false)} />
               <div className="filter-pop">
+                <div className="filter-group">
+                  <div className="filter-group-title">Lead data</div>
+                  <label className="filter-opt">
+                    <input type="radio" name="leaddata" checked={leadDataFilter === "all"} onChange={() => setLeadDataFilter("all")} />
+                    All
+                    <span className="filter-opt-count">{searched.length}</span>
+                  </label>
+                  <label className="filter-opt">
+                    <input type="radio" name="leaddata" checked={leadDataFilter === "has"} onChange={() => setLeadDataFilter("has")} />
+                    Has lead data
+                    <span className="filter-opt-count">{leadDataCounts.has}</span>
+                  </label>
+                  <label className="filter-opt" title="Detection never scored these — no product line, tier or matched snippet on any upload they appeared in">
+                    <input type="radio" name="leaddata" checked={leadDataFilter === "none"} onChange={() => setLeadDataFilter("none")} />
+                    No lead data
+                    <span className="filter-opt-count">{leadDataCounts.none}</span>
+                  </label>
+                </div>
                 <div className="filter-group">
                   <div className="filter-group-title">Tier</div>
                   <label className="filter-opt">
@@ -461,6 +486,9 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
               <button title="Remove" onClick={() => setDispositionFilter((prev) => { const n = new Set(prev); n.delete(d); return n; })}>✕</button>
             </span>
           ))}
+          {leadDataFilter !== "all" && (
+            <span className="chip">{leadDataFilter === "has" ? "Has lead data" : "No lead data"}<button onClick={() => setLeadDataFilter("all")} title="Remove">✕</button></span>
+          )}
           {workedFilter !== "all" && (
             <span className="chip">{WORKED_LABEL[workedFilter]}<button onClick={() => setWorkedFilter("all")} title="Remove">✕</button></span>
           )}
@@ -648,7 +676,7 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
                 <th style={{ padding: "9px 12px" }}>Matched snippet</th>
                 <th style={{ padding: "9px 12px" }}>Outreach</th>
                 <th style={{ padding: "9px 12px" }} title="How many times this lead has been tried, and how the last attempt went">Reached</th>
-                <th style={{ padding: "9px 12px" }}>Seen</th>
+                <th style={{ padding: "9px 12px" }} title="How many distinct uploaded files this contact appears in — not how many rows mentioned them">In files</th>
                 <th style={{ padding: "9px 12px" }}>Sources</th>
                 <th style={{ padding: "9px 12px" }}></th>
               </tr>
@@ -724,8 +752,15 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
                         <span style={{ fontSize: 10.5, fontWeight: 700, color: CATEGORY_META[c.category].color, background: CATEGORY_META[c.category].bg, borderRadius: 999, padding: "2px 9px", whiteSpace: "nowrap" }}>
                           {CATEGORY_META[c.category].label}
                         </span>
-                      ) : (
+                      ) : hasLeadData(c) ? (
                         <span style={{ color: "var(--muted)" }}>—</span>
+                      ) : (
+                        <span
+                          style={{ fontSize: 10.5, fontWeight: 700, color: "#8A5A00", background: "#FFF7E5", borderRadius: 999, padding: "2px 9px", whiteSpace: "nowrap" }}
+                          title="Detection never scored this contact on any upload they appeared in — no product line, no tier, no matched snippet."
+                        >
+                          No lead data
+                        </span>
                       )}
                     </td>
                     <td style={{ padding: "9px 12px" }}>
@@ -770,8 +805,11 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
                         );
                       })()}
                     </td>
-                    <td style={{ padding: "9px 12px", whiteSpace: "nowrap" }} title={new Date(c.lastSeenAt).toLocaleString()}>
-                      {c.timesSeen}× · {new Date(c.lastSeenAt).toLocaleDateString()}
+                    <td
+                      style={{ padding: "9px 12px", whiteSpace: "nowrap" }}
+                      title={`Appears in ${c.sourceFiles.length} uploaded file${c.sourceFiles.length === 1 ? "" : "s"}. Last seen ${new Date(c.lastSeenAt).toLocaleString()}. Raw row occurrences across every upload: ${c.timesSeen}.`}
+                    >
+                      In {c.sourceFiles.length} file{c.sourceFiles.length === 1 ? "" : "s"} · {new Date(c.lastSeenAt).toLocaleDateString()}
                     </td>
                     <td style={{ padding: "9px 12px", color: "var(--muted)", fontSize: 12 }} title={c.sourceFiles.join(", ")}>
                       {c.sourceFiles.length === 1 ? c.sourceFiles[0] : `${c.sourceFiles.length} files`}

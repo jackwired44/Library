@@ -54,6 +54,26 @@ export async function checkScannerPassword(input: string): Promise<boolean> {
   return (await sha256Hex(`${APP_SALT}:${input}`)) === EFFECTIVE_SCANNER_HASH;
 }
 
+// A THIRD gate, on opening a Lead Library month folder, per Jack: "make
+// the password for each month folder 'wiredcio'." One shared password
+// across every month folder, not one per folder — that is what he asked
+// for, and it is what the single constant below means.
+//
+// Same honest ceiling as the other two: a salted hash in the page, no
+// server, no rate limiting. The filed leads still live in this browser's
+// IndexedDB either way, so this keeps a folder from being opened in front
+// of someone; it is not an authorization boundary over the data.
+//
+// Unlock state is per-session React state in Library.tsx, never persisted
+// — same rule as the Scanner gate, so closing the tab re-locks every
+// folder.
+const MONTH_FOLDER_PASSWORD_HASH = "57663bb5df0ad165a1aae89b42cef650f8aeb34164bdebe35e02ec7e3f9158ce";
+const EFFECTIVE_MONTH_FOLDER_HASH =
+  (import.meta.env?.VITE_APP_MONTH_FOLDER_HASH as string | undefined) || MONTH_FOLDER_PASSWORD_HASH;
+export async function checkMonthFolderPassword(input: string): Promise<boolean> {
+  return (await sha256Hex(`${APP_SALT}:${input}`)) === EFFECTIVE_MONTH_FOLDER_HASH;
+}
+
 export async function sha256Hex(text: string): Promise<string> {
   const data = new TextEncoder().encode(text);
   const digest = await crypto.subtle.digest("SHA-256", data);

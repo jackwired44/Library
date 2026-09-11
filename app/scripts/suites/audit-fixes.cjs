@@ -16,6 +16,12 @@ const out = []; const ck = (n,c) => { out.push(!!c); console.log((c?'PASS':'FAIL
    const f = page.locator('input[aria-label="Scanner password"]');
    if (await f.count()) { await f.fill('changeme'); await page.locator('button:has-text("Unlock scanner")').click(); await page.waitForTimeout(500); }
  };
+  const unlockFolder = async () => {
+    // Every Lead Library month folder is password-gated now. The test build
+    // substitutes the placeholder hash, so 'changeme' opens it.
+    const f = page.locator('input[aria-label="Folder password"]');
+    if (await f.count()) { await f.fill('changeme'); await page.locator('button:has-text("Unlock folder")').click(); await page.waitForTimeout(800); }
+  };
   const nav = async l => { await page.locator(`aside button`).filter({hasText:l}).first().click(); await sleep(450); await __unlockScanner(); };
   const TAB_LABEL={sequences:'Sequences',tasks:'Tasks',calls:'Calls',emails:'Emails',companies:'Companies',contacts:'Contacts',lists:'Lists'};
   const engage = async t => { await nav(TAB_LABEL[t]); await sleep(550); };
@@ -55,6 +61,7 @@ const out = []; const ck = (n,c) => { out.push(!!c); console.log((c?'PASS':'FAIL
   await nav('Lead library');
   const folder = page.locator('main button').filter({ hasText: /20\d\d/ }).first();
   await folder.click(); await sleep(700);
+  await unlockFolder();
   const up = page.locator('main input[type="file"]').first();
   if (await up.count()) { await up.setInputFiles(`${SP}/vfix.csv`); await sleep(2000); }
   await engage('contacts');

@@ -102,7 +102,20 @@ function newId(prefix: string) {
 export function monthKeyFromDate(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
+// A single catch-all folder for everything that happened before the
+// May-2026 cutoff — per Jack: "for lead library under month folders add in
+// an April and Past 2026." One bucket rather than re-creating the twelve
+// individual pre-May folders the cutoff was introduced to get rid of.
+//
+// The key is deliberately NOT a parseable month. It sorts lexically just
+// before "2026-05" so the folder lands first in the grid, but nothing can
+// accidentally treat it as April 2026 and start filing single-month data
+// into it.
+export const ARCHIVE_MONTH_KEY = "2026-04-and-past";
+export const ARCHIVE_MONTH_LABEL = "April and Past 2026";
+
 export function monthLabelFromKey(key: string): string {
+  if (key === ARCHIVE_MONTH_KEY) return ARCHIVE_MONTH_LABEL;
   const [y, m] = key.split("-").map(Number);
   return new Date(y, m - 1, 1).toLocaleString(undefined, { month: "long", year: "numeric" });
 }
@@ -111,6 +124,7 @@ export function monthLabelFromKey(key: string): string {
 // instead of guessing. Returns null for a manually-named group.
 export function monthKeyFromGroupName(name: string | null | undefined): string | null {
   if (!name) return null;
+  if (name === ARCHIVE_MONTH_LABEL) return ARCHIVE_MONTH_KEY;
   const d = new Date(`1 ${name}`);
   return isNaN(d.getTime()) ? null : monthKeyFromDate(d);
 }
@@ -147,7 +161,8 @@ export function earliestMonthFolderLabel(): string {
 }
 export function getRequiredMonthKeys(): string[] {
   const now = new Date();
-  const keys: string[] = [];
+  // The archive bucket always exists and always comes first.
+  const keys: string[] = [ARCHIVE_MONTH_KEY];
   let d = new Date(EARLIEST_MONTH_FOLDER.getFullYear(), EARLIEST_MONTH_FOLDER.getMonth(), 1);
   const end = new Date(now.getFullYear(), now.getMonth(), 1);
   while (d.getTime() <= end.getTime()) {
@@ -185,6 +200,11 @@ export function pruneEmptyMonthFoldersBefore(
     // if the name happens to parse as a month.
     if (g.isAutoMonthFolder === false) return true;
     const key = monthKeyFromGroupName(g.name);
+    // Explicit, not incidental: the archive key sorts BELOW the cutoff
+    // under the string compare below, so without this guard an empty
+    // "April and Past 2026" would be pruned on every load — created by
+    // ensureMonthFoldersExist, deleted by the prune, forever.
+    if (key === ARCHIVE_MONTH_KEY) return true;
     if (!key || key >= cutoff) return true;
     const fileCount = entries.filter((e) => e.groupId === g.id).length;
     if (fileCount > 0) {
@@ -209,6 +229,19 @@ export function ensureMonthFoldersExist(groups: LibraryGroup[]): { groups: Libra
     created.push(group);
   });
   return { groups: working, created };
+}
+
+// Does opening this folder need a password? Two independent reasons, and
+// they are deliberately kept apart:
+//   - isPrivate is a per-folder password the user set themselves, with its
+//     own salt (lib/folderAuth.ts).
+//   - every AUTO month folder is gated by one shared password, per Jack:
+//     "make the password for each month folder 'wiredcio'."
+// Derived rather than stamped onto the stored record, so no existing group
+// has to be migrated and the "make public" control still only ever governs
+// a folder the user made private themselves.
+export function folderRequiresPassword(group: LibraryGroup): boolean {
+  return group.isPrivate || isMonthFolder(group);
 }
 
 export function isMonthFolder(group: LibraryGroup): boolean {

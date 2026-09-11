@@ -178,7 +178,15 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   b = await body();
   check('Library: month folder shows filed leads', /Lead Library|Library/.test(b) && /September 2026|files? filed|leads/.test(b));
   const folder = page.locator('button', { hasText: 'September 2026' }).first();
-  if (await folder.count()) { await folder.click(); await sleep(400); }
+  if (await folder.count()) { await folder.click(); await sleep(500); }
+  // Month folders are password-gated now; the test build uses the
+  // placeholder hash so 'changeme' opens one.
+  const folderPw = page.locator('input[aria-label="Folder password"]');
+  if (await folderPw.count()) {
+    await folderPw.fill('changeme');
+    await page.locator('button:has-text("Unlock folder")').click();
+    await sleep(800);
+  }
   b = await body();
   check('Library: folder opens and lists category files with a combined export', /All Strong Signal Leads/.test(b) || /category file/.test(b));
 
