@@ -18,6 +18,30 @@ import { localDayKeyFromIso } from "../lib/tasks";
 
 const PAGE_SIZE = 25;
 
+// Per Jack: "I just need to know once it moves past intro discovery, so then
+// it is off the outbound leads plate." That is the real binary — everything
+// else about a CRM stage is detail. A deal still sitting at Intro Discovery
+// had its intro and stopped there, so it is still an outbound lead. One that
+// progressed (or closed won) belongs to the deal motion now. Closed lost is
+// kept separate rather than lumped either way: it left the pipeline, which
+// makes it re-contactable, but it is not the same as never having moved.
+type StageFilter = "all" | "at-intro" | "past-intro" | "closed-lost";
+
+const STAGE_FILTER_META: { key: StageFilter; label: string; hint: string }[] = [
+  { key: "all", label: "All stages", hint: "Every lead with a booked intro, whatever happened next." },
+  { key: "at-intro", label: "Still at Intro Discovery", hint: "Had the intro and never moved past it — still on outbound's plate." },
+  { key: "past-intro", label: "Past intro", hint: "Moved into the pipeline or closed won — off outbound's plate." },
+  { key: "closed-lost", label: "Closed lost", hint: "Left the pipeline. Re-contactable whenever you want." },
+];
+
+export function stageGroupOf(crmStage: string | undefined): StageFilter | null {
+  const v = String(crmStage || "").trim().toLowerCase();
+  if (!v) return null;
+  if (v === "intro discovery") return "at-intro";
+  if (v === "closed lost") return "closed-lost";
+  return "past-intro";
+}
+
 // The three questions Jack named, in the order he named them. "gap" first
 // because a gap is the thing you act on; "booked" last because it is the
 // outcome, not the work.
@@ -173,6 +197,7 @@ export default function OutboundSuccess({
 }) {
   const [bucket, setBucket] = useState<Bucket>("never-reached");
   const [windowKey, setWindowKey] = useState<WindowKey>("30d");
+  const [stageFilter, setStageFilter] = useState<StageFilter>("all");
   const [sourceFile, setSourceFile] = useState("all");
   const [category, setCategory] = useState<CategoryKey | "all" | "none">("all");
   const [dateFrom, setDateFrom] = useState("");
@@ -198,8 +223,9 @@ export default function OutboundSuccess({
     else if (category !== "all") list = list.filter((s) => s.contact.category === category);
     if (dateFrom) list = list.filter((s) => localDayKeyFromIso(s.contact.lastSeenAt) >= dateFrom);
     if (dateTo) list = list.filter((s) => localDayKeyFromIso(s.contact.lastSeenAt) <= dateTo);
+    if (stageFilter !== "all") list = list.filter((s) => stageGroupOf(s.contact.crmStage) === stageFilter);
     return list;
-  }, [states, sourceFile, category, dateFrom, dateTo]);
+  }, [states, sourceFile, category, dateFrom, dateTo, stageFilter]);
 
   const activity = useMemo(() => {
     const spec = WINDOW_META.find((w) => w.key === windowKey) || WINDOW_META[1];
@@ -214,6 +240,17 @@ export default function OutboundSuccess({
 
   const counts = useMemo(() => {
     const c = { "never-reached": 0, "never-tried": 0, booked: 0, reachedNotBooked: 0, touched: 0, reached: 0 };
+    // An intro is booked with a COMPANY, not with each person at it — two
+    // contacts at the same account is one intro meeting, not two. The
+    // bucket tab below still counts rows, because that is what the table
+    // under it lists; this is the headline number.
+    const bookedCompanies = new Set<string>();
+    scoped.forEach((s) => {
+      if (s.booked) {
+        const key = s.contact.company.trim().toLowerCase().replace(/\s+/g, " ");
+        bookedCompanies.add(key || `contact:${s.contact.id}`);
+      }
+    });
     scoped.forEach((s) => {
       const b = bucketOf(s);
       if (b) c[b] += 1;
@@ -221,7 +258,7 @@ export default function OutboundSuccess({
       if (s.touched) c.touched += 1;
       if (s.reachedCount > 0) c.reached += 1;
     });
-    return c;
+    return { ...c, bookedCompanies: bookedCompanies.size };
   }, [scoped]);
 
   // Per Jack: "...and prioritize better." Qualification rank comes first,
@@ -239,14 +276,14 @@ export default function OutboundSuccess({
     });
   }, [scoped, bucket]);
 
-  useEffect(() => { setPage(1); }, [bucket, sourceFile, category, dateFrom, dateTo]);
+  useEffect(() => { setPage(1); }, [bucket, sourceFile, category, dateFrom, dateTo, stageFilter]);
 
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const pageItems = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const total = scoped.length;
   const pct = (n: number) => (total === 0 ? "—" : `${Math.round((n / total) * 100)}%`);
-  const filtersOn = sourceFile !== "all" || category !== "all" || Boolean(dateFrom) || Boolean(dateTo);
+  const filtersOn = sourceFile !== "all" || category !== "all" || Boolean(dateFrom) || Boolean(dateTo) || stageFilter !== "all";
 
   if (loading) return <div style={{ color: "var(--muted)", fontSize: 13 }}>Loading outbound data…</div>;
 
@@ -281,6 +318,14 @@ export default function OutboundSuccess({
             <option value="none">No lead data</option>
           </select>
         </label>
+        <label style={{ fontSize: 12, color: "var(--muted)", display: "flex", alignItems: "center", gap: 6 }} title={STAGE_FILTER_META.find((m) => m.key === stageFilter)?.hint || ""}>
+          Deal stage
+          <select value={stageFilter} onChange={(e) => setStageFilter(e.target.value as StageFilter)}>
+            {STAGE_FILTER_META.map((m) => (
+              <option key={m.key} value={m.key}>{m.label}</option>
+            ))}
+          </select>
+        </label>
         <label style={{ fontSize: 12, color: "var(--muted)", display: "flex", alignItems: "center", gap: 6 }} title="When the lead was last seen in an upload — not when outreach happened. Outreach timing is the Window control below.">
           Lead seen
           <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
@@ -290,7 +335,7 @@ export default function OutboundSuccess({
         {filtersOn && (
           <button
             className="chip-clear"
-            onClick={() => { setSourceFile("all"); setCategory("all"); setDateFrom(""); setDateTo(""); }}
+            onClick={() => { setSourceFile("all"); setCategory("all"); setDateFrom(""); setDateTo(""); setStageFilter("all"); }}
           >
             Clear
           </button>
@@ -326,8 +371,8 @@ export default function OutboundSuccess({
           <div className="metric-value">{activity.attempts === 0 ? "—" : `${Math.round((activity.reached / activity.attempts) * 100)}%`}</div>
           <div className="metric-delta">{activity.reached} of {activity.attempts} attempts</div>
         </div>
-        <div className="metric" title="Attempts in this window whose outcome was a booked meeting">
-          <div className="metric-label">Intro meetings booked</div>
+        <div className="metric" title="Intros booked off a LOGGED attempt inside this window. Deals imported from the CRM carry no logged attempt, so they are not counted here — see the all-time figure below.">
+          <div className="metric-label">Booked from logged calls</div>
           <div className="metric-value">{activity.booked}</div>
           <div className="metric-delta">
             {activity.reached === 0 ? "no connects yet" : `${Math.round((activity.booked / activity.reached) * 100)}% of connects`}
@@ -360,10 +405,10 @@ export default function OutboundSuccess({
           <div className="metric-value">{counts.reached}</div>
           <div className="metric-delta">{pct(counts.reached)} of leads</div>
         </div>
-        <div className="metric" title="Currently sitting on a meeting-booked disposition">
+        <div className="metric" title="Distinct companies with a booked intro. Two contacts at the same account is one intro meeting, not two.">
           <div className="metric-label">Intro meetings booked</div>
-          <div className="metric-value">{counts.booked}</div>
-          <div className="metric-delta">{pct(counts.booked)} of leads</div>
+          <div className="metric-value">{counts.bookedCompanies}</div>
+          <div className="metric-delta">{counts.booked} {counts.booked === 1 ? "person" : "people"}</div>
         </div>
       </div>
 
@@ -401,6 +446,7 @@ export default function OutboundSuccess({
                 <th>Contact</th>
                 <th>Company</th>
                 <th>Product line</th>
+                <th title="Where the CRM deal sits. Still at Intro Discovery means the intro happened and it never moved on — still an outbound lead. Anything past that belongs to the deal motion.">Deal stage</th>
                 <th title="Ranked first in this table — an untouched Strong Signal lead outranks a freshly failed Bad Lead">Tier</th>
                 <th>Attempts</th>
                 <th>Last outcome</th>
@@ -431,6 +477,23 @@ export default function OutboundSuccess({
                           No lead data
                         </span>
                       )}
+                    </td>
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      {(() => {
+                        const g = stageGroupOf(c.crmStage);
+                        if (!g) return <span style={{ color: "var(--muted)" }}>—</span>;
+                        const look =
+                          g === "at-intro"
+                            ? { bg: "#FFF7E5", color: "#8A5A00" }
+                            : g === "closed-lost"
+                              ? { bg: "#FBEAE8", color: "#B5443B" }
+                              : { bg: "#EAF3FC", color: "#0A66C2" };
+                        return (
+                          <span className="status-pill" style={{ background: look.bg, color: look.color }} title={c.crmStage}>
+                            {c.crmStage}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td style={{ whiteSpace: "nowrap" }}>
                       {c.tier ? (

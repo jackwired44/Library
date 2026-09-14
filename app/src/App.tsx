@@ -28,6 +28,8 @@ import { loadLibraryFromDB, ensureMonthFoldersExist, pruneEmptyMonthFoldersBefor
 import { applyCompetitorDQ } from "./lib/companyProfiles";
 import { deleteContactsFromDB, dedupeExistingContacts } from "./lib/contacts";
 import { importCrmDeals, type CrmImportResult } from "./lib/crmImport";
+import { CRM_SEED_CSV, CRM_SEED_ENABLED, CRM_SEED_SOURCE } from "./lib/crmSeed";
+import { parseCSVText } from "./lib/csv";
 import { applyStickyState, attachScanResultsToContacts, loadContactsFromDB, mergeContactsFromParsedFiles, mergeManualContact, persistContact, type Contact, type ManualContactInput } from "./lib/contacts";
 import {
   loadHistoryFromDB,
@@ -344,6 +346,26 @@ export default function App() {
     setIntegrity(runIntegrityChecks({ contacts, historyEntries, libraryEntries, leadLists, tasks }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contacts, historyEntries, libraryEntries, leadLists, tasks, contactsLoading, historyLoading, libraryLoading, leadListsLoading, tasksLoading]);
+
+  // Seed the CRM deals on first open, so Outbound success is populated
+  // without waiting for a manual import. Gated on the contacts store having
+  // finished loading, and skipped entirely once a seeded contact is already
+  // on file — importCrmDeals is idempotent anyway (same dedup ladder as
+  // every other import), this just avoids redoing the work every mount.
+  const crmSeedRan = useRef(false);
+  useEffect(() => {
+    if (crmSeedRan.current) return;
+    if (!CRM_SEED_ENABLED) return;
+    if (contactsLoading) return;
+    crmSeedRan.current = true;
+    if (contacts.some((c) => c.sourceFiles.includes(CRM_SEED_SOURCE))) return;
+    const parsed = parseCSVText(CRM_SEED_SOURCE, CRM_SEED_CSV);
+    const out = importCrmDeals(contacts, [parsed]);
+    if (!out.touched.length) return;
+    setContacts(out.contacts);
+    const seeded = new Set(out.touched.map((c) => c.id));
+    out.contacts.forEach((c) => { if (seeded.has(c.id)) persistContact(c); });
+  }, [contactsLoading, contacts]);
 
   // One-time duplicate cleanup. Contacts carrying only a name, or only a
   // company, used to key as nothing at all and so filed a brand new record

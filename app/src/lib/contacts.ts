@@ -111,6 +111,13 @@ export interface Contact {
   // whether the person is on file elsewhere). Purely manual, toggled from
   // ContactDetail.tsx — never set automatically by any scan or sync path.
   onCrm?: boolean;
+  // Where this lead's CRM deal currently sits — set only by the CRM deal
+  // import (lib/crmImport.ts), never by a scan. "Intro Discovery" means the
+  // deal never moved past the first stage: an intro happened and the
+  // conversation stopped there, so it is still an outbound lead worth
+  // re-contacting. Optional, so every contact captured before the import
+  // existed simply reads blank.
+  crmStage?: string;
 }
 
 // Per Jack: "set a rule to use the email domain to figure that out and map

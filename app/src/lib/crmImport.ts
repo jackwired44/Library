@@ -82,6 +82,9 @@ export function importCrmDeals(
     });
 
     const inputs: { resolved: ResolvedFields; sourceFile: string; bookedAt: string | null }[] = [];
+    // Parallel to `inputs`, so a row's stage can be applied to whichever
+    // contact that row merged into.
+    const stageByRow: string[] = [];
     pf.data.forEach((row) => {
       result.rowsRead += 1;
       const get = (k: FieldKey) => String(row[mapping[k]] ?? "").trim();
@@ -98,6 +101,7 @@ export function importCrmDeals(
         return;
       }
       if (company) companyKeys.add(company.trim().toLowerCase().replace(/\s+/g, " "));
+      stageByRow.push(get("stage"));
       inputs.push({
         resolved: {
           firstName, lastName, title: get("title"), company, email,
@@ -123,11 +127,19 @@ export function importCrmDeals(
     // the first intro is the one that happened.
     const bookedByRow = inputs.map((i) => i.bookedAt).filter(Boolean) as string[];
     const earliest = bookedByRow.length ? bookedByRow.reduce((a, b) => (a < b ? a : b)) : null;
+    // Stage is per-company, so map it by the company name each row carried.
+    const stageByCompany = new Map<string, string>();
+    inputs.forEach((inp, i) => {
+      const co = String(inp.resolved.company || "").trim().toLowerCase().replace(/\s+/g, " ");
+      const st = stageByRow[i];
+      if (co && st) stageByCompany.set(co, st);
+    });
     contacts = contacts.map((c: Contact) => {
       if (!touchedIds.has(c.id)) return c;
       return {
         ...c,
         disposition: "meeting-booked",
+        crmStage: stageByCompany.get(String(c.company || "").trim().toLowerCase().replace(/\s+/g, " ")) || c.crmStage,
         // Never overwrite a stamp already on file — that date is when the
         // meeting actually became booked here.
         meetingBookedAt: c.meetingBookedAt || earliest || now,
