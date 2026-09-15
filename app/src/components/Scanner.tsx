@@ -551,6 +551,20 @@ export default function Scanner({
     q: search,
   };
 
+  // Changing what the table shows drops the selection and returns to page
+  // one. Without this the selection survived the filter that produced it,
+  // so a bulk action reached rows that were no longer on screen: select
+  // the page under Strong Signal, switch to Bad Leads, and the bar still
+  // read "2 leads selected" above a table of one different row — clicking
+  // "Not interested" there would have crossed out, and permanently stuck
+  // to their contact records, two leads Jack never saw. Confirmed live
+  // before fixing. Only the explicit "Select all N matching" link is meant
+  // to reach past what is visible.
+  useEffect(() => {
+    setSelected(new Set());
+    setPage(1);
+  }, [tierFilter, categoryFilter, m365SubView, dynamicsSubView, duplicatesOnly, priorityOnly, search]);
+
   const filtered = useMemo(() => {
     if (!results) return [];
     const list = applyFacets(results, facets);

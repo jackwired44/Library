@@ -233,6 +233,15 @@ const MIGRATION_LABEL = "Migration / Modernization";
 // GOOGLE_TO_MICROSOFT_RE/ONGOING_PARTNER_RE.
 const GOOGLE_TO_MICROSOFT_SRC =
   "\\b(google\\s*workspace|g\\s*suite|gmail\\s*for\\s*(?:work|business))\\b.{0,60}\\b(microsoft(?:\\s*365)?|office\\s*365|m365)\\b|\\b(microsoft(?:\\s*365)?|office\\s*365|m365)\\b.{0,60}\\b(google\\s*workspace|g\\s*suite)\\b|\\bgoogle\\s*to\\s*microsoft\\b|\\bmigrat\\w*\\s*(?:off|from|away\\s*from)?\\s*google\\b";
+// Tenant-to-tenant work after an acquisition, and a Microsoft licensing
+// move to a new reseller/CSP. Both are core Wired CIO motions that had no
+// pattern anywhere: "merge two tenants after an acquisition" and "move our
+// Microsoft licensing to a new reseller" each produced ZERO hits, so the
+// lead never even reached Needs Review. Like Google->Microsoft, each names
+// a specific Microsoft project rather than a vague interest, so each also
+// promotes to Strong Signal on its own (see TENANT_PROJECT_RE below).
+const TENANT_PROJECT_SRC =
+  "\\btenant[\\s-]?to[\\s-]?tenant\\b|\\btenant\\s*(?:merge|merger|merging|consolidation|consolidat\\w*|split|separation|divestiture)\\b|\\b(?:merg\\w*|consolidat\\w*|combin\\w*|split\\w*|separat\\w*)\\b[^.!?\\n]{0,40}\\btenants?\\b|\\b(?:acquisition|acquired|merger|divestiture|carve[\\s-]?out)\\b[^.!?\\n]{0,80}\\b(?:tenant|microsoft\\s*365|m365|office\\s*365|exchange|mailboxes?)\\b|\\b(?:microsoft|m365|o365|office\\s*365|azure)\\s*licens\\w*\\b|\\blicens\\w*\\s*(?:transfer|agreement)\\b|\\bchange\\s*(?:of\\s*)?(?:csp|reseller|partner\\s*of\\s*record)\\b|\\bpartner\\s*of\\s*record\\b";
 const ONGOING_PARTNER_SRC =
   "\\b(msp|managed\\s*(?:it\\s*)?services?|managed\\s*service\\s*providers?|co-?managed\\s*it|outsourced?\\s*it|it\\s*outsourcing|long[\\s-]?term\\s*(?:partner|relationship)|ongoing\\s*(?:it\\s*)?support|dedicated\\s*(?:it\\s*)?partner|trusted\\s*(?:it\\s*)?partner|strategic\\s*(?:it\\s*)?partner|extension\\s*of\\s*(?:our|their|my)\\s*team|third[\\s-]?party\\s*(?:support|help|it)|3rd[\\s-]?party\\s*(?:support|help|it)|committed\\s*(?:it\\s*)?relationship|(?:full|deep)\\s*(?:partner\\s*)?engagement|partner\\s*engagement)\\b";
 // Security design/hardening work — hot per Jack's ask, part of the
@@ -249,8 +258,11 @@ const ONGOING_PARTNER_SRC =
 const MS_WORKLOAD_SRC =
   "\\b(purview|sharepoint(?:\\s*online)?|onedrive(?:\\s*for\\s*business)?|exchange\\s*online|teams\\s*rooms?|teams\\s*phone|intune|endpoint\\s*manager|microsoft\\s*endpoint|windows\\s*365|cloud\\s*pc|azure\\s*virtual\\s*desktop|avd|virtual\\s*desktop|copilot|microsoft\\s*sentinel|defender\\s*for\\s*(?:business|office\\s*365|endpoint|cloud|identity)|m(?:icrosoft)?\\s*365\\s*[aeg][1-7]|o(?:ffice)?\\s*365\\s*[aeg][1-7]|gcc\\s*high|business\\s*(?:basic|standard|premium))\\b";
 
+// "hardening" only counted when the literal word "security" followed it,
+// so "help hardening our Microsoft environment" — the same request in the
+// words people actually use — did not match.
 const SECURITY_DESIGN_SRC =
-  "\\bsecurity\\s*(?:design|architecture|hardening|posture|assessment|audit|review)\\b|\\bharden(?:ing)?\\s*(?:our|their|my)?\\s*security\\b";
+  "\\bsecurity\\s*(?:design|architecture|hardening|posture|assessment|audit|review)\\b|\\bharden\\w*\\s+(?:our|their|my|the)?\\s*(?:security|microsoft|m365|365|tenant|environment|estate|infrastructure|endpoints?|identit\\w+)\\b";
 
 const PLATFORM_CATALOGUE: { label: string; pattern: RegExp }[] = [
   {
@@ -275,12 +287,17 @@ const PLATFORM_CATALOGUE: { label: string; pattern: RegExp }[] = [
   {
     label: MIGRATION_LABEL,
     pattern:
-      /\b(data\s*migration|cloud\s*migration|legacy\s*system|migrating(?:\s*(?:off|from|to))?|moving\s*(?:off|away\s*from)|re-?platform(?:ing)?|lift\s*and\s*shift|moderniz\w+|on-?prem\s*to\s*cloud)\b/i,
+      // `migrating` required the -ing, so the bare verb and the noun both
+      // failed: "need to migrate their email" and "planning a migration"
+      // produced no hit at all and the lead was invisible everywhere in the
+      // app. TRIGGER_WORDS_RE and AZURE_MIGRATION_OVERRIDE_RE already use
+      // the `migrat\\w*` stem; this was the one place that did not.
+      /\b(data\s*migration|cloud\s*migration|legacy\s*system|migrat\w*|moving\s*(?:off|away\s*from)|re-?platform(?:ing)?|lift\s*and\s*shift|moderniz\w+|on-?prem\s*to\s*cloud)\b/i,
   },
   {
     label: TENANT_SUPPORT_LABEL,
     pattern: new RegExp(
-      `${GOOGLE_TO_MICROSOFT_SRC}|\\btenant\\s*(?:creation|setup|set\\s*up|provisioning|onboarding|migration|support)\\b|\\b(?:create|creating|set(?:ting)?\\s*up|stand(?:ing)?\\s*up|provision(?:ing)?)\\s*(?:a\\s*)?(?:new\\s*)?tenant\\b|\\bnew\\s*tenant\\b|${ONGOING_PARTNER_SRC}|${SECURITY_DESIGN_SRC}|${MS_WORKLOAD_SRC}|\\bit\\s*support\\b|\\btechnical\\s*support\\b|\\bhelp\\s*desk\\b|\\bhelpdesk\\b|\\bsupport\\s*(?:contract|plan|request|team)\\b|\\bsupport\\s*ticket(?!\\s*(?:id|no|num|number|#|:))\\b|\\bneed(?:s|ing)?\\s*(?:it\\s*)?support\\b|\\blooking\\s*for\\s*(?:it\\s*)?support\\b`,
+      `${GOOGLE_TO_MICROSOFT_SRC}|${TENANT_PROJECT_SRC}|\\btenant\\s*(?:creation|setup|set\\s*up|provisioning|onboarding|migration|support)\\b|\\b(?:create|creating|set(?:ting)?\\s*up|stand(?:ing)?\\s*up|provision(?:ing)?)\\s*(?:a\\s*)?(?:new\\s*)?tenant\\b|\\bnew\\s*tenant\\b|${ONGOING_PARTNER_SRC}|${SECURITY_DESIGN_SRC}|${MS_WORKLOAD_SRC}|\\bit\\s*support\\b|\\btechnical\\s*support\\b|\\bhelp\\s*desk\\b|\\bhelpdesk\\b|\\bsupport\\s*(?:contract|plan|request|team)\\b|\\bsupport\\s*ticket(?!\\s*(?:id|no|num|number|#|:))\\b|\\bneed(?:s|ing)?\\s*(?:it\\s*)?support\\b|\\blooking\\s*for\\s*(?:it\\s*)?support\\b`,
       "i"
     ),
   },
@@ -317,6 +334,9 @@ const ONGOING_PARTNER_RE = new RegExp(ONGOING_PARTNER_SRC, "i");
 // Security design/hardening work is also a Strong Signal boost, same
 // footing as the Google->Microsoft/ongoing-partner language above.
 const SECURITY_DESIGN_RE = new RegExp(SECURITY_DESIGN_SRC, "i");
+// Same footing as GOOGLE_TO_MICROSOFT_RE — a named tenant project or a
+// licensing/CSP move is real intent, not a passing mention.
+const TENANT_PROJECT_RE = new RegExp(TENANT_PROJECT_SRC, "i");
 // Power BI/Azure qualification, tightened per Jack's rules audit: a bare
 // product mention no longer counts on its own for either bucket — see
 // CLAUDE.md "Power BI / Azure — tightened qualification".
@@ -419,21 +439,81 @@ function hasBareLeadingCount(beforeText: string) {
 }
 // Azure-flavored migration language always stays in Power BI/Azure/Fabric,
 // never the generic Migration signal (which rolls up into M365 Tenant).
-const AZURE_MIGRATION_OVERRIDE_RE =
-  /\bazure\b[^.!?\n]{0,80}\bmigrat\w*\b|\bmigrat\w*\b[^.!?\n]{0,80}\bazure\b|\bon-?prem\w*\s*(?:to|into|→)\s*(?:the\s*)?cloud\b|\bon-?prem\w*\b[^.!?\n]{0,80}\bazure\b|\bazure\b[^.!?\n]{0,80}\bon-?prem\w*\b|\blift\s*and\s*shift\b[^.!?\n]{0,80}\bazure\b|\bazure\b[^.!?\n]{0,80}\blift\s*and\s*shift\b/i;
+// "On-prem" is the phrase this rule was written around, but almost nobody
+// writes it in a CRM note. A data-centre exit, a VMware escape, retiring
+// physical servers or leaving a colo are all the same on-prem-to-Azure
+// motion in the words people actually use — and each was invisible:
+// "Closing our data center and moving everything to Azure" produced no
+// Azure hit at all, because "moving" is not "migrating".
+const ON_PREM_SRC =
+  "on-?prem\\w*|data\\s*cent(?:er|re)|vmware|vsphere|hyper-?v|physical\\s*servers?|server\\s*room|colo(?:cation)?|bare\\s*metal|our\\s*own\\s*(?:servers?|hardware)";
+// Every verb except "migrate" needs a direction word after it, because
+// bare stems over-fire on ordinary prose: "They run three shifts and use
+// Azure AD" read as a migration and wrongly cleared Strong Signal. A
+// direction is what separates moving TO the cloud from any other moving.
+const AZURE_MOVE_VERB_SRC =
+  "migrat\\w*|(?:mov|shift|transition|relocat|consolidat|port)\\w*(?:\\s+[\\w'-]+){0,3}?\\s+(?:to|onto|into|off|out\\s*of|away\\s*from|over\\s*to)|get(?:ting)?\\s*(?:out|off)\\s*of";
+const AZURE_MIGRATION_OVERRIDE_RE = new RegExp(
+  [
+    `\\bazure\\b[^.!?\\n]{0,80}\\b(?:${AZURE_MOVE_VERB_SRC})\\b`,
+    `\\b(?:${AZURE_MOVE_VERB_SRC})\\b[^.!?\\n]{0,80}\\bazure\\b`,
+    `\\b(?:${ON_PREM_SRC})\\s*(?:to|into|→)\\s*(?:the\\s*)?(?:cloud|azure)\\b`,
+    `\\b(?:${ON_PREM_SRC})\\b[^.!?\\n]{0,80}\\bazure\\b`,
+    `\\bazure\\b[^.!?\\n]{0,80}\\b(?:${ON_PREM_SRC})\\b`,
+    "\\blift\\s*and\\s*shift\\b[^.!?\\n]{0,80}\\bazure\\b",
+    "\\bazure\\b[^.!?\\n]{0,80}\\blift\\s*and\\s*shift\\b",
+  ].join("|"),
+  "i"
+);
 
 const DATE_RE =
   /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s*\d{0,2}(?:st|nd|rd|th)?,?\s*\d{0,4}\b|\b\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}\b|\b(?:19|20)\d{2}\b|\bQ[1-4]\b|\b(?:this|next|last)\s+(?:year|quarter|month|week)\b/i;
 const BILLING_BANT_RE =
   /\$\s?\d[\d,]*(?:\.\d{1,2})?\b|\b\d+\s*(?:k|thousand|million)\b|\b(budget|pricing|price|quote|quoted|cost|contract|renewal|renew\w*|invoice|deadline|timeline|decision[\s-]?maker|approv\w*|procurement|purchase\s*order|\bpo\b|per\s*(?:seat|user|month|year))\b/i;
-const SERIAL_RE = /\b(?:serial|order|invoice|case|ticket|ref(?:erence)?)\s*#?\s*[:\-]?\s*[a-z0-9-]{4,}\b|\b[a-z]{1,3}-?\d{4,}\b|\b\d{5,}\b/i;
+// A bare run of 5+ digits used to count as a serial number unconditionally,
+// which quietly ate real leads: "They run 12000 seats of Microsoft 365 E3"
+// is a stated headcount, not an identifier, and dropping that sentence left
+// the lead showing a canned blurb instead of the one fact that matters. A
+// number immediately followed by a unit word is a count, never an ID.
+const COUNT_UNIT_TAIL = "(?!\\s*(?:users?|seats?|licenses?|licences?|employees?|people|mailboxes?|devices?|endpoints?)\\b)";
+const SERIAL_RE = new RegExp(
+  "\\b(?:serial|order|invoice|case|ticket|ref(?:erence)?)\\s*#?\\s*[:\\-]?\\s*[a-z0-9-]{4,}\\b" +
+    "|\\b[a-z]{1,3}-?\\d{4,}\\b" +
+    "|\\b\\d{5,}\\b" + COUNT_UNIT_TAIL,
+  "i"
+);
 // Email/phone already have their own dedicated export columns — see
 // CLAUDE.md — so a candidate summary sentence carrying either is dropped
 // here rather than shown a second time in the Matched snippet/Notes text.
 const EMAIL_RE = /\b[\w.+-]+@[\w-]+\.[a-z]{2,}\b/i;
 const PHONE_RE = /(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/;
+// Sentences that must NEVER be shown, whatever else they say: an email or
+// phone number already has its own export column, and a serial/case/ticket
+// identifier is pure noise.
+function hasRedundantContact(s: string) {
+  return EMAIL_RE.test(s) || SERIAL_RE.test(s) || PHONE_RE.test(s);
+}
+// Whether a sentence names a product/service this tool detects at all.
+// Used to tell "budget approved for a Business Central rollout" (the most
+// informative sentence in the row) apart from "Budget: $40k. Follow up Q3."
+// (pure deal metadata with nothing in it about what they want).
+function mentionsSomethingWeSell(s: string) {
+  return PLATFORM_CATALOGUE.some((c) => c.pattern.test(s)) || SKU_CATALOGUE.some((c) => c.pattern.test(s));
+}
+// Date/BANT language used to disqualify a sentence outright. That was
+// backwards: "budget", "timeline", "this year", "Q3", "renewal", "pricing",
+// "procurement" and "contract" are the SAME words TRIGGER_WORDS_RE uses to
+// promote a lead to Strong Signal — so the sentence that earned the lead
+// its tier was guaranteed to be the one excluded from the snippet, and the
+// row fell back to a canned category blurb. Measured on realistic notes, 7
+// of 13 qualifying leads showed boilerplate instead of their own words.
+//
+// Now it only drops a date/BANT sentence when the sentence has nothing
+// else in it — which is the case the original rule was actually aiming at.
 function hasForbiddenContent(s: string) {
-  return DATE_RE.test(s) || BILLING_BANT_RE.test(s) || SERIAL_RE.test(s) || EMAIL_RE.test(s) || PHONE_RE.test(s);
+  if (hasRedundantContact(s)) return true;
+  if (!DATE_RE.test(s) && !BILLING_BANT_RE.test(s)) return false;
+  return !mentionsSomethingWeSell(s);
 }
 const CATEGORY_BLURBS: Record<string, string> = {
   "Dynamics 365": "modernizing their CRM/ERP setup",
@@ -680,7 +760,7 @@ export function scanRowPlatform(
           (cat.label !== TENANT_SUPPORT_LABEL && TRIGGER_WORDS_RE.test(win)) ||
           LICENSE_COUNT_RE.test(win) ||
           (cat.label === TENANT_SUPPORT_LABEL &&
-            (GROWTH_OVERLOAD_RE.test(win) || GOOGLE_TO_MICROSOFT_RE.test(win) || ONGOING_PARTNER_RE.test(win) || PARTNER_ENGAGEMENT_RE.test(win) || SECURITY_DESIGN_RE.test(win))) ||
+            (GROWTH_OVERLOAD_RE.test(win) || GOOGLE_TO_MICROSOFT_RE.test(win) || TENANT_PROJECT_RE.test(win) || ONGOING_PARTNER_RE.test(win) || PARTNER_ENGAGEMENT_RE.test(win) || SECURITY_DESIGN_RE.test(win))) ||
           // The "bare number sits next to the match" rule is Dynamics-365-
           // specific by design (see CLAUDE.md) — it used to run for every
           // category, so a support-ticket number, a software version

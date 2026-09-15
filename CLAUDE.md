@@ -4291,6 +4291,112 @@ surviving a reload) plus 8/8 on the Calls-tab path. Suites after: platform
 audit 54/54, dispositions 12/12, audit-fix 8/8, Companies 16/16, sequence
 template 22/22, Home 16/16, Lead Library 13/13.
 
+## Scanner pass: snippet quality, capture gaps, stale selection (app/ only)
+
+Per Jack: "look for bugs in the scanner and lets fix and close some
+qualifying gaps plus strong signals and make sure matched snippets make
+sense." Three findings, each reproduced before being touched, each now
+covered by a committed suite (`scripts/suites/snippet-capture.cjs`, 41
+checks).
+
+**1. The sentence that qualified a lead was the one guaranteed to be cut
+from its snippet.** `hasForbiddenContent` (`lib/detection.ts`) dropped any
+candidate sentence matching `DATE_RE` or `BILLING_BANT_RE` — but those
+lists are "budget", "timeline", "this year", "Q3", "renewal", "pricing",
+"quote", "contract", "procurement", "approved". Those are the SAME words
+`TRIGGER_WORDS_RE` uses to promote a lead to Strong Signal. So the more a
+note proved real intent, the more certain it was that its best sentence
+got excluded and the row fell back to a canned category blurb
+("Interested in modernizing their CRM/ERP setup."). Measured on 13
+realistic notes: **7 showed boilerplate instead of the lead's own words**;
+all 13 now quote the lead.
+- The original intent is kept, just narrowed to the case it was aiming
+  at. Email, phone and serial/case/ticket identifiers are still a hard
+  drop — they have their own export columns or are pure noise. Date/BANT
+  language now only drops a sentence when the sentence has nothing else
+  in it (`mentionsSomethingWeSell`, checked against `PLATFORM_CATALOGUE` +
+  `SKU_CATALOGUE`), so "Budget $40k. Follow up 3/15/2026." is still cut
+  while "They have budget approved for a Business Central rollout" is not.
+- **Also fixed in the same rule:** `SERIAL_RE`'s bare `\b\d{5,}\b`
+  treated any 5+ digit run as an identifier, so "They run 12000 seats of
+  Microsoft 365 E3" was thrown away as a serial number. A number
+  immediately followed by a unit word is a count, never an ID.
+
+**2. Five capture gaps, most of them leaving the lead invisible** — not
+in Needs Review, not in Bad Leads, only in the Non Relevant tab, because
+`scanRowUnified` returns null for a row with no hit at all. Each is a
+wording gap in an existing rule, not a new rule:
+- **`MIGRATION_LABEL` required the `-ing`.** The pattern had `migrating`,
+  so the bare verb and the noun both failed: "need to migrate their email
+  into our Microsoft 365 tenant" and "planning a migration" produced no
+  hit. `TRIGGER_WORDS_RE` and `AZURE_MIGRATION_OVERRIDE_RE` already used
+  the `migrat\w*` stem; this was the one place that did not. (Same class
+  of bug as the `\w+`→`\w*` fix already recorded for `TRIGGER_WORDS_RE`.)
+- **Azure's on-prem rule only knew the phrase "on-prem".** Almost nobody
+  writes that in a CRM note. `ON_PREM_SRC` now also covers data
+  centre/VMware/vSphere/Hyper-V/physical servers/server room/colo/bare
+  metal, and `AZURE_MOVE_VERB_SRC` covers move/shift/transition/relocate/
+  consolidate/port alongside migrate. "Closing our data center and moving
+  everything to Azure" and "VMware licensing costs exploded, evaluating a
+  move to Azure" were both invisible; both are literally the
+  on-prem-to-cloud motion the rule already exists for.
+  **Every verb except `migrat\w*` requires a direction word after it**
+  (to/onto/into/off/out of/away from/over to) — the first attempt used
+  bare stems and "They run three shifts and use Azure AD" wrongly cleared
+  Strong Signal. Caught by the precision half of the new suite.
+- **Tenant-to-tenant work after an acquisition had no pattern at all.**
+  New `TENANT_PROJECT_SRC` covers tenant merge/consolidation/split,
+  tenant-to-tenant, and acquisition/merger language near a Microsoft
+  anchor. Spliced into Tenant Support and added to its Strong Signal
+  boost list on the same footing as Google→Microsoft — each names a
+  specific Microsoft project rather than a vague interest.
+- **A Microsoft licensing move with no SKU named was invisible.** "Want
+  to move our Microsoft licensing to a new reseller" — a textbook CSP
+  transfer — matched nothing, because every licensing pattern requires a
+  named SKU. `TENANT_PROJECT_SRC` also carries `microsoft/m365/o365/azure
+  licens\w*`, `licens\w* transfer/agreement`, `change of CSP/reseller`
+  and `partner of record`.
+- **"Hardening" only counted with the literal word "security" after it.**
+  `SECURITY_DESIGN_SRC` now accepts harden\w* followed by security/
+  Microsoft/M365/tenant/environment/estate/infrastructure/endpoints/
+  identity, so "need help hardening our Microsoft environment" matches.
+
+**3. Scanner bug: a selection outlived the filter that produced it.**
+Nothing cleared `selected` when a facet changed, and every bulk action
+filters the FULL `results` array by id rather than the visible rows. So:
+select the page under Strong Signal, switch to Bad Leads, and the bar
+still read "2 leads selected" above a table of one different row —
+clicking "Not interested" there would have crossed out, and (via the
+sticky-disposition rule) permanently stuck to their contact records, two
+leads Jack never saw. **Confirmed live in the browser before fixing**, and
+confirmed gone after. Changing any facet now clears the selection and
+returns to page one; only the explicit "Select all N matching" link is
+meant to reach past what is visible. This also fixes a smaller oddity —
+`page` was never reset on a category/sub-view/toggle change (only on tier
+and search), so narrowing the table left you on a clamped page.
+
+**Reported, NOT changed** — each is a real product decision rather than a
+bug, so it is Jack's call:
+- **"Selection process" / "shortlist" / "RFI" are not trigger words.** "In
+  an ERP selection process, Business Central is on the shortlist" lands at
+  Needs Review. That is buying-process language as clear as "evaluating".
+- **Named compliance frameworks are not a signal.** CMMC, SOC 2, HIPAA,
+  NIST and CIS appear nowhere, although Compliance is a Wired CIO service
+  line. Deliberately left out because a bare "we need SOC 2" has no
+  Microsoft anchor; a framework named NEAR a Microsoft workload probably
+  should count.
+- **Switching IT provider with no Microsoft word is invisible.** "Unhappy
+  with our current IT provider and looking to switch" produces no hit,
+  because every pattern needs a Microsoft anchor. That is arguably the
+  purest MSP lead there is.
+- **A company describing ITSELF as a partner is not DQ'd.** "We are a
+  Microsoft Gold Partner ourselves" produces no hit at all, so there is
+  nothing for the competitor Auto-DQ to disqualify — that rule reads the
+  company NAME field, not the notes.
+- **The Dynamics sub-15-seat question is still open** and untouched here,
+  per the standing note that DQ'ing those would contradict leads Jack
+  personally re-promoted.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool
