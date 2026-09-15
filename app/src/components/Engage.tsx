@@ -14,6 +14,7 @@ import CompaniesView from "./Companies";
 import ChannelTasks from "./ChannelTasks";
 import SequencesView, { type StepExtra } from "./Sequences";
 import ListsView from "./Lists";
+import ApolloMonitor from "./ApolloMonitor";
 import type { Task, TaskPriority } from "../lib/tasks";
 import type { OutreachAttempt, AttemptChannel } from "../lib/outreachAttempts";
 import type { SequenceTemplate } from "../lib/sequenceTemplates";
@@ -109,9 +110,10 @@ interface EngageProps {
   onTabChange?: (tab: EngageTab) => void;
 }
 
-export type EngageTab = "sequences" | "tasks" | "calls" | "emails" | "companies" | "contacts" | "lists";
+export type EngageTab = "sequences" | "apollo" | "tasks" | "calls" | "emails" | "companies" | "contacts" | "lists";
 const TAB_OPTIONS: { key: EngageTab; label: string }[] = [
   { key: "sequences", label: "Sequences" },
+  { key: "apollo", label: "Apollo monitor" },
   { key: "tasks", label: "Tasks" },
   { key: "calls", label: "Calls" },
   { key: "emails", label: "Emails" },
@@ -251,6 +253,11 @@ export default function Engage({
           onDeleteEmailAccount={onDeleteEmailAccount}
         />
       )}
+      {/* Apollo Monitor owns its own data — it reads the live Apollo
+          account directly rather than taking rows as props, so it needs
+          nothing threaded through App.tsx. */}
+      {tab === "apollo" && <ApolloMonitor />}
+
       {tab === "tasks" && (
         <TaskBoard
           tasks={tasks}

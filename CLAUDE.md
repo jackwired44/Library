@@ -4291,6 +4291,82 @@ surviving a reload) plus 8/8 on the Calls-tab path. Suites after: platform
 audit 54/54, dispositions 12/12, audit-fix 8/8, Companies 16/16, sequence
 template 22/22, Home 16/16, Lead Library 13/13.
 
+## Apollo Monitor (app/ only) — read-only mirror of the live Apollo account
+
+Per Jack: "i want to go in here and see all my sequences how many contacts
+are in which steps and then emails also to view their health send rate how
+many daily sent and know where work is needed or attention," and "you will
+be my full sales assistant for this going forward." A new Engage sub-tab
+(sidebar: Outreach → Apollo monitor, between Sequences and Emails).
+
+**It is READ-ONLY, and that is a design decision, not an omission.** Every
+Apollo call behind it is a read and costs zero credits. Two hard findings
+drove this:
+- **Apollo exposes no sequence-delete API.** Only `apollo_sequences_create`
+  and `apollo_sequences_update` exist; `update` does not accept `archived`
+  either. So Jack's "add delete them from the platform here" is only
+  half-buildable — create is real, delete is not. Rather than ship a
+  "Delete" button that silently only paused (`active: false`), there is no
+  delete control and the panel footer says why. Deleting stays in Apollo.
+- **`apollo_sequences_update` has declarative-diff semantics**: any existing
+  step whose `id` is absent from the payload is DELETED. Exposing that raw
+  behind a UI is a footgun; it stays unused until there is a reason to wrap
+  it with a real before/after confirm.
+
+**Data sources, all verified live against the real account before any code
+was written** (never guessed — per the artifact-capabilities rule):
+- `apollo_email_accounts_index` — the mailbox roster (id, user_id, active,
+  default, `last_synced_at`).
+- `apollo_analytics_sync_report` grouped by `email_account_id` — sends,
+  bounces, replies, unsubscribes and `email_daily_limit` per mailbox.
+  **`email_daily_limit` is only compatible with `email_account_id`** —
+  pairing it with `send_from_email` returns an explicit incompatibility
+  warning and no data. Do not "simplify" that grouping.
+  **This endpoint returns a rendered markdown table under `summary`, not
+  structured rows** — `parseMarkdownTable` handles it, and the panel reports
+  that it could not read the numbers rather than rendering a made-up 0.
+- `apollo_emailer_campaigns_search` — every sequence plus `emailer_steps[]`
+  (position/type/wait_time/wait_mode) and the full stat block.
+- `apollo_tasks_search` — **the only way to get contacts-per-step.** Each
+  open task carries `sequence.step_position` plus its contact. Grouping the
+  analytics report by `emailer_step_id` does NOT work for this: it only
+  populates EMAIL steps (verified on Dynamics Sequence — step 2, the
+  auto_email, returned 670 sent / 663 contacts while all four call and
+  LinkedIn steps returned 0).
+
+**Alias ownership is config, because absence has to be visible.**
+`ALIAS_OWNERS` (`lib/apolloMonitor.ts`) records Jack's 5 stated sending
+aliases (.co, .us, .net, .info, wired-cio.com) and that Carly is expected to
+have 5. `jack@wiredcio.com` is deliberately listed as a PERSONAL mailbox,
+not an alias — its daily limit is 0 on purpose (it is his real identity held
+out of outbound), so it is never flagged as a broken sender. It IS flagged
+"default but unsendable," since Apollo auto-selects it when adding contacts
+to a sequence. Carly currently shows 2 of 5 connected; the missing 3 surface
+as an insight, because you cannot see what is not there.
+
+**Snapshots are NOT built yet.** The proposal included a
+`STORE_APOLLO_SNAPSHOTS` store so the tab could say "wiredcio.co reply rate
+fell from 2.1% to 0.4% since Aug 28" — detecting *change* is what "make sure
+they never break" actually requires, and it is also what would let the tab
+show last-known state when the Apollo connector drops (it died twice in one
+session). Deferred, not dropped.
+
+**Republish requirement.** The Artifact manifest must declare all six Apollo
+tools — the three enrichment ones already listed plus
+`apollo_emailer_campaigns_search`, `apollo_email_accounts_index`,
+`apollo_analytics_sync_report` — AND restate `downloads: true` in the same
+call. Dropping `downloads` by passing only `mcp` has already broken every
+CSV export once.
+
+**Verified**: 35/35 on the pure logic run against the REAL pulled data
+(markdown parsing, alias classification, mailbox and sequence health flags,
+owner coverage, insights, workflow rendering), plus 13/13 live in the
+browser (nav placement under Outreach, tab resync both directions, the
+in-page dropdown, and — importantly — that with no Apollo reachable it says
+so honestly instead of rendering a confident all-zero dashboard). The real
+Apollo round-trip from inside the deployed Artifact is still UNVERIFIED,
+same standing caveat as the people-match enrichment button.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool
