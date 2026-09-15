@@ -35,6 +35,8 @@ import {
   stepMeta,
   waitLabel,
   worstSeverity,
+  filterToOwner,
+  SEQUENCE_OWNER_NAME,
   pct,
   WINDOW_DAYS,
   WINDOW_LABEL,
@@ -49,6 +51,21 @@ import {
   type StepDistribution,
 } from "../lib/apolloMonitor";
 import type { ClaudeMcpNamespace } from "../lib/claudeRuntime";
+
+// Per Jack: "keep this feed live and updating every minute if we can."
+//
+// WHY AN INTERVAL RATHER THAN `watchTool`, which is the contract's own
+// DISPLAY arm: watchTool watches ONE exact (tool, input) identity, and
+// `fetchSequences` PAGES through campaigns_search — a watch would only ever
+// see page one and would silently stop reporting sequences past 100. The
+// interval below re-runs the same paginated fetchers, and deliberately
+// copies the two behaviours that make watchTool well-mannered: it pauses
+// while the tab is hidden (no polling a screen nobody is looking at) and
+// does one catch-up refresh the moment it comes back.
+//
+// Every call on this tick is a credit-free read, verified against the real
+// account before this shipped.
+const POLL_MS = 60_000;
 
 const SEV_COLOR: Record<Severity, { fg: string; bg: string }> = {
   critical: { fg: "#B5443B", bg: "#FBEAE8" },
@@ -113,29 +130,52 @@ export default function ApolloMonitor() {
   const [dists, setDists] = useState<Record<string, StepDistribution | "loading" | { error: string }>>({});
   const [panel, setPanel] = useState<"sequences" | "mailboxes">("sequences");
   const [showIdle, setShowIdle] = useState(false);
+  const [live, setLive] = useState(true);
+  // A background refresh must never blank the screen or throw away good
+  // data: it updates in place, and a failed tick leaves the last good
+  // numbers visible with their real timestamp rather than an error page.
+  const [refreshing, setRefreshing] = useState(false);
+  const [tickError, setTickError] = useState<string | null>(null);
 
-  const load = useCallback(async (win: AnalyticsWindow) => {
-    setLoading(true);
-    setError(null);
+  // `background` is the whole difference between the first load and a
+  // one-minute tick: a tick must not show a spinner, must not clear the
+  // table, and must not replace good data with an error page if Apollo
+  // blips. It annotates instead, and the last good numbers stay up with
+  // the timestamp they were actually fetched at.
+  const load = useCallback(async (win: AnalyticsWindow, background = false) => {
+    if (background) setRefreshing(true);
+    else {
+      setLoading(true);
+      setError(null);
+    }
     setStatsError(null);
+
     const m = await getMcp();
     if (!m) {
-      setError("Apollo data isn't available in this view — this needs the published app with your Apollo connector attached.");
+      if (!background) setError("Apollo data isn't available in this view — this needs the published app with your Apollo connector attached.");
       setLoading(false);
+      setRefreshing(false);
       return;
     }
     setMcp(m);
+
     let h: ApolloHandle | null;
     try {
       h = await resolveApolloHandle(m);
     } catch (err) {
-      setError(describeApolloError(err));
+      const msg = describeApolloError(err);
+      if (background) setTickError(msg);
+      else setError(msg);
       setLoading(false);
+      setRefreshing(false);
       return;
     }
     if (!h) {
-      setError("Apollo isn't connected — add it in claude.ai Settings → Connectors, then refresh.");
+      const msg = "Apollo isn't connected — add it in claude.ai Settings → Connectors, then refresh.";
+      if (background) setTickError(msg);
+      else setError(msg);
       setLoading(false);
+      setRefreshing(false);
       return;
     }
     setHandle(h);
@@ -154,16 +194,41 @@ export default function ApolloMonitor() {
       setSequences(seqs);
       setMailboxes(buildMailboxRows(boxes, stats, WINDOW_DAYS[win]));
       setFetchedAt(new Date().toISOString());
+      setTickError(null);
     } catch (err) {
-      setError(describeApolloError(err));
+      const msg = describeApolloError(err);
+      if (background) setTickError(msg);
+      else setError(msg);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
   useEffect(() => {
     void load(window_);
   }, [load, window_]);
+
+  // The one-minute feed. Paused while the tab is hidden — polling a screen
+  // nobody is looking at burns Apollo calls for nothing — with a single
+  // catch-up refresh the moment it becomes visible again, so coming back
+  // to the tab never shows a stale number while waiting out the interval.
+  useEffect(() => {
+    if (!live) return;
+    const tick = () => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      void load(window_, true);
+    };
+    const timer = setInterval(tick, POLL_MS) as unknown as number;
+    const onVisible = () => {
+      if (typeof document !== "undefined" && !document.hidden) void load(window_, true);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [live, load, window_]);
 
   const toggleExpand = useCallback(
     async (seq: ApolloSequence) => {
@@ -184,27 +249,33 @@ export default function ApolloMonitor() {
     [expanded, dists, mcp, handle]
   );
 
-  const worked = useMemo(() => sequences.filter((s) => s.delivered > 0 || s.overdueManualTasks > 0), [sequences]);
-  const idle = useMemo(() => sequences.filter((s) => s.delivered === 0 && s.overdueManualTasks === 0), [sequences]);
+  // Everything below this line sees ONLY Jack's sequences. The filter is
+  // applied once, here, rather than at each call site — so a panel added
+  // later cannot accidentally show someone else's sequence.
+  const owned = useMemo(() => filterToOwner(sequences), [sequences]);
+  const mySequences = owned.kept;
+
+  const worked = useMemo(() => mySequences.filter((s) => s.delivered > 0 || s.overdueManualTasks > 0), [mySequences]);
+  const idle = useMemo(() => mySequences.filter((s) => s.delivered === 0 && s.overdueManualTasks === 0), [mySequences]);
 
   const seqFlags = useMemo(() => {
     const map: Record<string, HealthFlag[]> = {};
-    for (const s of sequences) map[s.id] = flagsForSequence(s);
+    for (const s of mySequences) map[s.id] = flagsForSequence(s);
     return map;
-  }, [sequences]);
+  }, [mySequences]);
 
   const insights: Insight[] = useMemo(
-    () => (sequences.length ? buildInsights(sequences, mailboxes) : []),
-    [sequences, mailboxes]
+    () => (mySequences.length ? buildInsights(mySequences, mailboxes) : []),
+    [mySequences, mailboxes]
   );
 
   const attention = useMemo(() => {
     const items: { severity: Severity; source: string; flag: HealthFlag }[] = [];
-    for (const s of sequences) for (const f of seqFlags[s.id] || []) items.push({ severity: f.severity, source: s.name, flag: f });
+    for (const s of mySequences) for (const f of seqFlags[s.id] || []) items.push({ severity: f.severity, source: s.name, flag: f });
     for (const b of mailboxes) for (const f of b.flags) items.push({ severity: f.severity, source: b.email, flag: f });
     const rank: Record<Severity, number> = { critical: 0, warn: 1, info: 2 };
     return items.sort((a, b) => rank[a.severity] - rank[b.severity]);
-  }, [sequences, seqFlags, mailboxes]);
+  }, [mySequences, seqFlags, mailboxes]);
 
   const criticalCount = attention.filter((a) => a.severity === "critical").length;
   const ownerSummaries = useMemo(() => summarizeByOwner(mailboxes), [mailboxes]);
@@ -226,9 +297,38 @@ export default function ApolloMonitor() {
         <div>
           <h2 style={{ margin: 0, fontSize: 18 }}>🛰 Apollo Monitor</h2>
           <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--muted)" }}>
-            Live, read-only view of every Apollo sequence and sending mailbox.
-            {fetchedAt ? ` As of ${new Date(fetchedAt).toLocaleTimeString()}.` : ""}
+            Read-only. Sequences created by {SEQUENCE_OWNER_NAME}.
+            {fetchedAt ? ` Updated ${new Date(fetchedAt).toLocaleTimeString()}.` : ""}
           </p>
+          <div style={{ marginTop: 6, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <span
+              title={live ? `Re-reads Apollo every ${POLL_MS / 1000}s. Pauses while this tab is hidden.` : "Auto-refresh is off."}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600,
+                padding: "2px 8px", borderRadius: 999,
+                color: live ? "var(--accent)" : "var(--muted)",
+                background: "var(--surface-sunken)",
+              }}
+            >
+              <span
+                aria-hidden
+                style={{
+                  width: 7, height: 7, borderRadius: 999, flexShrink: 0,
+                  background: live ? "var(--success, #2CC295)" : "var(--muted)",
+                  opacity: refreshing ? 0.35 : 1,
+                }}
+              />
+              {live ? (refreshing ? "Refreshing…" : "Live · every 60s") : "Paused"}
+            </span>
+            <button className="btn btn-ghost btn-sm" onClick={() => setLive((v) => !v)}>
+              {live ? "Pause" : "Resume"}
+            </button>
+            {tickError && (
+              <span style={{ fontSize: 11, color: SEV_COLOR.warn.fg }} title={tickError}>
+                Last refresh failed — showing the numbers from {fetchedAt ? new Date(fetchedAt).toLocaleTimeString() : "the last good read"}.
+              </span>
+            )}
+          </div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <select
@@ -258,7 +358,18 @@ export default function ApolloMonitor() {
         <div className="panel"><div className="panel-body" style={{ fontSize: 13, color: "var(--muted)" }}>Reading Apollo…</div></div>
       )}
 
-      {!loading && !error && sequences.length > 0 && (
+      {!loading && !error && owned.filterMatchedNothing && (
+        <div className="panel" style={{ borderColor: SEV_COLOR.warn.fg }}>
+          <div className="panel-body" style={{ fontSize: 13, color: SEV_COLOR.warn.fg }}>
+            Apollo returned {sequences.length} sequence{sequences.length === 1 ? "" : "s"}, but none were created by{" "}
+            {SEQUENCE_OWNER_NAME}. That is far more likely a broken filter than an empty account — the creator id this
+            page filters on may no longer match. Nothing has been hidden silently: this is the whole reason the count is
+            shown.
+          </div>
+        </div>
+      )}
+
+      {!loading && !error && mySequences.length > 0 && (
         <>
           {/* ---------- Attention ---------- */}
           <div className="panel" style={{ marginBottom: 12 }}>
@@ -445,6 +556,12 @@ export default function ApolloMonitor() {
                     {showIdle ? "Hide" : "Show"} {idle.length} never-used sequence{idle.length === 1 ? "" : "s"}
                   </button>
                 )}
+                <div style={{ marginTop: 6 }}>
+                  Showing only sequences created by {SEQUENCE_OWNER_NAME}
+                  {owned.hiddenCount > 0
+                    ? ` — ${owned.hiddenCount} sequence${owned.hiddenCount === 1 ? "" : "s"} created by other people on the team ${owned.hiddenCount === 1 ? "is" : "are"} hidden.`
+                    : "."}
+                </div>
                 <div style={{ marginTop: 6 }}>
                   Read-only. Apollo exposes no sequence-delete API — creating and pausing are possible, deleting is only
                   available in Apollo itself, so there's no delete control here rather than one that quietly does something else.
