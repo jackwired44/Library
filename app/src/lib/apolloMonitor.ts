@@ -458,6 +458,45 @@ export async function fetchStepDistribution(
 }
 
 // ---------------------------------------------------------------------------
+// Whose sequences this tab shows
+//
+// Per Jack: "i only need the sequences created by jack snellgrove that it
+// anything else is not to be brought here."
+//
+// The id is NOT guessed — apollo_users_search for "Snellgrove" returned
+// exactly one user, Jack Snellgrove, id 68bf4ba5f68a0600194acd11, whose
+// email is jack.snellgrove@grandstrategygroup.com. Every sequence carries
+// `user_id` (its creator); that is what this filters on.
+//
+// WORTH KNOWING: every "Carly …" sequence also carries THIS id — Jack
+// created them — so a creator filter keeps them. Filtering those out would
+// be a filter on the NAME, which is a different question and not what was
+// asked for.
+export const SEQUENCE_OWNER_USER_ID = "68bf4ba5f68a0600194acd11";
+export const SEQUENCE_OWNER_NAME = "Jack Snellgrove";
+
+export function isOwnedByJack(seq: ApolloSequence): boolean {
+  return seq.userId === SEQUENCE_OWNER_USER_ID;
+}
+
+// Returns the kept list plus how many were dropped, so the UI can SAY that
+// it filtered rather than silently presenting a short list as the whole
+// account — and so a filter that matches nothing reads as a broken filter
+// rather than an empty Apollo.
+export function filterToOwner(all: ApolloSequence[]): {
+  kept: ApolloSequence[];
+  hiddenCount: number;
+  filterMatchedNothing: boolean;
+} {
+  const kept = all.filter(isOwnedByJack);
+  return {
+    kept,
+    hiddenCount: all.length - kept.length,
+    filterMatchedNothing: all.length > 0 && kept.length === 0,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Health rules
 // ---------------------------------------------------------------------------
 

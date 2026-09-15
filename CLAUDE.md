@@ -4383,6 +4383,82 @@ so honestly instead of rendering a confident all-zero dashboard). The real
 Apollo round-trip from inside the deployed Artifact is still UNVERIFIED,
 same standing caveat as the people-match enrichment button.
 
+### Scoped to Jack's own sequences + a one-minute live feed (app/ only)
+
+Per Jack: "i only need the sequences created by jack snellgrove that it
+anything else is not to be brought here keep this feed live and updating
+every minute if we can."
+
+**The creator id was resolved, not guessed.** `apollo_users_search` for
+"Snellgrove" returns exactly one user — Jack Snellgrove,
+`68bf4ba5f68a0600194acd11`, `jack.snellgrove@grandstrategygroup.com`.
+`SEQUENCE_OWNER_USER_ID` (`lib/apolloMonitor.ts`) holds it, and
+`filterToOwner` filters on each sequence's `user_id` (its creator). The
+filter is applied ONCE, at the top of the component's derived layer, so a
+panel added later cannot accidentally show someone else's sequence.
+
+**The Carly sequences stay, and that is correct.** All four "Carly …"
+sequences carry JACK's `user_id` — he created them — so a CREATOR filter
+keeps them. Removing those would be a filter on the NAME, a different
+question that was not asked. Flagged to Jack at build time rather than
+silently picking one reading.
+
+**Of 19 sequences, 11 are Jack's.** The 8 dropped are the dead weight
+already flagged in the earlier audit: AI Outreach (1,499 delivered, 0
+demos, 10.6% bounce), Signal-based targeting: Job postings (1,539, 0
+demos), Email only campaign - Wired, Layton Campaign, Dynamics handraiser
+list (all Russell's `66203bd8183e310422980593`), Azure Client list, David -
+Actively Hiring Architects, Copy - New Wired CIO Start.
+
+**Nothing is hidden silently.** The footer states the hidden count, and
+`filterToOwner` returns `filterMatchedNothing` — if Apollo returns
+sequences but none match the creator id, the page says the FILTER is
+probably broken rather than rendering an empty account as if it were the
+truth. That is the one failure mode a hardcoded id can produce, so it is
+reported rather than left to look like "you have no sequences."
+
+**The one-minute feed is an interval, NOT `watchTool`, and the reason
+matters.** `watchTool` is the contract's DISPLAY arm and would normally be
+right, but it watches ONE exact `(tool, input)` identity — and
+`fetchSequences` PAGES through `campaigns_search`. A watch would only ever
+see page one and would silently stop reporting sequences past 100. The
+interval re-runs the same paginated fetchers and deliberately copies the
+two behaviours that make watchTool well-mannered:
+- **Pauses while the tab is hidden** (`document.hidden`), so it never polls
+  a screen nobody is looking at.
+- **One catch-up refresh on `visibilitychange`**, so returning to the tab
+  never shows a stale number while waiting out the interval.
+
+A tick is a BACKGROUND refresh: `load(win, background=true)` never shows a
+spinner, never clears the table, and never replaces good data with an error
+page. A failed tick annotates ("Last refresh failed — showing the numbers
+from HH:MM") and leaves the last good read visible with its real timestamp.
+There is a Pause/Resume control, and the live pill states the interval.
+
+`ClaudeMcpNamespace` (`lib/claudeRuntime.ts`) gained `watchTool?` and a
+`ClaudeMcpResult` carrying `cache?: {storedAt}` — typed OPTIONAL because
+the published artifact's stored runtime contract is **0.2.16** while the
+newest is 0.2.50, and nothing should assume a newer runtime is serving the
+page. Upgrading that contract is a deliberate gesture (`contract: "latest"`
+on a publish) and was NOT done as a side effect of this change.
+
+**Every call on the tick is a credit-free read** — campaigns_search,
+email_accounts_index, analytics_sync_report, tasks_search — verified
+against the real account before shipping. Per-sequence step distribution is
+still fetched on demand when a row is expanded, not polled, so the tick
+costs exactly 3 calls a minute regardless of how many sequences exist.
+
+**Mailboxes were deliberately NOT filtered.** "Anything else is not to be
+brought here" reads as scoped to SEQUENCES; Carly's mailboxes were an
+explicit ask two messages earlier, so removing them would contradict a
+standing instruction. Flagged to Jack so it takes one word to change.
+
+Verified 23/23 against the real fleet (11 kept, 8 hidden, each named
+sequence checked individually both ways, plus the broken-filter guard) and
+14/14 live in a browser with a stubbed viewer runtime that COUNTS Apollo
+calls — the only real proof the feed ticks: 3 calls on load, 6 after 65
+seconds, and 6 → 6 across another 65 seconds while paused.
+
 ## Which branch is live — read before building anything
 
 **The working branch is `claude/epic-faraday-zbehnu`.** This was learned the
