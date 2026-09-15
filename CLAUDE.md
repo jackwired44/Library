@@ -4351,12 +4351,28 @@ they never break" actually requires, and it is also what would let the tab
 show last-known state when the Apollo connector drops (it died twice in one
 session). Deferred, not dropped.
 
-**Republish requirement.** The Artifact manifest must declare all six Apollo
-tools — the three enrichment ones already listed plus
+**Republish requirement — EIGHT tools, and the canonical URL.** Corrected
+after the first real publish: an earlier draft of this section said "six"
+and was wrong twice over. The manifest must declare ALL of:
+`apollo_people_match`, `apollo_people_bulk_match`,
+`apollo_organizations_enrich`, **`apollo_organizations_bulk_enrich`**,
 `apollo_emailer_campaigns_search`, `apollo_email_accounts_index`,
-`apollo_analytics_sync_report` — AND restate `downloads: true` in the same
-call. Dropping `downloads` by passing only `mcp` has already broken every
-CSV export once.
+`apollo_analytics_sync_report`, **`apollo_tasks_search`** — AND restate
+`downloads: true` in the same call.
+- **`apollo_tasks_search`** was missed: it is the ONLY source of
+  contacts-per-step, so omitting it silently breaks the headline feature.
+- **`apollo_organizations_bulk_enrich`** was never in the manifest at all,
+  a PRE-EXISTING gap: `enrichCompaniesViaApollo` prefers the bulk endpoint
+  (10 domains per call) and falls back to the single-domain one when
+  `listTools()` does not surface it — which it never did, so every company
+  enrichment has been paying 10x the round trips. Fixed at the same publish.
+
+**Canonical artifact: https://claude.ai/artifact/2WaD4fwZLow1XKwKrdUwEh**
+(639KB+, "shared with specific users"). There is a SECOND, stale artifact
+also titled "Wired CIO Lead Scanner"
+(`8n5BVVSpyoDf2kcEJsYsAJ`, ~445KB, private) — an old duplicate. Always
+publish to the first URL; check size and the shared-vs-private flag if ever
+in doubt.
 
 **Verified**: 35/35 on the pure logic run against the REAL pulled data
 (markdown parsing, alias classification, mailbox and sequence health flags,
@@ -4366,6 +4382,35 @@ in-page dropdown, and — importantly — that with no Apollo reachable it says
 so honestly instead of rendering a confident all-zero dashboard). The real
 Apollo round-trip from inside the deployed Artifact is still UNVERIFIED,
 same standing caveat as the people-match enrichment button.
+
+## Which branch is live — read before building anything
+
+**The working branch is `claude/epic-faraday-zbehnu`.** This was learned the
+hard way: the Apollo Monitor above was built on `claude/youthful-ritchie-v9d2q3`,
+which was branched from an older commit and was **14 commits behind**. Building
+there and publishing would have destroyed a large amount of shipped work —
+the Scanner password gate, email sign-in, CRM deal import as booked intros,
+the Outbound Success tab, the qualify-threshold drop to 10, and the
+duplicate-handling change (keep strongest, not first-seen).
+
+**It was caught only by diffing the published artifact's UI strings against
+the local build before publishing** — the published page had 102 phrases the
+local build did not. Size was the first clue (published 639KB vs local
+603KB: the live page was BIGGER than the build about to replace it).
+
+**Do this before every publish**: read the live artifact, extract its
+human-readable strings, and diff against `app/dist/index.html`. If anything
+appears in the published page but not the build, STOP — the branch is stale.
+A correct publish shows zero lost phrases. Fixed here by rebasing onto
+`origin/claude/epic-faraday-zbehnu` (clean, no conflicts), re-running the
+suites (27/27, 526 checks) and rebuilding.
+
+**Also verify the production password hashes are in `dist/` before
+publishing.** `npm test` runs `build:test`, which overwrites `dist/` with a
+build whose password is `changeme`. Publishing straight after a test run
+would ship the test credentials. Always `npm run build` again and confirm
+the real `PASSWORD_HASH` from `lib/auth.ts` is present and the test hash is
+absent.
 
 ## Roadmap — long-term direction, not a build queue
 
