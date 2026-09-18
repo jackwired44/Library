@@ -4291,6 +4291,213 @@ surviving a reload) plus 8/8 on the Calls-tab path. Suites after: platform
 audit 54/54, dispositions 12/12, audit-fix 8/8, Companies 16/16, sequence
 template 22/22, Home 16/16, Lead Library 13/13.
 
+## The three-scanner platform — a SEPARATE LINEAGE from `app/` (read this first)
+
+**`app/` on `claude/kind-franklin-ub3nhh` and the deployed Artifact are two
+different products.** This is the single most important fact about the repo
+right now, and it is not a merge conflict — it is two lineages:
+
+| | `app/` here (= `checkpoint-3`) | branch `scanner-platform-v29` (= deployed V30) |
+|---|---|---|
+| `src/` files | 60 | 39 |
+| Nav | Home, Engage, Contacts, Companies, Sequences, Scanner | Main Scanner, Custom Scanner September, CSP Scanner, Lead library, Lists, History, Documentation |
+| Only here | the whole CRM half (`Home.tsx`, `Engage.tsx`, `Contacts.tsx`, `Companies.tsx`, `Sequences.tsx`, `LocalTime.tsx`, …) | `Scanner2.tsx`, `Documentation.tsx`, `lib/scanner2.ts`, `lib/smcLead.ts`, `lib/cspRenewal.ts` |
+
+Neither contains the other. The scanner work was done in a scratchpad copy
+extracted from a ZIP Jack uploaded, never from this repo, so it has no shared
+git history with `app/`. **Do not "sync" one onto the other** — overwriting
+`app/` with the zip deletes the CRM half, and the reverse deletes the
+scanners. Diff them with:
+
+```
+git diff claude/kind-franklin-ub3nhh scanner-platform-v29 -- app/
+```
+
+Reconciling them is a porting project and a real product decision (do the
+scanners move into the CRM app, does the CRM move into the scanner app, or
+do they stay two tools?) — Jack's call, not a unilateral one.
+
+### Why there are three scanners at all
+
+Per Jack, verbatim: *"everytime i recieve data in a new way i am going to
+have to build a scanner to properly get that data to then action it off"*,
+and *"we need to make sure each of the three scanners remain purley
+different and nothing breaks and their rules remain theirs and how they
+scan and process."* That is enforced structurally, not by convention:
+`lib/detection.ts` (Main), `lib/smcLead.ts` (SMC/Cloud Ascent) and
+`lib/cspRenewal.ts` (CSP) **never import each other**, `lib/scanner2.ts` is
+the only composer, and the `isolation` suite (23 checks) asserts it. A rule
+change in one engine cannot leak into another.
+
+### CSP Scanner — `lib/cspRenewal.ts`
+
+For Microsoft CSP licensing renewals: cold outreach into SMB to become
+their partner of record / CSP. Deliberately **not** about Dynamics or M365,
+and it has **no product line** — Jack: *"change product line these are all
+for licensing renewals."*
+
+**A 0–100 weighted score, six factors** (`DEFAULT_CSP_WEIGHTS`), because
+Jack asked for scoring over rules: *"we can do a scoring setting if that
+works better since theres multiple factors to score here."*
+
+| Factor | Weight | Source |
+|---|---|---|
+| Partner lane | 30 | `msp_partneraccountidname` — "No Partner Assigned is the strongest indicator" |
+| Billing programme | 25 | `msp_licensingprogramname` — "annual new upfront is the best quality lead" |
+| Note recency | 18 | newest dated seller entry in `msp_forecastcomments` |
+| Notes strength | 15 | motion language, saturating at `NOTES_SATURATION` |
+| Deal value | 12 | `estimatedvalue`, saturating at $250k |
+| Contact reach | 8 | a phone or email to work |
+
+Thresholds `DEFAULT_CSP_RULES`: **60+ High priority, 25+ Medium, below that
+Low** and never in a download. Stale past 270 days costs 20; dead language
+in the NEWEST entry costs 35, in an older entry only 10 (history, not a
+verdict). No hard kills by default (`hardStopDead: false`) — per Jack,
+*"give every lead a chance to be scored effectively"* and *"removing any
+assumptions."*
+
+**The pinned lead** (`CspLead.perfect`) is Jack's own definition of the
+strongest possible lead, all three at once: notes say they want a partner,
+no partner assigned, AND annual new upfront. Pinned above everything
+regardless of score.
+
+**Tier names are High / Medium / Low priority here**, not Strong Signal /
+Needs Review / Bad Leads — per Jack, *"lets re do curation and product line
+to be high medium low priority in that order"*, because High gets called and
+Medium gets emailed. `CSP_BUCKET_META`/`CSP_CURATION_META` supply the words;
+the underlying `Bucket2` values are unchanged.
+
+**Ranking** (`compareCspLeads`): pinned → score → billing rank → notes
+strength → value → recency. A missing value or date **sinks** rather than
+being read as 0 — the same "a missing value doesn't become zero" rule the
+Dynamics seat-count sort already follows.
+
+**Faceted counts.** Every filter counts the rows passing every filter
+EXCEPT its own (`tests` + `rowsExcept(...skip)` in `Scanner2.tsx`). Jack
+caught the original: *"the page says 986 high priority shows 2166"* — the
+tabs were counting the whole upload. Downloads go through `rowsExcept("bucket")`
+too, so a download honours the active filters and the manual band override
+(`effBucket`) but not the tab you happen to be on.
+
+**The CSP CSV is EIGHT columns**, not the Main/Custom ten:
+`A` First Name · `B` Last Name · `C` Company Name · `D` Email ·
+`E` Work Direct Phone · `F` Mobile Phone · `G` Product Area · `H` Notes.
+Title and Number of Employees are dropped (`CSP_EXPORT_LABELS`/
+`exportLabelsFor`) because a CSP export states neither and an always-blank
+column is worse than an absent one. **Product Area and Notes moved from I/J
+to G/H** as a result — Jack referenced those letters explicitly, and the
+`csv-gaps` probe asserts neither holds a bare number.
+
+**Company Name is recovered through a four-step chain** in `scan2`'s CSP
+branch, not left blank: `accountFallback` → any other company/customer
+column → `companyFromNotes` → `companyDomainFromEmail` (free providers
+skipped). 2,253/2,253 on the real file. Jack's `Scanner_Test_2.csv` read
+0/44 because that subset had lost `customeridname` entirely — hence the
+chain.
+
+**Phones:** `telephone1` is the column that matters (71% filled);
+`address1_telephone1` was winning on the substring pass purely by appearing
+first in the file (0.8% filled), so it is now a whole-header hint and the
+substring pass prefers the FULLEST matching column. Excel-mangled values
+(`5.25549E+11`) are dropped, not exported, and counted on screen
+(`phoneMangled`) so the fix is to re-export at source. A notes phone is
+recovered only when explicitly labelled AND not inside partner context —
+of 39 unlabelled candidates, 9 were the partner's own rep, so unlabelled
+extraction was deliberately NOT built.
+
+### Documentation view — `components/Documentation.tsx`
+
+Per Jack: *"build a documentation tab bottom left very detailed of each
+platform what it scans for and how."* Every number in it is imported from
+the live constants (`WEIGHT_META`, `DEFAULT_CSP_RULES`, `BILLING_META`,
+`POSTURE_META`, `DEAD_PATTERNS`, `MOTION_PATTERNS`, `CSP_COLUMN_HINTS`,
+`EXPORT_LABELS`, `CSP_EXPORT_LABELS`, …) rather than retyped, so it cannot
+drift from the engine. The `docs` suite (33 checks) reads the rendered DOM.
+**A section that restates a constant in prose is a bug** — one already
+happened (the Lead Library subtitle said "October 2025" after the constant
+moved); derive it.
+
+### Two measured performance bugs fixed (both `Scanner2.tsx`)
+
+Per Jack: *"lets focus on fixing bugs or capacity issues."* Both were found
+by measuring in a real browser against the real 24 MB / 9,265-row file, not
+by reading code — and in both cases the app was CORRECT, just unusable.
+
+- **Search cost ~1 second per keystroke.** `tests.search` rebuilt a
+  per-row haystack from every column INSIDE the filter, and `tests` feeds
+  eleven faceted counts — so one keystroke stringified the whole upload ten
+  times over, allocating 30 MB and discarding it, ten times. Now the text
+  is joined once per scan (`haystacks`, memoised on `result`) and the query
+  resolves to a `Set` of row ids once per keystroke (`searchHits`), so all
+  eleven passes are a Set lookup. **1,033 ms → 112 ms per keystroke**,
+  identical matches.
+- **"Start over" released no memory.** It cleared every piece of state, but
+  React keeps the previous render's memoised rows on the fiber, so a scan's
+  ~146 MB survived and four scan cycles reached **420 MB** with forced GC
+  between each. Unmounting the component DOES free it (146 MB → 6 MB,
+  measured), so Start over now calls `onStartOver` → `App.tsx` bumps
+  `scanEpoch` → the `key` changes → React discards the fiber. **Flat
+  146 MB ceiling, 6 MB after every Start over.** Note `noUnusedLocals`:
+  the prop must be destructured or `tsc` fails the build.
+
+**`perf-scan` suite (8 checks) guards both** — and it was proven to FAIL on
+the unfixed code before being kept. Two lessons worth not relearning:
+its first fixture had 430 chars of notes per row where the real file
+averages 4,159, ~20x too little text to reproduce the bug, so it passed on
+the bug; and the first "before" run was measuring the FIXED build, because
+reverting left an unused variable, `tsc` refused, and the old `dist/`
+stayed in place. **Check the build's exit code when measuring a revert.**
+
+### Capacity, measured
+
+Linear, no cliff — ~13 MB and ~0.22 ms of scan per row. 1 file (9,265 rows)
+parse 1.0 s / scan 2.1 s / 126 MB; 3 files 2.8 s / 6.0 s / 355 MB; 6 files
+5.7 s / 12.1 s / 610 MB; 12 files (111,180 rows) 11.7 s / 24.4 s / ~1.1 GB.
+In the browser one real file is 2.9 s end to end. **Practical ceiling ~6
+files / 55,000 rows** before a tab is carrying over a gigabyte. Storage
+does NOT grow with row count: a scan writes one rule set + one run record
+(counts and filenames, never rows), and curation only on a click.
+
+### Open, flagged, NOT changed — each needs Jack's read
+
+- **`"wants a partner"` over-fires on Microsoft's own boilerplate**
+  (*"Partner: Not discovered — recommend initiating partner discovery"*):
+  **881 rows fire it, 729 of them already have a named partner.** High
+  priority is unaffected (a pinned lead also needs no-partner + annual
+  upfront) but the notes factor is generous on partner-held rows. **A fix
+  exists and is measured**: an intent-vs-boilerplate discriminator that
+  reads the ±110 chars around a phrase. On "Copilot": of 4,330 mentions,
+  2,153 are genuine customer intent, 1,920 bare, only 124
+  boilerplate-only. Not shipped — it changes what High priority means.
+- **Deal value saturates at $250k**, so a $960k held deal scores near a
+  $288 open-lane one.
+- **19% of High priority leads state no date**, so they score 0 on recency
+  (correct) but a date filter excludes them entirely.
+- **A SKU column was scoped and measured, not built.** Jack: *"add in a
+  column that will map for product area and be the sku name they are
+  looking for or add that in the notes if notes given which is common."*
+  Findings: the export has **no product/SKU column at all** (only the
+  billing programme, 5 distinct values), so it can only come from the
+  notes — a labelled `Product:`/`Product Recommendation:` covers ~330 rows,
+  `SKU:` 493 (but holds a Microsoft PART NUMBER like `AAS-73033`, with the
+  product NAME beside it), `Solution Area:` 917, and a keyword scan reaches
+  5,175 (67%). Where it lands in the CSV is Jack's call — he answered
+  "Something else" to all three proposed column shapes with no detail, then
+  said *"notes seem to have enoigh"*. Design ready: precedence chain
+  (labelled product → solution area → keyword-with-intent → bare keyword,
+  boilerplate-only dropped), SKU at the front of the Notes line.
+
+### Correction to this file's own "Repo layout" section
+
+`legacy/extension/`, `legacy/web/` and the `legacy/test-*.js` Playwright
+suite **do not exist and never have been tracked here** (git history
+confirms). So "the legacy Playwright suite is the acceptance bar" points at
+files that are not there. The 20 suites / 734 checks on
+`scanner-platform-v29` were written fresh; a Chrome extension build would
+start from scratch. Left the layout section itself alone rather than
+rewriting someone else's stated intent — but do not trust it as a file
+listing.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool
