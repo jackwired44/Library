@@ -44,6 +44,16 @@ async function saveViaClaudeDownloads(fileName: string, text: string): Promise<b
   }
 }
 
+/**
+ * Deliberately NO byte-order mark.
+ *
+ * A BOM would make Excel on Windows read the file as UTF-8 instead of ANSI,
+ * which is a real cosmetic win for the notes column. But it also prepends
+ * an invisible character to the FIRST header, so any importer that does not
+ * strip it sees column A as "\uFEFFFirst Name" and drops it. That is a
+ * functional risk to a live Apollo import, traded against a cosmetic one.
+ * Not worth it — the file stays plain UTF-8.
+ */
 export async function downloadBlob(text: string, fileName: string, mime = "text/csv;charset=utf-8;"): Promise<void> {
   if (await saveViaClaudeDownloads(fileName, text)) return;
   if (typeof window !== "undefined" && window.claude?.use) {
@@ -111,10 +121,38 @@ function stripGluedNull(v: unknown): unknown {
   // rendered a literal "NULL." as their entire matched-snippet/notes text.
   return v.replace(/\bNULL(?=[A-Za-z])/g, "").replace(/(?<=\S)NULL\b/g, "");
 }
+// Mojibake repair. A Dynamics/Excel export that lost its encoding on the
+// way out writes U+FFFD (the replacement character) where a smart quote or
+// a bullet used to be — 3,717 of 9,265 rows in one real CSP export. Left
+// alone it reaches the call notes as "customer<?>s" and the download as a
+// literal replacement glyph.
+//
+// Two cases, and nothing is invented beyond them:
+//   letter <?> letter  -> an apostrophe ("customer<?>s" is "customer's")
+//   anything else      -> dropped, and the surrounding spaces collapsed,
+//                         because a stray bullet carries no meaning
+// Done here, once, at the same choke point stripGluedNull uses, so all
+// three scanners and every export read the repaired text.
+// NB the guard is a regex, not `v.includes("\uFFFD")`: a string literal
+// containing the escape is compiled to a REAL replacement character in the
+// bundle, which then trips every "is this file UTF-8 clean" check — the
+// publish step refused the build over it. A regex literal keeps the escape.
+function repairMojibake(v: string): string {
+  if (!/\uFFFD/.test(v)) return v;
+  return v
+    .replace(/(?<=\p{L})\uFFFD(?=\p{L})/gu, "\u2019")
+    .replace(/\s*\uFFFD+\s*/g, " ")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
 function cleanParsedRows(data: Record<string, unknown>[]): Record<string, unknown>[] {
   return data.map((row) => {
     const cleaned: Record<string, unknown> = {};
-    for (const key of Object.keys(row)) cleaned[key] = stripGluedNull(row[key]);
+    for (const key of Object.keys(row)) {
+      const v = stripGluedNull(row[key]);
+      cleaned[key] = typeof v === "string" ? repairMojibake(v) : v;
+    }
     return cleaned;
   });
 }

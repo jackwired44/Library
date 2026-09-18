@@ -100,37 +100,19 @@
   --accent-soft: var(--brand-subtle);
 }
 
-/* Dark theme. Only tokens are redefined — no component rule lives
-   inside a theme block, so nothing can render one theme's text on
-   the other theme's ground. Both the system default (unstamped)
-   and the explicit toggle are handled. */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --brand: #4cbfb3;
-    --brand-hover: #6fd8cc;
-    --brand-active: #8ee3d9;
-    --brand-subtle: #17383a;
-    --brand-accent: #4fbe7c;
-    --bg-app: #0e1a1c;
-    --bg-surface: #152426;
-    --bg-subtle: #1a2c2e;
-    --bg-hover: #1f3436;
-    --ink-1: #e8efef;
-    --ink-2: #b4c6c7;
-    --ink-3: #8ca3a5;
-    --line: #26393b;
-    --line-strong: #5e7a7c;
-    --success: #4fbe7c; --success-bg: #12301f;
-    --warning: #d69b3f; --warning-bg: #2f2410;
-    --danger:  #e97a70; --danger-bg:  #331613;
-    --info:    #63b0dd; --info-bg:    #12242f;
-    --neutral: #9fb2b4; --neutral-bg: #1e2c2e;
-    --sh-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --sh-md: 0 2px 8px rgba(0, 0, 0, 0.5);
-    --sh-lg: 0 10px 30px rgba(0, 0, 0, 0.6);
-  }
-}
+/* Dark theme tokens are defined below, but auto-dark is DELIBERATELY OFF.
+   The stylesheet is fully tokenised; the components are not — 225 colour
+   literals are still hardcoded in inline styles across Scanner/Library/
+   History (a known leftover of the interface remodel, "the ~970 inline
+   styles are still inline"). Those paint LIGHT panels regardless of the
+   tokens, so a system-dark viewer got light text on light surfaces:
+   the filename chip and the table header measured 1.09:1 and 2.48:1.
+   Until those literals are converted screen by screen, this page commits
+   to its light design rather than shipping a half-dark one. The palette
+   below is kept and still applies to an explicit [data-theme="dark"]
+   stamp, so restoring auto-dark is re-wrapping it in
+   `@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) }`
+   once the components read tokens. */
 :root[data-theme="dark"] {
   color-scheme: dark;
   --brand: #4cbfb3;
@@ -227,34 +209,6 @@ button:disabled {
 :focus-visible {
   outline: 2px solid #7fad91;
   outline-offset: 1px;
-}
-
-.app-header {
-  position: sticky;
-  top: 0;
-  z-index: 30;
-  background: var(--surface);
-  /* The wire separates the header from the page instead of a flat grey
-     border — the top-most instance of the lining. */
-  border-bottom: 2px solid transparent;
-  border-image: linear-gradient(90deg, var(--accent), var(--accent-blue)) 1;
-  margin: 0 -24px 18px;
-  padding: 12px 24px;
-}
-
-.app-mark {
-  width: 34px;
-  height: 34px;
-  border-radius: 9px;
-  background: linear-gradient(135deg, var(--ink), #16414a);
-  color: var(--accent);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: inherit;
-  font-weight: 700;
-  font-size: 17px;
-  flex-shrink: 0;
 }
 
 .nav-btn {
@@ -633,7 +587,11 @@ button:disabled {
 }
 .btn-primary {
   background: var(--accent);
-  color: #06251d;
+  /* White, not the old near-black #06251d: that ink was chosen when
+     --accent was the light brand green. The remodel moved --accent to
+     teal #0E7A72, where dark ink measures 3.14:1 (under 4.5) and white
+     measures 5.19:1. */
+  color: #fff;
   font-weight: 700;
 }
 .btn-secondary {
@@ -753,6 +711,16 @@ button:disabled {
 }
 .toolbar-spacer {
   flex: 1;
+}
+/* An inline checkbox/number control sitting in a toolbar row, so these
+   stop being one-off inline styles per scanner. */
+.toolbar-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--ink);
+  white-space: nowrap;
 }
 .toolbar-divider {
   width: 1px;
@@ -1130,6 +1098,29 @@ textarea:focus {
   padding: var(--s3) var(--s3) 0;
   margin: 0;
 }
+/* The sidebar footer buttons are .btn-ghost, whose ink (--ink-3) is a
+   LIGHT-surface token — on the dark sidebar it measured 2.78:1, under the
+   4.5 minimum for body text. Same override the account buttons below
+   already get, so the two footer buttons match the nav items (8.8:1). */
+.sidebar .btn-ghost {
+  color: var(--sidebar-ink);
+  border-color: transparent;
+}
+.sidebar .btn-ghost:hover {
+  background: var(--sidebar-hover);
+  color: var(--sidebar-ink-strong);
+}
+/* A footer button that is the current view needs the same lit-rail
+   treatment the nav items get. Setting a LIGHT fill here (the obvious
+   inline style) puts near-white on near-white and the label disappears —
+   the same mistake the nav's own active state was fixed for earlier. */
+.sidebar .btn-ghost.active {
+  background: var(--sidebar-hover);
+  color: var(--sidebar-ink-strong);
+  border-left: 3px solid var(--sidebar-rail);
+  font-weight: 700;
+}
+
 .sidebar .account-name { color: var(--sidebar-ink-strong); }
 .sidebar .account-org { color: var(--sidebar-group); }
 .sidebar .account-row-btn:hover { background: var(--sidebar-hover); }
@@ -1405,6 +1396,12 @@ textarea:focus {
   padding: 1px 6px;
   margin-left: 6px;
 }
+/* The count pill inherits its ink from the button it sits in. On the
+   white-ink primary button a 22%-white backdrop would be white-on-white;
+   a dark scrim over the teal gives white ~7.8:1 instead. Secondary
+   buttons keep the light pill, since their ink is dark. */
+.btn-primary .dl-count { background: rgba(0, 0, 0, 0.25); }
+
 .dl-hint { font-size: 11.5px; color: var(--ink-3); }
 .dl-rename {
   display: flex;

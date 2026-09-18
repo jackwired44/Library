@@ -1,0 +1,13 @@
+import { looseEmail, loosePhone } from "../../src/lib/smcLead";
+let pass=0, fail=0;
+const ok=(n:string,c:boolean,d="")=>{c?(pass++,console.log("  PASS",n)):(fail++,console.log("  FAIL",n,d));};
+ok("finds a loose email", looseEmail("blah jane.doe@acme.co.uk blah") === "jane.doe@acme.co.uk");
+ok("finds a formatted phone", loosePhone("call 850.983.1845 today") === "850.983.1845");
+ok("finds a bracketed phone", loosePhone("x (630) 595-3900 y") === "(630) 595-3900");
+ok("finds an international phone", loosePhone("+1 585 419 9555") === "+1 585 419 9555");
+ok("a Customer TPID is NOT a phone", loosePhone("Customer TPID: 126649047 #13743") === "", loosePhone("Customer TPID: 126649047 #13743"));
+ok("a long id is NOT a phone", loosePhone("Lead ID: 7-3HQJ2WFP6J 10984130") === "", loosePhone("Lead ID: 7-3HQJ2WFP6J 10984130"));
+ok("a year range is NOT a phone", loosePhone("rollout Q2–Q3 2026 2027") === "", loosePhone("rollout Q2–Q3 2026 2027"));
+ok("no email means no email", looseEmail("nothing here") === "");
+console.log(`\n${pass}/${pass+fail} checks passed`);
+if (fail) process.exit(1);

@@ -13,8 +13,9 @@
     "hash-password": "node scripts/hash-password.cjs",
     "company-overview": "node scripts/company-overview.cjs",
     "suites": "node scripts/run-suites.cjs",
-    "test": "npm run build:test && node scripts/run-suites.cjs",
-    "build:test": "VITE_APP_PASSWORD_HASH=0b39f2293df026a351657d70aacb9154ff19102dd93b4f75888b68e7eeb7ad6c VITE_APP_SCANNER_HASH=0b39f2293df026a351657d70aacb9154ff19102dd93b4f75888b68e7eeb7ad6c tsc -b && VITE_APP_PASSWORD_HASH=0b39f2293df026a351657d70aacb9154ff19102dd93b4f75888b68e7eeb7ad6c VITE_APP_SCANNER_HASH=0b39f2293df026a351657d70aacb9154ff19102dd93b4f75888b68e7eeb7ad6c vite build"
+    "probes": "node scripts/probes/bucket-accuracy.cjs && node scripts/probes/m365-capture.cjs && node scripts/probes/smc-parse.cjs && node scripts/probes/smc-dates.cjs && node scripts/probes/smc-buckets.cjs && node scripts/probes/smc-keys.cjs && node scripts/probes/smc-volume.cjs",
+    "test": "npm run build:test && (node scripts/run-suites.cjs; s=$?; npm run build; exit $s)",
+    "build:test": "VITE_APP_PASSWORD_HASH=0b39f2293df026a351657d70aacb9154ff19102dd93b4f75888b68e7eeb7ad6c VITE_APP_SCANNER_HASH=0b39f2293df026a351657d70aacb9154ff19102dd93b4f75888b68e7eeb7ad6c VITE_APP_SCANNER2_HASH=0b39f2293df026a351657d70aacb9154ff19102dd93b4f75888b68e7eeb7ad6c tsc -b && VITE_APP_PASSWORD_HASH=0b39f2293df026a351657d70aacb9154ff19102dd93b4f75888b68e7eeb7ad6c VITE_APP_SCANNER_HASH=0b39f2293df026a351657d70aacb9154ff19102dd93b4f75888b68e7eeb7ad6c VITE_APP_SCANNER2_HASH=0b39f2293df026a351657d70aacb9154ff19102dd93b4f75888b68e7eeb7ad6c vite build"
   },
   "dependencies": {
     "papaparse": "^5.4.1",

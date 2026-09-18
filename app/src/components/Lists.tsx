@@ -125,21 +125,33 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
                         </thead>
                         <tbody>
                           {list.rows.map((r) => {
-                            const catMeta = CATEGORY_META[r.__category];
-                            const tierMeta = TIER_LABEL[r.__tier] || TIER_LABEL.mention;
+                            // A CSP row has no product line or tier — it carries a
+                            // priority band and a score instead. Render whichever it has.
+                            const catMeta = r.__category ? CATEGORY_META[r.__category] : null;
+                            const tierMeta = r.__tier ? (TIER_LABEL[r.__tier] || TIER_LABEL.mention) : null;
                             return (
                               <tr key={r.__rowKey} style={{ borderTop: "1px solid var(--border)" }}>
                                 <td style={{ padding: "7px 12px", fontSize: 12.5 }}>{r["Company Name"] || "—"}</td>
                                 <td style={{ padding: "7px 12px", fontSize: 12.5 }}>{`${r["First Name"]} ${r["Last Name"]}`.trim() || "—"}</td>
                                 <td style={{ padding: "7px 12px" }}>
-                                  <span style={{ fontSize: 10.5, fontWeight: 700, color: catMeta.color, background: catMeta.bg, borderRadius: 999, padding: "2px 9px", whiteSpace: "nowrap" }}>
-                                    {catMeta.label}
-                                  </span>
+                                  {catMeta ? (
+                                    <span style={{ fontSize: 10.5, fontWeight: 700, color: catMeta.color, background: catMeta.bg, borderRadius: 999, padding: "2px 9px", whiteSpace: "nowrap" }}>
+                                      {catMeta.label}
+                                    </span>
+                                  ) : r.__band ? (
+                                    <span style={{ fontSize: 10.5, fontWeight: 700, color: "var(--muted)", background: "var(--surface-sunken)", borderRadius: 999, padding: "2px 9px", whiteSpace: "nowrap" }}>
+                                      {r.__band}
+                                    </span>
+                                  ) : <span style={{ color: "var(--muted)" }}>—</span>}
                                 </td>
                                 <td style={{ padding: "7px 12px" }}>
-                                  <span style={{ fontSize: 10.5, fontWeight: 700, color: tierMeta.color, background: tierMeta.bg, borderRadius: 999, padding: "2px 9px", whiteSpace: "nowrap" }}>
-                                    {tierMeta.label}
-                                  </span>
+                                  {tierMeta ? (
+                                    <span style={{ fontSize: 10.5, fontWeight: 700, color: tierMeta.color, background: tierMeta.bg, borderRadius: 999, padding: "2px 9px", whiteSpace: "nowrap" }}>
+                                      {tierMeta.label}
+                                    </span>
+                                  ) : r.__score != null ? (
+                                    <span style={{ fontSize: 11, fontWeight: 700, fontVariantNumeric: "tabular-nums" }} title="CSP score">{r.__score}</span>
+                                  ) : <span style={{ color: "var(--muted)" }}>—</span>}
                                 </td>
                                 <td style={{ padding: "7px 12px", textAlign: "right" }}>
                                   <button onClick={() => onRemoveRow(list.id, r.__rowKey)} title="Remove from this list" style={{ border: "none", background: "none", color: "#B5443B", cursor: "pointer" }}>✕</button>

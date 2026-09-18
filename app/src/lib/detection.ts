@@ -1092,8 +1092,8 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
 function normalizeKey(s: string) {
   return s.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
-export function guessColumn(columns: string[], candidates: string[]): string | null {
-  const normCols = columns.map((c) => ({ raw: c, norm: normalizeKey(c) }));
+export function guessColumn(columns: string[], candidates: string[], taken: ReadonlySet<string> = new Set()): string | null {
+  const normCols = columns.map((c) => ({ raw: c, norm: normalizeKey(c) })).filter((c) => !taken.has(c.raw));
   for (const cand of candidates) {
     const normCand = normalizeKey(cand);
     const found = normCols.find((c) => c.norm === normCand) || normCols.find((c) => c.norm.includes(normCand));
@@ -1116,7 +1116,7 @@ export const FIELD_DEFS: FieldDef[] = [
   {
     key: "workPhone",
     label: "Work Direct Phone",
-    candidates: ["workdirectphone", "workphone", "directphone", "businessphone", "officephone", "primaryphone", "phonenumber", "directdial", "phone", "nocolumnname"],
+    candidates: ["workdirectphone", "workphone", "directphone", "businessphone", "officephone", "primaryphone", "telephone", "phonenumber", "directdial", "phone", "nocolumnname"],
   },
   { key: "mobilePhone", label: "Mobile Phone", candidates: ["mobilephone", "cellphone", "cellnumber", "mobilenumber", "mobile", "cell"] },
   { key: "employees", label: "Number of Employees", candidates: ["numberofemployees", "employees", "headcount", "companysize", "numemployees"] },
@@ -1413,7 +1413,15 @@ export interface DuplicateRow {
 // duplicating this logic or running the detection engine over them.
 export function computeFileFieldMapping(pf: ParsedFile): Partial<Record<keyof ResolvedFields, string>> {
   const fileMapping: Partial<Record<keyof ResolvedFields, string>> = {};
-  FIELD_DEFS.forEach((f) => { fileMapping[f.key] = guessColumn(pf.fields, f.candidates) || undefined; });
+  // Claim as we go. Without this, Work Direct Phone and Mobile Phone both
+  // matched "mobilephone" on a Dynamics export and telephone1 was never
+  // read at all — the work number was simply lost from every download.
+  const claimed = new Set<string>();
+  FIELD_DEFS.forEach((f) => {
+    const col = guessColumn(pf.fields, f.candidates, claimed) || undefined;
+    fileMapping[f.key] = col;
+    if (col) claimed.add(col);
+  });
   const claimedCols = new Set(Object.values(fileMapping).filter(Boolean) as string[]);
   const unclaimedPhoneCols = pf.fields.filter((c) => !claimedCols.has(c) && PHONE_LIKE_RE.test(c));
   if (!fileMapping.workPhone && unclaimedPhoneCols.length > 0) fileMapping.workPhone = unclaimedPhoneCols.shift();

@@ -12,8 +12,16 @@ import { buildContactIndex, lookupContact, type Contact } from "./contacts";
 
 export type ListedLeadRow = ExportRow & {
   __rowKey: string;
-  __category: CategoryKey;
-  __tier: Tier;
+  /** Main / SMC scanners only. A CSP row has no product line by design, so
+   *  this is absent there and `__band` carries the label instead. */
+  __category?: CategoryKey;
+  __tier?: Tier;
+  /** Which scanner the row came from, so a list can mix sources honestly. */
+  __scanner?: "main" | "smc" | "csp";
+  /** The CSP priority band ("High priority"), shown where a category would be. */
+  __band?: string;
+  /** The CSP score, so a list stays in the order that matters. */
+  __score?: number;
 };
 
 export interface LeadList {
@@ -90,6 +98,41 @@ export function addRowsToList(lists: LeadList[], listId: string, rows: ResultRow
   return { lists: lists.map((l) => (l.id === listId ? updated : l)), added: toAdd.length };
 }
 
+/**
+ * Add rows that are ALREADY in the export shape — the CSP scanner builds
+ * its own (its Product Area is a priority band, not a product line), so it
+ * has no ResultRow to hand over. Same name+company dedupe as the path
+ * above, so adding the same lead twice is still a no-op.
+ */
+export function addExportRowsToList(
+  lists: LeadList[],
+  listId: string,
+  rows: { row: ExportRow; scanner: "main" | "smc" | "csp"; band?: string; score?: number }[],
+): { lists: LeadList[]; added: number; skipped: number } {
+  const list = lists.find((l) => l.id === listId);
+  if (!list) return { lists, added: 0, skipped: 0 };
+  const existingKeys = new Set(list.rows.map((r) => r.__rowKey));
+  const toAdd: ListedLeadRow[] = [];
+  let skipped = 0;
+  for (const { row, scanner, band, score } of rows) {
+    const name = normalizeDupKey(row["First Name"] || "");
+    const company = normalizeDupKey(row["Company Name"] || "");
+    const dedupeKey = name && company ? `${name}::${company}` : null;
+    if (dedupeKey && existingKeys.has(dedupeKey)) { skipped++; continue; }
+    if (dedupeKey) existingKeys.add(dedupeKey);
+    toAdd.push({
+      ...row,
+      __rowKey: dedupeKey || `row-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      __scanner: scanner,
+      __band: band,
+      __score: score,
+    });
+  }
+  if (!toAdd.length) return { lists, added: 0, skipped };
+  const updated: LeadList = { ...list, rows: [...list.rows, ...toAdd] };
+  return { lists: lists.map((l) => (l.id === listId ? updated : l)), added: toAdd.length, skipped };
+}
+
 export function removeRowFromList(lists: LeadList[], listId: string, rowKey: string): LeadList[] {
   return lists.map((l) => (l.id === listId ? { ...l, rows: l.rows.filter((r) => r.__rowKey !== rowKey) } : l));
 }
@@ -148,7 +191,7 @@ export function listsForContact(
       const match = lookupContact(index, fullName, r["Company Name"] || "", r["Email"] || "");
       if (match && match.id === contactId) {
         onList = true;
-        categories.add(r.__category);
+        if (r.__category) categories.add(r.__category);
       }
     });
     if (onList) out.push({ list, categories: [...categories] });

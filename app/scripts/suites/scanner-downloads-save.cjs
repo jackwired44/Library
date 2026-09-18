@@ -89,7 +89,7 @@ const csv=[HEAD,...rows].join('\n');
 
  // --- the folder really exists in the Lead Library, and survives a reload ---
  await page.reload(); await sleep(1500);
- if (await page.locator('input[type=password]').count()) {
+ if (await page.locator('input[aria-label="Email"]').count()) {
    await page.fill('input[aria-label="Email"]','jack@wiredcio.com'); await page.fill('input[type=password]','changeme');
    await page.click('button:has-text("Unlock")');
  }

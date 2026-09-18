@@ -3,7 +3,7 @@
 // used. No server, no shared backend (see CLAUDE.md, Access & ownership).
 
 export const DB_NAME = "wiredCioUnifiedLeadScannerLibrary_v1";
-export const DB_VERSION = 15;
+export const DB_VERSION = 17;
 export const STORE_LIBRARY = "files";
 export const STORE_GROUPS = "groups";
 export const STORE_HISTORY = "history";
@@ -22,6 +22,14 @@ export const STORE_EMAIL_ACCOUNTS = "emailAccounts";
 export const STORE_DISPOSITIONS = "dispositions";
 export const STORE_COMPANY_PROFILES = "companyProfiles";
 export const STORE_OUTREACH_ATTEMPTS = "outreachAttempts";
+// Scanner 2 — its own stores, so nothing it writes can touch the Lead
+// Library, Lists or History that Scanner 1 owns (see lib/scanner2.ts).
+export const STORE_SCANNER2_RULESETS = "scanner2RuleSets";
+export const STORE_SCANNER2_RUNS = "scanner2Runs";
+// Curation decisions, keyed by lead identity rather than by row, so a
+// keep/reject survives re-uploading the same list — the same reasoning as
+// Scanner 1's sticky crossed-out/disposition state.
+export const STORE_SCANNER2_CURATION = "scanner2Curation";
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -32,6 +40,9 @@ function openDB(): Promise<IDBDatabase> {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
+      if (!db.objectStoreNames.contains(STORE_SCANNER2_RULESETS)) db.createObjectStore(STORE_SCANNER2_RULESETS, { keyPath: "id" });
+      if (!db.objectStoreNames.contains(STORE_SCANNER2_RUNS)) db.createObjectStore(STORE_SCANNER2_RUNS, { keyPath: "id" });
+      if (!db.objectStoreNames.contains(STORE_SCANNER2_CURATION)) db.createObjectStore(STORE_SCANNER2_CURATION, { keyPath: "key" });
       if (!db.objectStoreNames.contains(STORE_LIBRARY)) db.createObjectStore(STORE_LIBRARY, { keyPath: "id" });
       if (!db.objectStoreNames.contains(STORE_GROUPS)) db.createObjectStore(STORE_GROUPS, { keyPath: "id" });
       if (!db.objectStoreNames.contains(STORE_HISTORY)) db.createObjectStore(STORE_HISTORY, { keyPath: "id" });
