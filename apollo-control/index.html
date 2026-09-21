@@ -1,0 +1,1035 @@
+<title>Apollo Sequence Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --ground: #f5f8f8;
+    --surface: #ffffff;
+    --sunken: #eef3f3;
+    --line: #d5e0e1;
+    --line-soft: #e6eded;
+    --ink: #0b1a1d;
+    --ink-2: #566b6e;
+    --ink-3: #7d9093;
+    --brand: #0c4651;
+    --accent: #0e7a72;
+    --accent-soft: #e0f0ee;
+    --ok: #17795e;
+    --ok-soft: #e0f1ea;
+    --warn: #96600a;
+    --warn-soft: #fbeedb;
+    --crit: #ab372c;
+    --crit-soft: #fae7e4;
+    --shadow: 0 1px 2px rgba(11, 26, 29, .06), 0 6px 16px -10px rgba(11, 26, 29, .18);
+    --sans: "Archivo", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #081113;
+      --surface: #0f1d20;
+      --sunken: #16292d;
+      --line: #22383c;
+      --line-soft: #1a2e32;
+      --ink: #e8f1f1;
+      --ink-2: #9ab0b3;
+      --ink-3: #74898c;
+      --brand: #56b8ac;
+      --accent: #58bdb1;
+      --accent-soft: #123833;
+      --ok: #45c294;
+      --ok-soft: #10312a;
+      --warn: #dda850;
+      --warn-soft: #34260f;
+      --crit: #e58275;
+      --crit-soft: #38201d;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 20px -12px rgba(0, 0, 0, .7);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #081113;
+    --surface: #0f1d20;
+    --sunken: #16292d;
+    --line: #22383c;
+    --line-soft: #1a2e32;
+    --ink: #e8f1f1;
+    --ink-2: #9ab0b3;
+    --ink-3: #74898c;
+    --brand: #56b8ac;
+    --accent: #58bdb1;
+    --accent-soft: #123833;
+    --ok: #45c294;
+    --ok-soft: #10312a;
+    --warn: #dda850;
+    --warn-soft: #34260f;
+    --crit: #e58275;
+    --crit-soft: #38201d;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 20px -12px rgba(0, 0, 0, .7);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    font-variant-numeric: tabular-nums;
+  }
+  .wrap { max-width: 1140px; margin: 0 auto; padding: 0 16px; padding-block: 0 56px; }
+  h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.015em; text-wrap: balance; }
+  .num, .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+  /* ---- header ---- */
+  header.top {
+    position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20;
+    background: var(--surface); border-bottom: 1px solid var(--line);
+  }
+  .top-inner { max-width: 1140px; margin: 0 auto; padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .brandmark { display: flex; align-items: baseline; gap: 9px; margin-right: auto; }
+  .brandmark h1 { font-size: 16px; }
+  .brandmark .sub { font-size: 11px; color: var(--ink-3); text-transform: uppercase; letter-spacing: .09em; font-weight: 500; }
+  .live { display: inline-flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--ink-2); font-family: var(--mono); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: none; }
+  .dot.stale { background: var(--warn); }
+  .dot.down { background: var(--crit); }
+  .ghost {
+    background: transparent; border: 1px solid var(--line); border-radius: 6px;
+    padding: 5px 11px; font-size: 12.5px; font-weight: 500; color: var(--ink-2);
+  }
+  .ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ---- owner switch ---- */
+  .ownerbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 14px 0 0; }
+  .ownerbar .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .09em; color: var(--ink-3); font-weight: 600; margin-right: 2px; }
+  .chip {
+    border: 1px solid var(--line); background: var(--surface); border-radius: 999px;
+    padding: 5px 13px; font-size: 12.5px; font-weight: 500; color: var(--ink-2);
+    display: inline-flex; align-items: center; gap: 7px;
+  }
+  .chip .c { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+  .chip[aria-pressed="true"] { background: var(--brand); border-color: var(--brand); color: #fff; }
+  :root[data-theme="dark"] .chip[aria-pressed="true"],
+  :root:not([data-theme="light"]) .chip[aria-pressed="true"] { color: #08191c; }
+  @media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) .chip[aria-pressed="true"] { color: #fff; } }
+  .chip[aria-pressed="true"] .c { color: inherit; opacity: .7; }
+
+  /* ---- sections ---- */
+  section { margin-top: 30px; }
+  .sec-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  .sec-head h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .1em; color: var(--ink-2); font-weight: 600; }
+  .sec-head .count { font-family: var(--mono); font-size: 12px; color: var(--ink-3); margin-left: auto; }
+
+  /* ---- attention ---- */
+  .att-list { display: flex; flex-direction: column; gap: 1px; background: var(--line-soft); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .att {
+    background: var(--surface); padding: 12px 14px 12px 0; display: grid;
+    grid-template-columns: 4px 1fr auto; gap: 0 14px; align-items: center;
+  }
+  .att .stripe { align-self: stretch; background: var(--ink-3); }
+  .att.crit .stripe { background: var(--crit); }
+  .att.warn .stripe { background: var(--warn); }
+  .att .what { font-weight: 600; font-size: 13.5px; }
+  .att .why { font-size: 12.5px; color: var(--ink-2); margin-top: 2px; }
+  .att .who { font-family: var(--mono); font-size: 11px; color: var(--ink-3); text-transform: uppercase; letter-spacing: .05em; }
+  .att .fig { font-family: var(--mono); font-size: 17px; font-weight: 600; text-align: right; white-space: nowrap; }
+  .att.crit .fig { color: var(--crit); }
+  .att.warn .fig { color: var(--warn); }
+  .att .fig small { display: block; font-size: 10px; font-weight: 500; color: var(--ink-3); letter-spacing: .06em; text-transform: uppercase; }
+
+  /* ---- owner summary ---- */
+  .owners { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 14px; }
+  .ocard { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 15px 16px; box-shadow: var(--shadow); }
+  .ocard h3 { font-size: 15px; }
+  .ocard .email { font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); margin-top: 1px; }
+  .stats { margin-top: 13px; border-top: 1px solid var(--line-soft); }
+  .stat { display: flex; align-items: baseline; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line-soft); }
+  .stat:last-child { border-bottom: 0; }
+  .stat .k { font-size: 12.5px; color: var(--ink-2); }
+  .stat .v { margin-left: auto; font-family: var(--mono); font-size: 13.5px; font-weight: 500; }
+  .stat .v.bad { color: var(--crit); }
+  .stat .v.mid { color: var(--warn); }
+
+  /* ---- table ---- */
+  .tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 660px; }
+  thead th {
+    text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: .09em;
+    color: var(--ink-3); font-weight: 600; padding: 10px 12px; border-bottom: 1px solid var(--line);
+    background: var(--sunken); white-space: nowrap;
+  }
+  thead th.r, td.r { text-align: right; }
+  tbody td { padding: 11px 12px; border-bottom: 1px solid var(--line-soft); vertical-align: middle; }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody tr.grp td { background: var(--sunken); font-size: 10.5px; text-transform: uppercase; letter-spacing: .09em; color: var(--ink-2); font-weight: 600; padding: 7px 12px; }
+  .seqname { display: flex; align-items: center; gap: 8px; font-weight: 600; background: none; border: 0; padding: 0; text-align: left; }
+  .caret { font-family: var(--mono); font-size: 10px; color: var(--ink-3); width: 9px; flex: none; }
+  td .paused { font-family: var(--mono); font-size: 10px; letter-spacing: .06em; color: var(--ink-3); text-transform: uppercase; }
+  .pill { display: inline-block; font-family: var(--mono); font-size: 10.5px; font-weight: 500; padding: 2px 7px; border-radius: 4px; white-space: nowrap; }
+  .pill.ok { background: var(--ok-soft); color: var(--ok); }
+  .pill.warn { background: var(--warn-soft); color: var(--warn); }
+  .pill.crit { background: var(--crit-soft); color: var(--crit); }
+  .pill.mute { background: var(--sunken); color: var(--ink-3); }
+  .flags { display: flex; flex-wrap: wrap; gap: 4px; }
+
+  /* ---- step chain ---- */
+  .detail td { background: var(--sunken); padding: 0; }
+  .detail-in { padding: 16px 14px; }
+  .chain { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0; }
+  .step { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; min-width: 122px; }
+  .step .pos { font-family: var(--mono); font-size: 10px; color: var(--ink-3); letter-spacing: .06em; }
+  .step .kind { font-size: 12.5px; font-weight: 600; margin-top: 1px; }
+  .step .at { font-family: var(--mono); font-size: 13px; font-weight: 600; margin-top: 6px; color: var(--accent); }
+  .step .at small { font-family: var(--sans); font-size: 10.5px; font-weight: 500; color: var(--ink-3); display: block; letter-spacing: .04em; }
+  .step.empty .at { color: var(--ink-3); }
+  .gap { display: flex; align-items: center; padding: 0 8px; font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); white-space: nowrap; }
+  .chain-note { margin-top: 11px; font-size: 12px; color: var(--ink-2); }
+
+  /* ---- states ---- */
+  .msg { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 18px 18px; }
+  .msg.crit { border-color: var(--crit); background: var(--crit-soft); }
+  .msg.warn { border-color: var(--warn); background: var(--warn-soft); }
+  .msg h3 { font-size: 14px; margin-bottom: 5px; }
+  .msg p { margin: 0; font-size: 13px; color: var(--ink-2); max-width: 62ch; }
+  .msg.crit p, .msg.warn p { color: var(--ink); }
+  .msg p + p { margin-top: 8px; }
+  .skel { height: 13px; border-radius: 3px; background: var(--line-soft); animation: pulse 1.5s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+  .empty { padding: 20px 14px; color: var(--ink-3); font-size: 13px; }
+  .foot { margin-top: 34px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-3); max-width: 70ch; }
+  .foot strong { color: var(--ink-2); font-weight: 600; }
+  .foot p { margin: 0 0 7px; }
+</style>
+
+<header class="top">
+  <div class="top-inner">
+    <div class="brandmark">
+      <h1>Apollo Sequence Control</h1>
+      <span class="sub">Wired CIO</span>
+    </div>
+    <span class="live" id="live"><span class="dot down"></span><span id="liveText">connecting</span></span>
+    <button class="ghost" id="refresh" type="button">Refresh</button>
+    <button class="ghost" id="theme" type="button" aria-label="Toggle theme">Theme</button>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="ownerbar" id="ownerbar" hidden>
+    <span class="lbl">Showing</span>
+    <span id="ownerChips"></span>
+  </div>
+
+  <section id="bootSec">
+    <div class="msg" id="bootMsg">
+      <h3>Connecting to Apollo</h3>
+      <p>Reading sequences, mailboxes and open tasks with your own Apollo connector. Nothing is written back.</p>
+    </div>
+  </section>
+
+  <section id="attSec" hidden>
+    <div class="sec-head"><h2>Needs attention</h2><span class="count" id="attCount"></span></div>
+    <div id="attBody"></div>
+  </section>
+
+  <section id="ownSec" hidden>
+    <div class="sec-head"><h2>By owner</h2></div>
+    <div class="owners" id="ownBody"></div>
+  </section>
+
+  <section id="seqSec" hidden>
+    <div class="sec-head"><h2>Sequences</h2><span class="count" id="seqCount"></span></div>
+    <div class="tablewrap"><table>
+      <thead><tr>
+        <th>Sequence</th><th>Steps</th><th class="r">Overdue</th><th class="r">Delivered</th>
+        <th class="r">Open</th><th class="r">Reply</th><th class="r">Bounce</th><th class="r">Meetings</th><th>Health</th>
+      </tr></thead>
+      <tbody id="seqBody"></tbody>
+    </table></div>
+  </section>
+
+  <section id="mbSec" hidden>
+    <div class="sec-head"><h2>Sending mailboxes</h2><span class="count" id="mbCount"></span></div>
+    <div class="tablewrap"><table>
+      <thead><tr>
+        <th>Mailbox</th><th>Owner</th><th class="r">Sent</th><th class="r">Daily cap</th>
+        <th class="r">Bounced</th><th class="r">Replied</th><th>Last sync</th><th>Health</th>
+      </tr></thead>
+      <tbody id="mbBody"></tbody>
+    </table></div>
+  </section>
+
+  <div class="foot" id="foot" hidden>
+    <p><strong>Read-only.</strong> Every call this page makes is an Apollo read and consumes no Apollo credits. It cannot pause, edit, enroll or delete anything &mdash; that stays in Apollo.</p>
+    <p><strong>Apollo has no delete API for sequences</strong>, so no amount of building here can add one. Archiving and deleting stay in Apollo by necessity, not by choice.</p>
+    <p id="footNote"></p>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* Which people this console is for. Matched on email so it survives an
+     Apollo user id change; everyone else on the team is still selectable. */
+  var DEFAULT_OWNERS = ["jack@wiredcio.com", "carly@wiredcio.com"];
+
+  /* The connector's display name varies by account, so declare the likely
+     spellings and use whichever one this viewer actually has. */
+  var SERVER_CANDIDATES = ["Apollo.io", "Apollo"];
+
+  var POLL_MS = 60000;
+
+  var TH = {
+    overdueWarn: 25, overdueCrit: 100,
+    bounceWarn: 0.03, bounceCrit: 0.05,
+    optOutWarn: 0.01,
+    noMeetingMinDelivered: 150,
+    staleDays: 14,
+    syncStaleHours: 48
+  };
+
+  var STEP_LABEL = {
+    call: "Call",
+    auto_email: "Auto email",
+    manual_email: "Manual email",
+    action_item: "Action item",
+    linkedin_step_connect: "LinkedIn connect",
+    linkedin_step_message: "LinkedIn message",
+    linkedin_step_view_profile: "LinkedIn view",
+    linkedin_step_interact_post: "LinkedIn post"
+  };
+
+  var state = {
+    mcp: null,
+    server: null,
+    sequences: null,
+    mailboxes: null,
+    analytics: null,
+    users: {},
+    selected: null,          // Set of user ids, null until users resolve
+    expanded: {},            // sequenceId -> {loading, error, buckets, unknown}
+    stamp: 0,
+    errors: {},              // section -> McpError
+    booted: false
+  };
+
+  /* ---------- helpers ---------- */
+  function $(id) { return document.getElementById(id); }
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined && text !== null) n.textContent = String(text);
+    return n;
+  }
+  function pct(v) { return (v === null || v === undefined || isNaN(v)) ? "—" : (v * 100).toFixed(1) + "%"; }
+  function num(v) { return (v === null || v === undefined || isNaN(v)) ? "—" : Number(v).toLocaleString(); }
+  function daysSince(iso) {
+    if (!iso) return null;
+    var t = Date.parse(iso);
+    if (isNaN(t)) return null;
+    return Math.floor((Date.now() - t) / 86400000);
+  }
+  function hoursSince(iso) {
+    if (!iso) return null;
+    var t = Date.parse(iso);
+    if (isNaN(t)) return null;
+    return (Date.now() - t) / 3600000;
+  }
+  function ago(iso) {
+    var h = hoursSince(iso);
+    if (h === null) return "never";
+    if (h < 1) return Math.max(1, Math.round(h * 60)) + "m ago";
+    if (h < 48) return Math.round(h) + "h ago";
+    return Math.round(h / 24) + "d ago";
+  }
+  function clearNode(n) { while (n.firstChild) n.removeChild(n.firstChild); }
+
+  /* Apollo's analytics endpoint answers with a rendered markdown table
+     rather than structured rows, so read it as one. If it ever stops being
+     a table, say the numbers could not be read instead of showing zeros. */
+  function parseMarkdownTable(md) {
+    if (typeof md !== "string") return null;
+    var lines = md.split("\n").filter(function (l) { return l.indexOf("|") !== -1; });
+    if (lines.length < 2) return null;
+    var cells = function (l) {
+      return l.replace(/^\s*\|/, "").replace(/\|\s*$/, "").split("|").map(function (c) { return c.trim(); });
+    };
+    var header = cells(lines[0]);
+    var rows = [];
+    for (var i = 1; i < lines.length; i++) {
+      if (/^[\s|:-]+$/.test(lines[i])) continue;
+      var c = cells(lines[i]);
+      if (c.length !== header.length) continue;
+      var row = {};
+      for (var j = 0; j < header.length; j++) row[header[j]] = c[j];
+      rows.push(row);
+    }
+    return rows.length ? { header: header, rows: rows } : null;
+  }
+  function tableLookup(table, keyText) {
+    if (!table) return null;
+    var k = String(keyText).toLowerCase();
+    for (var i = 0; i < table.rows.length; i++) {
+      var r = table.rows[i];
+      for (var col in r) {
+        if (Object.prototype.hasOwnProperty.call(r, col) &&
+            String(r[col]).toLowerCase().indexOf(k) !== -1) return r;
+      }
+    }
+    return null;
+  }
+  function pickCol(row, fragments) {
+    if (!row) return null;
+    for (var col in row) {
+      if (!Object.prototype.hasOwnProperty.call(row, col)) continue;
+      var lc = col.toLowerCase();
+      for (var i = 0; i < fragments.length; i++) {
+        if (lc.indexOf(fragments[i]) !== -1) {
+          var raw = String(row[col]).replace(/[,%\s]/g, "");
+          var n = Number(raw);
+          return isNaN(n) ? null : n;
+        }
+      }
+    }
+    return null;
+  }
+
+  /* ---------- error copy: one branch per code, never one banner ---------- */
+  function errorCopy(err) {
+    var code = (err && err.code) || "upstream_error";
+    var name = (err && err.server) || "Apollo";
+    switch (code) {
+      case "needs_reauth":
+        return { tone: "crit", head: "Apollo needs reconnecting",
+                 body: "Your " + name + " connection has expired. Reconnect it in claude.ai Settings → Connectors, then refresh this page." };
+      case "server_not_connected":
+        return { tone: "crit", head: "Apollo isn't connected",
+                 body: "No Apollo connector is available to you. Add it in claude.ai Settings → Connectors, then refresh." };
+      case "selection_required":
+        return { tone: "warn", head: "Choose which Apollo account to use",
+                 body: "You have more than one Apollo connector. Pick one when claude.ai asks, then refresh." };
+      case "not_in_manifest":
+        return { tone: "warn", head: "This page isn't allowed to read Apollo",
+                 body: "You turned the Apollo connector off for this page, or declined it. Allow it and reload to see live data." };
+      case "blocked_by_policy":
+      case "approval_required":
+        return { tone: "warn", head: "Blocked by your organization's policy",
+                 body: "An administrator restricts this Apollo tool for your account. Nothing on this page can work around that." };
+      case "server_unavailable":
+        return { tone: "warn", head: "Apollo didn't answer",
+                 body: "Apollo was briefly unreachable. The page keeps refreshing on its own — or press Refresh." };
+      case "rate_limited":
+        return { tone: "warn", head: "Too many Apollo calls",
+                 body: "Give it a moment before refreshing again." };
+      case "tool_error":
+        return { tone: "warn", head: "Apollo refused the request",
+                 body: (err && err.message) || "Apollo answered with an error." };
+      case "not_granted":
+      case "capability_disabled":
+      case "capability_removed":
+        return { tone: "crit", head: "Connectors aren't available here",
+                 body: "Open this page from claude.ai, where it can reach your Apollo connector." };
+      case "consent_required":
+        return { tone: "warn", head: "Allow Apollo for this page",
+                 body: "Apollo access hasn't been allowed here yet. Press Refresh to be asked again." };
+      default:
+        return { tone: "warn", head: "Couldn't read from Apollo",
+                 body: (err && err.message) || "Apollo returned an unexpected response." };
+    }
+  }
+  function renderMsg(node, copy) {
+    clearNode(node);
+    var box = el("div", "msg " + (copy.tone === "crit" ? "crit" : copy.tone === "warn" ? "warn" : ""));
+    box.appendChild(el("h3", null, copy.head));
+    box.appendChild(el("p", null, copy.body));
+    node.appendChild(box);
+  }
+
+  /* ---------- health rules ---------- */
+  function seqFlags(s) {
+    var out = [];
+    var overdue = s.overdue_manual_tasks_count || 0;
+    if (overdue >= TH.overdueCrit) out.push({ t: "crit", label: overdue + " overdue tasks" });
+    else if (overdue >= TH.overdueWarn) out.push({ t: "warn", label: overdue + " overdue tasks" });
+
+    var b = s.bounce_rate || 0;
+    if (b >= TH.bounceCrit) out.push({ t: "crit", label: "bounce " + pct(b) });
+    else if (b >= TH.bounceWarn) out.push({ t: "warn", label: "bounce " + pct(b) });
+
+    if ((s.opt_out_rate || 0) >= TH.optOutWarn) out.push({ t: "warn", label: "opt-out " + pct(s.opt_out_rate) });
+    if (s.is_performing_poorly) out.push({ t: "warn", label: "Apollo: poor" });
+    if ((s.unique_delivered || 0) >= TH.noMeetingMinDelivered && !(s.unique_demoed || 0)) {
+      out.push({ t: "warn", label: "no meetings on " + num(s.unique_delivered) });
+    }
+    var d = daysSince(s.last_used_at);
+    if (s.active && d !== null && d >= TH.staleDays) out.push({ t: "warn", label: "idle " + d + "d" });
+    if (!out.length) out.push({ t: "ok", label: "healthy" });
+    return out;
+  }
+  function worst(flags) {
+    for (var i = 0; i < flags.length; i++) if (flags[i].t === "crit") return "crit";
+    for (var j = 0; j < flags.length; j++) if (flags[j].t === "warn") return "warn";
+    return "ok";
+  }
+
+  /* ---------- Apollo reads ---------- */
+  function resolveServer(mcp) {
+    return mcp.listTools().then(function (res) {
+      var servers = (res && res.servers) || [];
+      for (var i = 0; i < servers.length; i++) {
+        if (/apollo/i.test(servers[i].server) && servers[i].tools && servers[i].tools.length) return servers[i].server;
+      }
+      for (var j = 0; j < servers.length; j++) {
+        if (/apollo/i.test(servers[j].server)) return servers[j].server;
+      }
+      return SERVER_CANDIDATES[0];
+    }).catch(function () { return SERVER_CANDIDATES[0]; });
+  }
+
+  function watch(tool, input, onData, section) {
+    return state.mcp.watchTool(state.server, tool, input, function (ev) {
+      if (ev.type === "error") {
+        state.errors[section] = ev.error;
+        // Transient failures keep the last good read on screen; authz
+        // denials retract it, because it may no longer be ours to show.
+        var c = ev.error && ev.error.code;
+        if (c === "needs_reauth" || c === "server_not_connected" ||
+            c === "blocked_by_policy" || c === "approval_required" || c === "not_in_manifest") {
+          if (section === "sequences") state.sequences = null;
+          if (section === "mailboxes") state.mailboxes = null;
+          if (section === "analytics") state.analytics = null;
+        }
+        render();
+        return;
+      }
+      delete state.errors[section];
+      var r = ev.result || {};
+      state.stamp = (r.cache && r.cache.storedAt) || Date.now();
+      onData(r.payload);
+      render();
+    }, { refetchInterval: POLL_MS });
+  }
+
+  function loadUsers() {
+    return state.mcp.callTool(state.server, "apollo_users_search", { per_page: 100 },
+      { cache: { staleTime: 300000 } })
+      .then(function (r) {
+        var list = (r.payload && r.payload.users) || [];
+        var map = {};
+        list.forEach(function (u) { map[u.id] = u; });
+        state.users = map;
+        if (!state.selected) {
+          var sel = {};
+          list.forEach(function (u) {
+            if (u.email && DEFAULT_OWNERS.indexOf(String(u.email).toLowerCase()) !== -1) sel[u.id] = true;
+          });
+          state.selected = sel;
+        }
+      })
+      .catch(function (err) { state.errors.users = err; });
+  }
+
+  function ownerName(id) {
+    var u = state.users[id];
+    if (!u) return "Unknown owner";
+    return u.name || ((u.first_name || "") + " " + (u.last_name || "")).trim() || u.email || "Unknown owner";
+  }
+  function ownerEmail(id) { var u = state.users[id]; return (u && u.email) || ""; }
+
+  function selectedIds() {
+    var out = [];
+    for (var k in state.selected) if (state.selected[k]) out.push(k);
+    return out;
+  }
+  function visibleSequences() {
+    var all = state.sequences || [];
+    var sel = state.selected;
+    if (!sel || !selectedIds().length) return all.slice();
+    return all.filter(function (s) { return sel[s.user_id]; });
+  }
+
+  /* Contacts sitting at each step: Apollo's analytics step breakdown only
+     populates email steps, so the open-task list is the only honest source
+     for a call or LinkedIn step. */
+  function loadSteps(seq) {
+    var slot = state.expanded[seq.id];
+    slot.loading = true;
+    render();
+    state.mcp.callTool(state.server, "apollo_tasks_search",
+      { emailer_campaign_id: seq.id, task_status: "scheduled", per_page: 100 },
+      { cache: { staleTime: 60000 } })
+      .then(function (r) {
+        var tasks = (r.payload && (r.payload.tasks || r.payload.contact_tasks)) || [];
+        var buckets = {};
+        var declared = {};
+        (seq.emailer_steps || []).forEach(function (st) { declared[st.position] = true; buckets[st.position] = 0; });
+        var orphan = 0;
+        tasks.forEach(function (t) {
+          var p = t && t.sequence && t.sequence.step_position;
+          if (p === undefined || p === null) { orphan++; return; }
+          if (declared[p]) buckets[p] = (buckets[p] || 0) + 1;
+          else orphan++;
+        });
+        slot.loading = false;
+        slot.buckets = buckets;
+        slot.orphan = orphan;
+        slot.total = tasks.length;
+        slot.capped = tasks.length >= 100;
+        delete slot.error;
+        render();
+      })
+      .catch(function (err) {
+        slot.loading = false;
+        slot.error = err;
+        render();
+      });
+  }
+
+  /* ---------- render ---------- */
+  function render() {
+    renderLive();
+    renderOwners();
+    renderAttention();
+    renderOwnerCards();
+    renderSequences();
+    renderMailboxes();
+    renderFoot();
+  }
+
+  function renderLive() {
+    var dot = $("live").querySelector(".dot");
+    var txt = $("liveText");
+    var pageErr = state.errors.sequences;
+    if (pageErr) {
+      dot.className = "dot down";
+      txt.textContent = "not live";
+    } else if (!state.stamp) {
+      dot.className = "dot stale";
+      txt.textContent = "loading";
+    } else {
+      var mins = (Date.now() - state.stamp) / 60000;
+      dot.className = "dot" + (mins > 5 ? " stale" : "");
+      txt.textContent = "live · " + (mins < 1 ? "just now" : Math.round(mins) + "m ago");
+    }
+  }
+
+  function renderOwners() {
+    if (!state.sequences || !state.selected) return;
+    var ids = {};
+    state.sequences.forEach(function (s) { if (s.user_id) ids[s.user_id] = true; });
+    selectedIds().forEach(function (id) { ids[id] = true; });
+    var list = Object.keys(ids).sort(function (a, b) { return ownerName(a).localeCompare(ownerName(b)); });
+
+    var box = $("ownerChips");
+    clearNode(box);
+    list.forEach(function (id) {
+      var n = (state.sequences || []).filter(function (s) { return s.user_id === id; }).length;
+      var b = el("button", "chip");
+      b.type = "button";
+      b.setAttribute("aria-pressed", state.selected[id] ? "true" : "false");
+      b.appendChild(document.createTextNode(ownerName(id)));
+      b.appendChild(el("span", "c", n));
+      b.addEventListener("click", function () {
+        state.selected[id] = !state.selected[id];
+        render();
+      });
+      box.appendChild(b);
+      box.appendChild(document.createTextNode(" "));
+    });
+    $("ownerbar").hidden = false;
+  }
+
+  function renderAttention() {
+    if (!state.sequences) return;
+    var sec = $("attSec");
+    var body = $("attBody");
+    var seqs = visibleSequences();
+    var items = [];
+
+    seqs.forEach(function (s) {
+      var flags = seqFlags(s);
+      flags.forEach(function (f) {
+        if (f.t === "ok") return;
+        var fig = "", cap = "";
+        var overdue = s.overdue_manual_tasks_count || 0;
+        if (f.label.indexOf("overdue") !== -1) { fig = num(overdue); cap = "tasks"; }
+        else if (f.label.indexOf("bounce") !== -1) { fig = pct(s.bounce_rate); cap = "bounced"; }
+        else if (f.label.indexOf("opt-out") !== -1) { fig = pct(s.opt_out_rate); cap = "opted out"; }
+        else if (f.label.indexOf("no meetings") !== -1) { fig = num(s.unique_delivered); cap = "sent, 0 booked"; }
+        else if (f.label.indexOf("idle") !== -1) { fig = daysSince(s.last_used_at) + "d"; cap = "since used"; }
+        else { fig = "—"; cap = ""; }
+        items.push({
+          tone: f.t, name: s.name, owner: ownerName(s.user_id),
+          why: reasonFor(f, s), fig: fig, cap: cap,
+          rank: (f.t === "crit" ? 0 : 1),
+          size: overdue
+        });
+      });
+    });
+
+    items.sort(function (a, b) { return a.rank - b.rank || b.size - a.size; });
+
+    clearNode(body);
+    $("attCount").textContent = items.length ? items.length + " item" + (items.length === 1 ? "" : "s") : "";
+    if (state.errors.sequences) {
+      renderMsg(body, errorCopy(state.errors.sequences));
+      sec.hidden = false;
+      return;
+    }
+    if (!items.length) {
+      var ok = el("div", "msg");
+      ok.appendChild(el("h3", null, "Nothing needs attention"));
+      ok.appendChild(el("p", null, "No overdue backlog, bounce problem or idle sequence across the accounts you're showing."));
+      body.appendChild(ok);
+      sec.hidden = false;
+      return;
+    }
+    var list = el("div", "att-list");
+    items.forEach(function (it) {
+      var row = el("div", "att " + it.tone);
+      row.appendChild(el("span", "stripe"));
+      var mid = el("div");
+      mid.appendChild(el("div", "what", it.name));
+      mid.appendChild(el("div", "why", it.why));
+      mid.appendChild(el("div", "who", it.owner));
+      row.appendChild(mid);
+      var fig = el("div", "fig", it.fig);
+      if (it.cap) fig.appendChild(el("small", null, it.cap));
+      row.appendChild(fig);
+      list.appendChild(row);
+    });
+    body.appendChild(list);
+    sec.hidden = false;
+  }
+
+  function reasonFor(f, s) {
+    if (f.label.indexOf("overdue") !== -1) return "Manual steps have piled up faster than they're being worked. The sequence keeps queueing new ones.";
+    if (f.label.indexOf("bounce") !== -1) return "A high bounce rate is a list-quality problem, not a copy problem, and it costs sending reputation.";
+    if (f.label.indexOf("opt-out") !== -1) return "People are unsubscribing at a rate worth reading the copy over.";
+    if (f.label.indexOf("Apollo: poor") !== -1) return "Apollo has flagged this sequence as underperforming against your own account's baseline.";
+    if (f.label.indexOf("no meetings") !== -1) return "Real volume has gone out and nothing has booked. The targeting or the offer is the suspect, not the cadence.";
+    if (f.label.indexOf("idle") !== -1) return "Still switched on, but nobody has been added or worked in a while.";
+    return f.label;
+  }
+
+  function renderOwnerCards() {
+    if (!state.sequences) return;
+    var body = $("ownBody");
+    clearNode(body);
+    var ids = selectedIds();
+    if (!ids.length) {
+      $("ownSec").hidden = true;
+      return;
+    }
+    ids.sort(function (a, b) { return ownerName(a).localeCompare(ownerName(b)); });
+    ids.forEach(function (id) {
+      var mine = (state.sequences || []).filter(function (s) { return s.user_id === id; });
+      var card = el("div", "ocard");
+      card.appendChild(el("h3", null, ownerName(id)));
+      card.appendChild(el("div", "email", ownerEmail(id) || "—"));
+      var stats = el("div", "stats");
+      var overdue = mine.reduce(function (a, s) { return a + (s.overdue_manual_tasks_count || 0); }, 0);
+      var delivered = mine.reduce(function (a, s) { return a + (s.unique_delivered || 0); }, 0);
+      var replied = mine.reduce(function (a, s) { return a + (s.unique_replied || 0); }, 0);
+      var demos = mine.reduce(function (a, s) { return a + (s.unique_demoed || 0); }, 0);
+      var bounced = mine.reduce(function (a, s) { return a + (s.unique_bounced || 0); }, 0);
+      var active = mine.filter(function (s) { return s.active; }).length;
+      var boxes = (state.mailboxes || []).filter(function (m) { return m.user_id === id; }).length;
+      var rate = delivered ? bounced / delivered : 0;
+
+      addStat(stats, "Sequences", mine.length + " · " + active + " on");
+      addStat(stats, "Overdue tasks", num(overdue),
+        overdue >= TH.overdueCrit ? "bad" : overdue >= TH.overdueWarn ? "mid" : "");
+      addStat(stats, "Delivered", num(delivered));
+      addStat(stats, "Replies", num(replied) + (delivered ? " · " + pct(replied / delivered) : ""));
+      addStat(stats, "Meetings booked", num(demos), demos ? "" : (delivered >= TH.noMeetingMinDelivered ? "mid" : ""));
+      addStat(stats, "Bounce rate", pct(rate),
+        rate >= TH.bounceCrit ? "bad" : rate >= TH.bounceWarn ? "mid" : "");
+      addStat(stats, "Mailboxes", num(boxes));
+      card.appendChild(stats);
+      body.appendChild(card);
+    });
+    $("ownSec").hidden = false;
+  }
+  function addStat(parent, k, v, cls) {
+    var row = el("div", "stat");
+    row.appendChild(el("span", "k", k));
+    row.appendChild(el("span", "v" + (cls ? " " + cls : ""), v));
+    parent.appendChild(row);
+  }
+
+  function renderSequences() {
+    if (!state.sequences && !state.errors.sequences) return;
+    var sec = $("seqSec");
+    var body = $("seqBody");
+    clearNode(body);
+    if (state.errors.sequences && !state.sequences) {
+      sec.hidden = true;
+      return;
+    }
+    var seqs = visibleSequences();
+    var hidden = (state.sequences || []).length - seqs.length;
+    $("seqCount").textContent = seqs.length + " shown" + (hidden > 0 ? " · " + hidden + " hidden" : "");
+
+    if (!seqs.length) {
+      var tr = el("tr"); var td = el("td", "empty", "No sequences for the people selected above.");
+      td.colSpan = 9; tr.appendChild(td); body.appendChild(tr);
+      sec.hidden = false;
+      return;
+    }
+
+    var byOwner = {};
+    seqs.forEach(function (s) { (byOwner[s.user_id] = byOwner[s.user_id] || []).push(s); });
+    Object.keys(byOwner).sort(function (a, b) { return ownerName(a).localeCompare(ownerName(b)); })
+      .forEach(function (oid) {
+        var gtr = el("tr", "grp");
+        var gtd = el("td", null, ownerName(oid));
+        gtd.colSpan = 9;
+        gtr.appendChild(gtd);
+        body.appendChild(gtr);
+
+        byOwner[oid]
+          .sort(function (a, b) { return (b.overdue_manual_tasks_count || 0) - (a.overdue_manual_tasks_count || 0); })
+          .forEach(function (s) { body.appendChild(seqRow(s)); appendDetail(body, s); });
+      });
+    sec.hidden = false;
+  }
+
+  function seqRow(s) {
+    var tr = el("tr");
+    var open = !!state.expanded[s.id];
+
+    var tdName = el("td");
+    var btn = el("button", "seqname");
+    btn.type = "button";
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+    btn.appendChild(el("span", "caret", open ? "▾" : "▸"));
+    var nameWrap = el("span");
+    nameWrap.appendChild(document.createTextNode(s.name || "Untitled"));
+    if (!s.active) {
+      nameWrap.appendChild(document.createTextNode(" "));
+      nameWrap.appendChild(el("span", "paused", "paused"));
+    }
+    btn.appendChild(nameWrap);
+    btn.addEventListener("click", function () { toggle(s); });
+    tdName.appendChild(btn);
+    tr.appendChild(tdName);
+
+    tr.appendChild(el("td", "mono", (s.num_steps || (s.emailer_steps || []).length || 0)));
+    var od = s.overdue_manual_tasks_count || 0;
+    var tdOd = el("td", "r mono", num(od));
+    if (od >= TH.overdueCrit) tdOd.style.color = "var(--crit)";
+    else if (od >= TH.overdueWarn) tdOd.style.color = "var(--warn)";
+    tr.appendChild(tdOd);
+
+    tr.appendChild(el("td", "r mono", num(s.unique_delivered)));
+    tr.appendChild(el("td", "r mono", pct(s.open_rate)));
+    tr.appendChild(el("td", "r mono", pct(s.reply_rate)));
+    var tdB = el("td", "r mono", pct(s.bounce_rate));
+    if ((s.bounce_rate || 0) >= TH.bounceCrit) tdB.style.color = "var(--crit)";
+    else if ((s.bounce_rate || 0) >= TH.bounceWarn) tdB.style.color = "var(--warn)";
+    tr.appendChild(tdB);
+    tr.appendChild(el("td", "r mono", num(s.unique_demoed)));
+
+    var tdF = el("td");
+    var flags = el("div", "flags");
+    seqFlags(s).forEach(function (f) { flags.appendChild(el("span", "pill " + f.t, f.label)); });
+    tdF.appendChild(flags);
+    tr.appendChild(tdF);
+    return tr;
+  }
+
+  function toggle(s) {
+    if (state.expanded[s.id]) { delete state.expanded[s.id]; render(); return; }
+    state.expanded[s.id] = { loading: false };
+    loadSteps(s);
+  }
+
+  function appendDetail(body, s) {
+    var slot = state.expanded[s.id];
+    if (!slot) return;
+    var tr = el("tr", "detail");
+    var td = el("td");
+    td.colSpan = 9;
+    var inner = el("div", "detail-in");
+
+    var chain = el("div", "chain");
+    var steps = (s.emailer_steps || []).slice().sort(function (a, b) { return a.position - b.position; });
+    steps.forEach(function (st, i) {
+      if (i > 0) {
+        var w = st.wait_time || 0;
+        var unit = st.wait_mode === "minute" ? "m" : st.wait_mode === "hour" ? "h" : "d";
+        chain.appendChild(el("div", "gap", w ? "→ " + w + unit + " →" : "→ now →"));
+      }
+      var count = slot.buckets ? (slot.buckets[st.position] || 0) : null;
+      var card = el("div", "step" + (count === 0 ? " empty" : ""));
+      card.appendChild(el("div", "pos", "Step " + st.position));
+      card.appendChild(el("div", "kind", STEP_LABEL[st.type] || st.type));
+      var at = el("div", "at");
+      if (slot.loading) at.appendChild(el("div", "skel"));
+      else if (slot.error) at.textContent = "—";
+      else at.appendChild(document.createTextNode(num(count)));
+      at.appendChild(el("small", null, "waiting here"));
+      card.appendChild(at);
+      chain.appendChild(card);
+    });
+    if (!steps.length) chain.appendChild(el("div", "empty", "This sequence has no steps."));
+    inner.appendChild(chain);
+
+    if (slot.error) {
+      var c = errorCopy(slot.error);
+      inner.appendChild(el("div", "chain-note", c.head + " — " + c.body));
+    } else if (!slot.loading) {
+      var bits = [];
+      bits.push(num(slot.total) + " open task" + (slot.total === 1 ? "" : "s") + " across this sequence");
+      if (slot.orphan) bits.push(slot.orphan + " sitting on a step the sequence no longer has");
+      if (slot.capped) bits.push("showing the first 100");
+      inner.appendChild(el("div", "chain-note", bits.join(" · ") +
+        ". Counts come from open tasks, which is the only source that covers call and LinkedIn steps as well as email."));
+    }
+
+    td.appendChild(inner);
+    tr.appendChild(td);
+    body.appendChild(tr);
+  }
+
+  function renderMailboxes() {
+    if (!state.mailboxes) return;
+    var body = $("mbBody");
+    clearNode(body);
+    var ids = selectedIds();
+    var boxes = (state.mailboxes || []).filter(function (m) { return !ids.length || ids.indexOf(m.user_id) !== -1; });
+    boxes.sort(function (a, b) {
+      var an = ownerName(a.user_id), bn = ownerName(b.user_id);
+      return an.localeCompare(bn) || String(a.email).localeCompare(String(b.email));
+    });
+    $("mbCount").textContent = boxes.length + " mailbox" + (boxes.length === 1 ? "" : "es");
+
+    if (!boxes.length) {
+      var tr0 = el("tr"); var td0 = el("td", "empty", "No mailboxes for the people selected above.");
+      td0.colSpan = 8; tr0.appendChild(td0); body.appendChild(tr0);
+      $("mbSec").hidden = false;
+      return;
+    }
+
+    var table = state.analytics;
+    boxes.forEach(function (m) {
+      var tr = el("tr");
+      var tdE = el("td");
+      var addr = el("span", "mono", m.email);
+      tdE.appendChild(addr);
+      if (m["default"]) { tdE.appendChild(document.createTextNode(" ")); tdE.appendChild(el("span", "pill mute", "default")); }
+      tr.appendChild(tdE);
+      tr.appendChild(el("td", null, ownerName(m.user_id)));
+
+      var row = table ? tableLookup(table, m.id) || tableLookup(table, m.email) : null;
+      var sent = pickCol(row, ["emails sent", "num_emails_sent", "sent"]);
+      var cap = pickCol(row, ["daily limit", "email_daily_limit", "limit"]);
+      var bounced = pickCol(row, ["bounced", "num_emails_bounced"]);
+      var replied = pickCol(row, ["replied", "num_emails_replied"]);
+
+      tr.appendChild(el("td", "r mono", table ? num(sent) : "?"));
+      tr.appendChild(el("td", "r mono", table ? num(cap) : "?"));
+      tr.appendChild(el("td", "r mono", table ? num(bounced) : "?"));
+      tr.appendChild(el("td", "r mono", table ? num(replied) : "?"));
+      tr.appendChild(el("td", "mono", ago(m.last_synced_at)));
+
+      var tdF = el("td");
+      var flags = el("div", "flags");
+      var hrs = hoursSince(m.last_synced_at);
+      if (!m.active) flags.appendChild(el("span", "pill crit", "inactive"));
+      if (hrs !== null && hrs > TH.syncStaleHours) flags.appendChild(el("span", "pill warn", "sync " + Math.round(hrs / 24) + "d old"));
+      if (cap === 0) flags.appendChild(el("span", "pill warn", "cap 0 — won't send"));
+      if (!flags.childNodes.length) flags.appendChild(el("span", "pill ok", "healthy"));
+      tdF.appendChild(flags);
+      tr.appendChild(tdF);
+      body.appendChild(tr);
+    });
+    $("mbSec").hidden = false;
+  }
+
+  function renderFoot() {
+    if (!state.booted) return;
+    var notes = [];
+    if (state.errors.analytics) {
+      notes.push("Mailbox send figures are unavailable right now (" + errorCopy(state.errors.analytics).head.toLowerCase() + "), so those columns read “?” rather than zero.");
+    } else if (state.mailboxes && !state.analytics) {
+      notes.push("Apollo returned its send report in a shape this page couldn't read, so mailbox figures show “?” rather than a number that might be wrong.");
+    }
+    notes.push("Refreshes every " + Math.round(POLL_MS / 1000) + " seconds while this tab is open, and pauses while it isn't.");
+    $("footNote").textContent = notes.join(" ");
+    $("foot").hidden = false;
+  }
+
+  /* ---------- boot ---------- */
+  function fail(copy) {
+    renderMsg($("bootSec"), copy);
+  }
+
+  function boot() {
+    var claude = window.claude;
+    if (!claude || typeof claude.use !== "function") {
+      fail({ tone: "warn", head: "Open this from claude.ai",
+             body: "This console reads your live Apollo account through your own connector, which only works inside the claude.ai viewer." });
+      return;
+    }
+    claude.use("mcp").then(function (mcp) {
+      if (!mcp) {
+        fail({ tone: "warn", head: "Connectors aren't available in this view",
+               body: "Open the page from claude.ai so it can reach your Apollo connector. Nothing here works without it." });
+        return;
+      }
+      state.mcp = mcp;
+      return resolveServer(mcp).then(function (server) {
+        state.server = server;
+        return loadUsers();
+      }).then(function () {
+        state.booted = true;
+        $("bootSec").hidden = true;
+
+        watch("apollo_emailer_campaigns_search", { per_page: "100", page: "1" }, function (p) {
+          state.sequences = (p && p.emailer_campaigns) || [];
+        }, "sequences");
+
+        watch("apollo_email_accounts_index", {}, function (p) {
+          state.mailboxes = (p && p.email_accounts) || [];
+        }, "mailboxes");
+
+        watch("apollo_analytics_sync_report", {
+          date_range: { modality: "last_30_days" },
+          group_by: ["email_account_id"],
+          metrics: ["num_emails_sent", "num_emails_bounced", "num_emails_replied", "email_daily_limit"]
+        }, function (p) {
+          var md = p && (p.summary || p.markdown || (typeof p === "string" ? p : null));
+          state.analytics = parseMarkdownTable(md);
+        }, "analytics");
+
+        render();
+      });
+    }).catch(function (err) {
+      fail(errorCopy(err));
+    });
+  }
+
+  $("refresh").addEventListener("click", function () {
+    if (!state.mcp) { boot(); return; }
+    state.mcp.invalidate(state.server).catch(function () {});
+  });
+  $("theme").addEventListener("click", function () {
+    var r = document.documentElement;
+    var now = r.getAttribute("data-theme");
+    var dark = now ? now === "dark"
+      : window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+    r.setAttribute("data-theme", dark ? "light" : "dark");
+  });
+
+  setInterval(renderLive, 20000);
+  boot();
+})();
+</script>
