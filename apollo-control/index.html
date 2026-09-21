@@ -217,6 +217,37 @@
   .ts.skip .v { color: var(--warn); }
   .detail-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 14px; }
 
+  /* ---- workflow structure ---- */
+  .wf { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 15px 16px; }
+  .wf + .wf { margin-top: 12px; }
+  .wf-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 9px; }
+  .wf-top h3 { font-size: 14.5px; }
+  .wf-top .who { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); text-transform: uppercase; letter-spacing: .06em; }
+  .wf-top .tot { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--ink-2); }
+  .wf-chain { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 10px; }
+  .node { border: 1px solid var(--line); background: var(--sunken); border-radius: 6px; padding: 3px 9px; font-size: 11.5px; white-space: nowrap; }
+  .node .n { font-family: var(--mono); font-size: 10px; color: var(--ink-3); margin-right: 4px; }
+  .arw { font-family: var(--mono); font-size: 10px; color: var(--ink-3); }
+
+  .wf-conn { margin-top: 13px; }
+  .connline { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .connline .r { font-family: var(--mono); font-size: 18px; font-weight: 600; letter-spacing: -0.02em; }
+  .connline .d, .wf-conn > .d { font-size: 12px; color: var(--ink-2); }
+  .stack { display: flex; height: 16px; border-radius: 3px; overflow: hidden; margin-top: 7px; background: var(--sunken); gap: 2px; }
+  .seg { height: 100%; min-width: 2px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 9px; }
+  .lg { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-2); }
+  .lg .sw { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+  .lg b { font-family: var(--mono); font-weight: 600; color: var(--ink); }
+
+  .rules { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 13px; padding-top: 11px; border-top: 1px solid var(--line-soft); }
+  .rule { font-size: 11.5px; padding: 3px 9px; border-radius: 5px; border: 1px solid var(--line); background: var(--sunken); color: var(--ink-2); }
+  .rule.on { border-color: var(--ok); background: var(--ok-soft); color: var(--ok); }
+  .rule.gap { border-color: var(--crit); background: var(--crit-soft); color: var(--crit); font-weight: 600; }
+  .rule.off { color: var(--ink-3); }
+  .wf-warn { margin-top: 10px; font-size: 12.5px; color: var(--ink); background: var(--crit-soft); border-left: 3px solid var(--crit); padding: 9px 12px; border-radius: 0 6px 6px 0; }
+  .wf-warn b { font-weight: 600; }
+
   /* ---- states ---- */
   .msg { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 18px 18px; }
   .msg.crit { border-color: var(--crit); background: var(--crit-soft); }
@@ -266,6 +297,11 @@
   <section id="ownSec" hidden>
     <div class="sec-head"><h2>By owner</h2></div>
     <div class="owners" id="ownBody"></div>
+  </section>
+
+  <section id="wfSec" hidden>
+    <div class="sec-head"><h2>Workflow structure</h2><span class="count" id="wfCount"></span></div>
+    <div id="wfBody"></div>
   </section>
 
   <section id="outSec" hidden>
@@ -350,6 +386,26 @@
   function refLabel(label) {
     return isDeadRef(label) ? "Deleted — still referenced" : String(label).trim();
   }
+
+  /* Fixed slot order — assigned once, never cycled, never re-assigned when a
+     filter changes the series count. Validated for both themes (adjacent-pair
+     CVD and normal-vision separation) before use. Light mode puts three of
+     these below 3:1 on white, so every segment carries a direct label and a
+     legend value: identity never rests on colour alone. */
+  var REACHED_ORDER = [
+    { key: "meeting booked",            label: "Meeting Booked",     light: "#2a78d6", dark: "#3987e5" },
+    { key: "call back scheduled",       label: "Call Back",          light: "#eb6834", dark: "#d95926" },
+    { key: "info requested",            label: "Info Requested",     light: "#1baf7a", dark: "#199e70" },
+    { key: "qualified, pending review", label: "Qualified, Pending", light: "#eda100", dark: "#c98500" },
+    { key: "not interested",            label: "Not Interested",     light: "#e87ba4", dark: "#d55181" },
+    { key: "do not contact",            label: "Do Not Contact",     light: "#008300", dark: "#008300" }
+  ];
+  function isDark() {
+    var stamp = document.documentElement.getAttribute("data-theme");
+    if (stamp) return stamp === "dark";
+    return !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  }
+  function slotColor(slot) { return isDark() ? slot.dark : slot.light; }
 
   var STEP_LABEL = {
     call: "Call",
@@ -583,6 +639,49 @@
     return wrap;
   }
 
+  /* The sequence x outcome cross-tab keyed by sequence name — Apollo's pivot
+     labels rows by name, not id, so this is matched on a trimmed name. Any
+     row that matches no live sequence is reported rather than dropped. */
+  function pivotByName(table) {
+    if (!table || !table.header || table.header.length < 2) return null;
+    var labelCol = table.header[0];
+    var map = {};
+    table.rows.forEach(function (r) {
+      var name = String(r[labelCol] || "").trim();
+      if (!name) return;
+      var list = [];
+      for (var i = 1; i < table.header.length; i++) {
+        var col = table.header[i];
+        var n = Number(String(r[col]).replace(/[,%\s]/g, ""));
+        if (!isNaN(n)) list.push({ label: String(col).trim(), value: n });
+      }
+      map[name.toLowerCase()] = list;
+    });
+    return map;
+  }
+
+  /* What the sequence actually does when something happens. A "gap" is a rule
+     that is switched off while the sequence's own shape makes it matter. */
+  function ruleReport(s) {
+    var hasCalls = (s.emailer_steps || []).some(function (st) { return st.type === "call"; });
+    var stageMap = s.contact_email_event_to_stage_mapping || {};
+    var out = [];
+    function add(state, label) { out.push({ state: state, label: label }); }
+
+    add(s.mark_finished_if_reply ? "on" : "gap", "Stops on email reply");
+    add(s.mark_finished_if_interested ? "on" : "off", "Stops when marked Interested");
+    if (hasCalls) {
+      add(s.mark_finished_if_phone_call_connected ? "on" : "gap", "Stops on a connected call");
+    }
+    add(s.mark_paused_if_ooo ? "on" : "off", "Pauses on out-of-office");
+    add(s.mark_finished_if_click ? "on" : "off", "Stops on link click");
+    add((s.excluded_contact_stage_ids || []).length ? "on" : "gap", "Blocks contacts by stage");
+    add((s.excluded_account_stage_ids || []).length ? "on" : "off",
+      "Blocks accounts by stage" + ((s.excluded_account_stage_ids || []).length ? " (" + s.excluded_account_stage_ids.length + ")" : ""));
+    add(Object.keys(stageMap).length ? "on" : "gap", "Moves contacts to a stage");
+    return out;
+  }
+
   /* ---------- health rules ---------- */
   function seqFlags(s) {
     var out = [];
@@ -735,11 +834,131 @@
     renderOwners();
     renderAttention();
     renderOwnerCards();
+    renderWorkflows();
     renderOutcomes();
     renderStages();
     renderSequences();
     renderMailboxes();
     renderFoot();
+  }
+
+  function renderWorkflows() {
+    var sec = $("wfSec"), body = $("wfBody");
+    if (!state.sequences) return;
+    var seqs = visibleSequences();
+    if (!seqs.length) { sec.hidden = true; return; }
+    clearNode(body);
+
+    var matrix = state.matrix;
+    var gapCount = 0;
+
+    seqs.slice().sort(function (a, b) {
+      return (b.unique_demoed || 0) - (a.unique_demoed || 0) ||
+             String(a.name).localeCompare(String(b.name));
+    }).forEach(function (s) {
+      var card = el("div", "wf");
+
+      var top = el("div", "wf-top");
+      top.appendChild(el("h3", null, s.name || "Untitled"));
+      top.appendChild(el("span", "who", ownerName(s.user_id) + (s.active ? "" : " · paused")));
+      card.appendChild(top);
+
+      /* The workflow itself */
+      var chain = el("div", "wf-chain");
+      (s.emailer_steps || []).slice().sort(function (a, b) { return a.position - b.position; })
+        .forEach(function (st, i) {
+          if (i > 0) {
+            var w = st.wait_time || 0;
+            var unit = st.wait_mode === "minute" ? "m" : st.wait_mode === "hour" ? "h" : "d";
+            chain.appendChild(el("span", "arw", w ? "→ " + w + unit + " →" : "→"));
+          }
+          var n = el("span", "node");
+          n.appendChild(el("span", "n", st.position));
+          n.appendChild(document.createTextNode(STEP_LABEL[st.type] || st.type));
+          chain.appendChild(n);
+        });
+      if (!(s.emailer_steps || []).length) chain.appendChild(el("span", "arw", "no steps"));
+      card.appendChild(chain);
+
+      /* The dispositions this workflow actually produces */
+      var row = matrix ? matrix[String(s.name || "").trim().toLowerCase()] : null;
+      var conn = el("div", "wf-conn");
+      if (!matrix) {
+        conn.appendChild(el("div", "d", "Loading call outcomes…"));
+      } else if (!row) {
+        conn.appendChild(el("div", "d", "No call outcomes recorded against this sequence in the last 3 months."));
+      } else {
+        var total = row.reduce(function (a, r) { return a + r.value; }, 0);
+        var reachedRows = REACHED_ORDER.map(function (slot) {
+          var hit = row.filter(function (r) { return r.label.toLowerCase() === slot.key; });
+          return { slot: slot, value: hit.reduce(function (a, r) { return a + r.value; }, 0) };
+        }).filter(function (x) { return x.value > 0; });
+        var reached = reachedRows.reduce(function (a, x) { return a + x.value; }, 0);
+
+        top.appendChild(el("span", "tot", num(total) + " calls"));
+
+        var line = el("div", "connline");
+        line.appendChild(el("span", "r", total ? (reached / total * 100).toFixed(1) + "%" : "—"));
+        line.appendChild(el("span", "d",
+          "connected — " + num(reached) + " of " + num(total) + " dials reached someone"));
+        conn.appendChild(line);
+
+        if (reached) {
+          var stack = el("div", "stack");
+          reachedRows.forEach(function (x) {
+            var seg = el("div", "seg");
+            seg.style.width = (x.value / reached * 100) + "%";
+            seg.style.background = slotColor(x.slot);
+            seg.title = x.slot.label + ": " + num(x.value);
+            stack.appendChild(seg);
+          });
+          conn.appendChild(stack);
+
+          var lg = el("div", "legend");
+          reachedRows.forEach(function (x) {
+            var item = el("span", "lg");
+            var sw = el("span", "sw");
+            sw.style.background = slotColor(x.slot);
+            item.appendChild(sw);
+            item.appendChild(document.createTextNode(x.slot.label + " "));
+            item.appendChild(el("b", null, num(x.value)));
+            lg.appendChild(item);
+          });
+          conn.appendChild(lg);
+        } else {
+          conn.appendChild(el("div", "d", "Every dial went unanswered — nothing to break down."));
+        }
+      }
+      card.appendChild(conn);
+
+      /* What it does about any of it */
+      var rules = el("div", "rules");
+      var report = ruleReport(s);
+      report.forEach(function (r) {
+        rules.appendChild(el("span", "rule " + r.state, (r.state === "on" ? "✓ " : r.state === "gap" ? "✗ " : "· ") + r.label));
+      });
+      card.appendChild(rules);
+
+      var hasCalls = (s.emailer_steps || []).some(function (st) { return st.type === "call"; });
+      if (hasCalls && !s.mark_finished_if_phone_call_connected) {
+        gapCount++;
+        var booked = row ? row.filter(function (r) { return r.label.toLowerCase() === "meeting booked"; })
+                              .reduce(function (a, r) { return a + r.value; }, 0) : 0;
+        var w = el("div", "wf-warn");
+        w.appendChild(el("b", null, "A call never ends this sequence. "));
+        w.appendChild(document.createTextNode(
+          "Only an email reply does. " +
+          (booked ? "The " + num(booked) + " meeting" + (booked === 1 ? "" : "s") + " booked by phone here stayed enrolled and kept getting worked afterwards."
+                  : "Anyone who books or opts out on a call stays enrolled and keeps getting worked.")));
+        card.appendChild(w);
+      }
+
+      body.appendChild(card);
+    });
+
+    $("wfCount").textContent = seqs.length + " workflow" + (seqs.length === 1 ? "" : "s") +
+      (gapCount ? " · " + gapCount + " with an open gap" : "");
+    sec.hidden = false;
   }
 
   function renderOutcomes() {
@@ -1385,6 +1604,16 @@
           metrics: ["num_contacts", "num_contacts_added_to_sequence"]
         }, function (p) { state.stages = reportTable(p); }, "stages");
 
+        /* One cross-tab covers every sequence's outcome mix — far cheaper
+           than a call per sequence, and it keeps every row on one refresh. */
+        watch("apollo_analytics_sync_report", {
+          date_range: { modality: "last_3_months" },
+          filters: ownerFilter,
+          group_by: ["emailer_campaign_id"],
+          pivot_group_by: ["phone_call_outcome_id"],
+          metrics: ["num_phone_calls"]
+        }, function (p) { state.matrix = pivotByName(reportTable(p)); }, "matrix");
+
         render();
       });
     }).catch(function (err) {
@@ -1397,12 +1626,17 @@
     state.mcp.invalidate(state.server).catch(function () {});
   });
   $("theme").addEventListener("click", function () {
-    var r = document.documentElement;
-    var now = r.getAttribute("data-theme");
-    var dark = now ? now === "dark"
-      : window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
-    r.setAttribute("data-theme", dark ? "light" : "dark");
+    document.documentElement.setAttribute("data-theme", isDark() ? "light" : "dark");
+    // The chart segments are painted from the theme's own validated steps,
+    // so they have to be repainted rather than inherited.
+    render();
   });
+  if (window.matchMedia) {
+    var mq = window.matchMedia("(prefers-color-scheme: dark)");
+    var onScheme = function () { if (!document.documentElement.getAttribute("data-theme")) render(); };
+    if (mq.addEventListener) mq.addEventListener("change", onScheme);
+    else if (mq.addListener) mq.addListener(onScheme);
+  }
 
   setInterval(renderLive, 20000);
   boot();
