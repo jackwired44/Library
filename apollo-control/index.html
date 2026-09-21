@@ -275,9 +275,10 @@
 (function () {
   "use strict";
 
-  /* Which people this console is for. Matched on email so it survives an
-     Apollo user id change; everyone else on the team is still selectable. */
-  var DEFAULT_OWNERS = ["jack@wiredcio.com", "carly@wiredcio.com"];
+  /* Which people this console is for — these two and nobody else. Nothing
+     owned by anyone else on the team is read, counted or shown. Matched on
+     email rather than Apollo user id so it survives an id change. */
+  var OWNERS = ["jack@wiredcio.com", "carly@wiredcio.com"];
 
   /* The connector's display name varies by account, so declare the likely
      spellings and use whichever one this viewer actually has. */
@@ -312,7 +313,8 @@
     mailboxes: null,
     analytics: null,
     users: {},
-    selected: null,          // Set of user ids, null until users resolve
+    ownerIds: [],            // resolved ids of OWNERS, in name order
+    selected: null,          // which of ownerIds are currently shown
     expanded: {},            // sequenceId -> {loading, error, buckets, unknown}
     stamp: 0,
     errors: {},              // section -> McpError
@@ -524,11 +526,16 @@
         var map = {};
         list.forEach(function (u) { map[u.id] = u; });
         state.users = map;
+
+        var mine = list.filter(function (u) {
+          return u.email && OWNERS.indexOf(String(u.email).toLowerCase()) !== -1;
+        });
+        mine.sort(function (a, b) { return String(a.email).localeCompare(String(b.email)); });
+        state.ownerIds = mine.map(function (u) { return u.id; });
+
         if (!state.selected) {
           var sel = {};
-          list.forEach(function (u) {
-            if (u.email && DEFAULT_OWNERS.indexOf(String(u.email).toLowerCase()) !== -1) sel[u.id] = true;
-          });
+          state.ownerIds.forEach(function (id) { sel[id] = true; });
           state.selected = sel;
         }
       })
@@ -544,14 +551,15 @@
 
   function selectedIds() {
     var out = [];
-    for (var k in state.selected) if (state.selected[k]) out.push(k);
+    state.ownerIds.forEach(function (id) { if (state.selected && state.selected[id]) out.push(id); });
     return out;
   }
+  /* state.sequences is already scoped to the two owners at ingest, so this
+     only narrows further when one of the two is toggled off. Deselecting
+     both shows nothing, rather than falling back to the whole team. */
   function visibleSequences() {
-    var all = state.sequences || [];
-    var sel = state.selected;
-    if (!sel || !selectedIds().length) return all.slice();
-    return all.filter(function (s) { return sel[s.user_id]; });
+    var sel = state.selected || {};
+    return (state.sequences || []).filter(function (s) { return sel[s.user_id]; });
   }
 
   /* Contacts sitting at each step: Apollo's analytics step breakdown only
@@ -621,11 +629,7 @@
 
   function renderOwners() {
     if (!state.sequences || !state.selected) return;
-    var ids = {};
-    state.sequences.forEach(function (s) { if (s.user_id) ids[s.user_id] = true; });
-    selectedIds().forEach(function (id) { ids[id] = true; });
-    var list = Object.keys(ids).sort(function (a, b) { return ownerName(a).localeCompare(ownerName(b)); });
-
+    var list = state.ownerIds.slice().sort(function (a, b) { return ownerName(a).localeCompare(ownerName(b)); });
     var box = $("ownerChips");
     clearNode(box);
     list.forEach(function (id) {
@@ -679,6 +683,12 @@
     $("attCount").textContent = items.length ? items.length + " item" + (items.length === 1 ? "" : "s") : "";
     if (state.errors.sequences) {
       renderMsg(body, errorCopy(state.errors.sequences));
+      sec.hidden = false;
+      return;
+    }
+    if (!state.ownerIds.length) {
+      renderMsg(body, { tone: "crit", head: "Owner filter matched nobody",
+        body: "This console is scoped to Jack and Carly, and neither was found in this Apollo account. That is the filter failing rather than an account with no work in it — so nothing is being shown instead of a reassuring but false all-clear." });
       sec.hidden = false;
       return;
     }
@@ -774,11 +784,14 @@
       return;
     }
     var seqs = visibleSequences();
-    var hidden = (state.sequences || []).length - seqs.length;
-    $("seqCount").textContent = seqs.length + " shown" + (hidden > 0 ? " · " + hidden + " hidden" : "");
+    var off = (state.sequences || []).length - seqs.length;
+    $("seqCount").textContent = seqs.length + " shown" + (off > 0 ? " · " + off + " toggled off" : "");
 
     if (!seqs.length) {
-      var tr = el("tr"); var td = el("td", "empty", "No sequences for the people selected above.");
+      var msg = selectedIds().length
+        ? "No sequences for the people selected above."
+        : "Both owners are toggled off. Turn one back on above.";
+      var tr = el("tr"); var td = el("td", "empty", msg);
       td.colSpan = 9; tr.appendChild(td); body.appendChild(tr);
       sec.hidden = false;
       return;
@@ -904,7 +917,7 @@
     var body = $("mbBody");
     clearNode(body);
     var ids = selectedIds();
-    var boxes = (state.mailboxes || []).filter(function (m) { return !ids.length || ids.indexOf(m.user_id) !== -1; });
+    var boxes = (state.mailboxes || []).filter(function (m) { return ids.indexOf(m.user_id) !== -1; });
     boxes.sort(function (a, b) {
       var an = ownerName(a.user_id), bn = ownerName(b.user_id);
       return an.localeCompare(bn) || String(a.email).localeCompare(String(b.email));
@@ -957,6 +970,15 @@
   function renderFoot() {
     if (!state.booted) return;
     var notes = [];
+    var others = (state.seqTotal || 0) - ((state.sequences || []).length);
+    if (!state.ownerIds.length) {
+      notes.push("Neither Jack nor Carly could be matched in this Apollo account, so nothing is being shown. That is this page's owner filter failing, not an empty account — check the addresses it matches on.");
+    } else if (state.ownerIds.length < OWNERS.length) {
+      notes.push("Only " + state.ownerIds.length + " of the " + OWNERS.length + " expected owners was found in this Apollo account, so one person's work is missing from every figure here.");
+    }
+    if (others > 0) {
+      notes.push(others + " sequence" + (others === 1 ? "" : "s") + " belonging to other people on the team " + (others === 1 ? "is" : "are") + " deliberately excluded from this console and from every total on it.");
+    }
     if (state.errors.analytics) {
       notes.push("Mailbox send figures are unavailable right now (" + errorCopy(state.errors.analytics).head.toLowerCase() + "), so those columns read “?” rather than zero.");
     } else if (state.mailboxes && !state.analytics) {
@@ -994,11 +1016,15 @@
         $("bootSec").hidden = true;
 
         watch("apollo_emailer_campaigns_search", { per_page: "100", page: "1" }, function (p) {
-          state.sequences = (p && p.emailer_campaigns) || [];
+          var all = (p && p.emailer_campaigns) || [];
+          state.seqTotal = all.length;
+          state.sequences = all.filter(function (s) { return state.ownerIds.indexOf(s.user_id) !== -1; });
         }, "sequences");
 
         watch("apollo_email_accounts_index", {}, function (p) {
-          state.mailboxes = (p && p.email_accounts) || [];
+          var all = (p && p.email_accounts) || [];
+          state.mbTotal = all.length;
+          state.mailboxes = all.filter(function (m) { return state.ownerIds.indexOf(m.user_id) !== -1; });
         }, "mailboxes");
 
         watch("apollo_analytics_sync_report", {
