@@ -406,6 +406,53 @@ export function guessCampaignColumns(profiles: ColumnProfile[]): string[] {
 
 export interface Lead2 { company: string; contact: string; title: string; email: string; phone: string; mobilePhone: string; employees: string; notes: string }
 
+// ------------------------------------------------- export hygiene
+// Audited against Jack's real 13,106-row Bookleads export: the Custom
+// scanner was exporting 61 undialable work phones, 19 undialable mobiles,
+// 10 malformed emails and one numeric surname. Apollo imports "N/A" as a
+// phone number quite happily, and a call list full of "0" and "-" is worse
+// than one with blanks — you cannot tell a bad number from a missing one.
+//
+// The CSP engine already refused these (isDialable), but that guard lives
+// inside the CSP rules and applying it to SMC would make one scanner's
+// export depend on another scanner's engine. This is plumbing, not a rule,
+// so it lives HERE in the composer and every scanner gets it for free.
+
+/** Placeholders that mean "no value" in a CRM export. Whole-field only: a
+ *  company genuinely called "Nil" keeps its name. */
+const JUNK_FIELD_RE = /^(n\/?a|n\.a\.?|none|null|nil|unknown|undefined|tbd|not\s+available|no\s+data|[-–—.,_/\\*?#]+|0+(\.0+)?)$/i;
+/** A number Excel destroyed on save. The digits are unrecoverable. */
+const SCIENTIFIC_RE = /\d[.,]?\d*\s*e\s*\+?\s*\d+/i;
+/** Fewest digits that could be a real, dialable number. */
+const MIN_PHONE_DIGITS = 7;
+
+const isJunk = (v: string) => JUNK_FIELD_RE.test(v.trim());
+
+/** A phone fit to hand a dialer, or "". Rejects placeholders, Excel's
+ *  scientific notation, anything too short to dial, and — seen three times
+ *  in the real file — an email address sitting in the phone column. */
+export function exportPhone(v: unknown): string {
+  const t = String(v ?? "").trim();
+  if (!t || isJunk(t) || t.includes("@") || SCIENTIFIC_RE.test(t)) return "";
+  return t.replace(/\D/g, "").length >= MIN_PHONE_DIGITS ? t : "";
+}
+
+/** An address fit to email, or "". A trailing separator is stripped rather
+ *  than thrown away ("jacob.rivera@ocvt.info ·" is a real address with
+ *  punctuation glued on), but anything that still is not an address goes. */
+export function exportEmail(v: unknown): string {
+  const t = String(v ?? "").trim().replace(/[\s·|,;]+$/, "").replace(/^[\s·|,;]+/, "");
+  if (!t || isJunk(t)) return "";
+  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(t) ? t : "";
+}
+
+/** A name or company fit to print. Blanks a placeholder or a bare number —
+ *  a surname of "0" came from a full name of "Manu 0". */
+export function exportText(v: unknown): string {
+  const t = String(v ?? "").trim();
+  return !t || isJunk(t) ? "" : t;
+}
+
 function readLead(row: Record<string, unknown>, m: FieldMapping, notesCols: string[]): Lead2 {
   const g = (k: LeadField) => { const c = m[k]; return c ? String(row[c] ?? "").trim() : ""; };
   // Notes is the join of every chosen notes column, so a rule keyword
@@ -930,6 +977,26 @@ export function scan2(
         : identity ?? identityKey(lead);
 
       const baseKey = identity ?? curationKey(lead, smc?.website) ?? textKey(smc?.rawText || lead.notes);
+
+      // Per Jack: "the data being previewed in the scanner is what's
+      // downloaded." So placeholders are cleaned HERE — once, after both
+      // branches have finished filling the lead from columns AND from the
+      // SMC blob, and after the CSP branch has counted its Excel-mangled
+      // phones (that count reads the raw value, so cleaning any earlier
+      // would zero it). Cleaning at this single point makes a
+      // preview/export divergence impossible by construction rather than
+      // by keeping two code paths in step.
+      //
+      // Real examples from Jack's own exports: a company literally named
+      // "Unknown", a surname of "0", an email of "-", "N/A" in a phone
+      // column, and an email address sitting in a phone column.
+      lead.company = exportText(lead.company);
+      lead.contact = exportText(lead.contact);
+      lead.title = exportText(lead.title);
+      lead.email = exportEmail(lead.email);
+      lead.phone = exportPhone(lead.phone);
+      lead.mobilePhone = exportPhone(lead.mobilePhone);
+
       rows.push({
         id: `s2-${Date.now()}-${seq++}`, sourceFile: f.name, row: raw, lead,
         // Namespaced by tab: the same company can legitimately be a keep in
@@ -1126,13 +1193,17 @@ export function toApolloRow(r: Row2, productArea?: string): Scanner2ExportRow {
   // number, and the larger end is the one that decides how a lead is sized.
   const smcEmployees = r.smc?.employeesMax ?? r.smc?.employeesMin ?? null;
   return {
-    "First Name": split.first,
-    "Last Name": split.last,
-    Title: c0?.title || r.lead.title || "",
-    "Company Name": r.smc?.company || r.lead.company || "",
-    Email: c0?.email || r.lead.email || "",
-    "Work Direct Phone": r.lead.phone || c0?.phone || r.smc?.mainPhone || "",
-    "Mobile Phone": r.lead.mobilePhone || "",
+    // Every identity field goes through the hygiene helpers above, so no
+    // scanner can ship "N/A" as a phone or "-" as an email.
+    "First Name": exportText(split.first),
+    "Last Name": exportText(split.last),
+    Title: exportText(c0?.title || r.lead.title || ""),
+    "Company Name": exportText(r.smc?.company || r.lead.company || ""),
+    Email: exportEmail(c0?.email || r.lead.email || ""),
+    // Fall through to the next candidate when one is junk, rather than
+    // letting a junk primary shadow a good fallback.
+    "Work Direct Phone": exportPhone(r.lead.phone) || exportPhone(c0?.phone) || exportPhone(r.smc?.mainPhone),
+    "Mobile Phone": exportPhone(r.lead.mobilePhone),
     "Number of Employees": r.lead.employees || (smcEmployees != null ? String(smcEmployees) : ""),
     // CSP rows carry no product line by design. The caller passes the
     // lead's effective PRIORITY (score band, or the manual override) so the
