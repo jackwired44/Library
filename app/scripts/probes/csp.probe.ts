@@ -14,7 +14,7 @@ import {
   guessCspColumns, lastTouchFrom, daysBetween, classifyCsp, readCspLead, resolveCspRules,
   posturize, billingQuality, resellerNamedInNotes, labelledPhoneFrom, nextStepFrom,
   compareCspLeads, cspPartnerLabel, DEFAULT_CSP_RULES, DEFAULT_CSP_WEIGHTS, latestEntry, isDialable,
-  companyFromNotes, companyDomainFromEmail,
+  companyFromNotes, companyDomainFromEmail, wantsPartnerStated, WANTS_PARTNER_LABEL,
 } from "../../src/lib/cspRenewal";
 let pass = 0, fail = 0;
 const ok = (n: string, c: boolean, d = "") => { c ? (pass++, console.log("  PASS", n)) : (fail++, console.log("  FAIL", n, d)); };
@@ -313,6 +313,94 @@ for (const col of ["uploaddate", "dateadded", "leadcreatedon", "createdat"]) {
 
 const smcRs = emptyRuleSet("smc", "smc");
 ok("an SMC rule set is still smc mode and carries no CSP rules", smcRs.mode === "smc" && smcRs.cspRules === undefined);
+
+// ---------------------------------------------------------------- wants a
+// partner: Jack's top-quality flag. "if it states wants a partner that
+// needs to be flagged for top quality."
+//
+// The flag is only worth anything if it is TRUE. On Jack's real 9,265-row
+// export the original pattern fired 961 times with 857 of those (89%) on
+// rows that NAME a partner in the partner column. Three causes, and every
+// case below is real text from that file.
+console.log("\n== wants a partner: the top-quality flag ==");
+
+// 1. Microsoft's own CRM template furniture. "Partner Recommendation" is a
+//    form FIELD and "partner referral" is Microsoft's own workflow — 846 of
+//    the 961 false fires between them.
+for (const t of [
+  "Partner: Not discovered \u2014 recommend initiating partner discovery/Partner Recommendation Partner POC: Not discovered",
+  "Partner: Partner not discovered \u2014 recommend initiating partner discovery/Partner Recommendation.",
+  "DAS ACC: Converted partner referral and added opportunity detail",
+  "ACC - 12/Mar - DAS ACC: Partner referral follow up reviewal Updated hygiene",
+  "Partner Contact: N/A PCM program: Open to partner introduction License Renewal: No renewal discussed",
+  "Partner Summary Partner: Not discovered",
+]) ok(`  template text is NOT a customer asking: "${t.slice(0, 44)}\u2026"`, !wantsPartnerStated(t));
+
+// 2. Negations are the OPPOSITE signal and must never read as top quality.
+for (const t of [
+  "the organization sees limited value in paying a middleman. Customer indicated they do not want partner involvement",
+  "the client mentioned that they do not need a partner for now",
+  "Customer does not want a reseller to be the middle man, Aprox 250 users",
+  "they have mature Azure deployments and do not currently need partner support for Azure",
+  "Direct Partner: MS Direct (customer explicitly not seeking partner implementation)",
+]) ok(`  a negation is NOT a want: "${t.slice(-42)}"`, !wantsPartnerStated(t));
+
+// 3. Real customer statements must still land.
+for (const t of [
+  "OAP - 15/Jul - URGENT. LOOK FOR A PARTNER THAT FIT THEIR CURRENT NEEDS.",
+  "met w longview -broke the news -brett wants a partner by next week",
+  "JSR - 16/Jun - Cx not satisfied with MSP, looking for partner nomination in the coming meeting",
+  "they are looking for a partner; they are out of support with AX2012",
+  "Next Step: pending customer response. Looking for CSP partner rep for alignment on renewal.",
+  "The customer is open to partner engagement and phased adoption.",
+  "Wants partner contact within 24\u201348 hours. Estimated Close Date: Mid to late May 2026",
+  "They already have CRM and need a partner for some further configuration and implementation",
+  "are open to switching partners for ERP deployment, licensing, and support",
+  "the customer requested a partner-led demo to better understand features, architecture, and costs",
+]) ok(`  a real statement IS a want: "${t.slice(0, 46)}\u2026"`, wantsPartnerStated(t));
+
+// 4. The window is bounded: a genuine ask in a long multi-entry blob is
+//    still a want even when Microsoft's template appears elsewhere in it.
+//    21 of the 109 real flagged rows are exactly this shape.
+ok("  a genuine ask survives template text 400 chars away",
+   wantsPartnerStated(`Partner Recommendation Partner POC: Not discovered. ${"x".repeat(400)} The customer is open to partner engagement and phased adoption.`));
+ok("  but not template text right beside it",
+   !wantsPartnerStated("Partner Contact: Not available PCM program: Open to partner introduction"));
+
+// 5. It forces High priority regardless of score, per Jack.
+const wp = mk(
+  // Deliberately weak everywhere else: monthly billing, a named partner
+  // holding it, no value stated. Score alone would never clear 60.
+  { msp_licensingprogramname: "CSP | Monthly New", estimatedvalue: "", msp_partneraccountidname: "Some Reseller LLC" },
+  `${fresh}The customer is looking for a partner to take over licensing.`,
+);
+ok("a stated want is flagged even with a named partner and monthly billing", wp.lead.wantsPartner);
+ok("  it is forced to High priority", wp.v.bucket === "priority", `${wp.v.bucket} @ ${wp.v.score}`);
+ok("  even though its score is under the High line", wp.v.score < R.strongAt, String(wp.v.score));
+ok("  and the reason says TOP QUALITY", /TOP QUALITY/.test(wp.v.why), wp.v.why.slice(0, 90));
+ok("  the breakdown explains the override", wp.lead.breakdown.some((b) => /top quality/i.test(b)), wp.lead.breakdown.join(" | "));
+
+// A lead that does NOT state it is judged on score alone, as before.
+const quiet = mk(
+  { msp_licensingprogramname: "CSP | Monthly New", estimatedvalue: "", msp_partneraccountidname: "Some Reseller LLC" },
+  `${fresh}Reviewed status. Partner Recommendation Partner POC: Not discovered.`,
+);
+ok("a row with only template text is NOT flagged", !quiet.lead.wantsPartner);
+ok("  and stays out of High on its own merits", quiet.v.bucket !== "priority", `${quiet.v.bucket} @ ${quiet.v.score}`);
+
+// 6. Ranking: the flag outranks a higher score that does not state it.
+const higher = mk(
+  { msp_licensingprogramname: "CSP | Annual New Upfront Billing", estimatedvalue: "250000", msp_partneraccountidname: "NULL" },
+  `${fresh}Quote sent. Meeting set for Thursday. Next Steps: contract.`,
+);
+ok("  a higher-scoring lead that does not state it scores above", higher.v.score > wp.v.score, `${higher.v.score} vs ${wp.v.score}`);
+ok("  ...yet the flagged lead still sorts first", compareCspLeads(wp.lead, higher.lead) < 0);
+ok("  and the pinned lead still outranks the merely-flagged one", compareCspLeads(perfect.lead, wp.lead) < 0);
+
+// 7. The motion label still drives the notes factor through the same guard,
+//    so a false fire cannot inflate notes strength either.
+ok("  the motion label is present on a real want", wp.lead.motion.includes(WANTS_PARTNER_LABEL));
+ok("  and absent on template-only text", !quiet.lead.motion.includes(WANTS_PARTNER_LABEL));
 
 console.log(`\n${pass}/${pass + fail} checks passed`);
 if (fail) process.exit(1);

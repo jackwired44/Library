@@ -730,13 +730,21 @@ const { persist, rescan, profiles, result, showRules, setShowRules } = ctx;
  * Shares nothing with Scanner 1 but the CSV parser, the download helper
  * and the stylesheet. See lib/scanner2.ts for why.
  */
-export default function Scanner2({ kind = "smc", lists = [], onAddToList }: {
+export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStartOver }: {
   kind?: ScannerKind;
   lists?: LeadList[];
   onAddToList?: (
     rows: { row: Scanner2ExportRow; scanner: "main" | "smc" | "csp"; band?: string; score?: number }[],
     opts: { existingId?: string; newName?: string },
   ) => { listId: string; added: number; skipped: number } | null;
+  /** Bumped by "Start over" so App can change this component's key and
+   *  remount it. Clearing the state is not enough: React keeps the last
+   *  render's memoised rows on the fiber, so a scan's ~146 MB survived
+   *  Start over and four scan cycles reached 420 MB (measured with forced
+   *  GC). Unmounting frees all of it — 146 MB back to 6 MB, also measured
+   *  — so Start over discards the fiber rather than trying to out-clear
+   *  React's own cache. */
+  onStartOver?: () => void;
 }) {
   const isCsp = kind === "csp";
   // Selection is by row id, so it survives paging, re-sorting and filtering
@@ -787,6 +795,9 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList }: {
   // score — so the top of a score-sorted list skews email-only. This is the
   // one-click answer: only leads you can actually dial.
   const [phoneOnly, setPhoneOnly] = useState(false);
+  // Top quality, per Jack: the customer states they want a partner. Its own
+  // toggle because it is the list he would pull first.
+  const [wantsPartnerOnly, setWantsPartnerOnly] = useState(false);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   // Same drop-zone interaction as the Main Scanner, so the two upload
@@ -827,7 +838,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList }: {
   );
   const smcRules = useMemo(() => resolveSmcRules(active?.smcRules), [active]);
   const cspRules = useMemo(() => resolveCspRules(active?.cspRules), [active]);
-  useEffect(() => { setPage(1); }, [bucketFilter, curationFilter, search, productFilter, gapsOnly, callableOnly, lineFilter, sortBy, fromDate, toDate, postureFilter, billingFilter, minScore, minValue, phoneOnly]);
+  useEffect(() => { setPage(1); }, [bucketFilter, curationFilter, search, productFilter, gapsOnly, callableOnly, lineFilter, sortBy, fromDate, toDate, postureFilter, billingFilter, minScore, minValue, phoneOnly, wantsPartnerOnly]);
 
   // A storage failure must never block the scan or wipe the screen. The
   // change is applied for this session either way; the banner says it
@@ -925,6 +936,10 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList }: {
   }
 
   function startOver() {
+    // The remount is what actually reclaims the memory (see onStartOver).
+    // The state clears below still run, so Start over is correct even if
+    // no parent supplies the prop.
+    onStartOver?.();
     setFiles([]); setResult(null); setProfiles([]); setBucketFilter("all");
     setCurationFilter("all"); setSearch(""); setPage(1); setNotice(null); setError(null);
     setSelected(new Set()); setListNote(null);
@@ -984,8 +999,41 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList }: {
    * upload. A dimension counting itself would always read the same number
    * and tell you nothing.
    */
-  const tests = useMemo(() => {
+  /**
+   * Search used to stringify every column of every row INSIDE tests.search
+   * — and tests feeds eleven faceted counts, so one keystroke rebuilt that
+   * haystack ten times over. Measured on the real 9,265-row file: 94 ms a
+   * pass, ~940 ms per keystroke, allocating 30 MB ten times and throwing it
+   * away. Now the text is joined once per scan and the query is resolved to
+   * a set of matching ids once per keystroke, so every one of those eleven
+   * passes is a Set lookup. Same matches, ~25 ms instead of ~940 ms.
+   */
+  const haystacks = useMemo(
+    () =>
+      (result?.rows ?? []).map((r) => ({
+        id: r.id,
+        hay: [
+          ...Object.values(r.row).map((v) => String(v ?? "")),
+          r.lead.company,
+          r.lead.contact,
+          r.snippet,
+        ].join(" ").toLowerCase(),
+      })),
+    [result],
+  );
+
+  /** Row ids matching the current query, or null when nothing is typed —
+   *  null means "no search active", which is not the same as "no matches"
+   *  and must not filter the table to empty. */
+  const searchHits = useMemo(() => {
     const q = search.trim().toLowerCase();
+    if (!q) return null;
+    const out = new Set<string>();
+    for (const h of haystacks) if (h.hay.includes(q)) out.add(h.id);
+    return out;
+  }, [haystacks, search]);
+
+  const tests = useMemo(() => {
     return {
       bucket: (r: Row2) => bucketFilter === "all" || effBucket(r) === bucketFilter,
       curation: (r: Row2) => {
@@ -1011,6 +1059,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList }: {
       gaps: (r: Row2) => !gapsOnly || !!(r.smc && salesGaps(r.smc, smcRules).length),
       callable: (r: Row2) => !callableOnly || !!(r.lead.phone || r.lead.mobilePhone || r.lead.email),
       phone: (r: Row2) => !phoneOnly || !!(r.lead.phone || r.lead.mobilePhone),
+      wantsPartner: (r: Row2) => !wantsPartnerOnly || !!r.csp?.wantsPartner,
       // Date range is inclusive of both days. A row with no stated date is
       // excluded once a range is set — it cannot be shown to fall inside it.
       date: (r: Row2) => (!fromDate || !!(r.receivedOn && r.receivedOn >= fromDate))
@@ -1020,13 +1069,9 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList }: {
         const hit = r.smc?.propensity.find((p) => p.product === productFilter);
         return !!hit && hit.stage !== "Unknown";
       },
-      search: (r: Row2) => {
-        if (!q) return true;
-        const hay = [...Object.values(r.row).map((v) => String(v ?? "")), r.lead.company, r.lead.contact, r.snippet].join(" ").toLowerCase();
-        return hay.includes(q);
-      },
+      search: (r: Row2) => searchHits === null || searchHits.has(r.id),
     };
-  }, [bucketFilter, curationFilter, search, curation, productFilter, gapsOnly, callableOnly, smcRules, fromDate, toDate, postureFilter, billingFilter, minScore, minValue, lineFilter, effBucket, isCsp, phoneOnly]);
+  }, [bucketFilter, curationFilter, searchHits, curation, productFilter, gapsOnly, callableOnly, smcRules, fromDate, toDate, postureFilter, billingFilter, minScore, minValue, lineFilter, effBucket, isCsp, phoneOnly, wantsPartnerOnly]);
 
   type FilterKey = keyof typeof tests;
 
@@ -1085,6 +1130,10 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList }: {
   const postureAllCount = useMemo(() => rowsExcept("posture").length, [rowsExcept]);
   const phoneCount = useMemo(
     () => rowsExcept("phone").filter((r) => r.lead.phone || r.lead.mobilePhone).length,
+    [rowsExcept],
+  );
+  const wantsPartnerCount = useMemo(
+    () => rowsExcept("wantsPartner").filter((r) => r.csp?.wantsPartner).length,
     [rowsExcept],
   );
 
@@ -1613,6 +1662,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList }: {
                       billingFilter !== "all" ? `billing: ${BILLING_META[billingFilter].short}` : "",
                       callableOnly ? "callable" : "",
                       phoneOnly ? "has phone" : "",
+                      wantsPartnerOnly ? "wants a partner" : "",
                       search ? `\u201c${search}\u201d` : "",
                     ].filter(Boolean).join(" \u00b7 ") || "none active"}
                   </span>
@@ -1640,6 +1690,12 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList }: {
                 <input type="checkbox" checked={phoneOnly} onChange={(e) => setPhoneOnly(e.target.checked)} aria-label="Has phone" />
                 Has&nbsp;phone ({phoneCount.toLocaleString()})
               </label>
+              {isCsp && (
+                <label className="toolbar-check" title={"Only leads whose notes state the CUSTOMER wants a partner \u2014 top quality. Microsoft's own template language (\"Partner: Not discovered\", \"PCM program: Open to partner introduction\") and negations (\"does not want a partner\") are excluded, so this is the real list."}>
+                  <input type="checkbox" checked={wantsPartnerOnly} onChange={(e) => setWantsPartnerOnly(e.target.checked)} aria-label="Wants a partner" />
+                  {"\u2691 Wants a partner"} ({wantsPartnerCount.toLocaleString()})
+                </label>
+              )}
               <div className="toolbar-spacer" />
               <input className="field" placeholder={"Search company, contact, or notes\u2026"} value={search} onChange={(e) => setSearch(e.target.value)} style={{ flex: 1, minWidth: 200, maxWidth: 380 }} />
             </div>
@@ -1901,6 +1957,18 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList }: {
                                   {r.csp?.perfect && <span title={"Asking for a partner, none assigned, annual upfront \u2014 the strongest lead on this list"} style={{ marginRight: 3 }}>{"\u2605"}</span>}
                                   {r.csp?.score ?? dash}
                                 </div>
+                                {/* Top quality, per Jack: a customer who states they
+                                    want a partner is High priority whatever the score
+                                    says. Shown as its own chip rather than folded into
+                                    the star, because the star means all THREE. */}
+                                {r.csp?.wantsPartner && !r.csp?.perfect && (
+                                  <div
+                                    title={"The customer states they want a partner \u2014 top quality, forced to High priority regardless of score"}
+                                    style={{ display: "inline-block", marginTop: 4, padding: "1px 6px", borderRadius: 999, fontSize: 10, fontWeight: 700, letterSpacing: 0.3, textTransform: "uppercase", background: "#FFF4D6", color: "#8A6D1F", border: "1px solid #E8D9A8" }}
+                                  >
+                                    {"\u2691 wants a partner"}
+                                  </div>
+                                )}
                                 <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 3 }}>
                                   {r.csp?.value != null && r.csp.value > 0 ? `$${r.csp.value.toLocaleString()}` : "no value"}
                                 </div>

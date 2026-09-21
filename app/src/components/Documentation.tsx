@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { EXPORT_LABELS } from "../lib/detection";
 import { SCANNER2_EXPORT_LABELS, CSP_EXPORT_LABELS } from "../lib/scanner2";
-import { BILLING_META, POSTURE_META, DEFAULT_CSP_RULES, DEFAULT_CSP_WEIGHTS, WEIGHT_META, DEAD_PATTERNS, MOTION_PATTERNS, MOTION_WEIGHT, CSP_COLUMN_HINTS } from "../lib/cspRenewal";
+import { BILLING_META, POSTURE_META, DEFAULT_CSP_RULES, DEFAULT_CSP_WEIGHTS, WEIGHT_META, DEAD_PATTERNS, MOTION_PATTERNS, MOTION_WEIGHT, CSP_COLUMN_HINTS, WANTS_PARTNER_LABEL } from "../lib/cspRenewal";
 import { DEFAULT_SMC_RULES, SMC_PRODUCTS } from "../lib/smcLead";
 
 /**
@@ -159,8 +159,34 @@ export default function Documentation() {
           <Table
             head={["Signal", "Weight", "Effect"]}
             rows={MOTION_PATTERNS.map((m) => [m.label, String(MOTION_WEIGHT[m.label] ?? 0),
-              m.label === "wants a partner" ? "saturates the notes factor on its own — the strongest thing a note can say" : "adds toward the notes factor"])}
+              m.label === WANTS_PARTNER_LABEL
+                ? "top quality — forces High priority whatever the score says, and saturates the notes factor"
+                : "adds toward the notes factor"])}
           />
+          <H>&#9745; &ldquo;Wants a partner&rdquo; is the top-quality flag</H>
+          <p style={{ margin: 0 }}>
+            If the notes say the customer wants a partner, the lead is <b>forced to High priority regardless of its
+            score</b> &mdash; that is the whole pitch, and it should never sit in Medium because its deal value went
+            unstated. It carries a <b>&#9873; wants a partner</b> chip in the table and has its own filter toggle, so you
+            can pull exactly that list.
+          </p>
+          <p style={{ margin: "8px 0 0", color: "var(--muted)" }}>
+            Three things are deliberately NOT treated as a customer asking, because on a real 9,265-row export the naive
+            reading fired 961 times with 857 of those on rows that already <i>name</i> a partner:
+          </p>
+          <ul style={{ margin: "6px 0 0 18px", padding: 0 }}>
+            <li><b>Microsoft&rsquo;s own CRM template text.</b> <Code>Partner Recommendation</Code> is a form field and
+              <Code>partner referral</Code> is Microsoft&rsquo;s own referral workflow &mdash; a referral they already
+              made. Those two accounted for 846 of the false fires on their own.</li>
+            <li><b>Template form values near the match</b> &mdash; <Code>Partner: Not discovered</Code>,{" "}
+              <Code>PCM program: Open to partner introduction</Code>, <Code>Partner Contact: N/A</Code>.</li>
+            <li><b>Negations.</b> &ldquo;does not want a reseller to be the middle man&rdquo; is the opposite signal.</li>
+          </ul>
+          <p style={{ margin: "8px 0 0", color: "var(--muted)" }}>
+            Template text elsewhere in a long multi-entry blob does not suppress a genuine ask &mdash; only text within
+            110 characters of the phrase does. Net on that file: <b>118 flagged instead of 961</b>, and 69 leads that had
+            been scoring on the boilerplate left High while 68 that actually ask came in.
+          </p>
           <p style={{ margin: "8px 0 0" }}>
             These end a deal instead: {DEAD_PATTERNS.map((d) => d.label).join(", ")}. Where they sit matters &mdash;{" "}
             <b>&minus;{DEFAULT_CSP_RULES.deadLatestPenalty}</b> when in the newest seller entry (the account is dead
@@ -172,8 +198,10 @@ export default function Documentation() {
           <p style={{ margin: 0 }}>
             High at <b>{DEFAULT_CSP_RULES.strongAt}+</b>, Medium at <b>{DEFAULT_CSP_RULES.reviewAt}+</b>, Low below that.
             Untouched for more than {DEFAULT_CSP_RULES.staleDays} days costs {DEFAULT_CSP_RULES.stalePenalty} points. One
-            lead type is pinned to the top of High regardless of score: <b>asking for a partner, none assigned, and annual
-            new upfront billing</b>. You can override any lead to High / Medium / Low by hand, and the override wins.
+            Two things reach High regardless of score: a lead whose notes state it <b>wants a partner</b> (top quality,
+            see above), and above even that the pinned lead &mdash; <b>asking for a partner, none assigned, and annual
+            new upfront billing</b>, all three at once. You can override any lead to High / Medium / Low by hand, and the
+            override wins.
           </p>
 
           <H>What comes out</H>

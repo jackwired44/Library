@@ -66,12 +66,29 @@ const perfectIdx = rows.map((r, i) => (/★/.test(r.Notes) ? i : -1)).filter((i)
 const lastPerfect = perfectIdx.length ? Math.max(...perfectIdx) : -1;
 ok("★ perfect leads are all at the very top", perfectIdx.length === 0 || lastPerfect === perfectIdx.length - 1, `${perfectIdx.length} perfect, last at row ${lastPerfect}`);
 const afterPerfect = scores.slice(perfectIdx.length);
-ok("below them the file is in descending score order", afterPerfect.every((v, i) => i === 0 || v <= afterPerfect[i - 1]));
-// A ★ perfect lead is pinned High regardless of score (Jack's definition
-// of the strongest lead on the list), so the floor applies to everyone else.
-const nonPerfect = rows.filter((r) => !/\u2605/.test(r.Notes)).map((r) => Number((/^Score (\d+)/.exec(r.Notes) || [])[1]));
-ok("no non-pinned score under the High line (60)", nonPerfect.every((v) => v >= 60), `min ${Math.min(...nonPerfect)}`);
-ok("  and every row under 60 is a pinned ★ lead", scores.filter((v) => v < 60).length === rows.filter((r) => /\u2605/.test(r.Notes) && Number((/^Score (\d+)/.exec(r.Notes) || [])[1]) < 60).length);
+// TWO kinds of lead reach High regardless of score, so the download has
+// three ordered groups, not two: pinned ★ first, then ⚑ TOP QUALITY
+// (the customer states they want a partner — per Jack, "if it states
+// wants a partner that needs to be flagged for top quality"), then
+// everyone else by score descending.
+const isPinned = (r: Record<string, string>) => /\u2605/.test(r.Notes);
+const isTopQuality = (r: Record<string, string>) => /TOP QUALITY/.test(r.Notes);
+const overrideIdx = rows.map((r, i) => (isPinned(r) || isTopQuality(r) ? i : -1)).filter((i) => i >= 0);
+ok("  ⚑ top-quality leads sit directly below the pinned ones",
+   overrideIdx.length === 0 || Math.max(...overrideIdx) === overrideIdx.length - 1,
+   `${overrideIdx.length} overrides, last at row ${Math.max(...overrideIdx, -1)}`);
+ok("  and no pinned lead sits below a top-quality one",
+   rows.every((r, i) => !isPinned(r) || i < perfectIdx.length));
+const afterOverrides = scores.slice(overrideIdx.length);
+ok("below the overrides the file is in descending score order",
+   afterOverrides.every((v, i) => i === 0 || v <= afterOverrides[i - 1]));
+// The score floor therefore applies to everyone the score alone put here.
+const scoreOnly = rows.filter((r) => !isPinned(r) && !isTopQuality(r))
+  .map((r) => Number((/^Score (\d+)/.exec(r.Notes) || [])[1]));
+ok("no score-qualified lead is under the High line (60)",
+   scoreOnly.every((v) => v >= 60), scoreOnly.length ? `min ${Math.min(...scoreOnly)}` : "none");
+ok("  and every row under 60 got there by an explicit override",
+   rows.every((r) => Number((/^Score (\d+)/.exec(r.Notes) || [])[1]) >= 60 || isPinned(r) || isTopQuality(r)));
 ok("the Low-score lead is NOT in the High file", !rows.some((r) => /LOW SCORE/.test(r["Company Name"])));
 const phones = rows.map((r) => r["Work Direct Phone"]).filter(Boolean);
 ok("every exported phone has enough digits to dial", phones.every((v) => (v.match(/\d/g) || []).length >= 7), phones.find((v) => (v.match(/\d/g) || []).length < 7));

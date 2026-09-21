@@ -132,10 +132,77 @@ export const DEAD_PATTERNS: { label: string; re: RegExp }[] = [
 ];
 
 /** Real forward motion on the deal. */
+/**
+ * WANTS A PARTNER — the top-quality signal, per Jack: "if it states wants a
+ * partner that needs to be flagged for top quality."
+ *
+ * Getting this right mattered more than adding the flag. The original
+ * pattern fired on 961 of Jack's 9,265 real rows and 857 of those (89%)
+ * had a partner NAMED in the partner column — so the strongest thing a
+ * note can say was mostly firing on leads somebody else already holds.
+ * Three separate causes, measured against the real file:
+ *
+ *  1. `partner (recommendation|referral|introduction)` alone accounted for
+ *     846 of the 961, and essentially none were a customer talking. They
+ *     are Microsoft's own CRM furniture — "Partner Recommendation" is a
+ *     template FIELD, and "Converted partner referral" / "DAS ACC: Partner
+ *     referral follow up" is Microsoft's own referral workflow, i.e. a
+ *     referral Microsoft already made. Dropped outright.
+ *  2. Microsoft's template text sits around the remaining matches:
+ *     "Partner: Not discovered - recommend initiating partner discovery",
+ *     "PCM program: Open to partner introduction", "Partner Contact: N/A".
+ *     Those are form values with a fixed vocabulary, not a statement.
+ *     PARTNER_TEMPLATE_RE excludes them by context. 204 -> 123.
+ *  3. Negations read as wants: "does not want a reseller to be the middle
+ *     man", "explicitly not seeking partner implementation". That is the
+ *     OPPOSITE signal and must never be flagged top quality.
+ *     PARTNER_NEGATION_RE excludes them. 123 -> 118.
+ *
+ * Final: 118 rows of 9,265 (1.3%), 24 of them with no partner assigned.
+ * A real call list rather than a badge on a ninth of the file.
+ */
+export const WANTS_PARTNER_RE =
+  /\b(look(ing|s)?\s+for\s+(a\s+)?(new\s+)?(partner|reseller|csp|msp|provider)|need(s|ing)?\s+(a\s+)?(new\s+)?(partner|reseller|csp|msp)|want(s|ing)?\s+(a\s+)?(new\s+)?(partner|reseller|csp|msp)|no\s+partner\s+(yet|identified|selected|in\s+place|assigned)|open\s+to\s+(a\s+)?(new\s+)?partner|unhappy\s+with\s+(their\s+)?(current\s+)?(partner|reseller|provider)|switch(ing)?\s+partners?|(seeking|requested|asked\s+for)\s+(a\s+)?partner)/i;
+
+/** Microsoft's own CRM template and workflow language. A match inside this
+ *  context is a form field, not a customer asking for anything. */
+export const PARTNER_TEMPLATE_RE =
+  /(partner\s*:\s*(not\s+)?discovered|partner\s+not\s+discovered|recommend\s+initiating\s+partner\s+discovery|partner\s+recommendation|partner\s+referral|partner\s+poc|partner\s+summary|das\s+acc|opportunity\s+insights|solution\s+(area|play)|orchestration\s+note|task\s+subject|pcm\s+program|partner\s+contact\s*:)/i;
+
+/** "do not want a partner" is not "want a partner". */
+export const PARTNER_NEGATION_RE =
+  /\b(do(es)?\s+n[o']t|did\s+n[o']t|no[nt]\s+needed|not\s+seeking|not\s+looking|never|no\s+longer|without\s+a)\s+(\w+\s+){0,3}(want|need|seek|require|involv|partner|reseller)/i;
+
+/** How far either side of the match to read for template/negation context.
+ *  110 characters each way: wide enough to catch the label a form value
+ *  hangs off, narrow enough not to reach an unrelated sentence. */
+const PARTNER_CONTEXT_CHARS = 110;
+
+/**
+ * Does the customer actually state they want a partner? The one question
+ * the top-quality flag turns on, so it is a named function rather than an
+ * inline regex test — and the only place the three rules above combine.
+ */
+export function wantsPartnerStated(notes: string): boolean {
+  const t = String(notes ?? "");
+  const m = WANTS_PARTNER_RE.exec(t);
+  if (!m) return false;
+  const around = t.slice(
+    Math.max(0, m.index - PARTNER_CONTEXT_CHARS),
+    Math.min(t.length, m.index + m[0].length + PARTNER_CONTEXT_CHARS),
+  );
+  return !PARTNER_TEMPLATE_RE.test(around) && !PARTNER_NEGATION_RE.test(around);
+}
+
+export const WANTS_PARTNER_LABEL = "wants a partner";
+
 export const MOTION_PATTERNS: { label: string; re: RegExp }[] = [
   // Per Jack, the strongest note there is: the customer is asking for a
   // partner. That is the exact conversation this list exists to have.
-  { label: "wants a partner", re: /\b(look(ing|s)?\s+for\s+(a\s+)?(new\s+)?(partner|reseller|csp|msp|provider)|need(s|ing)?\s+(a\s+)?(new\s+)?(partner|reseller|csp|msp)|partner\s+(recommendation|referral|introduction|intro)|(recommend|introduce|find|identify|source)\s+(them\s+)?(a\s+)?partner|no\s+partner\s+(yet|identified|selected|in\s+place)|open\s+to\s+(a\s+)?(new\s+)?partner|unhappy\s+with\s+(their\s+)?(current\s+)?(partner|reseller|provider)|switch(ing)?\s+partners?)/i },
+  // Uses the tightened test above, NOT a bare regex — the notes factor
+  // weights this at 15, which saturates it, so a false fire here was
+  // promoting held accounts on the strength of Microsoft's own boilerplate.
+  { label: "wants a partner", re: WANTS_PARTNER_RE },
   { label: "meeting booked", re: /\b(meeting\s+(is\s+)?(set|scheduled|booked)|call\s+scheduled|scheduled\s+(a\s+)?(call|meeting)|intro\s+call)/i },
   { label: "pricing / quote", re: /\b(quote[ds]?|proposal|\bsow\b|statement\s+of\s+work|pric(e|ing)|cost(s|ing)?\s+(breakdown|estimate|comparison)|budget(ed|ary)?\s+(approv|confirm|allocat|of|is|for)|estimate\s+sent)/i },
   { label: "stated need", re: /\b(interested\s+in|wants?\s+to\s+(move|migrate|buy|purchase|consolidate|add|upgrade|renew)|looking\s+to\s+(move|migrate|buy|purchase|consolidate|add|upgrade|renew)|needs?\s+to\s+(move|migrate|consolidate|upgrade|renew)|would\s+like\s+to|plans?\s+to\s+(move|migrate|buy|purchase|renew))\b/i },
@@ -396,6 +463,11 @@ export interface CspLead {
    *  once: the notes say they are looking for a partner, No Partner
    *  Assigned on the record, and annual new upfront billing. Pinned to
    *  the top of the table and every download regardless of score. */
+  /** The customer themselves states they want a partner — Jack's
+   *  top-quality flag. Forces High priority regardless of score and ranks
+   *  directly below a pinned lead. Guarded three ways, see
+   *  wantsPartnerStated: this is 118 of 9,265 real rows, not 961. */
+  wantsPartner: boolean;
   perfect: boolean;
   /** 0–100, set by classifyCsp. The single number the table and the
    *  downloads are ordered by. */
@@ -428,6 +500,9 @@ export interface CspLead {
 export function compareCspLeads(a: CspLead | undefined, b: CspLead | undefined): number {
   if (!a || !b) return a ? -1 : b ? 1 : 0;
   if (a.perfect !== b.perfect) return a.perfect ? -1 : 1;
+  // Top quality next, per Jack: stating they want a partner outranks a
+  // higher score that does not say it.
+  if (a.wantsPartner !== b.wantsPartner) return a.wantsPartner ? -1 : 1;
   if (a.score !== b.score) return b.score - a.score;
   if (a.billingRank !== b.billingRank) return a.billingRank - b.billingRank;
   if (a.strength !== b.strength) return b.strength - a.strength;
@@ -488,7 +563,12 @@ export function readCspLead(
   const posture = posturize(partner);
   const lastTouch = lastTouchFrom(notes, today);
   const named = resellerNamedInNotes(notes);
-  const motion = MOTION_PATTERNS.filter((p) => p.re.test(notes)).map((p) => p.label);
+  // "wants a partner" goes through wantsPartnerStated so the template and
+  // negation guards apply; every other label is a plain pattern test.
+  const motion = MOTION_PATTERNS.filter((p) =>
+    p.label === WANTS_PARTNER_LABEL ? wantsPartnerStated(notes) : p.re.test(notes),
+  ).map((p) => p.label);
+  const wantsPartner = motion.includes(WANTS_PARTNER_LABEL);
   const billingRank = billingQuality(program);
   return {
     program,
@@ -508,7 +588,8 @@ export function readCspLead(
     nextStep: nextStepFrom(notes),
     strength: notesStrength(motion),
     skus: skusMentioned(notes),
-    perfect: posture === "unassigned" && motion.includes("wants a partner") && billingRank === 0,
+    wantsPartner,
+    perfect: posture === "unassigned" && wantsPartner && billingRank === 0,
     score: 0,
     breakdown: [],
     factorPoints: { lane: 0, billing: 0, recency: 0, notes: 0, value: 0, contact: 0 },
@@ -699,6 +780,7 @@ export function classifyCsp(lead: CspLead, rules: CspRules, reach: { hasPhone: b
   const base = Math.round((100 * raw) / total);
   const breakdown = parts.map((p) => `${p.label} +${p.pts}`);
   if (lead.perfect) breakdown.unshift("\u2605 asking for a partner, none assigned, annual upfront \u2014 pinned to the top");
+  else if (lead.wantsPartner) breakdown.unshift("\u2691 the customer states they want a partner \u2014 top quality, forced to High priority");
 
   // Penalties. Every lead is scored first and THEN marked down, so a big,
   // open, annual-upfront deal with a no-show four entries ago still lands
@@ -737,11 +819,19 @@ export function classifyCsp(lead: CspLead, rules: CspRules, reach: { hasPhone: b
   if (lead.value == null && !lead.program && lead.ageDays == null && !lead.motion.length && !lead.deadReasons.length) {
     return { bucket: "unmatched", why: "No signal \u2014 no value, programme or dated note on this row", score, breakdown, factorPoints, penaltyPoints: penalty };
   }
-  const head = lead.perfect ? `Score ${score} \u2605 wants a partner, none assigned, annual upfront` : `Score ${score}`;
+  const head = lead.perfect
+    ? `Score ${score} \u2605 wants a partner, none assigned, annual upfront`
+    : lead.wantsPartner
+      ? `Score ${score} \u2691 TOP QUALITY \u2014 states they want a partner`
+      : `Score ${score}`;
   if (rules.hardStopDead && lead.deadInLatest) {
     return { bucket: "excluded", why: `${head} \u2014 Low priority, latest entry says ${lead.deadReasons.join(", ")} (hard stop) \u00b7 ${detail}`, score, breakdown, factorPoints, penaltyPoints: penalty };
   }
-  if (lead.perfect || score >= rules.strongAt) {
+  // Per Jack: "if it states wants a partner that needs to be flagged for
+  // top quality." So the flag OVERRIDES the score band the same way a
+  // pinned lead does — a customer asking for a partner is the whole pitch,
+  // and it should never sit in Medium because its deal value is unstated.
+  if (lead.perfect || lead.wantsPartner || score >= rules.strongAt) {
     return { bucket: "priority", why: `${head} \u2014 High priority \u00b7 ${detail}`, score, breakdown, factorPoints, penaltyPoints: penalty };
   }
   if (score >= rules.reviewAt) {

@@ -79,6 +79,12 @@ const NAV: { key: View; label: string }[] = [
 export default function App() {
   const [unlocked, setUnlockedState] = useState(isUnlocked());
   const [view, setView] = useState<View>("scanner");
+  // Bumped by either scanner's "Start over" so its key changes and the
+  // component remounts. A scan retains ~146 MB that clearing the state does
+  // not release, because React keeps the last render's memoised rows on the
+  // fiber; unmounting does release it. Shared by both scanners because only
+  // one is ever mounted.
+  const [scanEpoch, setScanEpoch] = useState(0);
 
   const [results, setResults] = useState<ResultRow[] | null>(null);
   const [uploadedFiles, setUploadedFiles] = useState<{ name: string; rows: number }[]>([]);
@@ -414,8 +420,8 @@ export default function App() {
         {/* Per Jack: no per-scanner passwords. The sign-in gate still
             fronts the whole page; these two screens open like any other. */}
         {view === "docs" && <Documentation />}
-        {view === "scanner2" && <Scanner2 key="smc" kind="smc" lists={leadLists} onAddToList={addExportRowsToLists} />}
-        {view === "scanner3" && <Scanner2 key="csp" kind="csp" lists={leadLists} onAddToList={addExportRowsToLists} />}
+        {view === "scanner2" && <Scanner2 key={`smc-${scanEpoch}`} kind="smc" lists={leadLists} onAddToList={addExportRowsToLists} onStartOver={() => setScanEpoch((n) => n + 1)} />}
+        {view === "scanner3" && <Scanner2 key={`csp-${scanEpoch}`} kind="csp" lists={leadLists} onAddToList={addExportRowsToLists} onStartOver={() => setScanEpoch((n) => n + 1)} />}
 
         {view === "scanner" && (
           <>
