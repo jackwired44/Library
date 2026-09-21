@@ -191,6 +191,32 @@
   .gap { display: flex; align-items: center; padding: 0 8px; font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); white-space: nowrap; }
   .chain-note { margin-top: 11px; font-size: 12px; color: var(--ink-2); }
 
+  /* ---- outcome / stage bars ---- */
+  .barcard { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 15px 16px; }
+  .barhead { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+  .barhead .big { font-family: var(--mono); font-size: 25px; font-weight: 600; letter-spacing: -0.02em; }
+  .barhead .cap { font-size: 12.5px; color: var(--ink-2); max-width: 54ch; }
+  .bargroup + .bargroup { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line-soft); }
+  .bargroup h4 { margin: 0 0 8px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .09em; color: var(--ink-3); font-weight: 600; }
+  .bar { display: grid; grid-template-columns: minmax(118px, 1.1fr) minmax(70px, 3fr) auto; gap: 10px; align-items: center; padding: 4px 0; }
+  .bar .bl { font-size: 12.5px; }
+  .bar .bt { height: 9px; border-radius: 2px; background: var(--sunken); overflow: hidden; }
+  .bar .bf { height: 100%; background: var(--accent); border-radius: 2px; min-width: 2px; }
+  .bar.reach .bf { background: var(--ok); }
+  .bar.dead .bl { color: var(--ink-3); }
+  .bar.dead .bf { background: var(--ink-3); }
+  .bar .bv { font-family: var(--mono); font-size: 12.5px; text-align: right; white-space: nowrap; }
+  .bar .bv small { color: var(--ink-3); }
+  .minibars { margin-top: 12px; }
+  .minibars h4 { margin: 0 0 6px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .09em; color: var(--ink-3); font-weight: 600; }
+  .taskstate { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .ts { background: var(--surface); border: 1px solid var(--line); border-radius: 7px; padding: 7px 12px; }
+  .ts .k { font-size: 10.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-3); font-weight: 600; }
+  .ts .v { font-family: var(--mono); font-size: 16px; font-weight: 600; margin-top: 1px; }
+  .ts.done .v { color: var(--ok); }
+  .ts.skip .v { color: var(--warn); }
+  .detail-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 14px; }
+
   /* ---- states ---- */
   .msg { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 18px 18px; }
   .msg.crit { border-color: var(--crit); background: var(--crit-soft); }
@@ -240,6 +266,16 @@
   <section id="ownSec" hidden>
     <div class="sec-head"><h2>By owner</h2></div>
     <div class="owners" id="ownBody"></div>
+  </section>
+
+  <section id="outSec" hidden>
+    <div class="sec-head"><h2>Call outcomes</h2><span class="count" id="outCount"></span></div>
+    <div id="outBody"></div>
+  </section>
+
+  <section id="stgSec" hidden>
+    <div class="sec-head"><h2>Where leads land</h2><span class="count" id="stgCount"></span></div>
+    <div id="stgBody"></div>
   </section>
 
   <section id="seqSec" hidden>
@@ -294,6 +330,26 @@
     staleDays: 14,
     syncStaleHours: 48
   };
+
+  /* Apollo calls this dimension "Disposition". Which outcomes mean the rep
+     actually spoke to somebody is the split that matters — a connect rate
+     built on anything else is just dial count. Matched loosely because
+     Apollo's own labels carry stray trailing spaces. */
+  var REACHED = ["meeting booked", "call back scheduled", "info requested",
+                 "not interested", "do not contact", "qualified, pending review"];
+  function isReached(label) {
+    return REACHED.indexOf(String(label).trim().toLowerCase()) !== -1;
+  }
+  /* An outcome or stage that was deleted while records still point at it
+     comes back as a bare 24-hex id (outcomes) or "[Deleted Stage]". Say so
+     rather than printing an id at somebody. */
+  function isDeadRef(label) {
+    var s = String(label).trim();
+    return /^[a-f0-9]{24}$/.test(s) || /^\[deleted/i.test(s);
+  }
+  function refLabel(label) {
+    return isDeadRef(label) ? "Deleted — still referenced" : String(label).trim();
+  }
 
   var STEP_LABEL = {
     call: "Call",
@@ -374,6 +430,11 @@
     }
     return rows.length ? { header: header, rows: rows } : null;
   }
+  function reportTable(payload) {
+    if (!payload) return null;
+    var md = typeof payload === "string" ? payload : (payload.summary || payload.markdown);
+    return parseMarkdownTable(md);
+  }
   function tableLookup(table, keyText) {
     if (!table) return null;
     var k = String(keyText).toLowerCase();
@@ -451,6 +512,75 @@
     box.appendChild(el("h3", null, copy.head));
     box.appendChild(el("p", null, copy.body));
     node.appendChild(box);
+  }
+
+  /* Turn one of Apollo's grouped report tables into label/value rows.
+     Column 0 is always the grouped dimension; the value column is matched
+     by fragment so a wording change upstream doesn't blank the panel. */
+  function reportRows(table, valueFragments) {
+    if (!table || !table.header || !table.header.length) return null;
+    var labelCol = table.header[0];
+    var out = [];
+    table.rows.forEach(function (r) {
+      var label = r[labelCol];
+      if (!label) return;
+      // Match the value against the metric columns only — a dimension name
+      // that happened to contain a metric word would otherwise be read as
+      // its own value.
+      var metricsOnly = {};
+      for (var k in r) if (Object.prototype.hasOwnProperty.call(r, k) && k !== labelCol) metricsOnly[k] = r[k];
+      var v = pickCol(metricsOnly, valueFragments);
+      if (v === null) return;
+      out.push({ label: String(label).trim(), value: v });
+    });
+    if (!out.length) return null;
+    out.sort(function (a, b) { return b.value - a.value; });
+    return out;
+  }
+
+  function barBlock(rows, opts) {
+    opts = opts || {};
+    var wrap = el("div");
+    var total = rows.reduce(function (a, r) { return a + r.value; }, 0);
+    var max = rows.reduce(function (a, r) { return Math.max(a, r.value); }, 0) || 1;
+
+    function group(title, list, cls) {
+      if (!list.length) return;
+      var g = el("div", "bargroup");
+      var sum = list.reduce(function (a, r) { return a + r.value; }, 0);
+      g.appendChild(el("h4", null, title + " · " + num(sum) +
+        (total ? " · " + (sum / total * 100).toFixed(0) + "%" : "")));
+      list.forEach(function (r) {
+        var dead = isDeadRef(r.label);
+        var row = el("div", "bar " + (dead ? "dead" : cls || ""));
+        row.appendChild(el("div", "bl", refLabel(r.label)));
+        var track = el("div", "bt");
+        var fill = el("div", "bf");
+        fill.style.width = Math.max(1, (r.value / max) * 100) + "%";
+        track.appendChild(fill);
+        row.appendChild(track);
+        var v = el("div", "bv", num(r.value));
+        if (total) {
+          var s = el("small", null, " " + (r.value / total * 100).toFixed(1) + "%");
+          v.appendChild(s);
+        }
+        row.appendChild(v);
+        g.appendChild(row);
+      });
+      wrap.appendChild(g);
+    }
+
+    if (opts.split) {
+      var reached = rows.filter(function (r) { return !isDeadRef(r.label) && isReached(r.label); });
+      var missed = rows.filter(function (r) { return !isDeadRef(r.label) && !isReached(r.label); });
+      var dead = rows.filter(function (r) { return isDeadRef(r.label); });
+      group("Reached them", reached, "reach");
+      group("Didn't reach them", missed, "");
+      group("Deleted outcomes", dead, "");
+    } else {
+      group(opts.title || "All", rows, "");
+    }
+    return wrap;
   }
 
   /* ---------- health rules ---------- */
@@ -605,9 +735,93 @@
     renderOwners();
     renderAttention();
     renderOwnerCards();
+    renderOutcomes();
+    renderStages();
     renderSequences();
     renderMailboxes();
     renderFoot();
+  }
+
+  function renderOutcomes() {
+    var sec = $("outSec"), body = $("outBody");
+    if (state.errors.outcomes) {
+      renderMsg(body, errorCopy(state.errors.outcomes));
+      $("outCount").textContent = "";
+      sec.hidden = false;
+      return;
+    }
+    if (!state.outcomes) return;
+    var rows = reportRows(state.outcomes, ["num phone calls", "phone calls", "calls"]);
+    clearNode(body);
+    if (!rows) {
+      renderMsg(body, { tone: "warn", head: "No call outcomes in this window",
+        body: "Apollo returned no dispositioned calls for these two people over the last 3 months." });
+      sec.hidden = false;
+      return;
+    }
+    var total = rows.reduce(function (a, r) { return a + r.value; }, 0);
+    var reached = rows.filter(function (r) { return !isDeadRef(r.label) && isReached(r.label); })
+                      .reduce(function (a, r) { return a + r.value; }, 0);
+    var vm = rows.filter(function (r) { return /voicemail/i.test(r.label); })
+                 .reduce(function (a, r) { return a + r.value; }, 0);
+    var noAns = rows.filter(function (r) { return /no answer/i.test(r.label); })
+                    .reduce(function (a, r) { return a + r.value; }, 0);
+
+    var card = el("div", "barcard");
+    var head = el("div", "barhead");
+    head.appendChild(el("span", "big", total ? (reached / total * 100).toFixed(1) + "%" : "—"));
+    head.appendChild(el("span", "cap",
+      "connect rate — " + num(reached) + " of " + num(total) +
+      " dialled calls reached a person over the last 3 months. Everything else was a dial that went nowhere."));
+    card.appendChild(head);
+    card.appendChild(barBlock(rows, { split: true }));
+
+    if (noAns && vm / Math.max(1, noAns) < 0.05) {
+      card.appendChild(el("div", "chain-note",
+        "Left Voicemail is logged " + num(vm) + " times against " + num(noAns) +
+        " No Answers. Voicemails are almost certainly being left and not dispositioned, which makes No Answer a bucket rather than an outcome — and hides how many people have actually heard from you."));
+    }
+    body.appendChild(card);
+    $("outCount").textContent = num(total) + " calls · last 3 months";
+    sec.hidden = false;
+  }
+
+  function renderStages() {
+    var sec = $("stgSec"), body = $("stgBody");
+    if (state.errors.stages) {
+      renderMsg(body, errorCopy(state.errors.stages));
+      sec.hidden = false;
+      return;
+    }
+    if (!state.stages) return;
+    var rows = reportRows(state.stages, ["num contacts added", "added to sequence"]);
+    var held = reportRows(state.stages, ["num contacts"]);
+    clearNode(body);
+    if (!rows && !held) {
+      renderMsg(body, { tone: "warn", head: "No stage data",
+        body: "Apollo returned no contact-stage breakdown for this window." });
+      sec.hidden = false;
+      return;
+    }
+    var use = rows || held;
+    var card = el("div", "barcard");
+    var head = el("div", "barhead");
+    head.appendChild(el("span", "cap",
+      "Contacts by the stage they sit in now, counted by how many were added to a sequence. This is where a worked lead ends up after the cadence finishes with them."));
+    card.appendChild(head);
+    card.appendChild(barBlock(use, { title: "Stage" }));
+
+    var dead = use.filter(function (r) { return isDeadRef(r.label); })
+                  .reduce(function (a, r) { return a + r.value; }, 0);
+    var tot = use.reduce(function (a, r) { return a + r.value; }, 0);
+    if (dead && tot && dead / tot > 0.2) {
+      card.appendChild(el("div", "chain-note",
+        num(dead) + " of " + num(tot) + " sit in a stage that has been deleted from Apollo while records still point at it. " +
+        "They are not lost, but they are unreachable by any stage filter — worth recreating the stage or moving them somewhere real."));
+    }
+    body.appendChild(card);
+    $("stgCount").textContent = "last 3 months";
+    sec.hidden = false;
   }
 
   function renderLive() {
@@ -862,6 +1076,65 @@
     if (state.expanded[s.id]) { delete state.expanded[s.id]; render(); return; }
     state.expanded[s.id] = { loading: false };
     loadSteps(s);
+    loadTaskCounts(s);
+    loadSeqReport(s, "outcomes", {
+      group_by: ["phone_call_outcome_id"], metrics: ["num_phone_calls"]
+    });
+    loadSeqReport(s, "stages", {
+      group_by: ["contact_stage_id"], metrics: ["num_contacts_added_to_sequence"]
+    });
+  }
+
+  /* Whether the work actually got done, not just queued. Read from the
+     pagination total so a sequence with thousands of tasks costs one row. */
+  function loadTaskCounts(seq) {
+    var slot = state.expanded[seq.id];
+    slot.counts = { loading: true };
+    ["scheduled", "completed", "skipped"].forEach(function (status) {
+      state.mcp.callTool(state.server, "apollo_tasks_search",
+        { emailer_campaign_id: seq.id, task_status: status, per_page: 1 },
+        { cache: { staleTime: 60000 } })
+        .then(function (r) {
+          var p = r.payload || {};
+          var n = (p.pagination && p.pagination.total_entries);
+          if (n === undefined || n === null) {
+            var list = p.tasks || p.contact_tasks;
+            n = list ? list.length : null;
+          }
+          if (!state.expanded[seq.id]) return;
+          state.expanded[seq.id].counts[status] = n;
+          state.expanded[seq.id].counts.loading = false;
+          render();
+        })
+        .catch(function (err) {
+          if (!state.expanded[seq.id]) return;
+          state.expanded[seq.id].counts[status] = null;
+          state.expanded[seq.id].counts.loading = false;
+          state.expanded[seq.id].counts.error = err;
+          render();
+        });
+    });
+  }
+
+  function loadSeqReport(seq, key, shape) {
+    var input = {
+      date_range: { modality: "last_3_months" },
+      filters: { emailer_campaign_ids: [seq.id] },
+      group_by: shape.group_by,
+      metrics: shape.metrics
+    };
+    state.mcp.callTool(state.server, "apollo_analytics_sync_report", input,
+      { cache: { staleTime: 120000 } })
+      .then(function (r) {
+        if (!state.expanded[seq.id]) return;
+        state.expanded[seq.id][key] = reportTable(r.payload);
+        render();
+      })
+      .catch(function (err) {
+        if (!state.expanded[seq.id]) return;
+        state.expanded[seq.id][key + "Err"] = err;
+        render();
+      });
   }
 
   function appendDetail(body, s) {
@@ -907,9 +1180,70 @@
         ". Counts come from open tasks, which is the only source that covers call and LinkedIn steps as well as email."));
     }
 
+    /* Did the work get done — not just queued. */
+    var c = slot.counts;
+    if (c) {
+      var ts = el("div", "taskstate");
+      [["scheduled", "Still to do", ""], ["completed", "Worked", "done"], ["skipped", "Skipped", "skip"]]
+        .forEach(function (pair) {
+          var box = el("div", "ts " + pair[2]);
+          box.appendChild(el("div", "k", pair[1]));
+          var v = el("div", "v");
+          var n = c[pair[0]];
+          if (c.loading && n === undefined) v.appendChild(el("div", "skel"));
+          else v.textContent = (n === null || n === undefined) ? "?" : num(n);
+          box.appendChild(v);
+          ts.appendChild(box);
+        });
+      var done = c.completed, sched = c.scheduled;
+      if (typeof done === "number" && typeof sched === "number" && (done + sched) > 0) {
+        var rate = done / (done + sched);
+        var box2 = el("div", "ts");
+        box2.appendChild(el("div", "k", "Worked through"));
+        box2.appendChild(el("div", "v", (rate * 100).toFixed(0) + "%"));
+        ts.appendChild(box2);
+      }
+      inner.appendChild(ts);
+      if (c.error) {
+        inner.appendChild(el("div", "chain-note", "Some task counts couldn't be read — " + errorCopy(c.error).head.toLowerCase() + "."));
+      }
+    }
+
+    /* What happened on the calls, and where those people ended up. */
+    var cols = el("div", "detail-cols");
+    cols.appendChild(miniReport("Call outcomes on this sequence", slot.outcomes, slot.outcomesErr,
+      ["num phone calls", "phone calls", "calls"], true,
+      "No dispositioned calls on this sequence in the last 3 months."));
+    cols.appendChild(miniReport("Stages these contacts sit in", slot.stages, slot.stagesErr,
+      ["num contacts added", "added to sequence", "num contacts"], false,
+      "No stage breakdown for this sequence."));
+    inner.appendChild(cols);
+
     td.appendChild(inner);
     tr.appendChild(td);
     body.appendChild(tr);
+  }
+
+  function miniReport(title, table, err, fragments, split, emptyText) {
+    var box = el("div", "minibars");
+    box.appendChild(el("h4", null, title));
+    if (err) {
+      box.appendChild(el("div", "chain-note", errorCopy(err).head + " — " + errorCopy(err).body));
+      return box;
+    }
+    if (table === undefined) {
+      var sk = el("div", "skel");
+      sk.style.height = "38px";
+      box.appendChild(sk);
+      return box;
+    }
+    var rows = table ? reportRows(table, fragments) : null;
+    if (!rows) {
+      box.appendChild(el("div", "chain-note", emptyText));
+      return box;
+    }
+    box.appendChild(barBlock(rows, split ? { split: true } : { title: "Stage" }));
+    return box;
   }
 
   function renderMailboxes() {
@@ -1032,9 +1366,24 @@
           group_by: ["email_account_id"],
           metrics: ["num_emails_sent", "num_emails_bounced", "num_emails_replied", "email_daily_limit"]
         }, function (p) {
-          var md = p && (p.summary || p.markdown || (typeof p === "string" ? p : null));
-          state.analytics = parseMarkdownTable(md);
+          state.analytics = reportTable(p);
         }, "analytics");
+
+        var ownerFilter = { user_ids: state.ownerIds };
+
+        watch("apollo_analytics_sync_report", {
+          date_range: { modality: "last_3_months" },
+          filters: ownerFilter,
+          group_by: ["phone_call_outcome_id"],
+          metrics: ["num_phone_calls"]
+        }, function (p) { state.outcomes = reportTable(p); }, "outcomes");
+
+        watch("apollo_analytics_sync_report", {
+          date_range: { modality: "last_3_months" },
+          filters: ownerFilter,
+          group_by: ["contact_stage_id"],
+          metrics: ["num_contacts", "num_contacts_added_to_sequence"]
+        }, function (p) { state.stages = reportTable(p); }, "stages");
 
         render();
       });
