@@ -79,7 +79,7 @@ export type Scanner2ExportRow = ExportRow;
 import {
   parseSmcLead, parseCampaign, describeLead, fiscalYearNumber, productLineFor,
   resolveSmcRules, hasRealBant, hotWordHit, hotWordContext, wordHit, inferProductLine, isRenewalCampaign, bestContact, looseEmail, loosePhone, type WordHit,
-  scoreSmcLead, compareSmcScores, DEFAULT_SMC_SCORE_RULES, DEFAULT_SMC_WEIGHTS, partnerPostureOf, SMC_PARTNER_META,
+  scoreSmcLead, compareSmcScores, DEFAULT_SMC_SCORE_RULES, DEFAULT_SMC_WEIGHTS, partnerPostureOf, SMC_PARTNER_META, callAngle,
   type SmcLead, type Campaign, type ProductLine, type SmcRules, type SmcScore, type SmcScoreRules, type SmcWeights, type SmcPartnerPosture,
 } from "./smcLead";
 
@@ -716,6 +716,9 @@ export function classifySmc(
   }
 
   const base = describeLead(lead, rules);
+  // What to actually say on the call, built from the blob's own
+  // fields — see callAngle in smcLead.ts.
+  const angle = callAngle(lead, campaign, rules);
   // The Campaign column is merged into this reason, so a renewal/true-up
   // campaign is dropped here rather than shown beside its own lead.
   const camp = campaign && campaign.name && !isRenewalCampaign(campaign.name)
@@ -743,7 +746,11 @@ export function classifySmc(
   }
 
   const sc = scoreSmcLead(lead, campaign, rules, weights, reach, scoreRules.partnerAdjust);
-  const head = `Score ${sc.score}`;
+  // Per Jack: "matched snippet for custom scanner needs to show what it is
+  // to call them about aside from being a match." The angle leads every
+  // scored note; the score and the Cloud Ascent vocabulary follow it as
+  // supporting evidence rather than being the whole of it.
+  const head = angle ? `${angle} \u00b7 Score ${sc.score}` : `Score ${sc.score}`;
   // Who holds the account rides along on the reason, so it lands in the
   // download's Notes column the same way the CSP tab's partner does.
   const partner = sc.partnerPosture === "open"

@@ -34,10 +34,17 @@ console.log(`  checking ${res.rows.length} scanned rows across every branch\n`);
 // The rule is unchanged — a note states its VERDICT first, then the
 // supporting detail — but the Custom scanner now scores 0-100 like the CSP
 // one, so the verdict is a score and a band rather than a stage name.
-const OPENERS: Record<Bucket2, RegExp> = {
-  priority: /^Score \d+/,
-  review: /^Score \d+/,
-  excluded: /^(Score \d+|Stale campaign —|No usable lead content|Not supported —)/,
+// Per Jack the note now LEADS with what to call them about ("They said
+// they need: ... — Ready to buy Azure, not on it yet"); the score and the
+// Cloud Ascent vocabulary follow as supporting evidence. So a fixed first
+// word is no longer the right assertion. What must still hold, and is
+// checked below, is that the classification is STILL in the note and
+// still traceable — a note that lost its verdict would be worse than one
+// that leads with the wrong thing.
+const CARRIES: Record<Bucket2, RegExp> = {
+  priority: /Score \d+/,
+  review: /Score \d+/,
+  excluded: /(Score \d+|Stale campaign —|No usable lead content|Not supported —)/,
   unmatched: /^No signal —/,
 };
 
@@ -54,7 +61,13 @@ res.rows.forEach((r, i) => {
   if (/\bundefined\b|\bNaN\b|\[object/.test(n)) note("placeholder leaked into the note", i, n);
   // "NULL" is legitimate only in the one sentence that names it.
   if (/\bNULL\b/.test(n) && !/No usable lead content \(blank or NULL\)/.test(n)) note("stray NULL", i, n);
-  if (!OPENERS[r.bucket].test(n)) note(`note does not open with a ${BUCKET2_META[r.bucket].label} reason`, i, n);
+  if (!CARRIES[r.bucket].test(n)) note(`note does not carry its ${BUCKET2_META[r.bucket].label} reason at all`, i, n);
+  // The call angle, where there is one, must come BEFORE the score — that
+  // ordering is the whole point of the change.
+  const scoreAt = n.search(/Score \d+/);
+  if (scoreAt > 0 && !/^(They said they need|Ready to buy|Act Now|Evaluate|Nurture|Educate|Already runs|Microsoft is already pitching)/.test(n)) {
+    note("something other than a call angle sits before the score", i, n);
+  }
   // Consistency: the note must not claim something the verdict contradicts.
   // A qualifying gap no longer implies Strong: with a score it can land at
   // 58 and sit in Medium. What must still hold is that the band the note

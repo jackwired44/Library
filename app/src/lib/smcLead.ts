@@ -75,6 +75,10 @@ const LABELS = [
   "SMC Type", "Product Propensity Details", "Product Ownership Details",
   "Budget", "Authority", "Need", "Timeline", "Time", "Partner",
   "Lead ID", "Lead Id", "MSX Account", "Profiler comment", "Domain",
+  // Seen bleeding into Timeline on real rows ("timeline 4/2/2027 Partner
+  // Name: SISL Infotech Comments Copilot") — field() only stops at a label
+  // it knows about, so an unknown one swallows every field after it.
+  "Partner Name", "Partner Account", "Comments", "Next Step", "Next Steps",
   "Min # of employees", "Max # of employees", "Industry", "Comment",
 ];
 
@@ -219,6 +223,16 @@ export function tidyBantValue(raw: string): string {
   // "34200 - Unverified – existing Microsoft budget; prefers reallocation"
   // is a value followed by commentary. Keep the value.
   v = v.replace(/\s*[-–—]\s*(?:confirmed|unverified|assumed|likely|probable|estimated)\b[\s\S]*$/i, "").trim();
+  // A BANT value ends where the next FIELD begins. field() can only stop
+  // at labels it knows about, so an unlisted one ("Partner Name:",
+  // "Comments", "Next Step:") swallows every field after it and the value
+  // ships as "4/2/2027 Partner Name: SISL Infotech Comments Copilot".
+  // Cutting at anything that looks like a new label catches the whole
+  // class rather than one name at a time. Requires a capitalised word or
+  // two followed by a colon, so a value containing a plain colon
+  // ("ratio 3:1") is untouched.
+  const nextField = /\s(?=(?:[A-Z][A-Za-z&/]*(?:\s[A-Z][A-Za-z&/]*){0,2})\s*:\s)/.exec(v);
+  if (nextField && nextField.index > 0) v = v.slice(0, nextField.index).trim();
   v = v.replace(/^[•\-–—\s]+/, "").replace(/[•\s;,]+$/, "").trim();
   // A value that was nothing but scaffolding is no value at all.
   if (/^(tbd|none|n\/a|unknown|confirmed|unverified)$/i.test(v)) return "";
@@ -501,19 +515,89 @@ export function describeLead(lead: SmcLead, rules?: SmcRules): string {
   if (lead.empty) return "No usable lead content";
   const bits: string[] = [];
   const r = rules ?? DEFAULT_SMC_RULES;
-  const gaps = salesGaps(lead, r);
-  if (gaps.length) {
-    const stage = r.stages.length === 1 ? r.stages[0] : r.stages.join("/");
-    const owned = r.requireNotOwned ? ", not owned" : "";
-    bits.push(`${stage} + ${r.minFit}+ Fit${owned}: ${gaps.map((g) => g.product).join(", ")}`);
-  }
+  // The whitespace gap and the stated Need both moved into callAngle,
+  // which says them in plain English at the FRONT of the note. Repeating
+  // them here in Cloud Ascent's own vocabulary made every export state the
+  // same two facts twice and roughly doubled the Notes column.
   const hi = opportunities(lead).filter((o) => o.index === "High");
   if (hi.length) bits.push(`High prioritization: ${hi.map((h) => h.product).join(", ")}`);
   if (lead.smcType) bits.push(/^smc\b/i.test(lead.smcType) ? lead.smcType : `SMC ${lead.smcType}`);
   if (lead.contacts.length) bits.push(`${lead.contacts.length} contact${lead.contacts.length === 1 ? "" : "s"}`);
-  if (lead.bant.need) bits.push(`Need: ${lead.bant.need}`);
+  if (!bits.length) {
+    // Nothing else worth saying: fall back to the gap in the old
+    // vocabulary rather than going silent.
+    const gaps = salesGaps(lead, r);
+    if (gaps.length) {
+      const stage = r.stages.length === 1 ? r.stages[0] : r.stages.join("/");
+      bits.push(`${stage} + ${r.minFit}+ Fit: ${gaps.map((g) => g.product).join(", ")}`);
+    }
+  }
   return bits.join(" · ") || "Parsed, no propensity or contacts";
 }
+
+/**
+ * What to actually say when you ring them.
+ *
+ * Per Jack: "matched snippet for custom scanner needs to show what it is
+ * to call them about aside from being a match." The note used to open with
+ * classification metadata — "Score 83 — High priority — Act Now + High+
+ * Fit, not owned: Azure — High prioritization: Azure — SMC Medium" — which
+ * says why the ENGINE liked the row and nothing about the conversation.
+ *
+ * Everything here is lifted from the blob's own fields. Nothing is
+ * inferred about what the customer wants beyond what Cloud Ascent states,
+ * and a stated Need is quoted rather than paraphrased, for the same reason
+ * the Main Scanner's snippets are: a note a rep reads down the phone has
+ * to be true.
+ *
+ * Order is by how useful it is on a call:
+ *  1. A Need somebody actually wrote down. Rare (~5% of rows) and by far
+ *     the best opener when it is there.
+ *  2. What they are ready to buy and do not own yet. This is the pitch on
+ *     the other 95%, said in English rather than in Cloud Ascent's
+ *     stage/fit/index vocabulary.
+ *  3. What they already run, because that is the foot in the door.
+ *  4. Budget / authority / timeline where stated — who to ask for and when.
+ *  5. What Microsoft is already pitching them, which is the pretext.
+ */
+export function callAngle(lead: SmcLead, campaign?: Campaign, rules?: SmcRules): string {
+  if (lead.empty) return "";
+  const r = rules ?? DEFAULT_SMC_RULES;
+  const bits: string[] = [];
+
+  if (lead.bant.need) bits.push(`They said they need: "${lead.bant.need}"`);
+
+  const gaps = salesGaps(lead, r);
+  if (gaps.length) {
+    const names = gaps.map((g) => g.product).join(", ");
+    bits.push(`Ready to buy ${names}, not on it yet`);
+  } else {
+    // No qualifying gap: say what they are furthest along on instead of
+    // leaving the rep with nothing.
+    const best = opportunities(lead)
+      .filter((o) => !o.owned)
+      .sort((a, b) => STAGE_RANK.indexOf(a.stage) - STAGE_RANK.indexOf(b.stage))[0];
+    if (best) bits.push(`${best.stage} on ${best.product}, not on it yet`);
+  }
+
+  const owned = (Object.keys(lead.owns) as (keyof SmcLead["owns"])[]).filter((k) => lead.owns[k] === true);
+  if (owned.length) bits.push(`Already runs ${owned.join(", ")}`);
+
+  const who = [
+    lead.bant.authority ? `ask for ${lead.bant.authority}` : "",
+    lead.bant.budget ? `budget ${lead.bant.budget}` : "",
+    lead.bant.timeline ? `timeline ${lead.bant.timeline}` : "",
+  ].filter(Boolean);
+  if (who.length) bits.push(who.join(", "));
+
+  if (campaign && !campaign.empty && campaign.name && !isRenewalCampaign(campaign.name)) {
+    bits.push(`Microsoft is already pitching them "${campaign.name}"`);
+  }
+  return bits.join(" — ");
+}
+
+/** Most-advanced stage first, for picking the best thing to lead with. */
+const STAGE_RANK: SmcStage[] = ["Act Now", "Evaluate", "Nurture", "Educate", "Unknown"];
 
 // ---------------------------------------------------------- campaign code
 //
