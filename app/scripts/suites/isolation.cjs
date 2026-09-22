@@ -31,7 +31,19 @@ const smc = read('src/lib/smcLead.ts'), csp = read('src/lib/cspRenewal.ts');
 ok('CSP names no Cloud Ascent concept (propensity / fit / Act Now)', !/propensity|prioritization|\bAct Now\b/i.test(csp));
 ok('SMC names no CSP concept (billing / partner of record / licensing programme)',
    !/billingRank|partnerOfRecord|licensingprogram/i.test(smc));
-ok('CSP scores 0–100; SMC does not score at all', /score/.test(csp) && !/\bscore\b/i.test(smc));
+// BOTH scanners score 0-100 now, per Jack: "qualify tighter more so like
+// we did in the csp scanner." So "only CSP scores" is no longer the
+// boundary — what matters is that each engine owns its OWN scoring
+// vocabulary and neither can reach into the other's.
+ok('both engines score 0\u2013100', /export function classifyCsp|scoreSmcLead/.test(csp + smc)
+   && /scoreSmcLead/.test(smc) && /classifyCsp/.test(csp));
+ok('  but each owns its own weights type',
+   /CspWeights/.test(csp) && /SmcWeights/.test(smc) && !/SmcWeights/.test(csp) && !/CspWeights/.test(smc));
+ok('  and its own factor list, so a weight cannot be shared by accident',
+   /WEIGHT_META/.test(csp) && /SMC_WEIGHT_META/.test(smc) && !/SMC_WEIGHT_META/.test(csp));
+ok('  and its own band thresholds',
+   /DEFAULT_CSP_RULES/.test(csp) && /DEFAULT_SMC_SCORE_RULES/.test(smc)
+   && !/DEFAULT_SMC_SCORE_RULES/.test(csp) && !/DEFAULT_CSP_RULES/.test(smc));
 ok('each engine owns its own rule type', /CspRules/.test(csp) && /SmcRules/.test(smc) && !/SmcRules/.test(csp) && !/CspRules/.test(smc));
 
 console.log('\n=== storage is namespaced per scanner ===');

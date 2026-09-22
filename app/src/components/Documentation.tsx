@@ -2,7 +2,7 @@ import { useState } from "react";
 import { EXPORT_LABELS } from "../lib/detection";
 import { SCANNER2_EXPORT_LABELS, CSP_EXPORT_LABELS } from "../lib/scanner2";
 import { BILLING_META, POSTURE_META, DEFAULT_CSP_RULES, DEFAULT_CSP_WEIGHTS, WEIGHT_META, DEAD_PATTERNS, MOTION_PATTERNS, MOTION_WEIGHT, CSP_COLUMN_HINTS, WANTS_PARTNER_LABEL } from "../lib/cspRenewal";
-import { DEFAULT_SMC_RULES, SMC_PRODUCTS } from "../lib/smcLead";
+import { SMC_PRODUCTS, DEFAULT_SMC_SCORE_RULES, DEFAULT_SMC_WEIGHTS, SMC_FACTOR_META } from "../lib/smcLead";
 
 /**
  * The reference for the whole platform: what each scanner reads, what it
@@ -227,21 +227,50 @@ export default function Documentation() {
             phone, email, LinkedIn), the propensity table for {SMC_PRODUCTS.length} products, current ownership, BANT
             (budget / authority / need / timeline / partner) and the date the data was pulled.
           </p>
-          <H>What makes a Strong Signal</H>
+          <H>Scored 0–100, like the CSP tab</H>
           <p style={{ margin: 0 }}>
-            A product at stage <b>{DEFAULT_SMC_RULES.stages.join(" or ")}</b>, at least <b>{DEFAULT_SMC_RULES.minFit}</b>{" "}
-            fit, on a line we sell ({DEFAULT_SMC_RULES.lines.join(" or ")}), and&nbsp;
-            {DEFAULT_SMC_RULES.requireNotOwned ? "not already owned — the whitespace play" : "owned or not"}. A high
-            prioritisation index, real BANT, or hot language can also promote. Fabric is not sold, and Power BI only
-            counts on a large opportunity.
+            Every lead gets a score and lands in <b>High</b>, <b>Medium</b> or <b>Low priority</b>. High at{" "}
+            <b>{DEFAULT_SMC_SCORE_RULES.strongAt}+</b>, Medium at <b>{DEFAULT_SMC_SCORE_RULES.reviewAt}+</b>, both
+            editable. Six weighted factors:
+          </p>
+          <Table
+            head={["Factor", "Weight", "What earns it"]}
+            rows={SMC_FACTOR_META.map((m) => [m.label, String(DEFAULT_SMC_WEIGHTS[m.key]), m.hint])}
+          />
+          <H>Two things worth knowing about the weights</H>
+          <ul style={{ margin: "0 0 0 18px", padding: 0 }}>
+            <li><b>Fit is not scored, on purpose.</b> Measured across all 16,865 propensity rows in a real 13,106-row
+              export, Fit is the SAME signal as the stage with zero exceptions — Act Now always High, Evaluate always
+              Medium, Nurture always Low, Educate always Very Low. Requiring both looked strict but was one
+              requirement wearing two hats.</li>
+            <li><b>The prioritization index IS independent, and used to be switched off.</b> Within Act Now it is High
+              only 36% of the time. That makes it the real discriminator in this data, which is why it carries the
+              second-largest weight.</li>
+          </ul>
+          <H>Top quality, and what still overrides the score</H>
+          <p style={{ margin: 0 }}>
+            A <b>stated BANT need on an Act Now whitespace account</b> is forced to High priority whatever it scores —
+            the analogue of &ldquo;wants a partner&rdquo; on the CSP tab, and the only place in this data where a human
+            wrote down what the customer actually wants. All four at once (stated need, Act Now, High index, not owned)
+            pins the lead to the very top. Fabric is still never sold, Power BI still waits for a human to judge the
+            size, and a stale campaign is still excluded before anything is scored.
+          </p>
+          <H>Hot words only count where a human wrote them</H>
+          <p style={{ margin: 0 }}>
+            &ldquo;modernize / migrate&rdquo; in the <b>BANT need or the notes</b> pushes a lead to High. In the{" "}
+            <b>campaign title</b> it does not, and shows only as context. On the real export that title rule was firing
+            on 173 of 197 hot-signal leads across just 81 distinct campaign names — 364 accounts shared
+            &ldquo;Microsoft Azure Virtual Training Day: Migrate and Secure Windows Server&rdquo; alone, and 122 of the
+            197 had no propensity data at all. A webinar invite list is not buying intent.
           </p>
           <H>What comes out</H>
           <p style={{ margin: 0 }}>
-            Strong Signal leads download split by product line (Dynamics 365, M365 / Azure), in the same nine columns.
-            Product Area carries the product line; the reason and the campaign fold into Notes.
+            High priority downloads split by product line (Dynamics 365, M365 / Azure) plus a combined file, and Medium
+            priority downloads whole — High gets called, Medium gets emailed. Product Area carries the product line;
+            the score, the reason and the campaign fold into Notes.
           </p>
         </>
-      ), "Reads the Cloud Ascent propensity blob; Strong Signal is whitespace at high fit")}
+      ), `Scored 0–100 across six factors; High at ${DEFAULT_SMC_SCORE_RULES.strongAt}+`)}
 
       {sec("main", "Main Scanner — general CRM and Apollo exports", (
         <>

@@ -679,6 +679,19 @@ export function hotWordHit(
   const taints = stemsOf([...(rules.notSupported ?? []), ...(rules.largeOnly ?? [])]);
   const tainted = (text: string) => taints.some((t) => text.includes(t));
   for (const [text, where] of places(lead, campaignName)) {
+    // A hot word in the CAMPAIGN TITLE is not this customer's intent, per
+    // Jack. Measured on his real export: 173 of 197 hot-signal Strong rows
+    // fired on a campaign name, and there are only 81 distinct campaign
+    // names across 12,863 rows because these are bulk Microsoft campaigns.
+    // 364 accounts share "Microsoft Azure Virtual Training Day: Migrate and
+    // Secure Windows Server" alone — a webinar invite list, scoring as
+    // buying intent. 122 of the 197 had no propensity data at all, so the
+    // campaign title was the ONLY reason they qualified.
+    //
+    // The title still shows on the row as context (see hotWordContext); it
+    // just cannot qualify a lead by itself. Only the BANT need and the
+    // notes — where a human wrote something about THIS account — can.
+    if (where === "campaign") continue;
     const low = text.toLowerCase();
     for (const st of stems) {
       let at = low.indexOf(st);
@@ -708,3 +721,202 @@ export function isRenewalCampaign(name: string | undefined): boolean {
 export function hasRealBant(lead: SmcLead): boolean {
   return Boolean(lead.bant.need || lead.bant.authority);
 }
+
+// ==========================================================================
+// Scoring — 0–100, the same shape the CSP scanner uses
+// ==========================================================================
+//
+// Per Jack: "lets build out the custom scanner september more and qualify
+// tighter more so like we did in the csp scanner."
+//
+// Two things the audit of his real 13,106-row export found first, because
+// they change what "tighter" even means here:
+//
+//  1. STAGE AND FIT ARE THE SAME SIGNAL. Across all 16,865 propensity rows
+//     on a sold line the cross-tab is perfectly 1:1, zero exceptions:
+//     Act Now ⟺ High (7,021), Evaluate ⟺ Medium (4,132),
+//     Educate ⟺ Very Low (3,519), Nurture ⟺ Low (2,193). So requiring
+//     "Act Now AND High fit" was ONE requirement wearing two hats, and the
+//     old rule set looked stricter than it was. The score reads stage and
+//     ignores fit; `minFit` survives only so a saved rule set still loads.
+//
+//  2. THE PRIORITIZATION INDEX IS INDEPENDENT, AND WAS SWITCHED OFF.
+//     Within Act Now it splits High 36% / Very Low 55%. That is the real
+//     discriminator in this data and `highIndexPushesStrong` defaulted to
+//     false — and even when true it was an ALTERNATIVE route to Strong
+//     rather than an additional requirement. It is now a scored factor,
+//     second only to the stage itself.
+//
+// Weights are deliberately grounded in what the file actually carries:
+// BANT is present on only 6% of rows, so it cannot be a main lever, but it
+// is the closest thing to a customer saying something and is weighted to
+// matter when it IS there. Employees (0%) and industry (0%) are not
+// scored at all — inventing a factor out of an empty column would just add
+// noise with a confident-looking number on it.
+
+export interface SmcWeights {
+  /** Cloud Ascent's own verdict on where the account is. */
+  stage: number;
+  /** Prioritization index — the independent signal, see note 2 above. */
+  index: number;
+  /** They do not already own it: the whole point of a whitespace play. */
+  whitespace: number;
+  /** A real BANT line. Rare, but it is a human saying something. */
+  bant: number;
+  /** Can you actually work it — phone, email, a name. */
+  reach: number;
+  /** How fresh the campaign behind the lead is. */
+  recency: number;
+}
+
+export const DEFAULT_SMC_WEIGHTS: SmcWeights = {
+  stage: 30, index: 25, whitespace: 15, bant: 15, reach: 10, recency: 5,
+};
+
+export const SMC_WEIGHT_META: Record<keyof SmcWeights, { label: string; hint: string }> = {
+  stage: { label: "Propensity stage", hint: "Act Now / Evaluate / Nurture / Educate, best row on a line Wired CIO sells. Fit is the same signal and is not scored twice." },
+  index: { label: "Prioritization index", hint: "Microsoft's own priority on the account. Independent of the stage — within Act Now it is High only 36% of the time." },
+  whitespace: { label: "Whitespace", hint: "They do not already own the product. Owning it scores nothing here." },
+  bant: { label: "BANT on file", hint: "A stated Need counts most, then Authority, Budget, Timeline. Present on only 6% of rows, so it lifts the ones that have it." },
+  reach: { label: "Reachable", hint: "A phone and an email you can work it with. A job title adds a little." },
+  recency: { label: "Campaign recency", hint: "FY26 full marks, FY25 half, older nothing. A stale campaign is excluded outright before scoring." },
+};
+
+/** Stage → how much of the stage weight it earns. Act Now is the only one
+ *  that earns it all; Educate is barely a lead. */
+const STAGE_FRACTION: Record<SmcStage, number> = {
+  "Act Now": 1, Evaluate: 0.55, Nurture: 0.25, Educate: 0.1, Unknown: 0,
+};
+/** Index → fraction. Very Low earns nothing: over half of Act Now rows sit
+ *  there, so treating it as partial credit would defeat the tightening. */
+const INDEX_FRACTION: Record<SmcLevel, number> = {
+  High: 1, Medium: 0.5, Low: 0.2, "Very Low": 0, Unknown: 0,
+};
+/** BANT fields are not equal. A Need is the customer's own problem stated
+ *  out loud; a Timeline without one is a date attached to nothing. */
+const BANT_FRACTION: { key: keyof SmcLead["bant"]; share: number }[] = [
+  { key: "need", share: 0.4 }, { key: "authority", share: 0.25 },
+  { key: "budget", share: 0.2 }, { key: "timeline", share: 0.15 },
+];
+
+export interface SmcScoreRules {
+  /** At or above this, High priority. */
+  strongAt: number;
+  /** At or above this, Medium priority. Below it, Low. */
+  reviewAt: number;
+}
+export const DEFAULT_SMC_SCORE_RULES: SmcScoreRules = { strongAt: 60, reviewAt: 25 };
+
+export interface SmcScore {
+  score: number;
+  breakdown: string[];
+  factorPoints: Record<keyof SmcWeights, number>;
+  /** The best qualifying opportunity the score was built from, if any. */
+  best: Opportunity | null;
+  /** Jack's top-quality flag here, the analogue of "wants a partner" on
+   *  CSP: a stated BANT Need on an Act Now whitespace account. The only
+   *  place in this data where a human wrote down what the customer wants. */
+  statedNeed: boolean;
+  /** All of it at once: stated Need, Act Now, High index, whitespace. */
+  perfect: boolean;
+}
+
+/** The opportunity the score is built from: the best row on a sold line,
+ *  ranked by stage first and then by index, so a High-index Act Now row
+ *  beats a Very-Low-index one on the same account. */
+export function bestOpportunity(lead: SmcLead, rules: SmcRules): Opportunity | null {
+  const ops = opportunities(lead).filter((o) => {
+    const line = PRODUCT_LINE_OF[o.product];
+    return !!line && rules.lines.includes(line);
+  });
+  if (!ops.length) return null;
+  return ops.slice().sort((a, b) =>
+    (STAGE_FRACTION[b.stage] - STAGE_FRACTION[a.stage])
+    || (INDEX_FRACTION[b.index] - INDEX_FRACTION[a.index])
+    || (Number(a.owned) - Number(b.owned)))[0];
+}
+
+export function bantDepth(lead: SmcLead): number {
+  return BANT_FRACTION.reduce((n, f) => n + (lead.bant[f.key] ? f.share : 0), 0);
+}
+
+export function scoreSmcLead(
+  lead: SmcLead,
+  campaign: Campaign | undefined,
+  rules: SmcRules,
+  weights: SmcWeights = DEFAULT_SMC_WEIGHTS,
+  reach: { hasPhone: boolean; hasEmail: boolean; hasTitle: boolean } = { hasPhone: false, hasEmail: false, hasTitle: false },
+): SmcScore {
+  const w = weights;
+  const total = w.stage + w.index + w.whitespace + w.bant + w.reach + w.recency || 1;
+  const breakdown: string[] = [];
+  const raw: Record<keyof SmcWeights, number> = { stage: 0, index: 0, whitespace: 0, bant: 0, reach: 0, recency: 0 };
+  const add = (k: keyof SmcWeights, label: string, fraction: number) => {
+    const pts = w[k] * Math.max(0, Math.min(1, fraction));
+    raw[k] = pts;
+    if (pts > 0) breakdown.push(`${label} +${Math.round((100 * pts) / total)}`);
+    return pts;
+  };
+
+  const best = bestOpportunity(lead, rules);
+  const fy = campaign && !campaign.empty ? fiscalYearNumber(campaign) : -1;
+
+  // The "Stage counts" checkboxes still mean what they always meant: a
+  // stage you have unticked does not count. Under scoring that is zero
+  // points on the stage factor rather than an outright disqualification —
+  // the lead can still earn its index, whitespace, BANT, reach and recency
+  // points, so unticking a stage demotes it instead of hiding it. Without
+  // this the checkboxes would have become decoration, which is exactly the
+  // trap the removed "Also push Strong" boxes fell into.
+  const stageCounts = !!best && rules.stages.includes(best.stage);
+  add("stage",
+      !best ? "no propensity on a sold line"
+        : stageCounts ? `${best.stage} on ${best.product}`
+        : `${best.stage} on ${best.product} (stage not counted)`,
+      stageCounts ? STAGE_FRACTION[best.stage] : 0);
+  add("index", best ? `${best.index} prioritization index` : "no index", best ? INDEX_FRACTION[best.index] : 0);
+  add("whitespace", best && !best.owned ? "does not own it yet" : "already owned", best && !best.owned ? 1 : 0);
+  const depth = bantDepth(lead);
+  add("bant", depth > 0 ? `BANT: ${BANT_FRACTION.filter((f) => lead.bant[f.key]).map((f) => f.key).join(", ")}` : "no BANT stated", depth);
+  add("reach", reach.hasPhone && reach.hasEmail ? "phone + email" : reach.hasPhone ? "phone only" : reach.hasEmail ? "email only" : "no phone or email",
+      (reach.hasPhone ? 0.65 : 0) + (reach.hasEmail ? 0.35 : 0));
+  add("recency", fy >= 26 ? `${campaign?.fiscalYear} campaign` : fy === 25 ? `${campaign?.fiscalYear} campaign` : "older or undated campaign",
+      fy >= 26 ? 1 : fy === 25 ? 0.5 : 0);
+
+  const sum = (Object.keys(raw) as (keyof SmcWeights)[]).reduce((n, k) => n + raw[k], 0);
+  const score = Math.round((100 * sum) / total);
+  const factorPoints = Object.fromEntries(
+    (Object.keys(raw) as (keyof SmcWeights)[]).map((k) => [k, Math.round((100 * raw[k]) / total)]),
+  ) as Record<keyof SmcWeights, number>;
+
+  const actNowWhitespace = !!best && best.stage === "Act Now" && rules.stages.includes("Act Now") && !best.owned;
+  const statedNeed = !!lead.bant.need && actNowWhitespace;
+  const perfect = statedNeed && !!best && best.index === "High";
+  if (perfect) breakdown.unshift("★ stated need, Act Now, High index, not owned — pinned to the top");
+  else if (statedNeed) breakdown.unshift("⚑ a stated need on an Act Now whitespace account — top quality");
+
+  return { score, breakdown, factorPoints, best, statedNeed, perfect };
+}
+
+/** Rank for the table and the downloads: pinned, then top quality, then
+ *  score. Mirrors compareCspLeads so the two scanners sort alike. */
+export function compareSmcScores(a: SmcScore | undefined, b: SmcScore | undefined): number {
+  if (!a || !b) return a ? -1 : b ? 1 : 0;
+  if (a.perfect !== b.perfect) return a.perfect ? -1 : 1;
+  if (a.statedNeed !== b.statedNeed) return a.statedNeed ? -1 : 1;
+  return b.score - a.score;
+}
+
+/** A hot word in the campaign title. Context for the row, never a
+ *  qualifier — see the note in hotWordHit for why. */
+export function hotWordContext(campaignName: string, rules: SmcRules = DEFAULT_SMC_RULES): string {
+  const stems = stemsOf(rules.hotWords);
+  const low = (campaignName || "").toLowerCase();
+  return stems.find((st) => low.includes(st)) ?? "";
+}
+
+/** The factor list in display order, same shape as the CSP tab's
+ *  WEIGHT_META so both scanners feed the one breakdown panel. */
+export const SMC_FACTOR_META: { key: keyof SmcWeights; label: string; hint: string }[] =
+  (["stage", "index", "whitespace", "bant", "reach", "recency"] as const)
+    .map((key) => ({ key, ...SMC_WEIGHT_META[key] }));

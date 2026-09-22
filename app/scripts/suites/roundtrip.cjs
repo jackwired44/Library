@@ -62,7 +62,7 @@ const csv=buildCsv();
   ok('the call-readiness line is shown', /with a phone and a company|with no phone|nobody to call/.test(t), (t.match(/Strong Signal only[^\n]*/)||[])[0]);
 
   const [dl]=await Promise.all([page.waitForEvent('download',{timeout:30000}),
-    page.locator('button[aria-label="Download All Strong Signal leads"]').click()]);
+    page.locator('button[aria-label="Download All High priority leads"]').click()]);
   const f='/tmp/prod-rt.csv'; await dl.saveAs(f);
   const text=fs.readFileSync(f,'utf8');
   const hdr=text.split('\n')[0].replace(/\r$/,'');

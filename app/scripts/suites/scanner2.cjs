@@ -99,20 +99,20 @@ const csv = [
   await page.click('button:has-text("+ Add rule")'); await sleep(1200);
   let t2 = await txt();
   // Alpine Freight is present twice but merged by identity, so 1 is right.
-  ok('priority rule reclassifies rows live', /STRONG SIGNAL\s*1/i.test(t2), t2.match(/STRONG SIGNAL\s*\d+/i)?.[0]);
+  ok('priority rule reclassifies rows live', /HIGH PRIORITY\s*1/i.test(t2), t2.match(/HIGH PRIORITY\s*\d+/i)?.[0]);
 
   await page.fill('input[placeholder="Rule name"]', 'Dead');
   await page.fill('input[placeholder="keywords, comma separated"]', 'churned, do not pursue');
   await page.locator('select[aria-label="Rule bucket"]').first().selectOption('excluded');
   await page.click('button:has-text("+ Add rule")'); await sleep(1200);
   t2 = await txt();
-  ok('exclude rule reclassifies a row live', /BAD LEADS\s*1/i.test(t2), t2.match(/BAD LEADS\s*\d+/i)?.[0]);
+  ok('exclude rule reclassifies a row live', /LOW PRIORITY\s*1/i.test(t2), t2.match(/LOW PRIORITY\s*\d+/i)?.[0]);
   ok('unmatched shrinks as rules are added', /NO SIGNAL\s*2/i.test(t2), t2.match(/NO SIGNAL\s*\d+/i)?.[0]);
   ok('a row is explainable — the matched rule is named on it', /At risk/.test(t2));
   ok('figures still reconcile after rule edits', /figures reconcile/.test(t2));
 
   console.log('\n== filtering ==');
-  await page.locator('.seg-btn:has-text("Strong Signal")').first().click(); await sleep(600);
+  await page.locator('.seg-btn:has-text("High priority")').first().click(); await sleep(600);
   const rows = await page.locator('.data-table').first().locator('tbody tr').count();
   ok('Priority filter shows exactly the matching row', rows === 1, String(rows));
 
@@ -147,19 +147,19 @@ const csv = [
   ok('a keyword found only in campaignidname classifies the row', /Q3 campaign/.test(tq) && !/NEEDS REVIEW\s*0/i.test(tq), (tq.match(/REVIEW\s*\d+/i) || [])[0]);
 
   console.log('\n== curation: rules propose, you dispose ==');
-  const keepBtn = page.locator('button[aria-label^="Keep Alpine Freight"]').first();
+  const keepBtn = page.locator('button[aria-label^="High Alpine Freight"]').first();
   ok('curation controls render per row', await keepBtn.count() > 0);
   await keepBtn.click(); await sleep(700);
   let t5 = await txt();
-  ok('a Keep decision is recorded', /Keep \(1\)/.test(t5), (t5.match(/Keep \(\d+\)/) || [])[0]);
-  const rejBtn = page.locator('button[aria-label^="Reject Cortez Medical"]').first();
+  ok('a High override is recorded', /High \(1\)/.test(t5), (t5.match(/High \(\d+\)/) || [])[0]);
+  const rejBtn = page.locator('button[aria-label^="Low Cortez Medical"]').first();
   await rejBtn.click(); await sleep(700);
   t5 = await txt();
-  ok('a Reject decision is recorded', /Reject \(1\)/.test(t5), (t5.match(/Reject \(\d+\)/) || [])[0]);
+  ok('a Low override is recorded', /Low \(1\)/.test(t5), (t5.match(/Low \(\d+\)/) || [])[0]);
   ok('undecided count drops accordingly', /Undecided \(2\)/.test(t5), (t5.match(/Undecided \(\d+\)/) || [])[0]);
-  await page.locator('.chip-btn:has-text("Keep (")').first().click(); await sleep(600);
+  await page.locator('.chip-btn:has-text("High (")').first().click(); await sleep(600);
   const keptRows = await page.locator('.data-table').first().locator('tbody tr').count();
-  ok('filtering to Keep shows only the kept lead', keptRows === 1, String(keptRows));
+  ok('filtering to High shows only the overridden lead', keptRows === 1, String(keptRows));
   await page.locator('.chip-btn:has-text("Any")').first().click(); await sleep(500);
 
   console.log('\n== isolation from Scanner 1 ==');
@@ -177,6 +177,8 @@ const csv = [
   await page.setInputFiles('input[type=file]', { name: 'leads.csv', mimeType: 'text/csv', buffer: Buffer.from(leadCsv) });
   await sleep(2400);
   const s1 = await txt();
+  // The Main Scanner keeps its OWN vocabulary — Strong Signal / Needs
+  // Review / Bad Leads. Only the two SCORED tabs read High / Medium / Low.
   ok('Main Scanner still classifies Strong Signal', /STRONG SIGNAL\s*1/i.test(s1), s1.match(/STRONG SIGNAL\s*\d+/i)?.[0]);
 
   console.log('\n== persistence ==');
@@ -195,8 +197,8 @@ const csv = [
   // The real test of sticky curation: the SAME list was just re-uploaded
   // above, so the decisions must still be attached to those leads.
   const t6 = await txt();
-  ok('curation survives a re-upload of the same list', /Keep \(1\)/.test(t6) && /Reject \(1\)/.test(t6),
-     `${(t6.match(/Keep \(\d+\)/) || [])[0]} ${(t6.match(/Reject \(\d+\)/) || [])[0]}`);
+  ok('curation survives a re-upload of the same list', /High \(1\)/.test(t6) && /Low \(1\)/.test(t6),
+     `${(t6.match(/High \(\d+\)/) || [])[0]} ${(t6.match(/Low \(\d+\)/) || [])[0]}`);
 
   await page.screenshot({ path: `${OUT}/scanner2.png`, fullPage: true });
   console.log('\n== errors ==');

@@ -77,9 +77,10 @@ export function productLineStyle(line: ProductLine | null | undefined): { bg: st
 }
 export type Scanner2ExportRow = ExportRow;
 import {
-  parseSmcLead, parseCampaign, salesGaps, describeLead, fiscalYearNumber, productLineFor,
-  resolveSmcRules, highIndexRows, hasRealBant, hotWordHit, wordHit, inferProductLine, isRenewalCampaign, bestContact, looseEmail, loosePhone, type WordHit,
-  type SmcLead, type Campaign, type ProductLine, type SmcRules,
+  parseSmcLead, parseCampaign, describeLead, fiscalYearNumber, productLineFor,
+  resolveSmcRules, hasRealBant, hotWordHit, hotWordContext, wordHit, inferProductLine, isRenewalCampaign, bestContact, looseEmail, loosePhone, type WordHit,
+  scoreSmcLead, compareSmcScores, DEFAULT_SMC_SCORE_RULES, DEFAULT_SMC_WEIGHTS,
+  type SmcLead, type Campaign, type ProductLine, type SmcRules, type SmcScore, type SmcScoreRules, type SmcWeights,
 } from "./smcLead";
 
 // ---------------------------------------------------------------- types
@@ -171,6 +172,11 @@ export interface RuleSet2 {
   /** What pushes an SMC lead to Strong Signal — see SmcRules. Optional so
    *  a rule set saved before the knobs existed resolves to the defaults. */
   smcRules?: SmcRules;
+  /** Band thresholds for the SMC score. Optional so a rule set saved
+   *  before scoring existed still loads on the defaults. */
+  smcScoreRules?: Partial<SmcScoreRules>;
+  /** Per-factor weights for the SMC score, same shape as the CSP tab's. */
+  smcWeights?: Partial<SmcWeights>;
   /** Campaigns older than this fiscal year are treated as stale. FY24's
    *  "COE True Up" bulk dominates the column and is two years old. */
   smcMinFiscalYear: number;
@@ -201,6 +207,11 @@ export interface Row2 {
   snippet: string;
   /** Present only in SMC mode. */
   smc?: SmcLead;
+  /** The 0-100 score behind an SMC row, and where its points came from.
+   *  Present only in SMC mode, and only once the row got far enough to be
+   *  scored — a stale campaign or a not-supported product is a verdict,
+   *  not a score, so those rows carry none. */
+  smcScore?: SmcScore;
   /** Present only in CSP mode. */
   csp?: CspLead;
   campaign?: Campaign;
@@ -457,8 +468,14 @@ function readLead(row: Record<string, unknown>, m: FieldMapping, notesCols: stri
   const g = (k: LeadField) => { const c = m[k]; return c ? String(row[c] ?? "").trim() : ""; };
   // Notes is the join of every chosen notes column, so a rule keyword
   // matches wherever in the story it appears.
+  // Jack's real export carries `description` TWICE — Papa renames the
+  // second to `description_1` — and the two are byte-identical in all
+  // 13,106 rows. Joining both stored every notes blob twice: ~8 MB of
+  // duplicate text on that file, and any keyword or count rule reading the
+  // notes saw the whole thing a second time. De-duplicated by VALUE, not by
+  // column name, so a copy under a different header is covered too.
   const notes = notesCols.length
-    ? notesCols.map((c) => String(row[c] ?? "").trim()).filter(Boolean).join(" · ")
+    ? [...new Set(notesCols.map((c) => String(row[c] ?? "").trim()).filter(Boolean))].join(" · ")
     : g("notes");
   return {
     company: g("company"), contact: g("contact"), title: g("title"), email: g("email"),
@@ -673,12 +690,19 @@ export function tidyNote(why: string, fallback = "Scanned, nothing further state
   return out || fallback;
 }
 
+/** Re-exported so the results table can rank SMC rows without importing
+ *  the SMC engine directly — scanner2 stays the only composer. */
+export { compareSmcScores };
+
 export function classifySmc(
   lead: SmcLead,
   campaign: Campaign | undefined,
   minFiscalYear: number,
   rules: SmcRules = resolveSmcRules(undefined),
-): { bucket: Bucket2; why: string } {
+  scoreRules: SmcScoreRules = DEFAULT_SMC_SCORE_RULES,
+  weights: SmcWeights = DEFAULT_SMC_WEIGHTS,
+  reach: { hasPhone: boolean; hasEmail: boolean; hasTitle: boolean } = { hasPhone: false, hasEmail: false, hasTitle: false },
+): { bucket: Bucket2; why: string; score?: SmcScore } {
   if (lead.empty) return { bucket: "excluded", why: "No usable lead content (blank or NULL)" };
 
   // Stale campaign: excluded before anything else, because a two-year-old
@@ -690,7 +714,6 @@ export function classifySmc(
     }
   }
 
-  const gaps = salesGaps(lead, rules);
   const base = describeLead(lead, rules);
   // The Campaign column is merged into this reason, so a renewal/true-up
   // campaign is dropped here rather than shown beside its own lead.
@@ -698,55 +721,69 @@ export function classifySmc(
     ? ` · ${campaign.fiscalYear || ""} ${campaign.name}`.replace(/\s+/g, " ")
     : "";
 
-  if (gaps.length) return { bucket: "priority", why: `${base}${camp}` };
   const detail = base && base !== "Parsed, no propensity or contacts" ? ` · ${base}` : "";
   const whereTxt = (h: WordHit) => (h.where === "campaign" ? `campaign "${campaign?.name}"` : h.where === "need" ? "BANT need" : "notes");
-  // Per Jack, migration / modernization language is a great-opp signal in
-  // its own right — on by default, word list editable. A hot word sitting
-  // next to a not-supported product (Fabric) does not fire — see hotWordHit.
-  const hot = hotWordHit(lead, campaign?.name ?? "", rules);
-  if (hot) return { bucket: "priority", why: `Hot signal — "${hot.word}" in ${whereTxt(hot)}${detail}` };
-
+  // Hard rules first — these are verdicts, not scores, and they win.
   // Per Jack: "we dont do fabric anymore and unless its a large power bi
   // opp no." A campaign or BANT need aimed at a not-supported product is a
-  // Bad Lead; one aimed at a large-only product is never auto-Strong and
-  // waits in Needs Review for a human to judge the size. A mention buried
-  // in the notes only annotates the why line.
+  // Bad Lead however well the account scores. A mention buried in the notes
+  // only annotates the reason.
   const noGo = wordHit(lead, campaign?.name ?? "", rules.notSupported);
   const large = wordHit(lead, campaign?.name ?? "", rules.largeOnly);
-  const needTainted = noGo?.where === "need" || large?.where === "need";
-  // Optional pushes, each a knob Jack can turn on.
-  if (rules.highIndexPushesStrong) {
-    const hi = highIndexRows(lead, rules);
-    if (hi.length) return { bucket: "priority", why: `High prioritization index: ${hi.map((h) => h.product).join(", ")}${camp}` };
-  }
-  if (rules.bantPushesStrong && hasRealBant(lead) && !needTainted) {
-    return { bucket: "priority", why: `BANT on file — ${base}${camp}` };
-  }
   if (noGo && noGo.where !== "notes") {
-    return { bucket: "excluded", why: `Not supported — "${noGo.word}" in ${whereTxt(noGo)}${detail}${noGo.where === "campaign" ? "" : camp}` };
-  }
-  if (large && large.where !== "notes") {
-    return { bucket: "review", why: `"${large.word}" in ${whereTxt(large)} — Strong only if a large opp, judge by hand${detail}${large.where === "campaign" ? "" : camp}` };
+    return { bucket: "excluded", why: `Not supported \u2014 "${noGo.word}" in ${whereTxt(noGo)}${detail}${noGo.where === "campaign" ? "" : camp}` };
   }
   const mention = noGo ? ` · mentions "${noGo.word}" (not supported)` : large ? ` · mentions "${large.word}" (large opps only)` : "";
 
-  // Every note states its verdict FIRST, then the supporting detail. These
-  // four used to open with whatever detail happened to exist ("2 contacts ·
-  // FY26 Expand M365 Copilot"), which describes the lead without ever saying
-  // why it landed where it did — the note read as a gap rather than a reason.
-  //
-  // Real human BANT beats an all-Unknown propensity matrix.
-  if (lead.bant.need || lead.bant.authority) {
-    return { bucket: "review", why: `Needs review — BANT on file, no qualifying propensity${detail}${camp}${mention}` };
+  // Nothing to score at all. Kept as its own bucket so the Non Relevant
+  // accounting still balances.
+  if (!lead.propensity.some((p) => p.stage !== "Unknown") && !hasRealBant(lead) && !lead.contacts.length) {
+    return { bucket: "unmatched", why: `No signal \u2014 nothing qualifying found${detail}${camp}${mention}` };
   }
-  if (lead.propensity.some((p) => p.stage !== "Unknown")) {
-    return { bucket: "review", why: `Needs review — propensity on file, no ${rules.stages.join("/")} + ${rules.minFit}+ Fit gap on a sold line${detail}${camp}${mention}` };
+
+  const sc = scoreSmcLead(lead, campaign, rules, weights, reach);
+  const head = `Score ${sc.score}`;
+
+  // A large-only product (Power BI) is NEVER auto-High, whatever it scores
+  // — Cloud Ascent carries no seat count, so only a human can judge size.
+  if (large && large.where !== "notes") {
+    return {
+      bucket: "review", score: sc,
+      why: `${head} \u2014 "${large.word}" in ${whereTxt(large)}, High only if it is a large opp, judge by hand${detail}${large.where === "campaign" ? "" : camp}`,
+    };
   }
-  if (lead.contacts.length) {
-    return { bucket: "review", why: `Needs review — contacts only, no propensity or BANT${detail}${camp}${mention}` };
+
+  // Top quality, the analogue of "wants a partner" on the CSP tab: a human
+  // wrote down what this customer needs, on an Act Now whitespace account.
+  // Forces High priority regardless of score, same as CSP.
+  if (sc.perfect) {
+    return { bucket: "priority", score: sc, why: `${head} \u2605 stated need, Act Now, High index, not owned${detail}${camp}${mention}` };
   }
-  return { bucket: "unmatched", why: `No signal — nothing qualifying found${detail}${camp}${mention}` };
+  if (sc.statedNeed) {
+    return { bucket: "priority", score: sc, why: `${head} \u2691 TOP QUALITY \u2014 a stated need on an Act Now whitespace account${detail}${camp}${mention}` };
+  }
+
+  // Per Jack, migration / modernization language is a great-opp signal in
+  // its own right. It now only counts in the BANT need or the notes, never
+  // the campaign title — see hotWordHit for the measurement behind that.
+  const hot = hotWordHit(lead, campaign?.name ?? "", rules);
+  if (hot) {
+    return { bucket: "priority", score: sc, why: `${head} \u2691 hot signal \u2014 "${hot.word}" in ${whereTxt(hot)}${detail}${camp}${mention}` };
+  }
+
+  // A hot word in the campaign title is context only. It rides along on the
+  // reason so the row still reads as a migration play, but it qualifies
+  // nothing by itself.
+  const ctxWord = hotWordContext(campaign?.name ?? "", rules);
+  const ctx = ctxWord ? ` · campaign mentions "${ctxWord}"` : "";
+
+  if (sc.score >= scoreRules.strongAt) {
+    return { bucket: "priority", score: sc, why: `${head} \u2014 High priority${detail}${camp}${ctx}${mention}` };
+  }
+  if (sc.score >= scoreRules.reviewAt) {
+    return { bucket: "review", score: sc, why: `${head} \u2014 Medium priority, under the ${scoreRules.strongAt} line${detail}${camp}${ctx}${mention}` };
+  }
+  return { bucket: "excluded", score: sc, why: `${head} \u2014 Low priority, under the ${scoreRules.reviewAt} line${detail}${camp}${ctx}${mention}` };
 }
 
 // -------------------------------------------------------------- matching
@@ -858,6 +895,7 @@ export function scan2(
       let snippet = snippetFor(lead.notes || Object.values(raw).map((v) => String(v ?? "")).join(" "), allTerms);
       let finalBucket = bucket;
       let smc: SmcLead | undefined;
+      let smcScore: SmcScore | undefined;
       let csp: CspLead | undefined;
       let campaign: Campaign | undefined;
       let productLine: ProductLine | null | undefined;
@@ -868,8 +906,24 @@ export function scan2(
           .map((c) => String(raw[c] ?? "").trim()).filter(Boolean).join(" ");
         campaign = parseCampaign(campText);
         const smcRules = resolveSmcRules(ruleSet.smcRules);
-        const verdict = classifySmc(smc, campaign, ruleSet.smcMinFiscalYear ?? 25, smcRules);
+        // Reachability feeds the score, and the identity fields are filled
+        // from the blob further down — so resolve the same candidates here
+        // rather than reordering that block. These are exactly the values
+        // the fill below will land on.
+        const c0pre = bestContact(smc);
+        const reach = {
+          hasPhone: !!(lead.phone || lead.mobilePhone || c0pre?.phone || smc.mainPhone || loosePhone(smc.rawText)),
+          hasEmail: !!(lead.email || c0pre?.email || looseEmail(smc.rawText)),
+          hasTitle: !!(lead.title || c0pre?.title),
+        };
+        const verdict = classifySmc(
+          smc, campaign, ruleSet.smcMinFiscalYear ?? 25, smcRules,
+          { ...DEFAULT_SMC_SCORE_RULES, ...(ruleSet.smcScoreRules ?? {}) },
+          { ...DEFAULT_SMC_WEIGHTS, ...(ruleSet.smcWeights ?? {}) },
+          reach,
+        );
         finalBucket = verdict.bucket;
+        smcScore = verdict.score;
         snippet = tidyNote(verdict.why);
         productLine = productLineFor(smc, smcRules);
         // A Strong Signal row must always carry a line, or the per-line
@@ -1003,7 +1057,7 @@ export function scan2(
         // CSP Renewals and a reject in SMC, and one decision must never
         // silently apply to the other.
         leadKey: baseKey ? `${ruleSet.mode === "csp" ? "csp:" : ""}${baseKey}` : null,
-        bucket: finalBucket, matched, dupKey, snippet, smc, csp, campaign, productLine,
+        bucket: finalBucket, matched, dupKey, snippet, smc, smcScore, csp, campaign, productLine,
         // A date on the sheet is when the lead was uploaded / created — it
         // wins. The notes' last seller touch is the fallback when the export
         // carries no date column at all (Jack's CSP file has none).

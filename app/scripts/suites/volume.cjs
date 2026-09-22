@@ -47,7 +47,7 @@ const time=async(label,fn,budget)=>{const t=Date.now();await fn();const ms=Date.
 
   console.log('\n== interactions ==');
   await time('switch to Strong Signal tab', async()=>{
-    await page.locator('.seg-btn', {hasText:/^Strong Signal \(/}).first().click();
+    await page.locator('.seg-btn', {hasText:/^High priority \(/}).first().click();
     await page.waitForFunction(()=>!!document.querySelector('.data-table tbody tr'),{timeout:30000});
   }, 3000);
   await time('filter to Dynamics 365', async()=>{
@@ -63,14 +63,14 @@ const time=async(label,fn,budget)=>{const t=Date.now();await fn();const ms=Date.
     await page.locator('button:has-text("Next")').first().click(); await sleep(120);
   }, 2000);
   await time('mark one lead Keep', async()=>{
-    await page.locator('button[aria-label^="Keep "]').first().click();
-    await page.waitForFunction(()=>/Keep \(1\)/.test(document.querySelector('main').innerText),{timeout:15000});
+    await page.locator('button[aria-label^="High "]').first().click();
+    await page.waitForFunction(()=>/High \(1\)/.test(document.querySelector('main').innerText),{timeout:15000});
   }, 5000);
-  ok('a Keep on one lead marks exactly one lead', /Keep \(1\)/.test(await page.locator('main').innerText()),
-     (await page.locator('main').innerText()).match(/Keep \(\d+\)/)?.[0]);
+  ok('a High override on one lead marks exactly one lead', /High \(1\)/.test(await page.locator('main').innerText()),
+     (await page.locator('main').innerText()).match(/High \(\d+\)/)?.[0]);
 
   console.log('\n== the download you would dial from ==');
-  const dlBtn = page.locator('button[aria-label="Download All Strong Signal leads"]');
+  const dlBtn = page.locator('button[aria-label="Download All High priority leads"]');
   const t=Date.now();
   const [dl]=await Promise.all([page.waitForEvent('download',{timeout:60000}), dlBtn.click()]);
   const f='/tmp/volume-dl.csv'; await dl.saveAs(f);

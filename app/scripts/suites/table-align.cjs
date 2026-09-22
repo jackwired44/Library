@@ -46,9 +46,11 @@ const csv = [HEAD.join(',')].concat(samples.map((d, i) => {
   ok(`every row has exactly ${shape.headers.length} cells, matching the header`,
      shape.rows.every(n => n === shape.headers.length), `row cell counts: ${[...new Set(shape.rows)].join(',')}`);
 
-  // The nine download columns plus Tier, and nothing else masquerading as data.
-  const expected = ['Name','Company','Tier','Product line','Notes','Title','Email','Work phone','Mobile','Employees','Curate'];
-  ok('headers are the nine download fields plus Tier, then the Curate action',
+  // The download columns plus Tier and Score, and nothing else masquerading
+  // as data. Score joined the Custom tab when it started scoring 0-100 like
+  // the CSP tab, per Jack: "action this off in a scoring basis."
+  const expected = ['Name','Company','Tier','Product line','Score','Notes','Title','Email','Work phone','Mobile','Employees','Curate'];
+  ok('headers are the download fields plus Tier and Score, then the Curate action',
      JSON.stringify(shape.headers) === JSON.stringify(expected), JSON.stringify(shape.headers));
 
   // A value must sit under its own heading: check a known lead cell by cell.
@@ -63,12 +65,12 @@ const csv = [HEAD.join(',')].concat(samples.map((d, i) => {
   if (r) {
     ok('Name holds a person', /Christopher Hallski/.test(r[col('Name')]), r[col('Name')]);
     ok('Company holds the company', /New Leaf Publishing/.test(r[col('Company')]), r[col('Company')]);
-    ok('Tier holds a tier label', /Strong Signal|Needs Review|Bad Leads|No Signal/.test(r[col('Tier')]), r[col('Tier')]);
+    ok('Tier holds a priority band', /High priority|Medium priority|Low priority|No signal/i.test(r[col('Tier')]), r[col('Tier')]);
     ok('Product line holds a product line', /Dynamics 365|M365 \/ Azure|—/.test(r[col('Product line')]), r[col('Product line')]);
     ok('Email holds an email or a dash', /@|—/.test(r[col('Email')]), r[col('Email')]);
     ok('Work phone is not an email', !/@/.test(r[col('Work phone')]), r[col('Work phone')]);
     ok('Employees is a number or a dash', /^\d+$|^—$/.test(r[col('Employees')]), r[col('Employees')]);
-    ok('Curate holds the actions', /Keep/.test(r[col('Curate')]), r[col('Curate')]);
+    ok('Curate holds the override actions', /High/.test(r[col('Curate')]), r[col('Curate')]);
   }
 
   // Same check on every tier tab, since each renders a different mix of rows.

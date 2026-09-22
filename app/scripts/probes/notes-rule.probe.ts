@@ -31,10 +31,13 @@ const res = scan2(parsed, { ...emptyRuleSet('r'), fields: guessFieldMapping(prof
 console.log(`  checking ${res.rows.length} scanned rows across every branch\n`);
 
 // A note must open with a phrase that matches where the lead landed.
+// The rule is unchanged — a note states its VERDICT first, then the
+// supporting detail — but the Custom scanner now scores 0-100 like the CSP
+// one, so the verdict is a score and a band rather than a stage name.
 const OPENERS: Record<Bucket2, RegExp> = {
-  priority: /^(Act Now|Evaluate|Nurture|Educate|Hot signal —|High prioritization index:|BANT on file —)/,
-  review: /^(Needs review —|")/,               // the quoted form is the large-opp branch
-  excluded: /^(Stale campaign —|No usable lead content|Not supported —)/,
+  priority: /^Score \d+/,
+  review: /^Score \d+/,
+  excluded: /^(Score \d+|Stale campaign —|No usable lead content|Not supported —)/,
   unmatched: /^No signal —/,
 };
 
@@ -53,7 +56,12 @@ res.rows.forEach((r, i) => {
   if (/\bNULL\b/.test(n) && !/No usable lead content \(blank or NULL\)/.test(n)) note("stray NULL", i, n);
   if (!OPENERS[r.bucket].test(n)) note(`note does not open with a ${BUCKET2_META[r.bucket].label} reason`, i, n);
   // Consistency: the note must not claim something the verdict contradicts.
-  if (/Act Now \+ High\+ Fit/.test(n) && r.bucket !== "priority") note("claims a qualifying gap but is not Strong Signal", i, n);
+  // A qualifying gap no longer implies Strong: with a score it can land at
+  // 58 and sit in Medium. What must still hold is that the band the note
+  // states agrees with the bucket the row is in.
+  const band = /— (High|Medium|Low) priority/.exec(n)?.[1];
+  const wantBand = r.bucket === "priority" ? "High" : r.bucket === "review" ? "Medium" : "Low";
+  if (band && band !== wantBand) note("the note band disagrees with the row bucket", i, n);
   if (/Not supported —/.test(n) && r.bucket !== "excluded") note("claims not-supported but is not a Bad Lead", i, n);
   if (/Stale campaign —/.test(n) && r.bucket !== "excluded") note("claims stale but is not a Bad Lead", i, n);
 });
@@ -61,7 +69,7 @@ res.rows.forEach((r, i) => {
 const labels = [
   "empty", "too short to mean anything", "doubled spaces", "doubled separator",
   "separator hanging off an end", "placeholder leaked into the note", "stray NULL",
-  "claims a qualifying gap but is not Strong Signal", "claims not-supported but is not a Bad Lead",
+  "the note band disagrees with the row bucket", "claims not-supported but is not a Bad Lead",
   "claims stale but is not a Bad Lead",
   ...Object.keys(bad).filter((k) => k.startsWith("note does not open")),
 ];

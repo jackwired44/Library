@@ -61,7 +61,7 @@ const smcCsv = [HEAD.join(',')].concat(samples.map((d, i) => [
   await sleep(3000);
   const [d2] = await Promise.all([
     page.waitForEvent('download', { timeout: 20000 }),
-    page.locator('button[aria-label="Download All Strong Signal leads"]').click(),
+    page.locator('button[aria-label="Download All High priority leads"]').click(),
   ]);
   const f2 = path.join(os.tmpdir(), 'parity-custom.csv'); await d2.saveAs(f2);
   const custText = fs.readFileSync(f2, 'utf8');

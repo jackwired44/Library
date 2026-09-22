@@ -73,8 +73,8 @@ const csv = ['companyname,description,campaignidname,emailaddress1,fullname']
 
   console.log('\n== scoring ==');
   ok('Act Now gaps shown as product chips', /Azure|D365 Sales Pro|Surface/.test(t1));
-  ok('some leads scored Strong Signal', !/STRONG SIGNAL\s*0/i.test(t1), (t1.match(/STRONG SIGNAL\s*\d+/i) || [])[0]);
-  ok('stale FY24 campaigns are Bad Leads', /BAD LEADS\s*[1-9]/i.test(t1), (t1.match(/BAD LEADS\s*\d+/i) || [])[0]);
+  ok('some leads scored Strong Signal', !/HIGH PRIORITY\s*0/i.test(t1), (t1.match(/HIGH PRIORITY\s*\d+/i) || [])[0]);
+  ok('stale FY24 campaigns are Bad Leads', /LOW PRIORITY\s*[1-9]/i.test(t1), (t1.match(/LOW PRIORITY\s*\d+/i) || [])[0]);
   ok('a stale row says why', /Stale campaign/.test(t1));
   ok('a NULL row is excluded with a reason', /No usable lead content/.test(t1));
 
@@ -107,12 +107,12 @@ const csv = ['companyname,description,campaignidname,emailaddress1,fullname']
   console.log('\n== fiscal-year cutoff is adjustable ==');
   // It decides what counts as stale, so it is a RULE now and lives with the
   // other rules under Scan setup rather than in the filter bar.
-  const beforeExcluded = ((await txt()).match(/BAD LEADS\s*(\d+)/i) || [])[1];
+  const beforeExcluded = ((await txt()).match(/LOW PRIORITY\s*(\d+)/i) || [])[1];
   await page.locator('button[aria-label="Scan setup"]').click(); await sleep(600);
   ok('the fiscal-year cutoff sits with the rules, not the filters',
      await page.locator('input[aria-label="Oldest fiscal year"]').count() > 0);
   await page.fill('input[aria-label="Oldest fiscal year"]', '24'); await sleep(1200);
-  const afterExcluded = ((await txt()).match(/BAD LEADS\s*(\d+)/i) || [])[1];
+  const afterExcluded = ((await txt()).match(/LOW PRIORITY\s*(\d+)/i) || [])[1];
   ok('lowering the FY cutoff un-excludes the stale campaigns',
      Number(afterExcluded) < Number(beforeExcluded), `${beforeExcluded} -> ${afterExcluded}`);
   await page.fill('input[aria-label="Oldest fiscal year"]', '25'); await sleep(1000);
@@ -131,18 +131,29 @@ const csv = ['companyname,description,campaignidname,emailaddress1,fullname']
   };
 
   console.log('\n== Strong Signal rules are live knobs ==');
-  const strongBefore = Number(((await txt()).match(/STRONG SIGNAL\s*(\d+)/i) || [])[1]);
+  const strongBefore = Number(((await txt()).match(/HIGH PRIORITY\s*(\d+)/i) || [])[1]);
   // The rule in force is readable without opening anything; the knobs for
   // it sit behind the Scan setup toggle.
-  ok('the collapsed setup bar states the rule in force', /Strong Signal = Act Now/.test(await txt()));
+  ok('the collapsed setup bar states the rule in force', /High priority = Act Now/.test(await txt()));
   await page.locator('button[aria-label="Scan setup"]').click(); await sleep(600);
   ok('Edit setup reveals the Strong Signal knobs', await page.locator('input[aria-label="Hot words"]').count() > 0);
 
   // Jack's rule: modernize / migrate / migration language is a great-opp
-  // signal. Age-se has no propensity at all, so ONLY the campaign name
-  // ("On-prem Windows Server migration to Azure") can make it Strong.
+  // signal — but ONLY where a human wrote it about THIS account.
+  //
+  // This assertion used to read the other way: a migration CAMPAIGN alone
+  // pushed a lead to Strong. Measured on the real 13,106-row export that
+  // was firing on 173 of 197 hot-signal rows, across only 81 distinct
+  // campaign names, with 364 accounts sharing "Microsoft Azure Virtual
+  // Training Day: Migrate and Secure Windows Server" — a webinar invite
+  // list scoring as buying intent, and 122 of the 197 had no propensity at
+  // all. Per Jack the campaign title is now context, never a qualifier, so
+  // the assertion is INVERTED rather than deleted: it pins the new rule.
   ok('hot-word rule is on by default and named in the sentence', /modernize\/modernization\/migrate\/migration language/.test(await txt()));
-  ok('a migration campaign alone pushes a lead to Strong Signal', /Hot signal — "migration" in campaign/.test(await txt()));
+  ok('a migration CAMPAIGN TITLE alone no longer qualifies a lead',
+     !/hot signal — "migration" in campaign/i.test(await txt()), (await txt()).match(/hot signal[^\n]{0,70}/i)?.[0]);
+  ok('  but the campaign still shows as context on the row',
+     /campaign mentions "migrat/i.test(await txt()), (await txt()).match(/campaign mentions[^\n]{0,50}/i)?.[0]);
 
   console.log('\n== not supported: Fabric · large opps only: Power BI ==');
   // Per Jack: "we dont do fabric anymore and unless its a large power bi
@@ -152,13 +163,13 @@ const csv = ['companyname,description,campaignidname,emailaddress1,fullname']
   // not fire, and both rows are Bad Leads that say why.
   ok('a Fabric campaign is a Bad Lead, not Needs Review', /Not supported — "fabric" in campaign "Fabric as Next Logical Workload"/.test(await txt()));
   ok('"Modernization / Fabric" in a BANT need is a Bad Lead — the hot word next to Fabric does not count', /Not supported — "fabric" in BANT need/.test(await txt()));
-  ok('the rule sentence states both rules', /never fabric \(Bad Lead\)/.test(await txt()) && /power bi\/powerbi only if large \(Needs Review\)/.test(await txt()));
+  ok('the rule sentence states both rules', /never fabric \(Low priority\)/.test(await txt()) && /power bi\/powerbi only if large \(Medium priority\)/.test(await txt()));
   // The list is a live knob: clear it and the Fabric BANT lead is a hot-word Strong again.
   await page.fill('input[aria-label="Not supported products"]', ''); await page.locator('input[aria-label="Not supported products"]').blur(); await sleep(1200);
   ok('clearing the not-supported list restores the Fabric hot-word lead to Strong Signal',
-     Number(((await txt()).match(/STRONG SIGNAL\s*(\d+)/i) || [])[1]) === strongBefore + 1 && !/Not supported — "fabric" in BANT need/.test(await txt()));
+     Number(((await txt()).match(/HIGH PRIORITY\s*(\d+)/i) || [])[1]) === strongBefore + 1 && !/Not supported — "fabric" in BANT need/.test(await txt()));
   await page.fill('input[aria-label="Not supported products"]', 'fabric'); await page.locator('input[aria-label="Not supported products"]').blur(); await sleep(1200);
-  ok('restoring it puts the count back', Number(((await txt()).match(/STRONG SIGNAL\s*(\d+)/i) || [])[1]) === strongBefore);
+  ok('restoring it puts the count back', Number(((await txt()).match(/HIGH PRIORITY\s*(\d+)/i) || [])[1]) === strongBefore);
 
   console.log('\n== the counts add up ==');
   // Per Jack: "make sure strong signals add up." The Strong Signal tile
@@ -170,7 +181,7 @@ const csv = ['companyname,description,campaignidname,emailaddress1,fullname']
   const splitNums = (await page.locator('[aria-label="Strong Signal by product line"] strong').allInnerTexts()).map(Number);
   ok('Strong Signal tile shows a Dynamics + M365/Azure split that sums to the total',
      splitNums.length === 2 && splitNums[0] + splitNums[1] === strongBefore && !/unassigned/.test(kpiSplit), `${kpiSplit} vs ${strongBefore}`);
-  await page.locator('.seg-btn', { hasText: /^Strong Signal \(/ }).first().click(); await sleep(600);
+  await page.locator('.seg-btn', { hasText: /^High priority \(/ }).first().click(); await sleep(600);
   const lineN = async (l) => Number(((await page.locator(`button[aria-label="Product line ${l}"]`).innerText()).match(/\((\d+)\)/) || [])[1]);
   const [lAll, lDyn, lM365] = [await lineN('all'), await lineN('Dynamics 365'), await lineN('M365 / Azure')];
   ok('with Strong Signal selected the line chips count Strong rows only, and add up', lAll === strongBefore && lDyn + lM365 === lAll, `${lAll} = ${lDyn} + ${lM365}`);
@@ -178,35 +189,42 @@ const csv = ['companyname,description,campaignidname,emailaddress1,fullname']
   await page.locator('.seg-btn', { hasText: /^All \(/ }).first().click(); await sleep(500);
 
   await setBox('Hot words push Strong Signal', false);
-  const strongNoHot = Number(((await txt()).match(/STRONG SIGNAL\s*(\d+)/i) || [])[1]);
+  const strongNoHot = Number(((await txt()).match(/HIGH PRIORITY\s*(\d+)/i) || [])[1]);
   // Exactly one row is Strong ONLY because of a hot word: Age-se (campaign
   // "…migration to Azure"). TPID 10984130 used to be the second — its BANT
   // need reads "Data & Analytics Modernization / Fabric" — but Fabric is
   // not supported now, so it is a Bad Lead whichever way this knob is set.
-  ok('turning hot words off drops exactly the one hot-word-only lead', strongNoHot === strongBefore - 1, `${strongBefore} -> ${strongNoHot}`);
-  ok('the migration lead falls back to Needs Review, not Bad Leads', !/Hot signal/.test(await txt()));
+  // The only hot word in this fixture sits in a CAMPAIGN TITLE, and a
+  // campaign title no longer qualifies anything (see the inverted assertion
+  // above), so toggling the knob cannot move the count here. That IS the
+  // new rule, so assert it rather than a count that can no longer change.
+  ok('toggling hot words off does not change the count, because the only hot word is a campaign title',
+     strongNoHot === strongBefore, `${strongBefore} -> ${strongNoHot}`);
+  ok('  and no row claims a hot signal from a campaign', !/hot signal \u2014 "migration" in campaign/i.test(await txt()));
   await setBox('Hot words push Strong Signal', true);
-  ok('turning it back on restores the count', Number(((await txt()).match(/STRONG SIGNAL\s*(\d+)/i) || [])[1]) === strongBefore);
-  // The word list is editable: drop "migration" and the campaign no longer qualifies.
+  ok('turning it back on leaves the count where it was', Number(((await txt()).match(/HIGH PRIORITY\s*(\d+)/i) || [])[1]) === strongBefore);
+  // The word list is still editable and still live \u2014 it just only applies
+  // to the BANT need and the notes now.
   await page.fill('input[aria-label="Hot words"]', 'modernize, modernization'); await page.locator('input[aria-label="Hot words"]').blur(); await sleep(1200);
-  ok('editing the hot-word list changes the verdict live', Number(((await txt()).match(/STRONG SIGNAL\s*(\d+)/i) || [])[1]) === strongBefore - 1);
+  ok('the hot-word list is still editable without breaking the scan', Number.isFinite(Number(((await txt()).match(/HIGH PRIORITY\s*(\d+)/i) || [])[1])));
   await page.fill('input[aria-label="Hot words"]', 'modernize, modernization, migrate, migration'); await page.locator('input[aria-label="Hot words"]').blur(); await sleep(1200);
-  // Row 12 has all-Unknown propensity but a real Need + Authority — it is
-  // Needs Review by default and must become Strong Signal with this knob.
-  await setBox('BANT pushes Strong Signal', true);
-  const strongAfter = Number(((await txt()).match(/STRONG SIGNAL\s*(\d+)/i) || [])[1]);
-  ok('turning on "BANT pushes Strong" raises the Strong Signal count', strongAfter > strongBefore, `${strongBefore} -> ${strongAfter}`);
-  ok('the why line names BANT as the reason', /BANT on file/.test(await txt()));
-  await setBox('BANT pushes Strong Signal', false);
-  ok('unchecking restores the previous count', Number(((await txt()).match(/STRONG SIGNAL\s*(\d+)/i) || [])[1]) === strongBefore);
+  // The "Also push Strong" checkboxes for BANT and High prioritization
+  // index are GONE: both are weights now, so an override on top would have
+  // counted the same signal twice. A control that silently did nothing
+  // would be worse than no control, so the checkboxes were removed with
+  // the branches. What must hold is that the weights exist instead.
+  ok('the BANT override checkbox is gone', await page.locator('input[aria-label="BANT pushes Strong Signal"]').count() === 0);
+  ok('the prioritization-index override checkbox is gone', await page.locator('input[aria-label="High prioritization index pushes Strong Signal"]').count() === 0);
+  ok('  BANT is a scoring weight instead', await page.locator('label:has-text("BANT on file") input[type=number]').count() > 0);
+  ok('  and so is the prioritization index', await page.locator('label:has-text("Prioritization index") input[type=number]').count() > 0);
   // Loosening stage + fit must never lower the count.
   await setBox('Stage Evaluate', true);
   await page.locator('select[aria-label="Minimum fit"]').selectOption('Medium'); await sleep(1200);
-  const strongLoose = Number(((await txt()).match(/STRONG SIGNAL\s*(\d+)/i) || [])[1]);
+  const strongLoose = Number(((await txt()).match(/HIGH PRIORITY\s*(\d+)/i) || [])[1]);
   ok('adding Evaluate + Medium fit never lowers Strong Signal', strongLoose >= strongBefore, `${strongBefore} -> ${strongLoose}`);
   ok('the sentence reflects the loosened rule', /Act Now or Evaluate/.test(await txt()) && /at least Medium Fit/.test(await txt()));
   await page.locator('button:has-text("Reset to defaults")').click(); await sleep(1200);
-  ok('Reset returns to the shipped default count', Number(((await txt()).match(/STRONG SIGNAL\s*(\d+)/i) || [])[1]) === strongBefore);
+  ok('Reset returns to the shipped default count', Number(((await txt()).match(/HIGH PRIORITY\s*(\d+)/i) || [])[1]) === strongBefore);
 
   console.log('\n== received dates: sort + filter ==');
   // Per Jack: "are there any dates in these 13k+ leads ... most recent at
@@ -217,9 +235,12 @@ const csv = ['companyname,description,campaignidname,emailaddress1,fullname']
   // Received is no longer its own column (the table is stripped to the nine
   // download fields); it rides inside the Notes cell, addressed by label.
   const received = async () => (await page.locator('.data-table').first().locator('tbody tr [aria-label="Received"]').allInnerTexts()).map(t => t.trim());
+  // Score-first is the default now that this tab scores, so the date order
+  // is selected explicitly rather than assumed.
+  await page.locator('select[aria-label="Sort by"]').selectOption('received-desc'); await sleep(700);
   const dates0 = (await received()).filter(v => /^\d{4}-\d{2}-\d{2}$/.test(v));
   ok('real pull dates are read out of the blobs', dates0.length >= 4, JSON.stringify(dates0));
-  ok('newest first by default', dates0.join() === [...dates0].sort().reverse().join(), JSON.stringify(dates0));
+  ok('newest first when sorted by date', dates0.join() === [...dates0].sort().reverse().join(), JSON.stringify(dates0));
   const firstCells = await received();
   ok('undated rows sink below every dated row, never to the top', /^\d{4}-/.test(firstCells[0]), firstCells[0]);
   ok('an undated row says so rather than showing blank', (await received()).some(v => v === 'no date'));
@@ -248,10 +269,10 @@ const csv = ['companyname,description,campaignidname,emailaddress1,fullname']
   ok('no rows were merged on a campaign code', /13 read . 13 processed/.test(note) && !/duplicates merged/.test(note), note.slice(0, 120));
 
   console.log('\n== curation still works on parsed leads ==');
-  const keep = page.locator('button[aria-label^="Keep "]').first();
+  const keep = page.locator('button[aria-label^="High "]').first();
   ok('curation controls present', await keep.count() > 0);
   await keep.click(); await sleep(700);
-  ok('one Keep click curates exactly one lead', /Keep \(1\)/.test(await txt()), ((await txt()).match(/Keep \(\d+\)/) || [])[0]);
+  ok('one High click overrides exactly one lead', /High \(1\)/.test(await txt()), ((await txt()).match(/High \(\d+\)/) || [])[0]);
 
   console.log('\n== storage failure never blanks the screen ==');
   // Per Jack: "no gap for errors." Simulate a full/failed IndexedDB and
@@ -265,15 +286,21 @@ const csv = ['companyname,description,campaignidname,emailaddress1,fullname']
       return r;
     };
   });
-  const strongPreFail = Number(((await txt()).match(/STRONG SIGNAL\s*(\d+)/i) || [])[1]);
-  await setBox('BANT pushes Strong Signal', true);
-  ok('the rule change still applies with storage down', Number(((await txt()).match(/STRONG SIGNAL\s*(\d+)/i) || [])[1]) > strongPreFail);
+  const strongPreFail = Number(((await txt()).match(/HIGH PRIORITY\s*(\d+)/i) || [])[1]);
+  // Any live rule change will do here; the point is that the SCAN still
+  // re-runs when the SAVE fails. The BANT checkbox this used to toggle
+  // became a scoring weight, so move the High threshold instead — that is
+  // guaranteed to change the count whatever the fixture scores.
+  await page.fill('input[aria-label="High priority threshold"]', '10');
+  await page.locator('input[aria-label="High priority threshold"]').blur(); await sleep(1400);
+  ok('the rule change still applies with storage down', Number(((await txt()).match(/HIGH PRIORITY\s*(\d+)/i) || [])[1]) > strongPreFail);
   ok('the results table is still on screen', await page.locator('.data-table').first().locator('tbody tr').count() > 0);
   ok('a banner names what could not be saved', /could not be saved.*Quota exceeded/.test(await page.locator('[role=alert]').innerText().catch(() => '')));
   await page.locator('button[aria-label="Dismiss error"]').click(); await sleep(300);
   ok('the banner dismisses', await page.locator('[role=alert]').count() === 0);
   await page.evaluate(() => { IDBFactory.prototype.open = window.__origOpen; });
-  await setBox('BANT pushes Strong Signal', false);
+  await page.fill('input[aria-label="High priority threshold"]', '60');
+  await page.locator('input[aria-label="High priority threshold"]').blur(); await sleep(1400);
 
   console.log('\n== isolation ==');
   await page.locator('.side-nav-btn', { hasText: 'Lead library' }).first().click(); await sleep(800);

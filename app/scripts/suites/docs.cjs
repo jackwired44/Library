@@ -58,8 +58,12 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  PASS', n)) : (fail++,
   ok('CSP: documents which date it filters on', /createdon/.test(csp) && /forecast, not a receipt/.test(csp));
 
   const smc = await openSec('Custom Scanner September');
-  ok('SMC: describes the propensity blob, not scoring', /propensity/i.test(smc) && !/0–100/.test(smc.split('Custom Scanner September')[1] || ''));
-  ok('SMC: states its own Strong Signal rule', /whitespace play|already owned/i.test(smc));
+  // The Custom tab scores 0–100 now, so this asserts the opposite of what
+  // it used to: it must describe BOTH the blob and the scoring model.
+  ok('SMC: describes the propensity blob AND its 0–100 score', /propensity/i.test(smc) && /0–100/.test(smc));
+  ok('SMC: states its priority bands and its weights', /High at 60/.test(smc) && /Prioritization index/i.test(smc));
+  ok('SMC: explains why Fit is not scored twice', /same signal as the stage/i.test(smc));
+  ok('SMC: explains the campaign-title rule', /webinar invite list is not buying intent/i.test(smc));
 
   const main = await openSec('Main Scanner');
   ok('Main: documents the ten-column shape', /Last Name/.test(main));

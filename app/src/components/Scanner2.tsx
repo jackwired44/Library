@@ -11,9 +11,10 @@ import {
   type ScannerKind, type Scanner2ExportRow, reconcileCspColumns, exportLabelsFor,
 } from "../lib/scanner2";
 import type { LeadList } from "../lib/leadLists";
-import { POSTURE_META, DEFAULT_CSP_RULES, resolveCspRules, CSP_COLUMN_HINTS, cspPartnerLabel, compareCspLeads, BILLING_META, WEIGHT_META, type CspRules, type CspWeights, type PartnerPosture, type BillingQuality } from "../lib/cspRenewal";
+import { POSTURE_META, DEFAULT_CSP_RULES, resolveCspRules, CSP_COLUMN_HINTS, cspPartnerLabel, compareCspLeads, BILLING_META, WEIGHT_META, type CspRules, type PartnerPosture, type BillingQuality } from "../lib/cspRenewal";
 import {
   SMC_PRODUCTS, SMC_STAGES, salesGaps, resolveSmcRules, DEFAULT_SMC_RULES,
+  DEFAULT_SMC_SCORE_RULES, DEFAULT_SMC_WEIGHTS, SMC_FACTOR_META, compareSmcScores,
   type SmcProduct, type ProductLine, type SmcRules, type SmcStage,
 } from "../lib/smcLead";
 
@@ -215,12 +216,11 @@ function ruleSentence(set: RuleSet2): string {
     return `Plain CSV — ${n} keyword rule${n === 1 ? "" : "s"} in force`;
   }
   const r = resolveSmcRules(set.smcRules);
-  return `Strong Signal = ${r.stages.join(" or ") || "no stage"} · at least ${r.minFit} Fit` +
+  return `High priority = ${r.stages.join(" or ") || "no stage"} · at least ${r.minFit} Fit` +
     `${r.requireNotOwned ? " · not already owned" : ""} · on ${r.lines.join(" / ") || "no line"}` +
     `${r.hotWordsPushStrong && r.hotWords.length ? ` · or ${r.hotWords.join("/")} language` : ""}` +
-    `${r.highIndexPushesStrong ? " · or High prioritization index" : ""}${r.bantPushesStrong ? " · or real BANT" : ""}` +
-    `${(r.notSupported ?? []).length ? ` · never ${r.notSupported.join("/")} (Bad Lead)` : ""}` +
-    `${(r.largeOnly ?? []).length ? ` · ${r.largeOnly.join("/")} only if large (Needs Review)` : ""}`;
+    `${(r.notSupported ?? []).length ? ` · never ${r.notSupported.join("/")} (Low priority)` : ""}` +
+    `${(r.largeOnly ?? []).length ? ` · ${r.largeOnly.join("/")} only if large (Medium priority)` : ""}`;
 }
 
 // ------------------------------------------------------- CSP renewal rules
@@ -352,21 +352,32 @@ function CspRenewalRules({ set, ctx, profiles }: { set: RuleSet2; ctx: Ctx; prof
 // and count in text, Medium bars are hatched (the amber/red pair is too
 // close for deuteranopes, per the palette validator), and the two threshold
 // lines are drawn and labelled so moving a threshold visibly moves the cut.
-function PriorityBreakdown({ rows, rules, meta, effBucket }: {
+/** One breakdown panel for BOTH scored scanners. It used to read r.csp and
+ *  CspWeights directly; now it takes a score accessor and the factor list,
+ *  so the Custom tab's 0-100 score renders through exactly the same panel
+ *  rather than a near-copy that could drift. */
+interface ScoreLike { score: number; factorPoints: Record<string, number>; penaltyPoints?: number }
+function PriorityBreakdown({ rows, strongAt, reviewAt, weights, factorMeta, scoreOf, meta, effBucket }: {
   rows: Row2[];
-  rules: CspRules;
+  strongAt: number;
+  reviewAt: number;
+  weights: Record<string, number>;
+  factorMeta: { key: string; label: string; hint: string }[];
+  scoreOf: (r: Row2) => ScoreLike | undefined;
   meta: Record<Bucket2, { label: string; color: string; bg: string }>;
   effBucket: (r: Row2) => Bucket2;
 }) {
-  const scored = rows.filter((r) => r.csp);
+  const scored = rows.filter((r) => scoreOf(r));
   const total = scored.length || 1;
   const bands: Bucket2[] = ["priority", "review", "excluded"];
   const counts: Record<Bucket2, number> = { priority: 0, review: 0, excluded: 0, unmatched: 0 };
-  const sums: Record<Bucket2, Record<keyof CspWeights, number> & { penalty: number; score: number }> = {
-    priority: { lane: 0, billing: 0, recency: 0, notes: 0, value: 0, contact: 0, penalty: 0, score: 0 },
-    review: { lane: 0, billing: 0, recency: 0, notes: 0, value: 0, contact: 0, penalty: 0, score: 0 },
-    excluded: { lane: 0, billing: 0, recency: 0, notes: 0, value: 0, contact: 0, penalty: 0, score: 0 },
-    unmatched: { lane: 0, billing: 0, recency: 0, notes: 0, value: 0, contact: 0, penalty: 0, score: 0 },
+  const zero = () => {
+    const o: Record<string, number> = { penalty: 0, score: 0 };
+    for (const m of factorMeta) o[m.key] = 0;
+    return o;
+  };
+  const sums: Record<Bucket2, Record<string, number>> = {
+    priority: zero(), review: zero(), excluded: zero(), unmatched: zero(),
   };
   const hist = new Array<number>(10).fill(0);
   let overridden = 0;
@@ -374,15 +385,15 @@ function PriorityBreakdown({ rows, rules, meta, effBucket }: {
     const b = effBucket(r);
     if (b !== r.bucket) overridden++;
     counts[b]++;
-    const c = r.csp!;
-    for (const k of Object.keys(c.factorPoints) as (keyof CspWeights)[]) sums[b][k] += c.factorPoints[k];
-    sums[b].penalty += c.penaltyPoints;
+    const c = scoreOf(r)!;
+    for (const k of Object.keys(c.factorPoints)) sums[b][k] = (sums[b][k] ?? 0) + c.factorPoints[k];
+    sums[b].penalty += c.penaltyPoints ?? 0;
     sums[b].score += c.score;
     hist[Math.min(9, Math.floor(c.score / 10))]++;
   }
   const maxBar = Math.max(1, ...hist);
-  const bandOfBucket = (lo: number): Bucket2 => (lo + 9 >= rules.strongAt && lo >= rules.strongAt ? "priority" : lo + 9 < rules.reviewAt ? "excluded" : lo >= rules.reviewAt ? "review" : lo + 9 >= rules.strongAt ? "priority" : "review");
-  const avg = (b: Bucket2, k: keyof CspWeights | "penalty" | "score") => (counts[b] ? Math.round(sums[b][k] / counts[b]) : 0);
+  const bandOfBucket = (lo: number): Bucket2 => (lo + 9 >= strongAt && lo >= strongAt ? "priority" : lo + 9 < reviewAt ? "excluded" : lo >= reviewAt ? "review" : lo + 9 >= strongAt ? "priority" : "review");
+  const avg = (b: Bucket2, k: string) => (counts[b] ? Math.round((sums[b][k] ?? 0) / counts[b]) : 0);
   const hatch = (color: string) => `repeating-linear-gradient(135deg, ${color} 0 3px, transparent 3px 6px)`;
   const label: React.CSSProperties = { fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 600 };
   // Collapsed by default, per Jack. The three band counts stay in the
@@ -447,7 +458,7 @@ function PriorityBreakdown({ rows, rules, meta, effBucket }: {
               );
             })}
             {/* Threshold lines, drawn and labelled — not colour-only. */}
-            {[{ at: rules.reviewAt, text: `Medium ${rules.reviewAt}+`, b: "review" as Bucket2 }, { at: rules.strongAt, text: `High ${rules.strongAt}+`, b: "priority" as Bucket2 }].map((t) => (
+            {[{ at: reviewAt, text: `Medium ${reviewAt}+`, b: "review" as Bucket2 }, { at: strongAt, text: `High ${strongAt}+`, b: "priority" as Bucket2 }].map((t) => (
               <div key={t.text} style={{ position: "absolute", left: `${t.at}%`, top: 16, bottom: 0, borderLeft: `2px dashed ${meta[t.b].color}`, pointerEvents: "none" }}>
                 <span style={{ position: "absolute", top: -16, left: 4, fontSize: 10.5, fontWeight: 600, color: meta[t.b].color, whiteSpace: "nowrap" }}>{t.text}</span>
               </div>
@@ -465,13 +476,13 @@ function PriorityBreakdown({ rows, rules, meta, effBucket }: {
           <table className="data-table" aria-label="Priority drivers" style={{ fontSize: 12, width: "100%" }}>
             <thead><tr><th style={{ textAlign: "left" }}>Factor</th>{bands.map((b) => <th key={b} style={{ textAlign: "right", color: meta[b].color }}>{meta[b].label}</th>)}</tr></thead>
             <tbody>
-              {WEIGHT_META.map((m) => (
+              {factorMeta.map((m) => (
                 <tr key={m.key} title={m.hint}>
-                  <td>{m.label} <span style={{ color: "var(--muted)" }}>/ {Math.round((100 * rules.weights[m.key]) / Math.max(1, Object.values(rules.weights).reduce((a, x) => a + x, 0)))}</span></td>
+                  <td>{m.label} <span style={{ color: "var(--muted)" }}>/ {Math.round((100 * weights[m.key]) / Math.max(1, Object.values(weights).reduce((a, x) => a + x, 0)))}</span></td>
                   {bands.map((b) => (
                     <td key={b} style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
                       <span style={{ display: "inline-block", width: 36, height: 6, borderRadius: 3, background: "var(--surface-sunken)", marginRight: 6, verticalAlign: "middle", overflow: "hidden" }}>
-                        <span style={{ display: "block", height: "100%", width: `${Math.min(100, (100 * avg(b, m.key)) / Math.max(1, Math.round((100 * rules.weights[m.key]) / Math.max(1, Object.values(rules.weights).reduce((a, x) => a + x, 0)))))}%`, background: meta[b].color, borderRadius: 3 }} />
+                        <span style={{ display: "block", height: "100%", width: `${Math.min(100, (100 * avg(b, m.key)) / Math.max(1, Math.round((100 * weights[m.key]) / Math.max(1, Object.values(weights).reduce((a, x) => a + x, 0)))))}%`, background: meta[b].color, borderRadius: 3 }} />
                       </span>
                       {avg(b, m.key)}
                     </td>
@@ -510,9 +521,21 @@ const CSP_FIELD_LABELS: Record<string, string> = {
 function StrongSignalRules({ set, ctx }: { set: RuleSet2; ctx: Ctx }) {
 const { persist, rescan } = ctx;
   const rules = resolveSmcRules(set.smcRules);
+  const sRules = { ...DEFAULT_SMC_SCORE_RULES, ...(set.smcScoreRules ?? {}) };
+  const sWeights = { ...DEFAULT_SMC_WEIGHTS, ...(set.smcWeights ?? {}) };
   async function patch(p: Partial<SmcRules>) {
     rescan(await persist({ ...set, smcRules: { ...rules, ...p } }));
   }
+  async function patchScore(p: Partial<typeof sRules>) {
+    rescan(await persist({ ...set, smcScoreRules: { ...sRules, ...p } }));
+  }
+  async function patchWeights(p: Partial<typeof sWeights>) {
+    rescan(await persist({ ...set, smcWeights: { ...sWeights, ...p } }));
+  }
+  const int = (v: string, fallback: number) => {
+    const n = Number(v);
+    return Number.isFinite(n) && v.trim() !== "" ? Math.max(0, Math.min(100, Math.round(n))) : fallback;
+  };
   const toggleIn = <T,>(arr: T[], v: T) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
   const stages = SMC_STAGES.filter((st) => st !== "Unknown") as SmcStage[];
   const lines: ProductLine[] = ["Dynamics 365", "M365 / Azure"];
@@ -531,12 +554,54 @@ const { persist, rescan } = ctx;
     <div className="panel" style={{ marginBottom: 14 }}>
       <div className="panel-head" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
         <div>
-          <div className="panel-title">Strong Signal rules</div>
+          <div className="panel-title">Scoring &amp; qualification</div>
           <div className="panel-sub">{sentence}</div>
         </div>
         <button className="btn btn-sm btn-ghost" disabled={isDefault} onClick={() => patch(DEFAULT_SMC_RULES)}>Reset to defaults</button>
       </div>
       <div className="panel-body" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {/* Scoring, per Jack: "i need to action this off in a scoring basis
+            since there are so many ... in priorities like with csp scanner."
+            Same two thresholds and the same weight editor the CSP tab has,
+            so the two scanners are tuned the same way. */}
+        <div style={row}>
+          <span style={lab}>Priority bands</span>
+          <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            High at
+            <input className="field" style={{ width: 84 }} type="number" min={1} max={100} aria-label="High priority threshold"
+              value={sRules.strongAt} onChange={(e) => patchScore({ strongAt: int(e.target.value, sRules.strongAt) })} />
+            +
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            Medium at
+            <input className="field" style={{ width: 84 }} type="number" min={0} max={100} aria-label="Medium priority threshold"
+              value={sRules.reviewAt} onChange={(e) => patchScore({ reviewAt: int(e.target.value, sRules.reviewAt) })} />
+            +
+          </label>
+          <span style={{ color: "var(--muted)" }}>below that, Low priority and never downloaded</span>
+        </div>
+        <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10 }}>
+          <div style={{ ...lab, minWidth: 0, marginBottom: 6 }}>
+            Scoring weights {"·"} {Object.values(sWeights).reduce((a, b) => a + b, 0)} points, normalised to 100
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 14 }}>
+            {SMC_FACTOR_META.map((m) => (
+              <label key={m.key} title={m.hint} style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 12, minWidth: 120 }}>
+                <span style={{ fontWeight: 600 }}>{m.label}</span>
+                <input className="field" style={{ width: 84 }} type="number" min={0} max={100} value={sWeights[m.key]}
+                  onChange={(e) => patchWeights({ [m.key]: int(e.target.value, sWeights[m.key]) } as Partial<typeof sWeights>)} />
+              </label>
+            ))}
+          </div>
+          <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 8 }}>
+            Fit is not a weight: measured across every propensity row in a real 13,106-row export, Fit is
+            the SAME signal as the stage (Act Now always High, Evaluate always Medium, Nurture always Low,
+            Educate always Very Low), so scoring both would count one thing twice. The prioritization index
+            IS independent {"·"} within Act Now it is High only 36% of the time {"·"} which is why it carries the
+            second-largest weight.
+          </div>
+        </div>
+        <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10 }}>
         <div style={row}>
           <span style={lab}>Stage counts</span>
           {stages.map((st) => (
@@ -564,17 +629,12 @@ const { persist, rescan } = ctx;
           ))}
           <span style={{ fontSize: 11.5, color: "var(--muted)" }}>D365 F&amp;O / Supply Chain and Surface are shown for context but never qualify — Wired CIO does not support those platforms.</span>
         </div>
-        <div style={row}>
-          <span style={lab}>Also push Strong</span>
-          <label style={{ display: "flex", alignItems: "center", gap: 5 }}>
-            <input type="checkbox" aria-label="High prioritization index pushes Strong Signal" checked={rules.highIndexPushesStrong} onChange={(e) => patch({ highIndexPushesStrong: e.target.checked })} />
-            High prioritization index on a sold line
-          </label>
-          <label style={{ display: "flex", alignItems: "center", gap: 5 }}>
-            <input type="checkbox" aria-label="BANT pushes Strong Signal" checked={rules.bantPushesStrong} onChange={(e) => patch({ bantPushesStrong: e.target.checked })} />
-            A real Need or Authority on file
-          </label>
-        </div>
+        {/* The "Also push Strong" checkboxes for High prioritization index
+            and real BANT are gone: both are WEIGHTS now, not on/off
+            overrides. Leaving them on screen would have shown two controls
+            that quietly did nothing, and turning one on would have counted
+            the same signal twice. Set them to zero in Scoring weights above
+            to take either out of the score entirely. */}
         <div style={row}>
           <span style={lab}>Oldest fiscal year</span>
           <input
@@ -638,7 +698,8 @@ const { persist, rescan } = ctx;
             onBlur={() => patch({ largeOnly: words(largeDraft) })}
             onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
           />
-          <span style={{ fontSize: 11.5, color: "var(--muted)" }}>Never auto-Strong — lands in Needs Review so you judge the size.</span>
+          <span style={{ fontSize: 11.5, color: "var(--muted)" }}>Never auto-High — lands in Medium priority so you judge the size.</span>
+        </div>
         </div>
       </div>
     </div>
@@ -756,8 +817,11 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
   const [listNote, setListNote] = useState<string | null>(null);
   // CSP reads High / Medium / Low priority where SMC reads Strong Signal /
   // Needs Review / Bad Leads — same buckets, same colours, different words.
-  const bMeta = bucketMetaFor(isCsp);
-  const cMeta = curationMetaFor(isCsp);
+  // BOTH scanners score 0-100 now, so both read High / Medium / Low
+  // priority. Per Jack: "i need to action this off in a scoring basis since
+  // there are so many ... in priorities like with csp scanner."
+  const bMeta = bucketMetaFor(true);
+  const cMeta = curationMetaFor(true);
   const [ruleSets, setRuleSets] = useState<RuleSet2[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [files, setFiles] = useState<{ name: string; fields: string[]; data: Record<string, unknown>[] }[]>([]);
@@ -785,7 +849,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
   const [lineFilter, setLineFilter] = useState<ProductLine | "all">("all");
   // Per Jack: newest first, so a batch can be worked into sequences from
   // the freshest leads down. "File order" keeps the raw upload order.
-  const [sortBy, setSortBy] = useState<"score-desc" | "score-asc" | "value-desc" | "value-asc" | "received-desc" | "received-asc" | "file">(isCsp ? "score-desc" : "received-desc");
+  const [sortBy, setSortBy] = useState<"score-desc" | "score-asc" | "value-desc" | "value-asc" | "received-desc" | "received-asc" | "file">("score-desc");
   // Per Jack: "filter highest to lowest for score number ... and filter
   // together for the price also." A floor on each, applied together.
   const [minScore, setMinScore] = useState(0);
@@ -838,6 +902,10 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
   );
   const smcRules = useMemo(() => resolveSmcRules(active?.smcRules), [active]);
   const cspRules = useMemo(() => resolveCspRules(active?.cspRules), [active]);
+  // The Custom tab's own thresholds and weights. Optional on the rule set,
+  // so a set saved before scoring existed loads on the defaults.
+  const smcScoreRules = useMemo(() => ({ ...DEFAULT_SMC_SCORE_RULES, ...(active?.smcScoreRules ?? {}) }), [active]);
+  const smcWeights = useMemo(() => ({ ...DEFAULT_SMC_WEIGHTS, ...(active?.smcWeights ?? {}) }), [active]);
   useEffect(() => { setPage(1); }, [bucketFilter, curationFilter, search, productFilter, gapsOnly, callableOnly, lineFilter, sortBy, fromDate, toDate, postureFilter, billingFilter, minScore, minValue, phoneOnly, wantsPartnerOnly]);
 
   // A storage failure must never block the scan or wipe the screen. The
@@ -1054,7 +1122,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
       },
       // A floor on score and on value, together. A row with NO stated value
       // does not clear a value floor — unknown is not "at least".
-      score: (r: Row2) => !isCsp || minScore <= 0 || (r.csp?.score ?? 0) >= minScore,
+      score: (r: Row2) => minScore <= 0 || ((isCsp ? r.csp?.score : r.smcScore?.score) ?? 0) >= minScore,
       value: (r: Row2) => !isCsp || minValue <= 0 || (r.csp?.value ?? 0) >= minValue,
       gaps: (r: Row2) => !gapsOnly || !!(r.smc && salesGaps(r.smc, smcRules).length),
       callable: (r: Row2) => !callableOnly || !!(r.lead.phone || r.lead.mobilePhone || r.lead.email),
@@ -1144,13 +1212,18 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
     // zero — it sinks below every row that states one, either direction,
     // in the order it already had. Score always exists on a CSP row.
     if (sortBy === "score-desc") {
+      // Each scanner ranks by its own comparator, and both put the pinned
+      // lead first, then the top-quality flag, then the score — so the two
+      // tabs sort the same way even though the factors differ.
       return rows.map((r, i) => ({ r, i }))
-        .sort((a, b) => compareCspLeads(a.r.csp, b.r.csp) || a.i - b.i)
+        .sort((a, b) => (isCsp
+          ? compareCspLeads(a.r.csp, b.r.csp)
+          : compareSmcScores(a.r.smcScore, b.r.smcScore)) || a.i - b.i)
         .map((x) => x.r);
     }
     if (sortBy === "score-asc") {
       return rows.map((r, i) => ({ r, i }))
-        .sort((a, b) => ((a.r.csp?.score ?? 0) - (b.r.csp?.score ?? 0)) || a.i - b.i)
+        .sort((a, b) => ((isCsp ? a.r.csp?.score : a.r.smcScore?.score) ?? 0) - ((isCsp ? b.r.csp?.score : b.r.smcScore?.score) ?? 0) || a.i - b.i)
         .map((x) => x.r);
     }
     if (sortBy === "value-desc" || sortBy === "value-asc") {
@@ -1289,18 +1362,33 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
             { line: "review" as const, label: "Medium priority", file: "csp-medium-priority.csv", rows: cspByPriority("review") },
             { line: "all" as const, label: "High + Medium", file: "csp-high-and-medium.csv", rows: cspByPriority("all") },
           ])
-        : (["Dynamics 365", "M365 / Azure", "all"] as const).map((line) => ({
-            line,
-            label: line === "all" ? "All Strong Signal" : line === "Dynamics 365" ? "Dynamics" : "M365 / Azure",
-            file:
-              line === "all"
-                ? "strong-signal-all.csv"
-                : line === "Dynamics 365"
-                  ? "strong-signal-dynamics-365.csv"
-                  : "strong-signal-m365-azure.csv",
-            rows: strongFor(line),
-          })),
-    [strongFor, cspByPriority, isCsp],
+        : [
+            // The three line files are High priority already — strongFor
+            // filters to the priority bucket — so they keep working exactly
+            // as before. Medium is new: per Jack, High gets called and
+            // Medium gets emailed, and until now the Custom tab had no way
+            // to pull the emailing list.
+            ...(["Dynamics 365", "M365 / Azure", "all"] as const).map((line) => ({
+              line,
+              label: line === "all" ? "All High priority" : line === "Dynamics 365" ? "Dynamics" : "M365 / Azure",
+              file:
+                line === "all"
+                  ? "high-priority-all.csv"
+                  : line === "Dynamics 365"
+                    ? "high-priority-dynamics-365.csv"
+                    : "high-priority-m365-azure.csv",
+              rows: strongFor(line),
+            })),
+            {
+              line: "medium" as const,
+              label: "Medium priority",
+              file: "medium-priority-all.csv",
+              rows: (result?.rows ?? []).filter(
+                (r) => effBucket(r) === "review" && !(r.leadKey && curation[r.leadKey]?.decision === "reject"),
+              ),
+            },
+          ],
+    [strongFor, cspByPriority, isCsp, result, effBucket, curation],
   );
 
   function applyNow(next: RuleSet2) {
@@ -1363,7 +1451,13 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
         </div>
       )}
 
-      {result && isCsp && <PriorityBreakdown rows={result.rows} rules={cspRules} meta={bMeta} effBucket={effBucket} />}
+      {result && (isCsp
+        ? <PriorityBreakdown rows={result.rows} strongAt={cspRules.strongAt} reviewAt={cspRules.reviewAt}
+            weights={cspRules.weights as unknown as Record<string, number>} factorMeta={WEIGHT_META as unknown as { key: string; label: string; hint: string }[]}
+            scoreOf={(r) => r.csp} meta={bMeta} effBucket={effBucket} />
+        : <PriorityBreakdown rows={result.rows} strongAt={smcScoreRules.strongAt} reviewAt={smcScoreRules.reviewAt}
+            weights={smcWeights as unknown as Record<string, number>} factorMeta={SMC_FACTOR_META as unknown as { key: string; label: string; hint: string }[]}
+            scoreOf={(r) => r.smcScore} meta={bMeta} effBucket={effBucket} />)}
 
       {result && showSetup && <FieldMap set={active} ctx={ctx} />}
       {result && showSetup && (active.mode ?? "smc") === "smc" && <StrongSignalRules set={active} ctx={ctx} />}
@@ -1856,7 +1950,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
                       Jack: strip the CRM export down to what you can call. */}
                   {isCsp && onAddToList && <th style={{ width: 28 }} aria-label="Select"></th>}
                   <th>Name</th><th>Company</th><th>Tier</th><th title={isCsp ? "Who holds this customer today \u2014 this is the Product Area column on the download" : "Product area"}>{isCsp ? "Partner" : "Product line"}</th>
-                  {isCsp && <th title={"0\u2013100. Hover a score for where the points came from. Estimated value and last seller touch underneath."}>Score</th>}
+                  <th title={isCsp ? "0\u2013100. Hover a score for where the points came from. Estimated value and last seller touch underneath." : "0\u2013100. Hover a score for where the points came from. Propensity stage and prioritization index underneath."}>Score</th>
                   <th title="Why this lead scored the way it did, with the campaign folded in. COE / EA renewal campaigns are left out.">Notes</th>
                   {!isCsp && <th>Title</th>}
                   <th>Email</th><th>Work phone</th><th>Mobile</th>
@@ -1947,42 +2041,79 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
                                 ? <span style={{ display: "inline-block", borderRadius: 20, padding: "3px 9px", fontWeight: 600, fontSize: 11, whiteSpace: "nowrap", ...productLineStyle(r.productLine) }}>{r.productLine}</span>
                                 : dash}
                             </td>
-                            {isCsp && (
-                              <td style={{ padding: "10px 8px", whiteSpace: "nowrap", fontSize: 12 }}>
-                                <div
-                                  aria-label="Score"
-                                  title={r.csp?.breakdown.length ? r.csp.breakdown.join("\n") : "No factor scored"}
-                                  style={{ fontWeight: 700, fontSize: 15, lineHeight: 1.1, color: (r.csp?.score ?? 0) >= cspRules.strongAt ? "#0E7A72" : (r.csp?.score ?? 0) >= cspRules.reviewAt ? "#8A6D1F" : "var(--muted)" }}
-                                >
-                                  {r.csp?.perfect && <span title={"Asking for a partner, none assigned, annual upfront \u2014 the strongest lead on this list"} style={{ marginRight: 3 }}>{"\u2605"}</span>}
-                                  {r.csp?.score ?? dash}
-                                </div>
-                                {/* Top quality, per Jack: a customer who states they
-                                    want a partner is High priority whatever the score
-                                    says. Shown as its own chip rather than folded into
-                                    the star, because the star means all THREE. */}
-                                {r.csp?.wantsPartner && !r.csp?.perfect && (
-                                  <div
-                                    title={"The customer states they want a partner \u2014 top quality, forced to High priority regardless of score"}
-                                    style={{ display: "inline-block", marginTop: 4, padding: "1px 6px", borderRadius: 999, fontSize: 10, fontWeight: 700, letterSpacing: 0.3, textTransform: "uppercase", background: "#FFF4D6", color: "#8A6D1F", border: "1px solid #E8D9A8" }}
-                                  >
-                                    {"\u2691 wants a partner"}
-                                  </div>
-                                )}
-                                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 3 }}>
-                                  {r.csp?.value != null && r.csp.value > 0 ? `$${r.csp.value.toLocaleString()}` : "no value"}
-                                </div>
-                                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
-                                  {r.csp?.ageDays == null ? "no dated note"
-                                    : r.csp.ageDays === 0 ? "touched today" : `${r.csp.ageDays}d ago`}
-                                </div>
-                                {r.csp?.program && (
-                                  <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 2 }} title={r.csp.program}>
-                                    {r.csp.program.replace(/^CSP\s*\|\s*/, "")}
-                                  </div>
-                                )}
-                              </td>
-                            )}
+                            <td style={{ padding: "10px 8px", whiteSpace: "nowrap", fontSize: 12 }}>
+                              {(() => {
+                                // One score cell for both scanners. CSP shows
+                                // deal value / last touch / billing programme
+                                // underneath; SMC shows the propensity stage
+                                // and prioritization index the score is built
+                                // from. The number, the star and the chip are
+                                // identical either way so the two tabs read
+                                // the same at a glance.
+                                const sc = isCsp ? r.csp : r.smcScore;
+                                const hi = isCsp ? cspRules.strongAt : smcScoreRules.strongAt;
+                                const mid = isCsp ? cspRules.reviewAt : smcScoreRules.reviewAt;
+                                const flagged = isCsp ? r.csp?.wantsPartner : r.smcScore?.statedNeed;
+                                const flagTitle = isCsp
+                                  ? "The customer states they want a partner \u2014 top quality, forced to High priority regardless of score"
+                                  : "A stated BANT need on an Act Now whitespace account \u2014 top quality, forced to High priority regardless of score";
+                                const flagText = isCsp ? "\u2691 wants a partner" : "\u2691 stated need";
+                                const starTitle = isCsp
+                                  ? "Asking for a partner, none assigned, annual upfront \u2014 the strongest lead on this list"
+                                  : "Stated need, Act Now, High prioritization index, not owned \u2014 the strongest lead on this list";
+                                return (
+                                  <>
+                                    <div
+                                      aria-label="Score"
+                                      title={sc?.breakdown.length ? sc.breakdown.join("\n") : "Not scored \u2014 a stale campaign or an unsupported product is a verdict, not a score"}
+                                      style={{ fontWeight: 700, fontSize: 15, lineHeight: 1.1, color: (sc?.score ?? 0) >= hi ? "#0E7A72" : (sc?.score ?? 0) >= mid ? "#8A6D1F" : "var(--muted)" }}
+                                    >
+                                      {sc?.perfect && <span title={starTitle} style={{ marginRight: 3 }}>{"\u2605"}</span>}
+                                      {sc?.score ?? dash}
+                                    </div>
+                                    {flagged && !sc?.perfect && (
+                                      <div
+                                        title={flagTitle}
+                                        style={{ display: "inline-block", marginTop: 4, padding: "1px 6px", borderRadius: 999, fontSize: 10, fontWeight: 700, letterSpacing: 0.3, textTransform: "uppercase", background: "#FFF4D6", color: "#8A6D1F", border: "1px solid #E8D9A8" }}
+                                      >
+                                        {flagText}
+                                      </div>
+                                    )}
+                                    {isCsp ? (
+                                      <>
+                                        <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 3 }}>
+                                          {r.csp?.value != null && r.csp.value > 0 ? `$${r.csp.value.toLocaleString()}` : "no value"}
+                                        </div>
+                                        <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                                          {r.csp?.ageDays == null ? "no dated note"
+                                            : r.csp.ageDays === 0 ? "touched today" : `${r.csp.ageDays}d ago`}
+                                        </div>
+                                        {r.csp?.program && (
+                                          <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 2 }} title={r.csp.program}>
+                                            {r.csp.program.replace(/^CSP\s*\|\s*/, "")}
+                                          </div>
+                                        )}
+                                      </>
+                                    ) : (
+                                      <>
+                                        <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 3 }}>
+                                          {r.smcScore?.best ? `${r.smcScore.best.stage} \u00b7 ${r.smcScore.best.product}` : "no propensity"}
+                                        </div>
+                                        <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}
+                                             title="Microsoft's own prioritization index. Independent of the stage \u2014 within Act Now it is High only 36% of the time, which is why it carries real weight here.">
+                                          {r.smcScore?.best ? `${r.smcScore.best.index} index` : dash}
+                                        </div>
+                                        {r.smcScore?.best && (
+                                          <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 2 }}>
+                                            {r.smcScore.best.owned ? "already owned" : "whitespace"}
+                                          </div>
+                                        )}
+                                      </>
+                                    )}
+                                  </>
+                                );
+                              })()}
+                            </td>
                             <td style={{ padding: "10px 10px", color: "var(--muted)", fontSize: 12.5, minWidth: 200, maxWidth: 300 }}>
                               <span className="clamp-3" title={r.campaign?.raw ? `${r.snippet}\n\nCampaign: ${r.campaign.raw}` : r.snippet}>{r.snippet}</span>
                               {/* The received date is not one of the nine, so it does not get
