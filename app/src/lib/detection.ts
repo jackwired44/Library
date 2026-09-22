@@ -500,12 +500,43 @@ function normalizeSentence(s: string) {
   if (!/[.!?]$/.test(t)) t += ".";
   return t;
 }
-function truncateAtWord(s: string, maxLen: number) {
-  if (s.length <= maxLen) return s;
+/**
+ * Language that REVERSES whatever came before it. If a cut drops one of
+ * these and the kept half has none, the quote now says the opposite of the
+ * note and must not be shown.
+ */
+const REVERSAL_RE =
+  /\b(but|however|although|though|unfortunately|instead|declin(?:e|ed|es|ing)|cancel(?:led|ed|s|ling)?|not\s+(?:to\s+)?(?:proceed|move|moving|go|going|interested|looking|pursu\w*|happening)|no\s+longer|never|won'?t|will\s+not|decided\s+(?:against|not)|passed\s+on|put\s+on\s+hold|on\s+hold|pushed\s+(?:back|out)|went\s+with|chose\s+\w+\s+instead|stay(?:ing)?\s+(?:on|with)|renew(?:ed|ing)\s+with|opted\s+(?:not|out)|backed\s+out|fell\s+through|dead|lost)\b/i;
+
+/**
+ * Truncate a quote without lying by omission.
+ *
+ * Per Jack: "we cannot have inaccurate notes in matched snippet." A cut
+ * that silently drops the end of a sentence AND closes with a full stop
+ * reads as a complete statement, which is how this shipped:
+ *
+ *   note    "...evaluating Business Central ... and has finally decided
+ *            not to proceed with it."
+ *   snippet "The customer has been evaluating Dynamics 365 Business
+ *            Central for their finance team for several quarters now and
+ *            has finally."
+ *
+ * Every word of that is in the note and it still tells a rep the exact
+ * opposite of the truth. Two rules now:
+ *  - a cut is always visibly elliptical, never closed with a full stop, so
+ *    the reader knows text was removed;
+ *  - if the removed half contains reversal language the kept half does
+ *    not, the quote is refused outright (`safe: false`) and the caller
+ *    falls back to the derived, clearly-labelled summary instead.
+ */
+function truncateAtWord(s: string, maxLen: number): { text: string; safe: boolean } {
+  if (s.length <= maxLen) return { text: s, safe: true };
   const cut = s.slice(0, maxLen - 1);
   const lastSpace = cut.lastIndexOf(" ");
-  const safe = lastSpace > 40 ? cut.slice(0, lastSpace) : cut;
-  return safe.trim().replace(/[,;:\-\s]+$/, "") + ".";
+  const head = (lastSpace > 40 ? cut.slice(0, lastSpace) : cut).trim().replace(/[,;:\-\s]+$/, "");
+  const tail = s.slice(head.length);
+  if (REVERSAL_RE.test(tail) && !REVERSAL_RE.test(head)) return { text: "", safe: false };
+  return { text: head + "…", safe: true };
 }
 function splitSentences(text: string) {
   return (text.match(/[^.!?;\n]+[.!?;]*/g) || []).map((s) => s.trim()).filter(Boolean);
@@ -528,21 +559,57 @@ function scoreSentence(s: string) {
   return score;
 }
 const SUMMARY_MAX_LEN = 130;
-function summarizeNotes(raw: unknown, categories: string[], maxLen = SUMMARY_MAX_LEN): string {
+function summarizeNotes(raw: unknown, categories: string[], maxLen = SUMMARY_MAX_LEN, facts = ""): string {
   const text = cleanText(raw);
-  if (!text) return fallbackSummary(categories);
+  if (!text) return fallbackSummary(categories, facts);
   const clean = splitIntoUnits(text).map((s) => s.trim()).filter((s) => s && !hasForbiddenContent(s));
-  if (clean.length === 0) return fallbackSummary(categories);
+  if (clean.length === 0) return fallbackSummary(categories, facts);
   const ranked = clean.map((s) => ({ s, score: scoreSentence(s) })).sort((a, b) => b.score - a.score);
   const fitting = ranked.find((c) => normalizeSentence(c.s).length <= maxLen);
-  const sentence = normalizeSentence((fitting || ranked[0]).s);
-  return sentence.length <= maxLen ? sentence : truncateAtWord(sentence, maxLen);
+  const chosen = (fitting || ranked[0]).s;
+
+  // A long sentence gets clause-split by splitIntoUnits, and the clause
+  // carrying the product name outscores the one carrying the verdict. That
+  // shipped this, which is the whole reason this guard exists:
+  //
+  //   note    "They were planning a full migration from Google Workspace
+  //            over to Microsoft 365 for all of their offices and every
+  //            subsidiary team, but they renewed with Google instead."
+  //   snippet "They were planning a full migration from Google Workspace
+  //            over to Microsoft 365 for all of their offices and every
+  //            subsidiary..."
+  //
+  // Verbatim, elliptical, and it still advertises a Google -> Microsoft
+  // migration — the highest-value signal in this tool — on a lead that
+  // renewed with Google. If the sentence the clause came from reverses it
+  // and the clause does not carry that reversal, the clause may not stand
+  // in for the sentence.
+  const parent = splitSentences(text).find((sent) => sent.includes(chosen)) || "";
+  if (parent && REVERSAL_RE.test(parent) && !REVERSAL_RE.test(chosen)) {
+    return fallbackSummary(categories, facts);
+  }
+
+  // A clause lifted out of a longer sentence is a PARTIAL quote, even when
+  // it fits and drops nothing that reverses it. Presenting it closed with a
+  // full stop reads as the whole of what the lead said, so mark it as cut.
+  const bare = (t: string) => t.trim().replace(/[.!?,;:\s]+$/, "");
+  const partial = !!parent && bare(parent).length > bare(chosen).length;
+  const sentence = normalizeSentence(chosen);
+  if (sentence.length <= maxLen) {
+    return partial ? sentence.replace(/\.$/, "…") : sentence;
+  }
+  const cut = truncateAtWord(sentence, maxLen);
+  // Refused: the cut would have hidden a reversal. Say nothing rather than
+  // say the opposite of the note.
+  return cut.safe ? cut.text : fallbackSummary(categories, facts);
 }
 function summarizeFromSnippets(snippets: string[], categories: string[], facts = ""): string {
   const unique = [...new Set(snippets.map((s) => cleanText(s)))].filter((s) => !hasForbiddenContent(s));
   if (unique.length === 0) return fallbackSummary(categories, facts);
   const sentence = normalizeSentence(unique[0]);
-  return sentence.length <= SUMMARY_MAX_LEN ? sentence : truncateAtWord(sentence, SUMMARY_MAX_LEN);
+  if (sentence.length <= SUMMARY_MAX_LEN) return sentence;
+  const cut = truncateAtWord(sentence, SUMMARY_MAX_LEN);
+  return cut.safe ? cut.text : fallbackSummary(categories, facts);
 }
 
 interface PlatformHit {
@@ -782,7 +849,7 @@ export function scanRowPlatform(
   const categories = [...new Set(hits.map((h) => h.category))];
   const tier: "signal" | "mention" = hits.some((h) => h.hasTrigger) ? "signal" : "mention";
   const bestHit = hits.find((h) => h.fromProductArea) || hits.find((h) => h.hasTrigger) || hits[0];
-  const notesSummary = commentsValue ? summarizeNotes(commentsValue, categories) : summarizeFromSnippets(hits.map((h) => h.snippet), categories);
+  const notesSummary = commentsValue ? summarizeNotes(commentsValue, categories, SUMMARY_MAX_LEN, "") : summarizeFromSnippets(hits.map((h) => h.snippet), categories, "");
   const isGoogleToMicrosoft = hits.some((h) => h.isGoogleToMicrosoft);
   // Business Central/ERP and Sales/CRM are mutually exclusive at the row
   // level, Business Central/ERP taking priority — same precedence as the
