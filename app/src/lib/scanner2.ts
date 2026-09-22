@@ -79,8 +79,8 @@ export type Scanner2ExportRow = ExportRow;
 import {
   parseSmcLead, parseCampaign, describeLead, fiscalYearNumber, productLineFor,
   resolveSmcRules, hasRealBant, hotWordHit, hotWordContext, wordHit, inferProductLine, isRenewalCampaign, bestContact, looseEmail, loosePhone, type WordHit,
-  scoreSmcLead, compareSmcScores, DEFAULT_SMC_SCORE_RULES, DEFAULT_SMC_WEIGHTS,
-  type SmcLead, type Campaign, type ProductLine, type SmcRules, type SmcScore, type SmcScoreRules, type SmcWeights,
+  scoreSmcLead, compareSmcScores, DEFAULT_SMC_SCORE_RULES, DEFAULT_SMC_WEIGHTS, partnerPostureOf, SMC_PARTNER_META,
+  type SmcLead, type Campaign, type ProductLine, type SmcRules, type SmcScore, type SmcScoreRules, type SmcWeights, type SmcPartnerPosture,
 } from "./smcLead";
 
 // ---------------------------------------------------------------- types
@@ -692,7 +692,8 @@ export function tidyNote(why: string, fallback = "Scanned, nothing further state
 
 /** Re-exported so the results table can rank SMC rows without importing
  *  the SMC engine directly — scanner2 stays the only composer. */
-export { compareSmcScores };
+export { compareSmcScores, partnerPostureOf, SMC_PARTNER_META };
+export type { SmcPartnerPosture };
 
 export function classifySmc(
   lead: SmcLead,
@@ -741,8 +742,15 @@ export function classifySmc(
     return { bucket: "unmatched", why: `No signal \u2014 nothing qualifying found${detail}${camp}${mention}` };
   }
 
-  const sc = scoreSmcLead(lead, campaign, rules, weights, reach);
+  const sc = scoreSmcLead(lead, campaign, rules, weights, reach, scoreRules.partnerAdjust);
   const head = `Score ${sc.score}`;
+  // Who holds the account rides along on the reason, so it lands in the
+  // download's Notes column the same way the CSP tab's partner does.
+  const partner = sc.partnerPosture === "open"
+    ? " \u00b7 no partner on it"
+    : sc.partnerPosture === "held"
+      ? ` \u00b7 held by ${sc.partnerName}`
+      : "";
 
   // A large-only product (Power BI) is NEVER auto-High, whatever it scores
   // — Cloud Ascent carries no seat count, so only a human can judge size.
@@ -757,10 +765,10 @@ export function classifySmc(
   // wrote down what this customer needs, on an Act Now whitespace account.
   // Forces High priority regardless of score, same as CSP.
   if (sc.perfect) {
-    return { bucket: "priority", score: sc, why: `${head} \u2605 stated need, Act Now, High index, not owned${detail}${camp}${mention}` };
+    return { bucket: "priority", score: sc, why: `${head} \u2605 stated need, Act Now, High index, not owned${detail}${partner}${camp}${mention}` };
   }
   if (sc.statedNeed) {
-    return { bucket: "priority", score: sc, why: `${head} \u2691 TOP QUALITY \u2014 a stated need on an Act Now whitespace account${detail}${camp}${mention}` };
+    return { bucket: "priority", score: sc, why: `${head} \u2691 TOP QUALITY \u2014 a stated need on an Act Now whitespace account${detail}${partner}${camp}${mention}` };
   }
 
   // Per Jack, migration / modernization language is a great-opp signal in
@@ -768,7 +776,7 @@ export function classifySmc(
   // the campaign title — see hotWordHit for the measurement behind that.
   const hot = hotWordHit(lead, campaign?.name ?? "", rules);
   if (hot) {
-    return { bucket: "priority", score: sc, why: `${head} \u2691 hot signal \u2014 "${hot.word}" in ${whereTxt(hot)}${detail}${camp}${mention}` };
+    return { bucket: "priority", score: sc, why: `${head} \u2691 hot signal \u2014 "${hot.word}" in ${whereTxt(hot)}${detail}${partner}${camp}${mention}` };
   }
 
   // A hot word in the campaign title is context only. It rides along on the
@@ -778,12 +786,12 @@ export function classifySmc(
   const ctx = ctxWord ? ` · campaign mentions "${ctxWord}"` : "";
 
   if (sc.score >= scoreRules.strongAt) {
-    return { bucket: "priority", score: sc, why: `${head} \u2014 High priority${detail}${camp}${ctx}${mention}` };
+    return { bucket: "priority", score: sc, why: `${head} \u2014 High priority${detail}${partner}${camp}${ctx}${mention}` };
   }
   if (sc.score >= scoreRules.reviewAt) {
-    return { bucket: "review", score: sc, why: `${head} \u2014 Medium priority, under the ${scoreRules.strongAt} line${detail}${camp}${ctx}${mention}` };
+    return { bucket: "review", score: sc, why: `${head} \u2014 Medium priority, under the ${scoreRules.strongAt} line${detail}${partner}${camp}${ctx}${mention}` };
   }
-  return { bucket: "excluded", score: sc, why: `${head} \u2014 Low priority, under the ${scoreRules.reviewAt} line${detail}${camp}${ctx}${mention}` };
+  return { bucket: "excluded", score: sc, why: `${head} \u2014 Low priority, under the ${scoreRules.reviewAt} line${detail}${partner}${camp}${ctx}${mention}` };
 }
 
 // -------------------------------------------------------------- matching

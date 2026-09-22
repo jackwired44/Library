@@ -73,15 +73,19 @@ const csv = [
      !/Notes — the text the rules read|Campaign code — the Microsoft|Merge duplicates on/.test(t1));
 
   console.log('\n== column profiling is a check on the upload, not a download switch ==');
-  // Per Jack the download is a fixed nine columns, so this panel no longer
-  // gates anything — it exists to confirm the file was read correctly.
+  // The download is a fixed column set, so this panel no longer gates
+  // anything — it exists to confirm the file was read correctly. The
+  // count is DERIVED from exportLabelsFor() in the component rather than
+  // typed into the copy, so assert the shape of the sentence and that the
+  // number is the Custom tab's real ten, not a literal spelled-out word.
   await page.locator('button:has-text("Columns (")').first().click(); await sleep(700);
   const tc = await txt();
   ok('profiles the real columns', /Columns — what arrived in the file/.test(tc) && /numberofemployees/.test(tc));
   ok('infers a numeric column', /numeric/.test(tc));
   ok('infers a date column', /date/.test(tc));
   ok('duplicate header auto-renamed to description_1', /description_1/.test(tc));
-  ok('the panel says the download shape is fixed', /every download is[\s\S]{0,40}the same nine columns/.test(tc));
+  ok('the panel says the download shape is fixed', /every download is[\s\S]{0,40}the same 10 columns/.test(tc),
+     (tc.match(/every download is[\s\S]{0,60}/) || [])[0]);
   ok('no per-column download checkboxes remain',
      await page.locator('input[aria-label^="Include "]').count() === 0);
   ok('all 20 columns are reported, none hidden', /Columns \(20\)/.test(tc), (tc.match(/Columns \(\d+\)/) || [])[0]);

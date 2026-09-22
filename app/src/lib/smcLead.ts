@@ -225,6 +225,64 @@ export function tidyBantValue(raw: string): string {
   return v;
 }
 
+/**
+ * A "Partner:" value is a company name, but the seller often keeps typing
+ * after it — call attempts ("F2 - Comp"), a TCR code, a POC block with a
+ * phone and two emails. None of that is the partner, and leaving it in
+ * makes the field unusable for anything but eyeballing. Cut at the first
+ * marker that is clearly no longer part of a name.
+ *
+ * Deliberately keeps prose: "No partner identified yet. Opportunity to
+ * introduce a migration partner" is the single most useful thing this
+ * field ever says, and truncating it to a name would throw it away.
+ */
+const PARTNER_NOISE_RE = /\s(?:F\s*[1-9]\s*[-–:]|TCR\s*\d|POC\s*:|Call\s*\d|Attempt\s*\d|[\u2022\u00b7\u2023\u25aa]|[\r\n])/i;
+export function cleanPartner(raw: string): string {
+  let v = (raw || "").replace(/\s+/g, " ").trim();
+  if (!v) return "";
+  const noise = PARTNER_NOISE_RE.exec(v);
+  if (noise) v = v.slice(0, noise.index);
+  // An email or a phone number is contact detail, never part of the name.
+  const contact = /\s(?:[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|\(?\d{3}\)?[-. ]?\d{3}[-. ]?\d{4})/.exec(v);
+  if (contact) v = v.slice(0, contact.index);
+  v = v.replace(/[\s,;:\-–]+$/, "").trim();
+  // A bare TPID trailing the name ("3RT Networks 6647767") is an id, not
+  // part of what the partner is called.
+  v = v.replace(/\s+\d{6,}$/, "").trim();
+  // A GUID or a placeholder is not a partner. Dropping these to "" keeps
+  // them out of the posture model entirely rather than reading as held,
+  // which would cost a real lead points for a data-entry artefact.
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)) return "";
+  if (/^(?:tbd|pending|pendiente(?:\s+confirmar)?|unknown|desconocido|\?+|-+)$/i.test(v)) return "";
+  return v;
+}
+
+/** Who holds this customer today, as far as the blob states it.
+ *  "unknown" is the honest answer for 97% of rows — see partnerPostureOf. */
+export type SmcPartnerPosture = "open" | "held" | "unknown";
+export const SMC_PARTNER_META: Record<SmcPartnerPosture, { label: string; hint: string }> = {
+  open: { label: "Open lane", hint: "Direct with Microsoft, or the notes say no partner is on it — nobody to displace." },
+  held: { label: "Partner held", hint: "A reseller or MSP is named on the account. Workable, but you are displacing someone." },
+  unknown: { label: "Not stated", hint: "The blob states no partner either way. Most rows. Scored neutral, never penalised." },
+};
+
+/** Direct / nobody-on-it language. Matched against the cleaned value. */
+const PARTNER_OPEN_RE = /^(?:web\s*)?(?:microsoft(?:\s+(?:corp\.?|corporation\.?|direct))?\.?|direct|none|n\/?a|unassigned|no\s+partner\b.*)$|\bno\s+partner\s+(?:identified|assigned|involved|in\s+place|selected|yet)|\bno\s+partner\s+involved\b|\bpartner\s+not\s+(?:identified|assigned)/i;
+
+/**
+ * The Custom scanner's partner lane. Deliberately NOT modelled on CSP's
+ * four-way posture: CSP reads a dedicated column that is ~70% filled, so
+ * it can afford a 30-point factor. This reads a "Partner:" label out of a
+ * free-text blob that states one on 2.7% of rows, so "unknown" is the
+ * common case and has to cost nothing — see the adjustment in
+ * scoreSmcLead rather than a weighted factor.
+ */
+export function partnerPostureOf(lead: SmcLead): SmcPartnerPosture {
+  const v = (lead.bant.partner || "").trim();
+  if (!v) return "unknown";
+  return PARTNER_OPEN_RE.test(v) ? "open" : "held";
+}
+
 /** BANT appears three ways: "Budget: X", "B: X", and "B – Label: X". */
 function parseBant(text: string): SmcLead["bant"] {
   const out: SmcLead["bant"] = {};
@@ -236,7 +294,7 @@ function parseBant(text: string): SmcLead["bant"] {
   out.authority = long("Authority") || undefined;
   out.need = long("Need") || undefined;
   out.timeline = long("Timeline") || long("Time") || undefined;
-  out.partner = long("Partner") || undefined;
+  out.partner = cleanPartner(long("Partner")) || undefined;
 
   // Short form: B: 200 A: Naveen Sathiya N: Cloud and Security T: 2 months
   const short = /(?:^|\s)B\s*[:–-]\s*(.*?)\s*A\s*[:–-]\s*(.*?)\s*N\s*[:–-]\s*(.*?)\s*T\s*[:–-]\s*(.*?)(?=\s*(?:P\s*[:–-]|•|Customer TPID|Lead I[dD]|$))/i.exec(text);
@@ -804,8 +862,18 @@ export interface SmcScoreRules {
   strongAt: number;
   /** At or above this, Medium priority. Below it, Low. */
   reviewAt: number;
+  /**
+   * Points added when the blob states nobody holds the account, and taken
+   * away when it names a reseller. A flat adjustment rather than a seventh
+   * weighted factor ON PURPOSE: a weighted factor divides every row by a
+   * bigger denominator, so the 97% of rows that state no partner either
+   * way would silently lose points for saying nothing. This moves only the
+   * rows that actually state something, and leaves every other score
+   * exactly where Jack already tuned it.
+   */
+  partnerAdjust: number;
 }
-export const DEFAULT_SMC_SCORE_RULES: SmcScoreRules = { strongAt: 60, reviewAt: 25 };
+export const DEFAULT_SMC_SCORE_RULES: SmcScoreRules = { strongAt: 60, reviewAt: 25, partnerAdjust: 8 };
 
 export interface SmcScore {
   score: number;
@@ -819,6 +887,12 @@ export interface SmcScore {
   statedNeed: boolean;
   /** All of it at once: stated Need, Act Now, High index, whitespace. */
   perfect: boolean;
+  /** Who holds the account, per the blob. "unknown" on most rows. */
+  partnerPosture: SmcPartnerPosture;
+  /** The cleaned partner value, "" when none was stated. */
+  partnerName: string;
+  /** The points the posture moved the score by: +n, -n, or 0. */
+  partnerAdjust: number;
 }
 
 /** The opportunity the score is built from: the best row on a sold line,
@@ -846,6 +920,7 @@ export function scoreSmcLead(
   rules: SmcRules,
   weights: SmcWeights = DEFAULT_SMC_WEIGHTS,
   reach: { hasPhone: boolean; hasEmail: boolean; hasTitle: boolean } = { hasPhone: false, hasEmail: false, hasTitle: false },
+  partnerAdjust: number = DEFAULT_SMC_SCORE_RULES.partnerAdjust,
 ): SmcScore {
   const w = weights;
   const total = w.stage + w.index + w.whitespace + w.bant + w.reach + w.recency || 1;
@@ -884,7 +959,18 @@ export function scoreSmcLead(
       fy >= 26 ? 1 : fy === 25 ? 0.5 : 0);
 
   const sum = (Object.keys(raw) as (keyof SmcWeights)[]).reduce((n, k) => n + raw[k], 0);
-  const score = Math.round((100 * sum) / total);
+  const base = Math.round((100 * sum) / total);
+
+  // Partner lane, applied after the weighted score rather than inside it —
+  // see SmcScoreRules.partnerAdjust for why. A row that states nothing is
+  // untouched, which is the whole point.
+  const partnerPosture = partnerPostureOf(lead);
+  const partnerName = (lead.bant.partner || "").trim();
+  const adj = Math.max(0, Math.round(partnerAdjust));
+  const partnerDelta = partnerPosture === "open" ? adj : partnerPosture === "held" ? -adj : 0;
+  const score = Math.max(0, Math.min(100, base + partnerDelta));
+  if (partnerDelta > 0) breakdown.push(`no partner on it +${partnerDelta}`);
+  else if (partnerDelta < 0) breakdown.push(`${partnerName} already holds it ${partnerDelta}`);
   const factorPoints = Object.fromEntries(
     (Object.keys(raw) as (keyof SmcWeights)[]).map((k) => [k, Math.round((100 * raw[k]) / total)]),
   ) as Record<keyof SmcWeights, number>;
@@ -895,7 +981,7 @@ export function scoreSmcLead(
   if (perfect) breakdown.unshift("★ stated need, Act Now, High index, not owned — pinned to the top");
   else if (statedNeed) breakdown.unshift("⚑ a stated need on an Act Now whitespace account — top quality");
 
-  return { score, breakdown, factorPoints, best, statedNeed, perfect };
+  return { score, breakdown, factorPoints, best, statedNeed, perfect, partnerPosture, partnerName, partnerAdjust: partnerDelta };
 }
 
 /** Rank for the table and the downloads: pinned, then top quality, then

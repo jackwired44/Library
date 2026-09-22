@@ -93,6 +93,48 @@ const smcCsv = [HEAD.join(',')].concat(samples.map((d, i) => [
   ok('Notes carries the reason', at('Notes').length > 10, at('Notes').slice(0, 60));
   ok('no COE / EA renewal campaign text in Notes', !/COE|True Up|EA Renewal/i.test(at('Notes')), at('Notes').slice(0, 80));
 
+  console.log('\n== same style as the other two scanners ==');
+  // Per Jack: "make sure the csv download is the same style as the two
+  // other scanners." The column shape was already right; what was not was
+  // the ORDER (file order, so the score was invisible the moment you left
+  // the app), the filename, and the set of files on offer.
+  const noteScore = t => { const m = /Score (\d+)/.exec(t); return m ? Number(m[1]) : -1; };
+  const parsed = rows.map(r => r.match(/("([^"]|"")*"|[^,]*)/g).filter(x => x !== '').map(c => c.replace(/^"|"$/g, '')));
+  const scores = parsed.map(c => noteScore(c[custCols.indexOf('Notes')] || ''));
+  ok('every row states its score in Notes', scores.every(n => n >= 0), JSON.stringify(scores));
+  // Flagged rows (a stated need, or all four at once) are pinned above the
+  // score, exactly as the CSP file pins "wants a partner" — so the check is
+  // that the UNflagged tail descends, not that the whole column does.
+  const tail = parsed
+    .filter(c => !/[\u2605\u2691]/.test(c[custCols.indexOf('Notes')] || ''))
+    .map(c => noteScore(c[custCols.indexOf('Notes')] || ''));
+  ok('unpinned rows come out best-score-first', tail.every((n, i) => i === 0 || tail[i - 1] >= n), JSON.stringify(tail));
+  ok('pinned and flagged rows lead the file',
+     parsed.findIndex(c => !/[\u2605\u2691]/.test(c[custCols.indexOf('Notes')] || '')) !== 0
+     || !parsed.some(c => /[\u2605\u2691]/.test(c[custCols.indexOf('Notes')] || '')));
+  ok('the file is named for its scanner, like csp-*', /^custom-/.test(d2.suggestedFilename()), d2.suggestedFilename());
+
+  // The same five buttons the CSP tab offers three of: two call lists, a
+  // combined High, the Medium emailing list, and High+Medium together.
+  const dlLabels = await page.locator('.dl-strip button[aria-label^="Download "]').evaluateAll(
+    ns => ns.map(n => n.getAttribute('aria-label')));
+  for (const want of ['Dynamics', 'M365 / Azure', 'All High priority', 'Medium priority', 'High + Medium']) {
+    ok(`offers a "${want}" download`, dlLabels.some(l => l === `Download ${want} leads`), JSON.stringify(dlLabels));
+  }
+  const [d3] = await Promise.all([
+    page.waitForEvent('download', { timeout: 20000 }),
+    page.locator('button[aria-label="Download High + Medium leads"]').click(),
+  ]);
+  const f3 = path.join(os.tmpdir(), 'parity-custom-hm.csv'); await d3.saveAs(f3);
+  const hmText = fs.readFileSync(f3, 'utf8');
+  ok('High + Medium is named for its scanner too', /^custom-/.test(d3.suggestedFilename()), d3.suggestedFilename());
+  ok('High + Medium carries the same ten columns',
+     JSON.stringify(header(hmText)) === JSON.stringify(mainCols), JSON.stringify(header(hmText)));
+  ok('High + Medium is a superset of High alone',
+     hmText.split('\n').filter(Boolean).length >= custText.split('\n').filter(Boolean).length,
+     `${hmText.split('\n').filter(Boolean).length} vs ${custText.split('\n').filter(Boolean).length}`);
+  ok('no Low priority lead is in it', !/Score \d+ \u2014 Low priority/.test(hmText));
+
   console.log('\n== errors ==');
   ok('no page or console errors', errs.length === 0, JSON.stringify(errs.slice(0, 3)));
   console.log(`\n${pass}/${pass + fail} checks passed`);

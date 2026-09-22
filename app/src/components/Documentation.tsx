@@ -2,7 +2,7 @@ import { useState } from "react";
 import { EXPORT_LABELS } from "../lib/detection";
 import { SCANNER2_EXPORT_LABELS, CSP_EXPORT_LABELS } from "../lib/scanner2";
 import { BILLING_META, POSTURE_META, DEFAULT_CSP_RULES, DEFAULT_CSP_WEIGHTS, WEIGHT_META, DEAD_PATTERNS, MOTION_PATTERNS, MOTION_WEIGHT, CSP_COLUMN_HINTS, WANTS_PARTNER_LABEL } from "../lib/cspRenewal";
-import { SMC_PRODUCTS, DEFAULT_SMC_SCORE_RULES, DEFAULT_SMC_WEIGHTS, SMC_FACTOR_META } from "../lib/smcLead";
+import { SMC_PRODUCTS, DEFAULT_SMC_SCORE_RULES, DEFAULT_SMC_WEIGHTS, SMC_FACTOR_META, SMC_PARTNER_META } from "../lib/smcLead";
 
 /**
  * The reference for the whole platform: what each scanner reads, what it
@@ -247,6 +247,32 @@ export default function Documentation() {
               only 36% of the time. That makes it the real discriminator in this data, which is why it carries the
               second-largest weight.</li>
           </ul>
+          <H>Partner lane \u2014 an adjustment, not a seventh weight</H>
+          <p style={{ margin: 0 }}>
+            The blob sometimes carries a <code>Partner:</code> field naming who already holds the account.
+            Where it does, the score moves by <b>{"\u00b1"}{DEFAULT_SMC_SCORE_RULES.partnerAdjust}</b> points:
+          </p>
+          <Table
+            head={["Lane", "Effect", "What it means"]}
+            rows={[
+              [SMC_PARTNER_META.open.label, `+${DEFAULT_SMC_SCORE_RULES.partnerAdjust}`, SMC_PARTNER_META.open.hint],
+              [SMC_PARTNER_META.held.label, `\u2212${DEFAULT_SMC_SCORE_RULES.partnerAdjust}`, SMC_PARTNER_META.held.hint],
+              [SMC_PARTNER_META.unknown.label, "0", SMC_PARTNER_META.unknown.hint],
+            ]}
+          />
+          <p style={{ margin: 0 }}>
+            It is an adjustment rather than a weighted factor for one measured reason: on the real 13,106-row export
+            the blob states a partner on <b>2.7% of rows</b>. A seventh weight divides every row by a bigger
+            denominator, so the 97% that say nothing either way would quietly lose points for staying silent. This
+            way only the rows that actually state something move. On that file it shifted <b>142 rows</b> of 12,118 —
+            almost all of it at the Medium / Low line, where 130 partner-held leads dropped out of Medium and 10
+            open-lane leads came up into it. Set the adjustment to <b>0</b> to turn it off entirely.
+          </p>
+          <p style={{ margin: 0 }}>
+            This is deliberately NOT the CSP tab&rsquo;s four-way partner posture. CSP reads a dedicated column that is
+            about 70% filled, which is what justifies a 30-point factor there. Here it is a label inside free text,
+            so the honest answer for most rows is &ldquo;not stated&rdquo; and it has to cost nothing.
+          </p>
           <H>Top quality, and what still overrides the score</H>
           <p style={{ margin: 0 }}>
             A <b>stated BANT need on an Act Now whitespace account</b> is forced to High priority whatever it scores —
@@ -265,12 +291,14 @@ export default function Documentation() {
           </p>
           <H>What comes out</H>
           <p style={{ margin: 0 }}>
-            High priority downloads split by product line (Dynamics 365, M365 / Azure) plus a combined file, and Medium
-            priority downloads whole — High gets called, Medium gets emailed. Product Area carries the product line;
-            the score, the reason and the campaign fold into Notes.
+            Five files: High priority split by product line (Dynamics 365, M365 / Azure) plus a combined High file,
+            Medium priority whole, and High + Medium together — High gets called, Medium gets emailed. Every file is
+            <b> ranked by score, best first</b>, the same order the CSP files come out in, and a manual High / Medium /
+            Low override wins over the score. Low priority is never downloaded. Product Area carries the product line;
+            the score, the reason, who holds the account and the campaign fold into Notes.
           </p>
         </>
-      ), `Scored 0–100 across six factors; High at ${DEFAULT_SMC_SCORE_RULES.strongAt}+`)}
+      ), `Scored 0–100 across six factors plus a ±${DEFAULT_SMC_SCORE_RULES.partnerAdjust} partner lane; High at ${DEFAULT_SMC_SCORE_RULES.strongAt}+`)}
 
       {sec("main", "Main Scanner — general CRM and Apollo exports", (
         <>

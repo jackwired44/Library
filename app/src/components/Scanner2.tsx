@@ -9,6 +9,7 @@ import {
   type RuleSet2, type Rule2, type Bucket2, type Scan2Result, type ColumnProfile, type Run2,
   type FieldMapping, type LeadField, type Curation, type CurationRecord, type Row2,
   type ScannerKind, type Scanner2ExportRow, reconcileCspColumns, exportLabelsFor,
+  partnerPostureOf, SMC_PARTNER_META, type SmcPartnerPosture,
 } from "../lib/scanner2";
 import type { LeadList } from "../lib/leadLists";
 import { POSTURE_META, DEFAULT_CSP_RULES, resolveCspRules, CSP_COLUMN_HINTS, cspPartnerLabel, compareCspLeads, BILLING_META, WEIGHT_META, type CspRules, type PartnerPosture, type BillingQuality } from "../lib/cspRenewal";
@@ -580,6 +581,23 @@ const { persist, rescan } = ctx;
           </label>
           <span style={{ color: "var(--muted)" }}>below that, Low priority and never downloaded</span>
         </div>
+        {/* Partner lane. Deliberately an adjustment rather than a seventh
+            weight: the blob states a partner on only ~3% of rows, so a
+            weighted factor would quietly dock every row that says nothing.
+            This moves only the rows that state something. */}
+        <div style={row}>
+          <span style={lab} title={"The blob's \"Partner:\" field. Stated on about 3% of rows \u2014 everything else is untouched."}>Partner lane</span>
+          <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            {"\u00b1"}
+            <input className="field" style={{ width: 84 }} type="number" min={0} max={40} aria-label="Partner lane adjustment"
+              value={sRules.partnerAdjust} onChange={(e) => patchScore({ partnerAdjust: int(e.target.value, sRules.partnerAdjust) })} />
+            points
+          </label>
+          <span style={{ color: "var(--muted)" }}>
+            added when nobody holds the account, taken away when a reseller is named. 0 turns it off.
+            A row that states no partner either way never moves.
+          </span>
+        </div>
         <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10 }}>
           <div style={{ ...lab, minWidth: 0, marginBottom: 6 }}>
             Scoring weights {"·"} {Object.values(sWeights).reduce((a, b) => a + b, 0)} points, normalised to 100
@@ -862,6 +880,10 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
   // Top quality, per Jack: the customer states they want a partner. Its own
   // toggle because it is the list he would pull first.
   const [wantsPartnerOnly, setWantsPartnerOnly] = useState(false);
+  // Custom tab: who holds the account, per the blob. Stated on ~3% of
+  // rows, so "any" has to stay the default — filtering to a posture is
+  // an explicit choice, never something the view does on its own.
+  const [smcPostureFilter, setSmcPostureFilter] = useState<SmcPartnerPosture | "all">("all");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   // Same drop-zone interaction as the Main Scanner, so the two upload
@@ -906,7 +928,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
   // so a set saved before scoring existed loads on the defaults.
   const smcScoreRules = useMemo(() => ({ ...DEFAULT_SMC_SCORE_RULES, ...(active?.smcScoreRules ?? {}) }), [active]);
   const smcWeights = useMemo(() => ({ ...DEFAULT_SMC_WEIGHTS, ...(active?.smcWeights ?? {}) }), [active]);
-  useEffect(() => { setPage(1); }, [bucketFilter, curationFilter, search, productFilter, gapsOnly, callableOnly, lineFilter, sortBy, fromDate, toDate, postureFilter, billingFilter, minScore, minValue, phoneOnly, wantsPartnerOnly]);
+  useEffect(() => { setPage(1); }, [bucketFilter, curationFilter, search, productFilter, gapsOnly, callableOnly, lineFilter, sortBy, fromDate, toDate, postureFilter, billingFilter, minScore, minValue, phoneOnly, wantsPartnerOnly, smcPostureFilter]);
 
   // A storage failure must never block the scan or wipe the screen. The
   // change is applied for this session either way; the banner says it
@@ -1128,6 +1150,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
       callable: (r: Row2) => !callableOnly || !!(r.lead.phone || r.lead.mobilePhone || r.lead.email),
       phone: (r: Row2) => !phoneOnly || !!(r.lead.phone || r.lead.mobilePhone),
       wantsPartner: (r: Row2) => !wantsPartnerOnly || !!r.csp?.wantsPartner,
+      smcPosture: (r: Row2) => smcPostureFilter === "all" || (!!r.smc && partnerPostureOf(r.smc) === smcPostureFilter),
       // Date range is inclusive of both days. A row with no stated date is
       // excluded once a range is set — it cannot be shown to fall inside it.
       date: (r: Row2) => (!fromDate || !!(r.receivedOn && r.receivedOn >= fromDate))
@@ -1139,7 +1162,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
       },
       search: (r: Row2) => searchHits === null || searchHits.has(r.id),
     };
-  }, [bucketFilter, curationFilter, searchHits, curation, productFilter, gapsOnly, callableOnly, smcRules, fromDate, toDate, postureFilter, billingFilter, minScore, minValue, lineFilter, effBucket, isCsp, phoneOnly, wantsPartnerOnly]);
+  }, [bucketFilter, curationFilter, searchHits, curation, productFilter, gapsOnly, callableOnly, smcRules, fromDate, toDate, postureFilter, billingFilter, minScore, minValue, lineFilter, effBucket, isCsp, phoneOnly, wantsPartnerOnly, smcPostureFilter]);
 
   type FilterKey = keyof typeof tests;
 
@@ -1200,6 +1223,14 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
     () => rowsExcept("phone").filter((r) => r.lead.phone || r.lead.mobilePhone).length,
     [rowsExcept],
   );
+  // Faceted, like every other count here: each option counts the rows
+  // passing every OTHER filter, so the numbers add up to what you see.
+  const smcPostureCounts = useMemo(() => {
+    const out: Record<SmcPartnerPosture, number> = { open: 0, held: 0, unknown: 0 };
+    for (const r of rowsExcept("smcPosture")) if (r.smc) out[partnerPostureOf(r.smc)]++;
+    return out;
+  }, [rowsExcept]);
+  const smcPostureAll = smcPostureCounts.open + smcPostureCounts.held + smcPostureCounts.unknown;
   const wantsPartnerCount = useMemo(
     () => rowsExcept("wantsPartner").filter((r) => r.csp?.wantsPartner).length,
     [rowsExcept],
@@ -1266,9 +1297,11 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
 
   /**
    * Every download this scanner produces, in the Main Scanner's Apollo
-   * import format minus "Last Name" — nine columns, nothing else. There is
-   * deliberately no second, wider export: two buttons side by side that
-   * produced nine and forty columns was a trap, and the whole point of
+   * import format — ten columns on the Custom tab, eight on CSP (which
+   * drops Title and Number of Employees because a CSP export states
+   * neither), and nothing else. There is deliberately no second, wider
+   * export: two buttons side by side that produced ten and forty columns
+   * was a trap, and the whole point of
    * this scanner is stripping a CRM export down to what you can call.
    */
   async function exportApollo(rows: Row2[], fileName: string) {
@@ -1287,20 +1320,43 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
   }
 
   /**
-   * Every Strong Signal lead on one product line, independent of whatever
-   * the table is currently filtered to — the point is to grab a line's
-   * leads without first having to set the view to match. Anything
-   * explicitly curated as Reject is left out; nothing else is.
+   * The Custom tab's downloads, built the same way the CSP tab's are so the
+   * two files read alike — per Jack, "make sure the csv download is the
+   * same style as the two other scanners". Three things changed here:
+   *
+   *  - Ranked by score, best first. The CSP file has always opened with its
+   *    strongest lead; this one opened in whatever order the CSV happened to
+   *    be in, which made the whole scoring pass invisible the moment you
+   *    left the app. Ties keep file order, so the sort is stable.
+   *  - Reads the EFFECTIVE band, so a manual High / Medium / Low override
+   *    wins over the score. Only the Medium file did that before, which
+   *    meant an override moved a lead between two files inconsistently.
+   *  - Takes a band, so High, Medium and High+Medium all come off one
+   *    definition rather than three near-copies.
+   *
+   * Still independent of the table's filters, exactly as before and as the
+   * Main Scanner's own line downloads are — the point is to grab a line
+   * without first setting the view to match. Anything curated Reject is out.
    */
+  const smcDownload = useCallback(
+    (which: "priority" | "review" | "all", line: ProductLine | "all") =>
+      (result?.rows ?? [])
+        .filter((r) => {
+          const b = effBucket(r);
+          const inBand = which === "all" ? b === "priority" || b === "review" : b === which;
+          return inBand
+            && (line === "all" || r.productLine === line)
+            && !(r.leadKey && curation[r.leadKey]?.decision === "reject");
+        })
+        .map((r, i) => ({ r, i }))
+        .sort((a, b) => compareSmcScores(a.r.smcScore, b.r.smcScore) || a.i - b.i)
+        .map((x) => x.r),
+    [result, curation, effBucket],
+  );
+  /** High priority on one line — what call readiness is measured over. */
   const strongFor = useCallback(
-    (line: ProductLine | "all") =>
-      (result?.rows ?? []).filter(
-        (r) =>
-          r.bucket === "priority" &&
-          (line === "all" || r.productLine === line) &&
-          !(r.leadKey && curation[r.leadKey]?.decision === "reject"),
-      ),
-    [result, curation],
+    (line: ProductLine | "all") => smcDownload("priority", line),
+    [smcDownload],
   );
 
   /**
@@ -1363,32 +1419,26 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
             { line: "all" as const, label: "High + Medium", file: "csp-high-and-medium.csv", rows: cspByPriority("all") },
           ])
         : [
-            // The three line files are High priority already — strongFor
-            // filters to the priority bucket — so they keep working exactly
-            // as before. Medium is new: per Jack, High gets called and
-            // Medium gets emailed, and until now the Custom tab had no way
-            // to pull the emailing list.
+            // High priority, split by line — the two call lists. Filenames
+            // carry the scanner's own prefix the way the CSP tab's do, so a
+            // downloads folder holding both is unambiguous.
             ...(["Dynamics 365", "M365 / Azure", "all"] as const).map((line) => ({
               line,
               label: line === "all" ? "All High priority" : line === "Dynamics 365" ? "Dynamics" : "M365 / Azure",
               file:
                 line === "all"
-                  ? "high-priority-all.csv"
+                  ? "custom-high-priority.csv"
                   : line === "Dynamics 365"
-                    ? "high-priority-dynamics-365.csv"
-                    : "high-priority-m365-azure.csv",
-              rows: strongFor(line),
+                    ? "custom-high-priority-dynamics-365.csv"
+                    : "custom-high-priority-m365-azure.csv",
+              rows: smcDownload("priority", line),
             })),
-            {
-              line: "medium" as const,
-              label: "Medium priority",
-              file: "medium-priority-all.csv",
-              rows: (result?.rows ?? []).filter(
-                (r) => effBucket(r) === "review" && !(r.leadKey && curation[r.leadKey]?.decision === "reject"),
-              ),
-            },
+            // Per Jack: High gets called, Medium gets emailed. High+Medium
+            // is the third button the CSP tab already had.
+            { line: "medium" as const, label: "Medium priority", file: "custom-medium-priority.csv", rows: smcDownload("review", "all") },
+            { line: "highmed" as const, label: "High + Medium", file: "custom-high-and-medium.csv", rows: smcDownload("all", "all") },
           ],
-    [strongFor, cspByPriority, isCsp, result, effBucket, curation],
+    [smcDownload, cspByPriority, isCsp],
   );
 
   function applyNow(next: RuleSet2) {
@@ -1564,12 +1614,12 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
             {strongDownloads.map((d) => (
               <span key={d.line} className="dl-item">
                 <button
-                  className={`btn btn-sm ${d.line === "all" ? "btn-secondary" : "btn-primary"}`}
+                  className={`btn btn-sm ${d.line === "all" || d.line === "highmed" ? "btn-secondary" : "btn-primary"}`}
                   aria-label={`Download ${d.label} leads`}
                   disabled={d.rows.length === 0}
                   title={isCsp
                     ? `${d.rows.length} ${d.label.toLowerCase()} lead${d.rows.length === 1 ? "" : "s"} within the filters you have set. Ordered by score, best first; Product Area carries the priority so you can split sequences on it in Apollo. An override wins over the score. Low priority is never downloaded.`
-                    : `${d.rows.length} Strong Signal lead${d.rows.length === 1 ? "" : "s"}${d.line === "all" ? "" : ` on ${d.line}`}, whatever the table is filtered to. Same columns as the Main Scanner, ready for Apollo. Anything marked Reject is left out.`}
+                    : `${d.rows.length} ${d.label.toLowerCase()} lead${d.rows.length === 1 ? "" : "s"}, whatever the table is filtered to. Ordered by score, best first \u2014 the same order the CSP file comes out in. An override wins over the score. Same ten columns as the Main Scanner, ready for Apollo. Anything marked Reject, and every Low priority lead, is left out.`}
                   onClick={() => exportApollo(d.rows, d.file)}
                 >
                   ⬇ {d.label}
@@ -1578,7 +1628,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
               </span>
             ))}
             <div className="toolbar-spacer" />
-            <button className="btn btn-sm btn-secondary" onClick={() => exportApollo(filtered, "scanner2-current-view.csv")} disabled={filtered.length === 0} title={isCsp ? "Same nine columns, but only the rows the filters below currently leave \u2014 use it to download one slice rather than a whole priority band." : "Same nine columns, but only the rows the filters below currently leave \u2014 use it to download one slice rather than a whole product line."}>
+            <button className="btn btn-sm btn-secondary" onClick={() => exportApollo(filtered, isCsp ? "csp-current-view.csv" : "custom-current-view.csv")} disabled={filtered.length === 0} title={`Same ${exportLabelsFor(kind).length} columns, but only the rows the filters below currently leave \u2014 use it to download one slice rather than a whole ${isCsp ? "priority band" : "product line"}.`}>
               ⬇ Export these {filtered.length}
             </button>
             <button className="btn btn-sm btn-ghost" onClick={() => setShowColumns((v) => !v)}>
@@ -1689,6 +1739,20 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
               <select className="field" aria-label="Product filter" value={productFilter} onChange={(e) => setProductFilter(e.target.value as SmcProduct | "all")} title="Narrow to one Cloud Ascent product">
                 <option value="all">Any product</option>
                 {SMC_PRODUCTS.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+              {/* Partner lane. Sits beside the product filter because it
+                  answers the same kind of question \u2014 which slice of the
+                  file am I working \u2014 and matches the CSP tab's own
+                  Partner dropdown so the two scanners filter alike. */}
+              <select className="field" aria-label="Partner lane" style={{ width: 168 }} value={smcPostureFilter}
+                      onChange={(e) => setSmcPostureFilter(e.target.value as SmcPartnerPosture | "all")}
+                      title={"Who holds the account, per the blob's \"Partner:\" field. Most rows state nothing either way."}>
+                <option value="all">Partner: any ({smcPostureAll.toLocaleString()})</option>
+                {(["open", "held", "unknown"] as SmcPartnerPosture[]).map((w) => (
+                  <option key={w} value={w} title={SMC_PARTNER_META[w].hint}>
+                    {SMC_PARTNER_META[w].label} ({smcPostureCounts[w].toLocaleString()})
+                  </option>
+                ))}
               </select>
               <div className="toolbar-spacer" />
               <input className="field" placeholder="Search company, contact, or notes…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ flex: 1, minWidth: 200, maxWidth: 380 }} />
@@ -1945,7 +2009,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
             <table className="data-table" aria-label="Scan results">
               <thead>
                 <tr>
-                  {/* Exactly the nine columns the download carries, in the
+                  {/* Exactly the columns the download carries, in the
                       same order, plus the two controls you work with. Per
                       Jack: strip the CRM export down to what you can call. */}
                   {isCsp && onAddToList && <th style={{ width: 28 }} aria-label="Select"></th>}
@@ -2037,9 +2101,26 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
                                     </div>
                                   )}
                                 </>
-                              ) : r.productLine
-                                ? <span style={{ display: "inline-block", borderRadius: 20, padding: "3px 9px", fontWeight: 600, fontSize: 11, whiteSpace: "nowrap", ...productLineStyle(r.productLine) }}>{r.productLine}</span>
-                                : dash}
+                              ) : (
+                                <>
+                                  {r.productLine
+                                    ? <span style={{ display: "inline-block", borderRadius: 20, padding: "3px 9px", fontWeight: 600, fontSize: 11, whiteSpace: "nowrap", ...productLineStyle(r.productLine) }}>{r.productLine}</span>
+                                    : dash}
+                                  {/* Who holds the account, under the line —
+                                      the same place the CSP tab puts it. Only
+                                      drawn when the blob states one, so the
+                                      97% that say nothing stay uncluttered. */}
+                                  {r.smcScore && r.smcScore.partnerPosture !== "unknown" && (
+                                    <div
+                                      style={{ fontSize: 11, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                                               color: r.smcScore.partnerPosture === "open" ? "#0E7A72" : "var(--muted)" }}
+                                      title={`${SMC_PARTNER_META[r.smcScore.partnerPosture].hint}${r.smcScore.partnerAdjust ? ` (${r.smcScore.partnerAdjust > 0 ? "+" : ""}${r.smcScore.partnerAdjust} on the score)` : ""}\n${r.smcScore.partnerName}`}
+                                    >
+                                      {r.smcScore.partnerPosture === "open" ? "\u2691 no partner on it" : r.smcScore.partnerName}
+                                    </div>
+                                  )}
+                                </>
+                              )}
                             </td>
                             <td style={{ padding: "10px 8px", whiteSpace: "nowrap", fontSize: 12 }}>
                               {(() => {
@@ -2177,7 +2258,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
                 <div className="panel-title">Columns — what arrived in the file</div>
                 <div className="panel-sub">
                   {result.columns.length} columns read. This is a check on the upload, not a download setting: every download is
-                  the same nine columns, matching the Main Scanner. Struck-through rows are the CRM noise columns this scanner
+                  the same {exportLabelsFor(kind).length} columns{isCsp ? "" : ", matching the Main Scanner"}. Struck-through rows are the CRM noise columns this scanner
                   ignores. Duplicate headers are auto-renamed (a second <code>description</code> arrives as <code>description_1</code>), so nothing is lost.
                 </div>
               </div>
