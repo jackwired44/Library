@@ -422,17 +422,53 @@ const PHONE_RE = /(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/;
 function hasForbiddenContent(s: string) {
   return DATE_RE.test(s) || BILLING_BANT_RE.test(s) || SERIAL_RE.test(s) || EMAIL_RE.test(s) || PHONE_RE.test(s);
 }
+/**
+ * What a category is ABOUT, for the "why did this match" line. These are
+ * descriptions of the RULE, never of the lead.
+ *
+ * They used to be written in the lead's own voice and emitted as
+ * "Interested in <blurb>." whenever no real sentence could be quoted from
+ * the row. Jack caught what that does to real CRM data: a row whose entire
+ * note read "ACG - 17/Sep - ACG 9/17/21 Created growth optty for Copilot
+ * whitespace, 451 seats recommended by KYC" went into a Final Download
+ * saying "Interested in setting up or supporting their M365 tenant — new
+ * tenant creation, migrating from Google, or ongoing IT support." Not one
+ * clause of that is in the note. It invented a Google migration — the
+ * highest-value signal in this tool — on a lead with no Google anything,
+ * in a file that gets called from.
+ *
+ * A snippet may only ever say what the row actually contains. Where there
+ * is no quotable sentence, say so, and state the evidence that did match.
+ */
 const CATEGORY_BLURBS: Record<string, string> = {
-  "Dynamics 365": "modernizing their CRM/ERP setup",
-  "Power BI": "bringing in a partner for Power BI",
-  "Microsoft Fabric": "a Microsoft Fabric project tied to Azure or custom app development",
-  Azure: "an on-prem-to-Azure migration or routing their Azure billing through a partner/CSP",
-  [MIGRATION_LABEL]: "bringing in a partner to migrate off their current systems",
-  [TENANT_SUPPORT_LABEL]: "setting up or supporting their M365 tenant — new tenant creation, migrating from Google, or ongoing IT support",
+  "Dynamics 365": "Dynamics 365 / CRM / ERP",
+  "Power BI": "Power BI with partner involvement",
+  "Microsoft Fabric": "Microsoft Fabric tied to a larger project",
+  Azure: "Azure migration, billing or app build",
+  [MIGRATION_LABEL]: "migration / modernization with partner involvement",
+  [TENANT_SUPPORT_LABEL]: "M365 tenant / licensing / support",
 };
-function fallbackSummary(categories: string[]) {
-  if (!categories.length) return "";
-  return `Interested in ${categories.map((c) => CATEGORY_BLURBS[c] || c.toLowerCase()).join(" and ")}.`;
+/** Marks a summary as derived rather than quoted, so harder evidence can be
+ *  preferred over it and it can never be mistaken for the lead's own words. */
+const NO_QUOTE_MARKER = "no quotable sentence in the source notes";
+export function isDerivedSummary(summary: string): boolean {
+  return summary.includes(NO_QUOTE_MARKER);
+}
+/**
+ * The honest fallback: names the rule that matched and admits there is no
+ * quote. `facts` carries anything concrete the engine actually extracted
+ * (named SKUs, a stated seat count) so the line stays useful rather than
+ * being just an apology.
+ */
+function fallbackSummary(categories: string[], facts = "") {
+  const what = categories.length
+    ? categories.map((c) => CATEGORY_BLURBS[c] || c).join(" and ")
+    : "";
+  const lead = facts && what ? `Matched ${what} — ${facts}`
+    : facts ? facts
+    : what ? `Matched ${what}`
+    : "";
+  return lead ? `${lead} (${NO_QUOTE_MARKER}).` : "";
 }
 const SIGNAL_WINDOW = 70;
 // Wider view used only by the qualification GATES (Power BI / Azure /
@@ -502,9 +538,9 @@ function summarizeNotes(raw: unknown, categories: string[], maxLen = SUMMARY_MAX
   const sentence = normalizeSentence((fitting || ranked[0]).s);
   return sentence.length <= maxLen ? sentence : truncateAtWord(sentence, maxLen);
 }
-function summarizeFromSnippets(snippets: string[], categories: string[]): string {
+function summarizeFromSnippets(snippets: string[], categories: string[], facts = ""): string {
   const unique = [...new Set(snippets.map((s) => cleanText(s)))].filter((s) => !hasForbiddenContent(s));
-  if (unique.length === 0) return fallbackSummary(categories);
+  if (unique.length === 0) return fallbackSummary(categories, facts);
   const sentence = normalizeSentence(unique[0]);
   return sentence.length <= SUMMARY_MAX_LEN ? sentence : truncateAtWord(sentence, SUMMARY_MAX_LEN);
 }
@@ -1046,11 +1082,27 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
   const autoCategory = CATEGORY_PRIORITY.find((k) => categorySet.has(k)) || categories[0];
   let tier: Tier = (platform && platform.tier === "signal") || licensingTier === "signal" ? "signal" : "mention";
 
+  // The hardest evidence available, stated as fact rather than as intent:
+  // named Microsoft SKUs and a confirmed seat count are things the row
+  // actually says, unlike a category description.
+  const licensingFacts = licensing
+    ? [licensing.skus.join(", "), licensing.count ? `${licensing.count} seats stated` : ""].filter(Boolean).join(", ")
+    : "";
+
   let notesSummary: string;
-  if (platform) notesSummary = platform.notesSummary;
-  else {
+  if (platform) {
+    notesSummary = platform.notesSummary;
+    // The platform side could not quote the row, but the licensing side
+    // extracted real facts from it. Prefer the facts. This is the ACG case:
+    // the engine HAD "Microsoft Copilot, 451 seats" in hand and threw it
+    // away for a generic tenant-support blurb naming a Google migration
+    // that was never mentioned.
+    if (licensingFacts && isDerivedSummary(notesSummary)) {
+      notesSummary = fallbackSummary(platform.categories, licensingFacts);
+    }
+  } else {
     const scrubbed = summarizeFromSnippets([licensing!.snippet], []);
-    notesSummary = scrubbed || `Interested in ${licensing!.skus.join(", ")}${licensing!.count ? ` (~${licensing!.count} seats)` : ""}.`;
+    notesSummary = scrubbed || fallbackSummary([], licensingFacts);
   }
 
   const combinedForDQ = columns.map((c) => String(row[c] ?? "")).join("   ");
@@ -1084,6 +1136,194 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
     isSalesCrm: platform ? platform.isSalesCrm : false,
     isPersonalProspect,
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Priority scoring (Main Scanner)                                      */
+/* ------------------------------------------------------------------ */
+/**
+ * Per Jack: "lets start scoring main scanner leads in high medium and low
+ * priority" — the same 0-100 shape the CSP and Custom tabs already use, so
+ * all three scanners are read and tuned the same way.
+ *
+ * What this DOES change: Needs Review splits into Medium and Low priority,
+ * and every lead carries a score you can rank by.
+ *
+ * What it deliberately does NOT change, on day one:
+ *  - Which leads are High. A lead is High if and only if it is `signal`,
+ *    i.e. it cleared the SAME promotion gate it always had. The score ranks
+ *    WITHIN the band and splits the rest; it does not redraw the top line.
+ *    Move `highAt`/`mediumAt` to change that deliberately.
+ *  - The three CSV downloads, Lead Library filing, History and Contact.tier,
+ *    all of which read `tier` and are untouched.
+ *  - Auto-DQ. It stays cross-cutting and still produces Bad Leads, which are
+ *    NOT renamed "Low priority" — a competitor or a "not interested" is
+ *    disqualified, not merely weak, and dressing that up would lose real
+ *    information.
+ */
+export interface MainWeights {
+  hotSignal: number;
+  intent: number;
+  seats: number;
+  specificity: number;
+  reach: number;
+  hygiene: number;
+}
+export const DEFAULT_MAIN_WEIGHTS: MainWeights = {
+  hotSignal: 34, intent: 22, seats: 16, specificity: 12, reach: 10, hygiene: 6,
+};
+export const MAIN_FACTOR_META: { key: keyof MainWeights; label: string; hint: string }[] = [
+  { key: "hotSignal", label: "Hot signal", hint: "Google \u2192 Microsoft is full marks \u2014 per Jack, those are huge opps. Then Document Intelligence / an Azure app build, then partner engagement or security design." },
+  { key: "intent", label: "Qualified intent", hint: "The lead cleared its category's promotion gate: a trigger word, a stated count, or one of the hot signals. This is what makes a lead High." },
+  { key: "seats", label: "Stated seat count", hint: "A confirmed user/seat/licence number, scaled \u2014 the qualify threshold earns part marks, 250+ seats earns all of it." },
+  { key: "specificity", label: "Named product", hint: "A specific product or module beats a generic mention. Business Central / ERP ranks above Sales / CRM, which ranks above everything else." },
+  { key: "reach", label: "Reachable", hint: "A phone and an email you can actually work it with." },
+  { key: "hygiene", label: "Clean record", hint: "A real company name and a work email rather than a personal one." },
+];
+
+export type Priority = "high" | "medium" | "low" | "dq";
+export const PRIORITY_ORDER: Priority[] = ["high", "medium", "low", "dq"];
+export const PRIORITY_META: Record<Priority, { label: string; short: string; color: string; bg: string; hint: string }> = {
+  high:   { label: "High priority",   short: "High",   color: "#0E7A72", bg: "#E3F3F1", hint: "Cleared the promotion gate. These are the calls, and they are the only leads in the downloads." },
+  medium: { label: "Medium priority", short: "Medium", color: "#9A5B22", bg: "#FBF0E2", hint: "A real product or licensing mention that did not clear the gate, but scores well enough to be worth a look." },
+  low:    { label: "Low priority",    short: "Low",    color: "#5B6B72", bg: "#EEF1F2", hint: "A mention with little behind it \u2014 no count, no named product, often no way to reach them." },
+  dq:     { label: "Bad Leads",       short: "Bad",    color: "#B5443B", bg: "#FBEAE8", hint: "Auto-disqualified. Not a low score \u2014 a rule said no. Still visible and reversible, never downloaded." },
+};
+
+export interface MainScoreRules { highAt: number; mediumAt: number }
+export const DEFAULT_MAIN_SCORE_RULES: MainScoreRules = { highAt: 60, mediumAt: 30 };
+
+export interface MainScore {
+  score: number;
+  breakdown: string[];
+  factorPoints: Record<keyof MainWeights, number>;
+  /** Google \u2192 Microsoft. Pinned to the very top of High, whatever it scores. */
+  pinned: boolean;
+}
+
+/** Everything the score reads, so it can be computed without a ResultRow. */
+export interface MainScoreInput {
+  tier: Tier;
+  isGoogleToMicrosoft: boolean;
+  isBusinessCentral: boolean;
+  isSalesCrm: boolean;
+  dynamicsModuleTier: number;
+  dynamicsSeatCount: number | null;
+  licensingCount: number | null;
+  hasNamedSku: boolean;
+  hotKind: "none" | "docIntelligence" | "appBuild" | "partner" | "security";
+  hasPhone: boolean;
+  hasEmail: boolean;
+  hasCompany: boolean;
+  personalEmail: boolean;
+  qualifyThreshold: number;
+}
+
+/** 250 seats is where the seat factor saturates: past that it is a big
+ *  deal either way, and scaling further would let one huge number drown
+ *  every other factor. */
+const SEAT_SATURATION = 250;
+
+export function scoreMainLead(
+  input: MainScoreInput,
+  weights: MainWeights = DEFAULT_MAIN_WEIGHTS,
+): MainScore {
+  const w = weights;
+  const total = w.hotSignal + w.intent + w.seats + w.specificity + w.reach + w.hygiene || 1;
+  const breakdown: string[] = [];
+  const raw: Record<keyof MainWeights, number> = { hotSignal: 0, intent: 0, seats: 0, specificity: 0, reach: 0, hygiene: 0 };
+  const add = (k: keyof MainWeights, label: string, fraction: number) => {
+    const pts = w[k] * Math.max(0, Math.min(1, fraction));
+    raw[k] = pts;
+    if (pts > 0) breakdown.push(`${label} +${Math.round((100 * pts) / total)}`);
+  };
+
+  // Google -> Microsoft is full marks, per Jack: "companies going from
+  // google to microsoft are huge opps." Everything else hot sits below it.
+  const hotFraction =
+    input.isGoogleToMicrosoft ? 1
+      : input.hotKind === "docIntelligence" || input.hotKind === "appBuild" ? 0.75
+      : input.hotKind === "partner" ? 0.6
+      : input.hotKind === "security" ? 0.5
+      : 0;
+  add("hotSignal",
+      input.isGoogleToMicrosoft ? "Google \u2192 Microsoft migration"
+        : input.hotKind === "docIntelligence" ? "Azure Document Intelligence"
+        : input.hotKind === "appBuild" ? "custom app build on Azure"
+        : input.hotKind === "partner" ? "bringing in a partner"
+        : input.hotKind === "security" ? "security design work"
+        : "no hot signal",
+      hotFraction);
+
+  // The gate the lead already had to clear. Weighted so that clearing it is
+  // on its own enough to reach the default High line — which is what keeps
+  // today's Strong Signal set exactly as it is.
+  add("intent", input.tier === "signal" ? "cleared the promotion gate" : "mention only, gate not cleared",
+      input.tier === "signal" ? 1 : 0);
+
+  const count = input.licensingCount ?? input.dynamicsSeatCount;
+  const floor = Math.max(1, input.qualifyThreshold);
+  add("seats",
+      count == null ? "no stated seat count" : `${count} seats stated`,
+      count == null ? 0 : Math.max(0.35, Math.min(1, count / SEAT_SATURATION)) * (count >= floor ? 1 : 0.4));
+
+  // Business Central / ERP above Sales / CRM above everything else — the
+  // same precedence the Dynamics ranking and the View tabs already use.
+  const spec =
+    input.isBusinessCentral || input.dynamicsModuleTier === 0 ? 1
+      : input.isSalesCrm || input.dynamicsModuleTier === 1 ? 0.7
+      : input.hasNamedSku ? 0.5
+      : 0;
+  add("specificity",
+      input.isBusinessCentral || input.dynamicsModuleTier === 0 ? "Business Central / ERP"
+        : input.isSalesCrm || input.dynamicsModuleTier === 1 ? "Sales / CRM"
+        : input.hasNamedSku ? "a named Microsoft SKU"
+        : "generic mention, no named product",
+      spec);
+
+  add("reach",
+      input.hasPhone && input.hasEmail ? "phone + email" : input.hasPhone ? "phone only" : input.hasEmail ? "email only" : "no phone or email",
+      (input.hasPhone ? 0.6 : 0) + (input.hasEmail ? 0.4 : 0));
+
+  add("hygiene",
+      !input.hasCompany ? "no company name"
+        : input.personalEmail ? "personal email domain"
+        : "company named, work email",
+      (input.hasCompany ? 0.6 : 0) + (input.personalEmail || !input.hasEmail ? 0 : 0.4));
+
+  const sum = (Object.keys(raw) as (keyof MainWeights)[]).reduce((n, k) => n + raw[k], 0);
+  const score = Math.round((100 * sum) / total);
+  const factorPoints = Object.fromEntries(
+    (Object.keys(raw) as (keyof MainWeights)[]).map((k) => [k, Math.round((100 * raw[k]) / total)]),
+  ) as Record<keyof MainWeights, number>;
+  const pinned = input.isGoogleToMicrosoft;
+  if (pinned) breakdown.unshift("\u2605 Google \u2192 Microsoft \u2014 pinned to the top");
+  return { score, breakdown, factorPoints, pinned };
+}
+
+/**
+ * The band. Auto-DQ always wins, then the gate decides High, then the score
+ * splits what is left. Keeping `tier === "signal"` as the High test (rather
+ * than `score >= highAt`) is what guarantees the downloads, the Lead Library
+ * and History see exactly the same set they saw before scoring existed.
+ */
+export function priorityOf(
+  tier: Tier,
+  score: number | null | undefined,
+  rules: MainScoreRules = DEFAULT_MAIN_SCORE_RULES,
+): Priority {
+  if (tier === "dq") return "dq";
+  if (tier === "signal") return "high";
+  return (score ?? 0) >= rules.mediumAt ? "medium" : "low";
+}
+
+/** Rank for the table and the downloads: pinned first, then score, then
+ *  file order via the caller's stable index. Mirrors compareCspLeads and
+ *  compareSmcScores so all three scanners sort alike. */
+export function compareMainScores(a: MainScore | undefined, b: MainScore | undefined): number {
+  if (!a || !b) return a ? -1 : b ? 1 : 0;
+  if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+  return b.score - a.score;
 }
 
 /* ------------------------------------------------------------------ */
