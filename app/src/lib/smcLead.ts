@@ -283,6 +283,11 @@ export function partnerPostureOf(lead: SmcLead): SmcPartnerPosture {
   return PARTNER_OPEN_RE.test(v) ? "open" : "held";
 }
 
+/** A BANT label with ANY content after it. Used only to decide whether a
+ *  blob is truly empty — never for scoring, where a value that cleans
+ *  down to nothing correctly counts for nothing. */
+const ANY_BANT_LABEL_RE = /(?:^|[^A-Za-z])(?:Budget|Authority|Need|Timeline|Time|Partner)\s*:\s*\S/i;
+
 /** BANT appears three ways: "Budget: X", "B: X", and "B – Label: X". */
 function parseBant(text: string): SmcLead["bant"] {
   const out: SmcLead["bant"] = {};
@@ -362,8 +367,16 @@ export function parseSmcLead(raw: string): SmcLead {
     rawText: text,
     pulledOn: parsePulledOn(text),
   };
+  // "Nothing usable" has to be a fact about the TEXT, not about whether one
+  // junk field survived cleaning. Without the last clause, tightening
+  // cleanPartner turned a real row into a blank one: MORGAN COUNTY's blob
+  // reads "Partner: - POC: Trevor, Giddens 7063429541 ..." and four named
+  // people with emails, and its ONLY parsed field was the junk captured
+  // after "Partner:". Cleaning that away made the lead read as empty, which
+  // is plainly wrong about a 691-character blob.
   lead.empty = !lead.tpids.length && !lead.company && !lead.contacts.length &&
-               !lead.propensity.length && !Object.keys(lead.bant).length;
+               !lead.propensity.length && !Object.keys(lead.bant).length &&
+               !ANY_BANT_LABEL_RE.test(text);
   return lead;
 }
 

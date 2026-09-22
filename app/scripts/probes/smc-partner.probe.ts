@@ -59,6 +59,23 @@ ok("Microsoft followed by a real partner name is held",
 ok("a GUID does not read as held", posture("ec5901d3-3e7a-4753-a5cb-c2480402e823") === "unknown");
 ok("every posture has display copy", (["open", "held", "unknown"] as const).every((k) => !!SMC_PARTNER_META[k].label && !!SMC_PARTNER_META[k].hint));
 
+console.log("\n== cleaning a junk partner must not blank the whole lead ==");
+// MORGAN COUNTY, from Jack's real export. Its blob is 691 characters and
+// names four people with emails, but uses none of the First Name: / Last
+// Name: labels, so the ONLY field parseSmcLead ever got out of it was the
+// junk captured after "Partner:". Tightening cleanPartner dropped that,
+// and the row flipped from "No signal" to "No usable lead content (blank
+// or NULL)" \u2014 plainly wrong about a blob that long. lead.empty now asks
+// whether the TEXT carried a BANT label, not whether a value survived.
+const MORGAN = "F3 / EST MORGAN COUNTY GGC Tenant - e4787ff3-d208-4942-a032-9f4f70cdb9e6 "
+  + "Partner: - POC: Trevor, Giddens 7063429541 TGiddens@morgancountyga.gov "
+  + "Shaunn Deal shaunn.deal@morgancountyga.gov Company Administrator";
+const morgan = parseSmcLead(MORGAN);
+ok("a 691-char blob never reads as blank", morgan.empty === false, `empty=${morgan.empty}`);
+ok("its junk partner value is still dropped from scoring", !morgan.bant.partner, String(morgan.bant.partner));
+ok("a genuinely blank blob still reads as blank", parseSmcLead("").empty === true && parseSmcLead("NULL").empty === true);
+ok("a bare label with nothing after it does not rescue a blank blob", parseSmcLead("Partner:").empty === true);
+
 console.log("\n== the score moves only where a partner is stated ==");
 const BLOB = "Company Name: Alpine Freight Product Propensity Details (as pulled from Cloud Ascent on 2026-06-27): "
   + "Azure - Act Now - High Fit - High Prioritization Index Product Ownership Details: - Has O365: Yes - Has Azure: No "
