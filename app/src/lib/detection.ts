@@ -159,11 +159,40 @@ export const DEFAULT_RULE_OVERRIDES: RuleOverrides = {
   customKeywords: { dynamics365: [], dataPlatform: [], m365Tenant: [] },
 };
 
+/**
+ * Digits that are contact details, never seat counts.
+ *
+ * Jack: "Service - Copilot Studio - 2 users. bad lead for main scanner."
+ * That row DID land in Bad Leads, but testing it surfaced why its
+ * neighbours did not. scanRowLicensing joins EVERY column into one string,
+ * so the Phone and Email columns sit inside the +/-65 char window the count
+ * is read from, and COUNT_PATTERNS allows up to three words between a
+ * number and its unit. On one identical note reading "Business Standard-2
+ * users" (true count: 2):
+ *
+ *   phone 312-555-0100 -> count 100    Strong Signal
+ *   phone 312-555-0199 -> count 199    Strong Signal
+ *   phone 312-555-7777 -> count 7777   Strong Signal
+ *   no phone           -> count 3      (the 3 came out of p3@x3.com)
+ *
+ * bestCount then takes Math.max over every hit, so the junk always wins
+ * over the real number. A two-seat lead qualifies as Strong Signal because
+ * of the digits in its phone number.
+ *
+ * Masked BEFORE counting only. SKU matching still reads the untouched
+ * text, so which rows match is completely unaffected.
+ */
+const CONTACT_DIGITS_RE =
+  /\b[\w.+-]+@[\w-]+\.[a-z]{2,}\b|(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}(?:\s*(?:x|ext\.?)\s*\d{1,6})?/gi;
+function maskContactDigits(text: string): string {
+  return text.replace(CONTACT_DIGITS_RE, (m) => "#".repeat(m.length));
+}
+
 function extractCountNear(haystack: string, matchIndex: number, matchLength: number) {
   const start = Math.max(0, matchIndex - WINDOW);
   const end = Math.min(haystack.length, matchIndex + matchLength + WINDOW);
   const win = haystack.slice(start, end);
-  const searchable = maskProductTokens(win);
+  const searchable = maskProductTokens(maskContactDigits(win));
   let best: number | null = null;
   for (const re of COUNT_PATTERNS) {
     const m = searchable.match(re);
