@@ -1334,13 +1334,20 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
    *  - Takes a band, so High, Medium and High+Medium all come off one
    *    definition rather than three near-copies.
    *
-   * Still independent of the table's filters, exactly as before and as the
-   * Main Scanner's own line downloads are — the point is to grab a line
-   * without first setting the view to match. Anything curated Reject is out.
+   * Per Jack: "i want to be able to download the high and medium together
+   * when its whats filtered that goes for everything also if im filtering
+   * through custom scanner." So these now honour the active filters, the
+   * way the CSP tab's always have — search, partner lane, product filter,
+   * curation, date range, the Act-Now and callable toggles, all of it.
+   *
+   * Two dimensions are deliberately excluded: the priority tab and the
+   * product-line chips, because the BUTTON already picks both. Narrowing to
+   * Medium and then clicking "All High priority" must give you High, not
+   * nothing.
    */
   const smcDownload = useCallback(
     (which: "priority" | "review" | "all", line: ProductLine | "all") =>
-      (result?.rows ?? [])
+      rowsExcept("bucket", "line")
         .filter((r) => {
           const b = effBucket(r);
           const inBand = which === "all" ? b === "priority" || b === "review" : b === which;
@@ -1351,7 +1358,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
         .map((r, i) => ({ r, i }))
         .sort((a, b) => compareSmcScores(a.r.smcScore, b.r.smcScore) || a.i - b.i)
         .map((x) => x.r),
-    [result, curation, effBucket],
+    [rowsExcept, curation, effBucket],
   );
   /** High priority on one line — what call readiness is measured over. */
   const strongFor = useCallback(
@@ -1619,7 +1626,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
                   disabled={d.rows.length === 0}
                   title={isCsp
                     ? `${d.rows.length} ${d.label.toLowerCase()} lead${d.rows.length === 1 ? "" : "s"} within the filters you have set. Ordered by score, best first; Product Area carries the priority so you can split sequences on it in Apollo. An override wins over the score. Low priority is never downloaded.`
-                    : `${d.rows.length} ${d.label.toLowerCase()} lead${d.rows.length === 1 ? "" : "s"}, whatever the table is filtered to. Ordered by score, best first \u2014 the same order the CSP file comes out in. An override wins over the score. Same ten columns as the Main Scanner, ready for Apollo. Anything marked Reject, and every Low priority lead, is left out.`}
+                    : `${d.rows.length} ${d.label.toLowerCase()} lead${d.rows.length === 1 ? "" : "s"} within the filters you have set. Ordered by score, best first \u2014 the same order the CSP file comes out in. An override wins over the score. Same ten columns as the Main Scanner, ready for Apollo. Anything marked Reject, and every Low priority lead, is left out.`}
                   onClick={() => exportApollo(d.rows, d.file)}
                 >
                   ⬇ {d.label}
@@ -1660,7 +1667,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
           <div className="dl-hint" style={{ margin: "-6px 0 12px" }}>
             {isCsp
               ? "In the Main Scanner's Apollo import format, best score first. These follow the filters below, so narrow the view first and each button gives you that slice."
-              : "Strong Signal only, in the Main Scanner's Apollo import format. Each line downloads on its own, ignoring the filters below."}
+              : "In the Main Scanner's Apollo import format, within the filters you have set below \u2014 the priority tab and the product-line chips excepted, since the button picks those. Low priority is never downloaded."}
             {callReadiness.total > 0 && (
               <>
                 {" · "}

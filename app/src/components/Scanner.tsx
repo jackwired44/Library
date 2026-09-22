@@ -805,8 +805,21 @@ export default function Scanner({
     setNewListName("");
   }
 
+  /**
+   * Per Jack: "i want to be able to download the high and medium together
+   * when its whats filtered that goes for everything." The downloads now
+   * honour whatever the table is filtered to — search, the sub-view tabs,
+   * the Duplicates and Priority toggles — instead of always exporting the
+   * whole batch.
+   *
+   * Tier and category are deliberately excluded: the BUTTON picks the
+   * category, and the downloads are Strong Signal by definition
+   * (exportRowsForBucket filters on it), so leaving the tier tab in would
+   * mean sitting on "Needs review" silently emptied every download.
+   */
   function bucketRowsFor(bucketKey: BucketKey) {
-    return exportRowsForBucket(results || [], bucketKey);
+    const scoped = results ? applyFacets(results, { ...facets, tier: "all", category: "all" }) : [];
+    return exportRowsForBucket(scoped, bucketKey);
   }
   function defaultBucketFileName(bucketKey: BucketKey) {
     return `wired-cio-${BUCKET_META[bucketKey].slug}-leads.csv`;
@@ -1192,7 +1205,12 @@ export default function Scanner({
           const count = bucketRowsFor(bk).length;
           return (
             <span key={bk} className="dl-item">
-              <button disabled={count === 0} onClick={() => exportBucket(bk)} className="btn btn-sm btn-primary">
+              <button
+                disabled={count === 0}
+                onClick={() => exportBucket(bk)}
+                className="btn btn-sm btn-primary"
+                title={`${count} Strong Signal ${BUCKET_META[bk].label} lead${count === 1 ? "" : "s"} within the filters you have set below \u2014 the tier tabs and the product-line chips excepted, since this button picks those. Search, the View tabs and the Duplicates / Priority toggles all narrow it.`}
+              >
                 ⬇ {BUCKET_META[bk].label}
                 <span className="dl-count">{count}</span>
               </button>

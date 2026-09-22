@@ -135,6 +135,46 @@ const smcCsv = [HEAD.join(',')].concat(samples.map((d, i) => [
      `${hmText.split('\n').filter(Boolean).length} vs ${custText.split('\n').filter(Boolean).length}`);
   ok('no Low priority lead is in it', !/Score \d+ \u2014 Low priority/.test(hmText));
 
+  console.log('\n== downloads follow the filters ==');
+  // Per Jack: "i want to be able to download the high and medium together
+  // when its whats filtered that goes for everything also if im filtering
+  // through custom scanner." Before this the Custom tab's downloads read
+  // the whole batch regardless of the view, so filtering down to a slice
+  // and hitting download still gave you everything.
+  const dlCount = async label => {
+    const b = page.locator(`button[aria-label="Download ${label} leads"]`);
+    return await b.count() ? Number((await b.innerText()).match(/(\d+)\s*$/)?.[1] ?? -1) : -1;
+  };
+  const snapshot = async () => ({
+    high: await dlCount('All High priority'),
+    med: await dlCount('Medium priority'),
+    both: await dlCount('High + Medium'),
+  });
+  const wide = await snapshot();
+  ok('High + Medium is exactly High plus Medium', wide.both === wide.high + wide.med, JSON.stringify(wide));
+
+  await page.fill('input[placeholder*="Search company"]', 'Real Company 3'); await sleep(900);
+  const narrow = await snapshot();
+  ok('a search narrows every download', narrow.both < wide.both, `${wide.both} -> ${narrow.both}`);
+  ok('and they still add up', narrow.both === narrow.high + narrow.med, JSON.stringify(narrow));
+
+  const [d4] = await Promise.all([
+    page.waitForEvent('download', { timeout: 20000 }),
+    page.locator('button[aria-label="Download High + Medium leads"]').click(),
+  ]);
+  const f4 = path.join(os.tmpdir(), 'parity-filtered.csv'); await d4.saveAs(f4);
+  const filteredRows = fs.readFileSync(f4, 'utf8').split('\n').filter(Boolean).length - 1;
+  ok('the FILE matches the filtered count, not the whole batch',
+     filteredRows === narrow.both, `${filteredRows} rows in the file vs ${narrow.both} on the button`);
+
+  // The band tab and the line chips must stay excluded: the button picks
+  // those, so narrowing to Medium must not empty the High download.
+  await page.fill('input[placeholder*="Search company"]', ''); await sleep(700);
+  await page.locator('button:has-text("Medium priority (")').first().click(); await sleep(900);
+  const onMedium = await snapshot();
+  ok('sitting on the Medium tab does not empty the High download',
+     onMedium.high === wide.high, JSON.stringify(onMedium));
+
   console.log('\n== errors ==');
   ok('no page or console errors', errs.length === 0, JSON.stringify(errs.slice(0, 3)));
   console.log(`\n${pass}/${pass + fail} checks passed`);
