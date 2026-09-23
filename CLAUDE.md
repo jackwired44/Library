@@ -4581,10 +4581,18 @@ rather than trusting memory of it.
   tests (pointed at whichever build is currently under test) before calling
   it done — "it compiles" is not the bar, "it matches the legacy behavior"
   is.
+- **DO NOT PUBLISH TO THE LIVE ARTIFACT.** Standing instruction from Jack,
+  2026-09-23: "we do not need to update to the live artifacts going forward
+  for now i will make this live eventually." Build, test and COMMIT as
+  normal; leave the deployed Artifact alone. He promotes it himself when he
+  is ready. The last version he published is **V40**; everything after that
+  lives in the repo only. Do not republish without him asking in that turn,
+  and do not treat an old instruction below as permission.
 - When Jack says **"CRM"** on its own, that means: pull up the platform —
-  rebuild if there are uncommitted changes since the last publish, then
-  republish/refresh the claude.ai Artifact and hand him the link. Treat it
-  the same as "open the platform"/"drop the platform link," just shorter.
+  rebuild if there are uncommitted changes, and hand him the existing link.
+  Treat it the same as "open the platform"/"drop the platform link," just
+  shorter. **Publishing is NOT part of this any more** — see the rule
+  directly above. If he does ask for a publish:
   **Every republish must pass the FULL capabilities object, every time** —
   `capabilities` is a full-set declaration; whatever isn't restated is
   silently revoked. This app currently needs both `downloads: true` (CSV
