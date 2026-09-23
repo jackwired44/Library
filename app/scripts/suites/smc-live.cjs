@@ -152,8 +152,13 @@ const csv = ['companyname,description,campaignidname,emailaddress1,fullname']
   ok('hot-word rule is on by default and named in the sentence', /modernize\/modernization\/migrate\/migration language/.test(await txt()));
   ok('a migration CAMPAIGN TITLE alone no longer qualifies a lead',
      !/hot signal — "migration" in campaign/i.test(await txt()), (await txt()).match(/hot signal[^\n]{0,70}/i)?.[0]);
-  ok('  but the campaign still shows as context on the row',
-     /campaign mentions "migrat/i.test(await txt()), (await txt()).match(/campaign mentions[^\n]{0,50}/i)?.[0]);
+  // The campaign used to ride along as "campaign mentions ..." AND print
+  // again at the end of the note. Per Jack — "get rid of what is not stated
+  // or indicated in the file" — the note is now the call reason only, so the
+  // campaign is gone from it entirely. Inverted rather than deleted, so the
+  // new contract is pinned: it must NOT come back.
+  ok('  and the campaign no longer pads the note',
+     !/campaign mentions/i.test(await txt()), (await txt()).match(/campaign mentions[^\n]{0,50}/i)?.[0]);
 
   console.log('\n== not supported: Fabric · large opps only: Power BI ==');
   // Per Jack: "we dont do fabric anymore and unless its a large power bi

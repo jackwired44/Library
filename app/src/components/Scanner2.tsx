@@ -871,6 +871,9 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
   // Per Jack: "filter highest to lowest for score number ... and filter
   // together for the price also." A floor on each, applied together.
   const [minScore, setMinScore] = useState(0);
+  // Per Jack: "enter in a range if i want". 100 means no ceiling, so CSP
+  // behaviour is unchanged until someone types one.
+  const [maxScore, setMaxScore] = useState(100);
   const [minValue, setMinValue] = useState(0);
   const [filtersOpen, setFiltersOpen] = useState(true);
   // High priority gets CALLED, and reachability is only a small share of the
@@ -928,7 +931,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
   // so a set saved before scoring existed loads on the defaults.
   const smcScoreRules = useMemo(() => ({ ...DEFAULT_SMC_SCORE_RULES, ...(active?.smcScoreRules ?? {}) }), [active]);
   const smcWeights = useMemo(() => ({ ...DEFAULT_SMC_WEIGHTS, ...(active?.smcWeights ?? {}) }), [active]);
-  useEffect(() => { setPage(1); }, [bucketFilter, curationFilter, search, productFilter, gapsOnly, callableOnly, lineFilter, sortBy, fromDate, toDate, postureFilter, billingFilter, minScore, minValue, phoneOnly, wantsPartnerOnly, smcPostureFilter]);
+  useEffect(() => { setPage(1); }, [bucketFilter, curationFilter, search, productFilter, gapsOnly, callableOnly, lineFilter, sortBy, fromDate, toDate, postureFilter, billingFilter, minScore, maxScore, minValue, phoneOnly, wantsPartnerOnly, smcPostureFilter]);
 
   // A storage failure must never block the scan or wipe the screen. The
   // change is applied for this session either way; the banner says it
@@ -1144,7 +1147,10 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
       },
       // A floor on score and on value, together. A row with NO stated value
       // does not clear a value floor — unknown is not "at least".
-      score: (r: Row2) => minScore <= 0 || ((isCsp ? r.csp?.score : r.smcScore?.score) ?? 0) >= minScore,
+      score: (r: Row2) => {
+      const v = (isCsp ? r.csp?.score : r.smcScore?.score) ?? 0;
+      return (minScore <= 0 || v >= minScore) && (maxScore >= 100 || v <= maxScore);
+    },
       value: (r: Row2) => !isCsp || minValue <= 0 || (r.csp?.value ?? 0) >= minValue,
       gaps: (r: Row2) => !gapsOnly || !!(r.smc && salesGaps(r.smc, smcRules).length),
       callable: (r: Row2) => !callableOnly || !!(r.lead.phone || r.lead.mobilePhone || r.lead.email),
@@ -1162,7 +1168,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
       },
       search: (r: Row2) => searchHits === null || searchHits.has(r.id),
     };
-  }, [bucketFilter, curationFilter, searchHits, curation, productFilter, gapsOnly, callableOnly, smcRules, fromDate, toDate, postureFilter, billingFilter, minScore, minValue, lineFilter, effBucket, isCsp, phoneOnly, wantsPartnerOnly, smcPostureFilter]);
+  }, [bucketFilter, curationFilter, searchHits, curation, productFilter, gapsOnly, callableOnly, smcRules, fromDate, toDate, postureFilter, billingFilter, minScore, maxScore, minValue, lineFilter, effBucket, isCsp, phoneOnly, wantsPartnerOnly, smcPostureFilter]);
 
   type FilterKey = keyof typeof tests;
 
@@ -1775,7 +1781,22 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
                 </button>
               ))}
               <div className="toolbar-spacer" />
-              <span className="toolbar-label">Received</span>
+              {/* Per Jack: "filter by score also for custom highest to lowest
+                  and enter in a range if i want." The score RANGE and the
+                  score SORT both already worked for this tab \u2014 the predicate
+                  and the sort branches have always handled !isCsp, and sortBy
+                  already defaults to score-desc. Only the controls were
+                  missing, which meant the table was score-sorted on arrival
+                  but picking "Newest first" left no way back. */}
+              <span className="toolbar-label">Score</span>
+              <input className="field" type="number" min={0} max={100} aria-label="Minimum score" value={minScore || ""} placeholder={"Score \u2265"}
+                     onChange={(e) => setMinScore(Math.max(0, Math.min(100, Number(e.target.value) || 0)))} style={{ width: 78 }} title="Only leads scoring at least this" />
+              <input className="field" type="number" min={0} max={100} aria-label="Maximum score" value={maxScore >= 100 ? "" : maxScore} placeholder={"Score \u2264"}
+                     onChange={(e) => setMaxScore(e.target.value === "" ? 100 : Math.max(0, Math.min(100, Number(e.target.value) || 0)))} style={{ width: 78 }} title="Only leads scoring at most this" />
+              {(minScore > 0 || maxScore < 100) && (
+                <button className="btn btn-sm btn-ghost" aria-label="Clear score range" onClick={() => { setMinScore(0); setMaxScore(100); }}>Clear</button>
+              )}
+              <span className="toolbar-label">Sort</span>
               <select
                 className="field"
                 aria-label="Sort by"
@@ -1783,6 +1804,8 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
                 onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
                 title={datedCount ? `${datedCount} of ${result.rows.length} rows state a date; the rest sort last` : "No row in this upload states a received date"}
               >
+                <option value="score-desc">Score {"\u2193"} (highest first)</option>
+                <option value="score-asc">Score {"\u2191"} (lowest first)</option>
                 <option value="received-desc">Newest first</option>
                 <option value="received-asc">Oldest first</option>
                 <option value="file">File order</option>

@@ -98,7 +98,8 @@ const smcCsv = [HEAD.join(',')].concat(samples.map((d, i) => [
   // other scanners." The column shape was already right; what was not was
   // the ORDER (file order, so the score was invisible the moment you left
   // the app), the filename, and the set of files on offer.
-  const noteScore = t => { const m = /Score (\d+)/.exec(t); return m ? Number(m[1]) : -1; };
+  // The note closes with "High priority (83)" now, not "Score 83 — High priority".
+  const noteScore = t => { const m = /priority \((\d+)\)/i.exec(t); return m ? Number(m[1]) : -1; };
   const parsed = rows.map(r => r.match(/("([^"]|"")*"|[^,]*)/g).filter(x => x !== '').map(c => c.replace(/^"|"$/g, '')));
   const scores = parsed.map(c => noteScore(c[custCols.indexOf('Notes')] || ''));
   ok('every row states its score in Notes', scores.every(n => n >= 0), JSON.stringify(scores));
@@ -133,7 +134,7 @@ const smcCsv = [HEAD.join(',')].concat(samples.map((d, i) => [
   ok('High + Medium is a superset of High alone',
      hmText.split('\n').filter(Boolean).length >= custText.split('\n').filter(Boolean).length,
      `${hmText.split('\n').filter(Boolean).length} vs ${custText.split('\n').filter(Boolean).length}`);
-  ok('no Low priority lead is in it', !/Score \d+ \u2014 Low priority/.test(hmText));
+  ok('no Low priority lead is in it', !/Low priority \(\d+\)/.test(hmText));
 
   console.log('\n== downloads follow the filters ==');
   // Per Jack: "i want to be able to download the high and medium together
@@ -174,6 +175,29 @@ const smcCsv = [HEAD.join(',')].concat(samples.map((d, i) => [
   const onMedium = await snapshot();
   ok('sitting on the Medium tab does not empty the High download',
      onMedium.high === wide.high, JSON.stringify(onMedium));
+
+  console.log('\n== the score range reaches the downloads too ==');
+  // Per Jack: "filter by score also for custom highest to lowest and enter
+  // in a range if i want." A floor and a ceiling must narrow the files, not
+  // just the table.
+  await page.fill('input[aria-label="Minimum score"]', '80'); await sleep(900);
+  const floored = await snapshot();
+  ok('a score floor narrows the downloads', floored.both <= wide.both, `${wide.both} -> ${floored.both}`);
+  await page.fill('input[aria-label="Maximum score"]', '84'); await sleep(900);
+  const ranged = await snapshot();
+  ok('a ceiling narrows it further', ranged.both <= floored.both, `${floored.both} -> ${ranged.both}`);
+  if (ranged.both > 0) {
+    const [d5] = await Promise.all([
+      page.waitForEvent('download', { timeout: 20000 }),
+      page.locator('button[aria-label="Download High + Medium leads"]').click(),
+    ]);
+    const f5 = path.join(os.tmpdir(), 'parity-scored.csv'); await d5.saveAs(f5);
+    const txt5 = fs.readFileSync(f5, 'utf8');
+    const got = (txt5.match(/priority \((\d+)\)/g) || []).map(m => Number(m.match(/(\d+)/)[1]));
+    ok('every row IN THE FILE is inside the range', got.length > 0 && got.every(n => n >= 80 && n <= 84), JSON.stringify(got));
+  }
+  await page.locator('button[aria-label="Clear score range"]').click(); await sleep(900);
+  ok('Clear restores the full downloads', (await snapshot()).both === wide.both);
 
   console.log('\n== errors ==');
   ok('no page or console errors', errs.length === 0, JSON.stringify(errs.slice(0, 3)));

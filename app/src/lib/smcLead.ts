@@ -560,40 +560,58 @@ export function describeLead(lead: SmcLead, rules?: SmcRules): string {
  *  4. Budget / authority / timeline where stated — who to ask for and when.
  *  5. What Microsoft is already pitching them, which is the pretext.
  */
-export function callAngle(lead: SmcLead, campaign?: Campaign, rules?: SmcRules): string {
+export function callAngle(lead: SmcLead, rules?: SmcRules): string {
   if (lead.empty) return "";
   const r = rules ?? DEFAULT_SMC_RULES;
   const bits: string[] = [];
+  const pitch = salesGaps(lead, r)[0] ?? bestOpportunity(lead, r);
 
-  if (lead.bant.need) bits.push(`They said they need: "${lead.bant.need}"`);
+  // 1. WHY CALL. A need somebody actually typed is the only real pain this
+  //    data ever carries \u2014 86 of 1,114 High rows, and only 30 of those are
+  //    a sentence rather than a product name. Quote it whole: per Jack,
+  //    these are the rows where a human wrote why they care, so they get
+  //    the room. The ceiling only exists so one pathological value cannot
+  //    reproduce the 2,010-character note this replaces.
+  //    On the other 92% there IS no stated pain, and inventing one is the
+  //    defect just fixed twice on the Main Scanner. The honest "why now" is
+  //    Microsoft's own read: they are modelled ready for something they do
+  //    not own.
+  if (lead.bant.need) bits.push(`Needs: "${clip(lead.bant.need, NEED_MAX)}"`);
+  else if (pitch) bits.push(`${pitch.stage} on ${pitch.product}`);
 
-  const gaps = salesGaps(lead, r);
-  if (gaps.length) {
-    const names = gaps.map((g) => g.product).join(", ");
-    bits.push(`Ready to buy ${names}, not on it yet`);
-  } else {
-    // No qualifying gap: say what they are furthest along on instead of
-    // leaving the rep with nothing.
-    const best = opportunities(lead)
-      .filter((o) => !o.owned)
-      .sort((a, b) => STAGE_RANK.indexOf(a.stage) - STAGE_RANK.indexOf(b.stage))[0];
-    if (best) bits.push(`${best.stage} on ${best.product}, not on it yet`);
-  }
+  // 2. WHAT TO PITCH. One product, never a list \u2014 an SDR pitching "Azure,
+  //    M365, D365 BC and Surface" is pitching nothing. Only needed when
+  //    their own words led, since a need does not say which product.
+  if (lead.bant.need && pitch) bits.push(`${pitch.product} whitespace`);
 
-  const owned = (Object.keys(lead.owns) as (keyof SmcLead["owns"])[]).filter((k) => lead.owns[k] === true);
-  if (owned.length) bits.push(`Already runs ${owned.join(", ")}`);
+  // 3. WHAT THEY RUN. The foot in the door, and the reason the pitch is
+  //    plausible. Present on 92% of High rows.
+  const owns = (Object.keys(lead.owns) as (keyof SmcLead["owns"])[]).filter((k) => lead.owns[k] === true);
+  if (owns.length) bits.push(`already on ${owns.join(", ")}`);
 
-  const who = [
-    lead.bant.authority ? `ask for ${lead.bant.authority}` : "",
-    lead.bant.budget ? `budget ${lead.bant.budget}` : "",
-    lead.bant.timeline ? `timeline ${lead.bant.timeline}` : "",
-  ].filter(Boolean);
-  if (who.length) bits.push(who.join(", "));
+  // 4. WHERE THEY GO NEXT, per Jack: "maybe where they may go direction
+  //    wise." The next workload they do not own, after the one being
+  //    pitched. Present on 88%.
+  const next = opportunities(lead)
+    .filter((o) => !o.owned && (!pitch || o.product !== pitch.product))
+    .sort((a, b) => STAGE_RANK.indexOf(a.stage) - STAGE_RANK.indexOf(b.stage))[0];
+  if (next) bits.push(`then ${next.product} (${next.stage})`);
 
-  if (campaign && !campaign.empty && campaign.name && !isRenewalCampaign(campaign.name)) {
-    bits.push(`Microsoft is already pitching them "${campaign.name}"`);
-  }
-  return bits.join(" — ");
+  return bits.join(" \u00b7 ");
+}
+
+/** A safety valve, not a style: one row in the real export carried a
+ *  2,010-character note. Everything short of that is quoted whole. */
+const NEED_MAX = 240;
+
+/** Clip to a length, visibly. An SDR must never read a cut value as whole
+ *  \u2014 same rule the Main Scanner's snippets follow. */
+function clip(v: string, max: number): string {
+  const s = (v || "").replace(/\s+/g, " ").trim();
+  if (s.length <= max) return s;
+  const cut = s.slice(0, max - 1);
+  const sp = cut.lastIndexOf(" ");
+  return (sp > max * 0.5 ? cut.slice(0, sp) : cut).replace(/[\s,;:.\-]+$/, "") + "\u2026";
 }
 
 /** Most-advanced stage first, for picking the best thing to lead with. */

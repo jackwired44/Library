@@ -78,7 +78,7 @@ export function productLineStyle(line: ProductLine | null | undefined): { bg: st
 export type Scanner2ExportRow = ExportRow;
 import {
   parseSmcLead, parseCampaign, describeLead, fiscalYearNumber, productLineFor,
-  resolveSmcRules, hasRealBant, hotWordHit, hotWordContext, wordHit, inferProductLine, isRenewalCampaign, bestContact, looseEmail, loosePhone, type WordHit,
+  resolveSmcRules, hasRealBant, hotWordHit, wordHit, inferProductLine, isRenewalCampaign, bestContact, looseEmail, loosePhone, type WordHit,
   scoreSmcLead, compareSmcScores, DEFAULT_SMC_SCORE_RULES, DEFAULT_SMC_WEIGHTS, partnerPostureOf, SMC_PARTNER_META, callAngle,
   type SmcLead, type Campaign, type ProductLine, type SmcRules, type SmcScore, type SmcScoreRules, type SmcWeights, type SmcPartnerPosture,
 } from "./smcLead";
@@ -718,7 +718,7 @@ export function classifySmc(
   const base = describeLead(lead, rules);
   // What to actually say on the call, built from the blob's own
   // fields — see callAngle in smcLead.ts.
-  const angle = callAngle(lead, campaign, rules);
+  const angle = callAngle(lead, rules);
   // The Campaign column is merged into this reason, so a renewal/true-up
   // campaign is dropped here rather than shown beside its own lead.
   const camp = campaign && campaign.name && !isRenewalCampaign(campaign.name)
@@ -737,7 +737,7 @@ export function classifySmc(
   if (noGo && noGo.where !== "notes") {
     return { bucket: "excluded", why: `Not supported \u2014 "${noGo.word}" in ${whereTxt(noGo)}${detail}${noGo.where === "campaign" ? "" : camp}` };
   }
-  const mention = noGo ? ` · mentions "${noGo.word}" (not supported)` : large ? ` · mentions "${large.word}" (large opps only)` : "";
+  const mention = noGo ? `mentions "${noGo.word}" (not supported)` : large ? `mentions "${large.word}" (large opps only)` : "";
 
   // Nothing to score at all. Kept as its own bucket so the Non Relevant
   // accounting still balances.
@@ -750,21 +750,35 @@ export function classifySmc(
   // to call them about aside from being a match." The angle leads every
   // scored note; the score and the Cloud Ascent vocabulary follow it as
   // supporting evidence rather than being the whole of it.
-  const head = angle ? `${angle} \u00b7 Score ${sc.score}` : `Score ${sc.score}`;
+  /**
+   * The finished call note: WHY TO CALL, then the verdict. Nothing about
+   * how the engine reached it.
+   *
+   * Per Jack, on a real row he rates highly: "this is a great lead but we
+   * need to reconstruct it and get rid of what is not stated or indicated
+   * in the file." What went was everything the engine said about ITSELF:
+   * "\u2691 TOP QUALITY \u2014 a stated need on an Act Now whitespace account",
+   * describeLead's "High prioritization: Azure, M365, D365 BC, Surface",
+   * the SMC segment, and the campaign \u2014 which printed once in the middle
+   * and again at the end. That row was 404 characters; it is now ~115.
+   */
+  const note = (b: Bucket2, ...extras: string[]) =>
+    [angle, `${CSP_BUCKET_META[b].label} (${sc.score})`, ...extras].filter(Boolean).join(" \u00b7 ");
   // Who holds the account rides along on the reason, so it lands in the
   // download's Notes column the same way the CSP tab's partner does.
-  const partner = sc.partnerPosture === "open"
-    ? " \u00b7 no partner on it"
-    : sc.partnerPosture === "held"
-      ? ` \u00b7 held by ${sc.partnerName}`
-      : "";
+  // Kept, unlike the rest of the old tail: who holds the account IS stated
+  // in the file, it is three words, and "nobody on it" is a real reason to
+  // dial. Present on ~3% of rows, so it barely moves the median length.
+  const partner = sc.partnerPosture === "open" ? "no partner on it"
+    : sc.partnerPosture === "held" ? `held by ${sc.partnerName}`
+    : "";
 
   // A large-only product (Power BI) is NEVER auto-High, whatever it scores
   // — Cloud Ascent carries no seat count, so only a human can judge size.
   if (large && large.where !== "notes") {
     return {
       bucket: "review", score: sc,
-      why: `${head} \u2014 "${large.word}" in ${whereTxt(large)}, High only if it is a large opp, judge by hand${detail}${large.where === "campaign" ? "" : camp}`,
+      why: note("review", `"${large.word}" in ${whereTxt(large)} \u2014 large opps only, judge by hand`),
     };
   }
 
@@ -772,10 +786,10 @@ export function classifySmc(
   // wrote down what this customer needs, on an Act Now whitespace account.
   // Forces High priority regardless of score, same as CSP.
   if (sc.perfect) {
-    return { bucket: "priority", score: sc, why: `${head} \u2605 stated need, Act Now, High index, not owned${detail}${partner}${camp}${mention}` };
+    return { bucket: "priority", score: sc, why: note("priority", partner, mention) };
   }
   if (sc.statedNeed) {
-    return { bucket: "priority", score: sc, why: `${head} \u2691 TOP QUALITY \u2014 a stated need on an Act Now whitespace account${detail}${partner}${camp}${mention}` };
+    return { bucket: "priority", score: sc, why: note("priority", partner, mention) };
   }
 
   // Per Jack, migration / modernization language is a great-opp signal in
@@ -783,22 +797,20 @@ export function classifySmc(
   // the campaign title — see hotWordHit for the measurement behind that.
   const hot = hotWordHit(lead, campaign?.name ?? "", rules);
   if (hot) {
-    return { bucket: "priority", score: sc, why: `${head} \u2691 hot signal \u2014 "${hot.word}" in ${whereTxt(hot)}${detail}${partner}${camp}${mention}` };
+    return { bucket: "priority", score: sc, why: note("priority", partner, mention) };
   }
 
   // A hot word in the campaign title is context only. It rides along on the
   // reason so the row still reads as a migration play, but it qualifies
   // nothing by itself.
-  const ctxWord = hotWordContext(campaign?.name ?? "", rules);
-  const ctx = ctxWord ? ` · campaign mentions "${ctxWord}"` : "";
 
   if (sc.score >= scoreRules.strongAt) {
-    return { bucket: "priority", score: sc, why: `${head} \u2014 High priority${detail}${partner}${camp}${ctx}${mention}` };
+    return { bucket: "priority", score: sc, why: note("priority", partner, mention) };
   }
   if (sc.score >= scoreRules.reviewAt) {
-    return { bucket: "review", score: sc, why: `${head} \u2014 Medium priority, under the ${scoreRules.strongAt} line${detail}${partner}${camp}${ctx}${mention}` };
+    return { bucket: "review", score: sc, why: note("review", partner, mention) };
   }
-  return { bucket: "excluded", score: sc, why: `${head} \u2014 Low priority, under the ${scoreRules.reviewAt} line${detail}${partner}${camp}${ctx}${mention}` };
+  return { bucket: "excluded", score: sc, why: note("excluded", partner, mention) };
 }
 
 // -------------------------------------------------------------- matching
