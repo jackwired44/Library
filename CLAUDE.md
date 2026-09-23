@@ -532,8 +532,10 @@ already defined as neither flag set.
 **Locked invariant, per Jack's explicit reconfirmation: these View-tab
 sets don't change.** Dynamics 365 is always exactly four tabs — All
 Dynamics 365, Business Central / ERP, Sales / CRM, Everything else. M365 /
-Azure is always exactly three — All M365/Azure, Google → Microsoft,
-Everything else. True in both places they render (Scanner's
+Azure is always exactly four — All M365/Azure, Google → Microsoft,
+Migrations, Everything else (**changed from three on 2026-09-23, with
+Jack's explicit confirmation** — see "M365 / Azure: Google → Microsoft
+narrowed, Migrations split out" below). True in both places they render (Scanner's
 `dynamicsSubView`/`m365SubView`, and the Lead Library's `CategoryFileCard`
 `subView`). Don't add, remove, rename, or reorder a tab in either set
 without Jack explicitly asking — this isn't a "start somewhere then fine
@@ -4632,6 +4634,47 @@ The roadmap's own open questions (local-only vs. a real backend; whether the
 database holds every scanned row or only qualified leads; retention) are
 Jack's calls and are NOT decided. The Access & ownership guardrail above
 still stands: a backend is a real sign-off, not an implementation detail.
+
+### M365 / Azure: Google → Microsoft narrowed, Migrations split out
+
+Per Jack: *"where is the google to microsoft tab under m365azure i want it
+to be more specific for those migrations."*
+
+The tab filtered on `isGoogleToMicrosoft`, which he had previously widened
+to mean EVERY migration — so a tab named after Google was mostly generic
+legacy/modernization and Azure lift-and-shift. CLAUDE.md had already
+flagged that the label had outgrown the field. **Confirmed the shape with
+him before building, because this breaks the locked tab-set invariant
+above: M365 / Azure is now FOUR tabs, not three.**
+
+- **`m365SubViewOf(row)`** (`lib/detection.ts`) is the single source of
+  truth: `"google"` if `isGoogleWorkspaceMigration` (the narrow flag built
+  for the top-priority pin), else `"migration"` if `isGoogleToMicrosoft`,
+  else `"other"`. Mutually exclusive by construction with Google taking
+  priority — the same precedence rule the Business Central / Sales-CRM
+  tabs use, so a lead can never appear under two tabs.
+- **`M365_SUB_VIEW_META`** supplies the labels and hover hints, so the
+  Scanner, the Lead Library and the Cheat Sheet cannot drift on wording.
+- **The Lead Library gets the same four tabs.** `CategoryFileCard`'s spare
+  `"special2"` slot (previously Dynamics-only, for Sales / CRM) now carries
+  Migrations on an M365/Azure file. `storedM365SubView` (`lib/library.ts`)
+  is the stored-row twin, reading `__isGoogleWorkspaceMigration`/
+  `__isGoogleToMicrosoft`.
+- **A row filed before the narrow flag existed reads as `"migration"`,
+  not `"google"`.** The narrow flag was genuinely never recorded for it, so
+  this is an honest degradation rather than a guess; it corrects itself if
+  the file is re-scanned. Every stored row still lands in exactly one tab,
+  asserted in the suite.
+- **Nothing else moved.** Still one M365/Azure category, one download file,
+  same filing, same History — this is a view-level split only, same
+  contract every other View tab has.
+- Cheat Sheet's M365/Azure section rewritten for four tabs; Documentation's
+  top-priority note updated to say the tab and the pin now mean the same
+  thing.
+
+27 suites / 1,052 checks (`top-priority` 31 → 43). Verified live: a
+5-lead file split 1 Google / 2 Migrations / 2 Everything else, with the
+right companies under each and no console errors.
 
 ## Roadmap — long-term direction, not a build queue
 

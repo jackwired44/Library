@@ -10,6 +10,10 @@ import {
   PERSONAL_PROSPECT_LABEL,
   scanParsedFiles,
   sortByDynamicsSeatCount,
+  m365SubViewOf,
+  M365_SUB_VIEWS,
+  M365_SUB_VIEW_META,
+  type M365SubView,
   sortTopPriorityFirst,
   topPriorityReason,
   type CategoryKey,
@@ -74,7 +78,7 @@ const PAGE_SIZE_CHOICES = [25, 50, 100, 250, 500] as const;
 interface Facets {
   tier: Tier | "all";
   category: CategoryKey | "all";
-  m365Sub: "all" | "google" | "other";
+  m365Sub: "all" | M365SubView;
   dynSub: "all" | "businessCentral" | "salesCrm" | "other";
   dupOnly: boolean;
   prioOnly: boolean;
@@ -88,7 +92,7 @@ function applyFacets(rows: ResultRow[], f: Facets): ResultRow[] {
   // Sub-views are children of their category — they only narrow anything
   // while that category is the active filter, same as in the UI.
   if (f.category === "m365Tenant" && f.m365Sub !== "all") {
-    list = list.filter((r) => (f.m365Sub === "google" ? r.isGoogleToMicrosoft : !r.isGoogleToMicrosoft));
+    list = list.filter((r) => m365SubViewOf(r) === f.m365Sub);
   }
   if (f.category === "dynamics365" && f.dynSub !== "all") {
     list = list.filter((r) => {
@@ -344,7 +348,7 @@ export default function Scanner({
   // Microsoft migration leads specifically — see CLAUDE.md "Google ->
   // Microsoft view." Purely a view-level split; doesn't touch category,
   // bucket, or export — both tabs still file/download as M365/Azure.
-  const [m365SubView, setM365SubView] = useState<"all" | "google" | "other">("all");
+  const [m365SubView, setM365SubView] = useState<"all" | M365SubView>("all");
   // Same pattern, for Business Central/ERP and Sales/CRM within the
   // Dynamics 365 category view — see CLAUDE.md "Business Central view" /
   // "Sales / CRM view." Purely a view-level split; doesn't touch
@@ -595,6 +599,7 @@ export default function Scanner({
       m365Sub: {
         all: n({ category: "m365Tenant", m365Sub: "all" }),
         google: n({ category: "m365Tenant", m365Sub: "google" }),
+        migration: n({ category: "m365Tenant", m365Sub: "migration" }),
         other: n({ category: "m365Tenant", m365Sub: "other" }),
       },
       dynSub: {
@@ -1372,9 +1377,12 @@ export default function Scanner({
                 <span className="toolbar-label">View</span>
                 {(
                   [
-                    ["all", `All M365/Azure (${m365SubViewCounts.all})`],
-                    ["google", `Google → Microsoft (${m365SubViewCounts.google})`],
-                    ["other", `Everything else (${m365SubViewCounts.other})`],
+                    ["all", `All M365/Azure (${m365SubViewCounts.all})`, "Every M365 / Azure lead, however it qualified."],
+                    ...M365_SUB_VIEWS.map((k) => [
+                      k,
+                      `${M365_SUB_VIEW_META[k].label} (${m365SubViewCounts[k]})`,
+                      M365_SUB_VIEW_META[k].hint,
+                    ] as const),
                   ] as const
                 ).map(([key, label]) => (
                   <button

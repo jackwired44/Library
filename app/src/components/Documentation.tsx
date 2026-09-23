@@ -328,9 +328,9 @@ export default function Documentation() {
           <p style={{ margin: "8px 0 0", color: "var(--muted)" }}>
             A pin is a badge and a sort, nothing else. It never changes a lead’s product line, its tier, or which
             file it downloads in — the same leads come out, the pinned ones just come out first. A lead carrying
-            both signals shows as the Google one, the rarer of the two. This is narrower than the
-            <b> Google → Microsoft</b> view tab, which is a migrations tab: a generic modernization or an Azure
-            lift-and-shift shows there but is not pinned.
+            both signals shows as the Google one, the rarer of the two. The M365 / Azure
+            <b> Google → Microsoft</b> view tab now means exactly the same thing: a generic modernization or an
+            Azure lift-and-shift sits in the separate <b>Migrations</b> tab beside it, not in with the Google moves.
           </p>
           <H>What comes out</H>
           <p style={{ margin: 0 }}>Ten columns — the canonical Apollo shape, with first and last name separate:</p>

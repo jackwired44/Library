@@ -15,6 +15,8 @@ import {
   type ExportRow,
   type ResultRow,
   sortTopPriorityBy,
+  m365SubViewOf,
+  type M365SubView,
   type TopPriorityReason,
 } from "./detection";
 import { toCSV } from "./csv";
@@ -491,6 +493,25 @@ export function getFolderEntries(entries: LibraryEntry[], groupId: string): Libr
 // carry hidden __dynamics* fields instead of the live ResultRow's. Older
 // stored rows (filed before module-tier ranking existed) default to
 // tier 2 ("the rest") rather than crashing on a missing field.
+/**
+ * Which M365 / Azure View tab a FILED lead belongs to - the stored-row twin
+ * of m365SubViewOf, reading the same two flags under their `__` names so a
+ * lead lands in the same tab here as it did in the Scanner.
+ *
+ * A row filed before `__isGoogleWorkspaceMigration` existed reads as
+ * undefined, so a literal Google move filed earlier resolves to "migration"
+ * rather than "google". That is an honest degradation - the narrow flag was
+ * genuinely never recorded for it - and it corrects itself if the file is
+ * ever re-scanned. Nothing crashes and nothing disappears: every stored row
+ * still lands in exactly one tab.
+ */
+export function storedM365SubView(r: StoredRow): M365SubView {
+  return m365SubViewOf({
+    isGoogleWorkspaceMigration: r.__isGoogleWorkspaceMigration,
+    isGoogleToMicrosoft: r.__isGoogleToMicrosoft,
+  });
+}
+
 /** Top priority first, mirroring the Scanner — a stored row carries the
  *  same two flags under `__` names. Runs AFTER any per-bucket ranking, so
  *  the seat-count order below it is preserved. */

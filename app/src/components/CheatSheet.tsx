@@ -251,13 +251,16 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
             no specific module named.
           </CategoryDetail>
           <CategoryDetail k="m365Tenant">
-            <strong>Three tabs, always: All M365/Azure · Google → Microsoft · Everything else.</strong>
+            <strong>Four tabs, always: All M365/Azure · Google → Microsoft · Migrations · Everything else.</strong>
             <br />
-            <strong>Google → Microsoft</strong> — literal Google Workspace→Microsoft 365 migration language, PLUS any
-            other Migration/Modernization-category hit (those already require partner-engagement language to count at
-            all, so they're already Strong Signal), PLUS Azure hits qualified specifically via on-prem-to-cloud migration
-            language. Azure billing/CSP hits and security-design hits do NOT land here even though they're Strong Signal —
-            they stay in Everything else.
+            <strong>Google → Microsoft</strong> — literal Google Workspace / G Suite / Gmail-for-business moving to
+            Microsoft 365, and nothing else. These are also pinned to the top of the results table and of every
+            download as top priority.
+            <br />
+            <strong>Migrations</strong> — every other migration: Migration/Modernization-category hits (which already
+            require partner-engagement language to count at all, so they are already Strong Signal) and Azure hits
+            qualified specifically via on-prem-to-cloud migration language. Azure billing/CSP hits and security-design
+            hits do NOT land here even though they are Strong Signal — they stay in Everything else.
             <br />
             <strong>Everything else</strong> — every other M365/Azure hit: Azure billing/CSP, Document Intelligence, app
             builds, security design/hardening, tenant support, and plain licensing.

@@ -5,6 +5,7 @@ import {
   CATEGORY_META,
   EXPORT_LABELS,
   PERSONAL_PROSPECT_LABEL,
+  M365_SUB_VIEW_META,
   scanParsedFiles,
   type NoSignalRow,
   type DuplicateRow,
@@ -42,6 +43,7 @@ import {
   sortDynamicsStoredRows,
   sortStoredTopPriorityFirst,
   storedTopPriorityReason,
+  storedM365SubView,
   setGroupPrivate,
   setGroupPublic,
   type LibraryEntry,
@@ -595,28 +597,36 @@ function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownl
   // Central/ERP and Sales/CRM — a lead can match both); M365/Azure has one
   // (Google -> Microsoft). "special2" is unused/hidden for M365 files.
   const [subView, setSubView] = useState<"all" | "special" | "special2" | "other">("all");
+  // M365 / Azure now uses the spare "special2" slot for Migrations, so both
+  // buckets have the same number of tabs here as they do in the Scanner.
   const specialCount = isDynamics
     ? entry.rows.filter((r) => r.__isBusinessCentral).length
     : isM365
-      ? entry.rows.filter((r) => r.__isGoogleToMicrosoft).length
+      ? entry.rows.filter((r) => storedM365SubView(r) === "google").length
       : 0;
-  const special2Count = isDynamics ? entry.rows.filter((r) => r.__isSalesCrm).length : 0;
+  const special2Count = isDynamics
+    ? entry.rows.filter((r) => r.__isSalesCrm).length
+    : isM365
+      ? entry.rows.filter((r) => storedM365SubView(r) === "migration").length
+      : 0;
   const otherCount = isDynamics
     ? entry.rows.filter((r) => !r.__isBusinessCentral && !r.__isSalesCrm).length
-    : entry.rows.length - specialCount;
+    : entry.rows.length - specialCount - special2Count;
   const subViewTabs: Array<["all" | "special" | "special2" | "other", string]> = [
     ["all", `All (${entry.rows.length})`],
-    ["special", `${isDynamics ? "Business Central / ERP" : "Google → Microsoft"} (${specialCount})`],
-    ...(isDynamics ? ([["special2", `Sales / CRM (${special2Count})`]] as Array<["special2", string]>) : []),
+    ["special", `${isDynamics ? "Business Central / ERP" : M365_SUB_VIEW_META.google.label} (${specialCount})`],
+    ...(isDynamics || isM365
+      ? ([["special2", `${isDynamics ? "Sales / CRM" : M365_SUB_VIEW_META.migration.label} (${special2Count})`]] as Array<["special2", string]>)
+      : []),
     ["other", `Everything else (${otherCount})`],
   ];
   const subFiltered =
     subView === "all"
       ? entry.rows
       : entry.rows.filter((r) => {
-          if (subView === "special") return isDynamics ? r.__isBusinessCentral : r.__isGoogleToMicrosoft;
-          if (subView === "special2") return r.__isSalesCrm;
-          return isDynamics ? !r.__isBusinessCentral && !r.__isSalesCrm : !r.__isGoogleToMicrosoft;
+          if (subView === "special") return isDynamics ? r.__isBusinessCentral : storedM365SubView(r) === "google";
+          if (subView === "special2") return isDynamics ? r.__isSalesCrm : storedM365SubView(r) === "migration";
+          return isDynamics ? !r.__isBusinessCentral && !r.__isSalesCrm : storedM365SubView(r) === "other";
         });
   // Ranked highest seat/user/license count first when this is the
   // Dynamics 365 file — a lead with no stated count sinks to its own

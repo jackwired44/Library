@@ -2008,6 +2008,47 @@ export function topPriorityReason(
  * whatever ranking ran before this one (the Dynamics seat-count sort) is
  * preserved underneath it rather than scrambled.
  */
+/**
+ * Which M365 / Azure View tab a lead belongs to.
+ *
+ * Per Jack: "where is the google to microsoft tab under m365azure i want it
+ * to be more specific for those migrations." The tab was filtering on
+ * isGoogleToMicrosoft, which he had previously widened to cover EVERY
+ * migration-flavored hit - so a tab labelled "Google -> Microsoft" was
+ * mostly generic legacy-modernization and Azure lift-and-shift. Confirmed
+ * with him before changing it, because the M365 / Azure tab set is a locked
+ * invariant: it is now four tabs, not three.
+ *
+ * Mutually exclusive by construction, Google taking priority - the same
+ * precedence rule the Business Central / Sales-CRM tabs already use, so a
+ * lead can never appear under two tabs at once.
+ *
+ * One source of truth for the Scanner and the Lead Library; the Library's
+ * stored rows carry the same two flags under `__` names and resolve through
+ * storedM365SubView (lib/library.ts).
+ */
+export type M365SubView = "google" | "migration" | "other";
+export const M365_SUB_VIEWS: M365SubView[] = ["google", "migration", "other"];
+export const M365_SUB_VIEW_META: Record<M365SubView, { label: string; hint: string }> = {
+  google: {
+    label: "Google \u2192 Microsoft",
+    hint: "Google Workspace / G Suite / Gmail for Business moving to Microsoft 365, and nothing else.",
+  },
+  migration: {
+    label: "Migrations",
+    hint: "Every other migration: generic legacy / modernization / re-platforming work, and Azure on-prem-to-cloud moves.",
+  },
+  other: {
+    label: "Everything else",
+    hint: "Licensing, Azure billing, CSP / partner engagement, tenant support and security design.",
+  },
+};
+export function m365SubViewOf(r: { isGoogleWorkspaceMigration?: boolean; isGoogleToMicrosoft?: boolean }): M365SubView {
+  if (r.isGoogleWorkspaceMigration) return "google";
+  if (r.isGoogleToMicrosoft) return "migration";
+  return "other";
+}
+
 export function sortTopPriorityBy<T>(rows: T[], reasonOf: (r: T) => TopPriorityReason | null): T[] {
   const buckets: T[][] = [[], [], []];
   for (const r of rows) {

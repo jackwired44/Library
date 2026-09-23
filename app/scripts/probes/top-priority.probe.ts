@@ -18,9 +18,9 @@
 import { parseCSVText } from "../../src/lib/csv";
 import {
   scanParsedFiles, topPriorityReason, sortTopPriorityFirst, exportRowsForBucket,
-  CATEGORY_META, type ResultRow,
+  m365SubViewOf, M365_SUB_VIEWS, CATEGORY_META, type ResultRow,
 } from "../../src/lib/detection";
-import { sortStoredTopPriorityFirst, storedTopPriorityReason } from "../../src/lib/library";
+import { sortStoredTopPriorityFirst, storedTopPriorityReason, storedM365SubView } from "../../src/lib/library";
 
 let pass = 0, fail = 0;
 const ok = (n: string, c: boolean, d = "") => { c ? (pass++, console.log("  PASS " + n)) : (fail++, console.log(`  FAIL ${n}${d ? " — " + d : ""}`)); };
@@ -136,6 +136,38 @@ ok("a row filed before the flags existed is simply unpinned",
    storedTopPriorityReason({ n: "legacy" } as never) === null);
 ok("and the stored reason matches the live one",
    storedTopPriorityReason(stored[3] as never) === "google" && storedTopPriorityReason(stored[1] as never) === "partner");
+
+
+// Per Jack: "where is the google to microsoft tab under m365azure i want it
+// to be more specific for those migrations." The tab was filtering on the
+// WIDE flag, so a tab named after Google was mostly generic modernization
+// and Azure lift-and-shift. Now four tabs, and they are exclusive.
+console.log("\n== M365 / Azure View tabs: Google is Google, migrations are their own ==");
+const TABS: [string, string][] = [
+  ["Currently on Google Workspace and want to move to Microsoft 365 for 80 users.", "google"],
+  ["Looking to migrate off Google this quarter.", "google"],
+  ["Modernizing a legacy system and bringing in a partner this year.", "migration"],
+  ["Lift and shift our on-prem servers to Azure with a partner.", "migration"],
+  ["Renewing 40 Microsoft 365 E3 licenses next month.", "other"],
+  ["Need a CSP to route our Azure billing through.", "other"],
+];
+const tabRows = scan(TABS.map(([n]) => n));
+TABS.forEach(([n, want], i) => {
+  const got = tabRows[i] ? m365SubViewOf(tabRows[i]) : "NO ROW";
+  ok(`${want.padEnd(9)} <- ${JSON.stringify(n.slice(0, 40))}`, got === want, String(got));
+});
+ok("every lead lands in exactly one tab",
+   tabRows.filter(Boolean).every((r) => M365_SUB_VIEWS.filter((k) => m365SubViewOf(r) === k).length === 1));
+ok("the three tabs cover every lead", tabRows.filter(Boolean).every((r) => M365_SUB_VIEWS.includes(m365SubViewOf(r))));
+
+console.log("\n== the Lead Library puts a filed lead in the same tab ==");
+ok("a filed Google move", storedM365SubView({ __isGoogleWorkspaceMigration: true, __isGoogleToMicrosoft: true } as never) === "google");
+ok("a filed generic migration", storedM365SubView({ __isGoogleToMicrosoft: true } as never) === "migration");
+ok("a filed licensing lead", storedM365SubView({} as never) === "other");
+// A row filed before the narrow flag existed reads as a migration rather
+// than vanishing - honest, since the narrow flag was never recorded for it.
+ok("a pre-existing filed row still lands in exactly one tab",
+   storedM365SubView({ __isGoogleToMicrosoft: true, __isGoogleWorkspaceMigration: undefined } as never) === "migration");
 
 console.log(`\n${pass}/${pass + fail} checks passed`);
 if (fail) process.exit(1);
