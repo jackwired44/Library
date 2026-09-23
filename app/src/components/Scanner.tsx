@@ -10,6 +10,8 @@ import {
   PERSONAL_PROSPECT_LABEL,
   scanParsedFiles,
   sortByDynamicsSeatCount,
+  sortTopPriorityFirst,
+  topPriorityReason,
   type CategoryKey,
   type Disposition,
   type ParsedFile,
@@ -27,6 +29,7 @@ import { downloadCSV, parseCSVFile, parseCSVText } from "../lib/csv";
 import type { LeadList } from "../lib/leadLists";
 import BookedStamp from "./BookedStamp";
 import OnCrmBadge from "./OnCrmBadge";
+import TopPriorityBadge from "./TopPriorityBadge";
 import {
   getMonthOptionsForFiling,
   getOrCreateGroupByName,
@@ -556,7 +559,12 @@ export default function Scanner({
     // license count (direction togglable below), regardless of which tier
     // tab is active. Module-tier grouping (ERP block, then Sales/CRM, then
     // the rest) never flips.
-    return categoryFilter === "dynamics365" ? sortByDynamicsSeatCount(list, dynamicsSortDesc) : list;
+    const ranked = categoryFilter === "dynamics365" ? sortByDynamicsSeatCount(list, dynamicsSortDesc) : list;
+    // Top priority above everything, per Jack: a Google Workspace ->
+    // Microsoft 365 lead is the first row you see whatever else is on.
+    // Stable, so the Dynamics seat ranking below it is untouched (and in
+    // practice they never overlap - a Google lead is always M365/Azure).
+    return sortTopPriorityFirst(ranked);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [results, tierFilter, categoryFilter, duplicatesOnly, priorityOnly, search, dynamicsSortDesc, m365SubView, dynamicsSubView]);
 
@@ -1548,6 +1556,7 @@ export default function Scanner({
                     </td>
                     <td style={{ padding: "10px 11px" }}>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                        {topPriorityReason(r) && <TopPriorityBadge reason={topPriorityReason(r)!} />}
                         {r.isDuplicate && <span style={{ fontSize: 10.5, background: "#F7B955", color: "#5C3A00", padding: "2px 7px", borderRadius: 20, fontWeight: 700 }}>DUPLICATE</span>}
                         {r.licensing && <span style={{ fontSize: 10.5, background: "#FBF0DC", color: "#8A5A00", padding: "2px 7px", borderRadius: 20 }}>{r.licensing.skus[0]}{r.licensing.count ? ` · ${r.licensing.count}` : ""}</span>}
                         {r.categories.filter((ck) => !(ck === "m365Tenant" && r.licensing)).map((ck) => (

@@ -14,6 +14,8 @@ import {
   type Disposition,
   type ExportRow,
   type ResultRow,
+  sortTopPriorityBy,
+  type TopPriorityReason,
 } from "./detection";
 import { toCSV } from "./csv";
 
@@ -69,6 +71,13 @@ export type StoredRow = ExportRow & {
   // in the Scanner. Optional so a StoredRow filed before these flags
   // existed still loads fine (undefined reads as false everywhere used).
   __isGoogleToMicrosoft?: boolean;
+  // Top priority (see detection.ts's topPriorityReason) — a Google
+  // Workspace -> Microsoft 365 move, or a lead shopping for a partner /
+  // MSP / CSP. Carried through filing so a stored lead keeps its badge and
+  // still sorts to the top of its file and its download, exactly as it did
+  // in the Scanner. Optional for the same pre-existing-row reason above.
+  __isGoogleWorkspaceMigration?: boolean;
+  __isPartnerSeeking?: boolean;
   __isBusinessCentral?: boolean;
   __isSalesCrm?: boolean;
   // Personal Prospect carve-out (see detection.ts's PERSONAL_PROSPECT_LABEL/
@@ -307,6 +316,8 @@ export function fileSignalRowsIntoGroup(
       __dynamicsSeatCount: r.dynamicsSeatCount,
       __dynamicsModuleTier: r.dynamicsModuleTier,
       __isGoogleToMicrosoft: r.isGoogleToMicrosoft,
+      __isGoogleWorkspaceMigration: r.isGoogleWorkspaceMigration,
+      __isPartnerSeeking: r.isPartnerSeeking,
       __isBusinessCentral: r.isBusinessCentral,
       __isSalesCrm: r.isSalesCrm,
       __isPersonalProspect: r.isPersonalProspect,
@@ -480,6 +491,16 @@ export function getFolderEntries(entries: LibraryEntry[], groupId: string): Libr
 // carry hidden __dynamics* fields instead of the live ResultRow's. Older
 // stored rows (filed before module-tier ranking existed) default to
 // tier 2 ("the rest") rather than crashing on a missing field.
+/** Top priority first, mirroring the Scanner — a stored row carries the
+ *  same two flags under `__` names. Runs AFTER any per-bucket ranking, so
+ *  the seat-count order below it is preserved. */
+export function storedTopPriorityReason(r: StoredRow): TopPriorityReason | null {
+  return r.__isGoogleWorkspaceMigration ? "google" : r.__isPartnerSeeking ? "partner" : null;
+}
+export function sortStoredTopPriorityFirst(rows: StoredRow[]): StoredRow[] {
+  return sortTopPriorityBy(rows, storedTopPriorityReason);
+}
+
 export function sortDynamicsStoredRows(rows: StoredRow[]): StoredRow[] {
   return [...rows].sort((a, b) => {
     const tierDiff = (a.__dynamicsModuleTier ?? 2) - (b.__dynamicsModuleTier ?? 2);
@@ -498,6 +519,8 @@ export function sortDynamicsStoredRows(rows: StoredRow[]): StoredRow[] {
 // Dynamics segment is seat-count sorted like everywhere else; the other
 // two categories keep their existing order.
 export function getCombinedFolderExport(entries: LibraryEntry[], groupId: string): { rows: StoredRow[]; rawText: string; rowCount: number } {
-  const rows = getFolderEntries(entries, groupId).flatMap((e) => (e.bucketKey === "dynamics" ? sortDynamicsStoredRows(e.rows) : e.rows));
+  const rows = sortStoredTopPriorityFirst(
+    getFolderEntries(entries, groupId).flatMap((e) => (e.bucketKey === "dynamics" ? sortDynamicsStoredRows(e.rows) : e.rows)),
+  );
   return { rows, rawText: toCSV(rows, EXPORT_LABELS), rowCount: rows.length };
 }

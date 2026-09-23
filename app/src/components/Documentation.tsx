@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { EXPORT_LABELS } from "../lib/detection";
+import { EXPORT_LABELS, TOP_PRIORITY_META, TOP_PRIORITY_ORDER } from "../lib/detection";
 import { SCANNER2_EXPORT_LABELS, CSP_EXPORT_LABELS } from "../lib/scanner2";
 import { BILLING_META, POSTURE_META, DEFAULT_CSP_RULES, DEFAULT_CSP_WEIGHTS, WEIGHT_META, DEAD_PATTERNS, MOTION_PATTERNS, MOTION_WEIGHT, CSP_COLUMN_HINTS, WANTS_PARTNER_LABEL } from "../lib/cspRenewal";
 import { SMC_PRODUCTS, DEFAULT_SMC_SCORE_RULES, DEFAULT_SMC_WEIGHTS, SMC_FACTOR_META, SMC_PARTNER_META, RUNS_MAX } from "../lib/smcLead";
@@ -315,6 +315,22 @@ export default function Documentation() {
           <p style={{ marginTop: 0 }}>
             The original scanner, for exports where a human wrote real notes. It reads the free text for buying signals
             and maps them to the two lines Wired CIO sells, then applies cross-cutting disqualifiers.
+          </p>
+          <H>Top priority</H>
+          <p style={{ margin: 0 }}>
+            Two signals pin a lead to the top — of the results table, of the Lead library file it is stored in,
+            and of every download that contains it. Ranked in this order:
+          </p>
+          <Table
+            head={["Badge", "What it means"]}
+            rows={TOP_PRIORITY_ORDER.map((k) => [`★ ${TOP_PRIORITY_META[k].label}`, TOP_PRIORITY_META[k].hint])}
+          />
+          <p style={{ margin: "8px 0 0", color: "var(--muted)" }}>
+            A pin is a badge and a sort, nothing else. It never changes a lead’s product line, its tier, or which
+            file it downloads in — the same leads come out, the pinned ones just come out first. A lead carrying
+            both signals shows as the Google one, the rarer of the two. This is narrower than the
+            <b> Google → Microsoft</b> view tab, which is a migrations tab: a generic modernization or an Azure
+            lift-and-shift shows there but is not pinned.
           </p>
           <H>What comes out</H>
           <p style={{ margin: 0 }}>Ten columns — the canonical Apollo shape, with first and last name separate:</p>

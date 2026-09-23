@@ -656,6 +656,23 @@ interface PlatformHit {
   // view". Drives the Scanner's separate Google->Microsoft tab within the
   // M365/Azure category; doesn't change category/bucket/export.
   isGoogleToMicrosoft?: boolean;
+  // Google Workspace / G Suite / Gmail-for-business moving to Microsoft
+  // 365, and NOTHING else. Deliberately narrower than isGoogleToMicrosoft
+  // above, which was widened to cover every migration-flavored hit - per
+  // Jack, "google migrations to microsoft need to be flagged as top
+  // priority", which is the first of those three disjuncts only. A generic
+  // legacy-modernization or an Azure lift-and-shift is a normal Strong
+  // Signal; this is the one that gets pinned.
+  isGoogleWorkspaceMigration?: boolean;
+  // They are looking to bring in a partner / MSP / CSP / reseller /
+  // consultant, or want an ongoing IT relationship. Per Jack, "anyone
+  // looking specifically to work with a partner also to be included" as
+  // top priority. Both gates already exist and already decide whether
+  // several categories count as a hit at all, so anything matching here
+  // on a scored row is language the engine already treats as real intent.
+  // Category-agnostic on purpose: someone shopping for a partner is a
+  // Wired CIO lead whatever product they name.
+  isPartnerSeeking?: boolean;
   // "Business Central" specifically, within a Dynamics 365 hit — same
   // pattern as isGoogleToMicrosoft, drives the Scanner's separate
   // Business Central tab within the Dynamics 365 category.
@@ -681,6 +698,10 @@ export interface PlatformResult {
   dynamicsModuleTier: number;
   // True if any hit is Google->Microsoft migration language specifically.
   isGoogleToMicrosoft: boolean;
+  // True if any hit is a literal Google Workspace -> Microsoft 365 move.
+  isGoogleWorkspaceMigration: boolean;
+  // True if any hit carries partner/MSP/CSP-engagement language.
+  isPartnerSeeking: boolean;
   // True if any hit is "Business Central" specifically.
   isBusinessCentral: boolean;
   // True if any hit is "Sales"/"CRM" specifically.
@@ -836,6 +857,8 @@ export function scanRowPlatform(
           (cat.label === TENANT_SUPPORT_LABEL && GOOGLE_TO_MICROSOFT_RE.test(win)) ||
           cat.label === MIGRATION_LABEL ||
           (cat.label === "Azure" && AZURE_MIGRATION_OVERRIDE_RE.test(win)),
+        isGoogleWorkspaceMigration: cat.label === TENANT_SUPPORT_LABEL && GOOGLE_TO_MICROSOFT_RE.test(win),
+        isPartnerSeeking: ONGOING_PARTNER_RE.test(win) || PARTNER_ENGAGEMENT_RE.test(win),
         isBusinessCentral: cat.label === "Dynamics 365" && BUSINESS_CENTRAL_RE.test(win),
         isSalesCrm: cat.label === "Dynamics 365" && SALES_CRM_RE.test(win),
       });
@@ -869,6 +892,8 @@ export function scanRowPlatform(
           (cat.label === TENANT_SUPPORT_LABEL && GOOGLE_TO_MICROSOFT_RE.test(paText)) ||
           cat.label === MIGRATION_LABEL ||
           (cat.label === "Azure" && AZURE_MIGRATION_OVERRIDE_RE.test(paText)),
+        isGoogleWorkspaceMigration: cat.label === TENANT_SUPPORT_LABEL && GOOGLE_TO_MICROSOFT_RE.test(paText),
+        isPartnerSeeking: ONGOING_PARTNER_RE.test(paText) || PARTNER_ENGAGEMENT_RE.test(paText),
         isBusinessCentral: cat.label === "Dynamics 365" && BUSINESS_CENTRAL_RE.test(paText),
         isSalesCrm: cat.label === "Dynamics 365" && SALES_CRM_RE.test(paText),
       });
@@ -880,6 +905,8 @@ export function scanRowPlatform(
   const bestHit = hits.find((h) => h.fromProductArea) || hits.find((h) => h.hasTrigger) || hits[0];
   const notesSummary = commentsValue ? summarizeNotes(commentsValue, categories, SUMMARY_MAX_LEN, "") : summarizeFromSnippets(hits.map((h) => h.snippet), categories, "");
   const isGoogleToMicrosoft = hits.some((h) => h.isGoogleToMicrosoft);
+  const isGoogleWorkspaceMigration = hits.some((h) => h.isGoogleWorkspaceMigration);
+  const isPartnerSeeking = hits.some((h) => h.isPartnerSeeking);
   // Business Central/ERP and Sales/CRM are mutually exclusive at the row
   // level, Business Central/ERP taking priority — same precedence as the
   // module-tier ranking (tier 0 beats tier 1). A lead whose text hits both
@@ -895,7 +922,7 @@ export function scanRowPlatform(
   const dynamicsSeatCount = dynamicsCounts.length ? Math.max(...dynamicsCounts) : null;
   const dynamicsModuleTiers = hits.filter((h) => h.category === "Dynamics 365" && h.moduleTier != null).map((h) => h.moduleTier as number);
   const dynamicsModuleTier = dynamicsModuleTiers.length ? Math.min(...dynamicsModuleTiers) : 2;
-  return { categories, tier, snippet: bestHit.snippet, notesSummary, hits, dynamicsSeatCount, dynamicsModuleTier, isGoogleToMicrosoft, isBusinessCentral, isSalesCrm };
+  return { categories, tier, snippet: bestHit.snippet, notesSummary, hits, dynamicsSeatCount, dynamicsModuleTier, isGoogleToMicrosoft, isGoogleWorkspaceMigration, isPartnerSeeking, isBusinessCentral, isSalesCrm };
 }
 
 // Free/personal email providers — shared source of truth for both the
@@ -1135,6 +1162,18 @@ export interface ScanResult {
   // exactly one of the two active categories, still one of the two
   // download files.
   isGoogleToMicrosoft: boolean;
+  // TOP PRIORITY. A literal Google Workspace / G Suite -> Microsoft 365
+  // move, and only that - see isGoogleWorkspaceMigration on PlatformHit.
+  // Per Jack these are the huge opps, so they carry a badge and sort to
+  // the top of the results table and of every Main Scanner download.
+  // Like every other flag here it does NOT change category, tier, bucket
+  // or which download a lead lands in - only the order and the badge.
+  isGoogleWorkspaceMigration: boolean;
+  // TOP PRIORITY, the other way in. They are shopping for a partner / MSP
+  // / CSP / consultant, or want an ongoing IT relationship - per Jack,
+  // pinned alongside the Google migrations. Same contract: badge and
+  // order only, never category, tier, bucket or which file it downloads in.
+  isPartnerSeeking: boolean;
   // True for a Business Central lead — drives the Scanner's separate
   // Business Central tab within the Dynamics 365 category (see "Business
   // Central view" in CLAUDE.md). Doesn't change category/bucket/export.
@@ -1228,6 +1267,8 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
     dynamicsSeatCount: platform ? platform.dynamicsSeatCount : null,
     dynamicsModuleTier: platform ? platform.dynamicsModuleTier : 2,
     isGoogleToMicrosoft: platform ? platform.isGoogleToMicrosoft : false,
+    isGoogleWorkspaceMigration: platform ? platform.isGoogleWorkspaceMigration : false,
+    isPartnerSeeking: platform ? platform.isPartnerSeeking : false,
     isBusinessCentral: platform ? platform.isBusinessCentral : false,
     isSalesCrm: platform ? platform.isSalesCrm : false,
     isPersonalProspect,
@@ -1300,6 +1341,13 @@ export interface MainScore {
 /** Everything the score reads, so it can be computed without a ResultRow. */
 export interface MainScoreInput {
   tier: Tier;
+  /** The literal Google Workspace -> Microsoft 365 move. This is what
+   *  pins, per Jack; isGoogleToMicrosoft below is the WIDER migrations
+   *  flag (it also covers generic modernization and Azure lift-and-shift)
+   *  and is only a partial hot signal. Nothing calls this engine yet -
+   *  see CLAUDE.md - but the two must not disagree when it is wired. */
+  isGoogleWorkspaceMigration: boolean;
+  isPartnerSeeking: boolean;
   isGoogleToMicrosoft: boolean;
   isBusinessCentral: boolean;
   isSalesCrm: boolean;
@@ -1337,13 +1385,14 @@ export function scoreMainLead(
   // Google -> Microsoft is full marks, per Jack: "companies going from
   // google to microsoft are huge opps." Everything else hot sits below it.
   const hotFraction =
-    input.isGoogleToMicrosoft ? 1
+    input.isGoogleWorkspaceMigration ? 1
       : input.hotKind === "docIntelligence" || input.hotKind === "appBuild" ? 0.75
+      : input.isGoogleToMicrosoft ? 0.7
       : input.hotKind === "partner" ? 0.6
       : input.hotKind === "security" ? 0.5
       : 0;
   add("hotSignal",
-      input.isGoogleToMicrosoft ? "Google \u2192 Microsoft migration"
+      input.isGoogleWorkspaceMigration ? "Google \u2192 Microsoft migration"
         : input.hotKind === "docIntelligence" ? "Azure Document Intelligence"
         : input.hotKind === "appBuild" ? "custom app build on Azure"
         : input.hotKind === "partner" ? "bringing in a partner"
@@ -1392,8 +1441,11 @@ export function scoreMainLead(
   const factorPoints = Object.fromEntries(
     (Object.keys(raw) as (keyof MainWeights)[]).map((k) => [k, Math.round((100 * raw[k]) / total)]),
   ) as Record<keyof MainWeights, number>;
-  const pinned = input.isGoogleToMicrosoft;
-  if (pinned) breakdown.unshift("\u2605 Google \u2192 Microsoft \u2014 pinned to the top");
+  const pinned = input.isGoogleWorkspaceMigration || input.isPartnerSeeking;
+  if (pinned) {
+    const why = topPriorityReason(input) as TopPriorityReason;
+    breakdown.unshift(`\u2605 ${TOP_PRIORITY_META[why].label} \u2014 pinned to the top`);
+  }
   return { score, breakdown, factorPoints, pinned };
 }
 
@@ -1608,6 +1660,12 @@ export interface ResultRow {
   dynamicsSeatCount: number | null;
   dynamicsModuleTier: number;
   isGoogleToMicrosoft: boolean;
+  /** Literal Google Workspace -> Microsoft 365. Pinned to the top of the
+   *  table and of every download; see ScanResult above. */
+  isGoogleWorkspaceMigration: boolean;
+  /** Shopping for a partner / MSP / CSP. Pinned the same way, just below
+   *  the Google migrations. */
+  isPartnerSeeking: boolean;
   isBusinessCentral: boolean;
   isSalesCrm: boolean;
   isPersonalProspect: boolean;
@@ -1903,6 +1961,70 @@ export function sortByDynamicsSeatCount<T extends { dynamicsSeatCount?: number |
   });
 }
 
+/**
+ * TOP PRIORITY. Per Jack, in two goes: "google migrations to microsoft need
+ * to be flagged as top priority for leads in main scanner", then "anyone
+ * looking specifically to work with a partner also to be included with
+ * that."
+ *
+ * Two reasons, ranked. A Google Workspace -> Microsoft 365 move comes
+ * first because Jack called those the huge opps; someone shopping for a
+ * partner follows, because he added them as "also". A row that is both is
+ * shown as the Google one - it is the rarer and more specific signal.
+ *
+ * Deliberately a BADGE and a SORT, not a tier or a bucket. A pinned lead
+ * keeps its own category, its own tier and the same download file it
+ * always landed in - it just sits at the top of whatever list it is
+ * already in, so a rep working down the table or the CSV hits them first.
+ * Nothing is renamed, no lead moves file, no count moves.
+ */
+export type TopPriorityReason = "google" | "partner";
+export const TOP_PRIORITY_META: Record<TopPriorityReason, { label: string; hint: string }> = {
+  google: {
+    label: "Google \u2192 MS",
+    hint: "Moving from Google Workspace / G Suite to Microsoft 365 \u2014 top priority, ranked first in the table and in every download.",
+  },
+  partner: {
+    label: "Wants a partner",
+    hint: "Looking to bring in a partner, MSP, CSP, reseller or consultant, or asking for an ongoing IT relationship \u2014 top priority, ranked above unpinned leads.",
+  },
+};
+/** Ranked order, highest first. Exported so the Documentation view lists
+ *  them from the constant rather than restating them in prose. */
+export const TOP_PRIORITY_ORDER: TopPriorityReason[] = ["google", "partner"];
+const TOP_PRIORITY_RANK = TOP_PRIORITY_ORDER;
+
+/** Why a lead is pinned, or null if it is not. The single source of truth
+ *  for both the badge and the sort, so the two can never disagree. */
+export function topPriorityReason(
+  r: { isGoogleWorkspaceMigration?: boolean; isPartnerSeeking?: boolean },
+): TopPriorityReason | null {
+  return r.isGoogleWorkspaceMigration ? "google" : r.isPartnerSeeking ? "partner" : null;
+}
+
+/**
+ * Pinned leads to the top, Google migrations above partner-seekers, then
+ * everything else in the order it arrived. Stable within each block, so
+ * whatever ranking ran before this one (the Dynamics seat-count sort) is
+ * preserved underneath it rather than scrambled.
+ */
+export function sortTopPriorityBy<T>(rows: T[], reasonOf: (r: T) => TopPriorityReason | null): T[] {
+  const buckets: T[][] = [[], [], []];
+  for (const r of rows) {
+    const why = reasonOf(r);
+    buckets[why ? TOP_PRIORITY_RANK.indexOf(why) : 2].push(r);
+  }
+  return buckets[0].length || buckets[1].length ? [...buckets[0], ...buckets[1], ...buckets[2]] : rows;
+}
+
+/** The ResultRow/ExportRow shape. A stored Library row keeps the same
+ *  flags under `__` names and goes through sortTopPriorityBy directly —
+ *  see sortStoredTopPriorityFirst in library.ts. One ordering rule, two
+ *  field shapes, so a filed lead ranks exactly as it did in the Scanner. */
+export function sortTopPriorityFirst<T extends { isGoogleWorkspaceMigration?: boolean; isPartnerSeeking?: boolean }>(rows: T[]): T[] {
+  return sortTopPriorityBy(rows, topPriorityReason);
+}
+
 // Shared by the Scanner's "Final downloads" buttons and History's per-entry
 // redownload buttons, so the two never diverge on what counts as a bucket's
 // export rows (Strong Signal only, Dynamics ranked by seat count). A
@@ -1914,5 +2036,7 @@ export function sortByDynamicsSeatCount<T extends { dynamicsSeatCount?: number |
 export function exportRowsForBucket(results: ResultRow[], bucketKey: BucketKey): ExportRow[] {
   let rows = results.filter((r) => r.tier === "signal" && !r.isDuplicate && CATEGORY_META[r.category].bucket === bucketKey);
   if (bucketKey === "dynamics") rows = sortByDynamicsSeatCount(rows);
-  return rows.map(buildExportRow);
+  // Top priority rides above the per-bucket ranking, so a Google ->
+  // Microsoft lead is the first row of the CSV that contains it.
+  return sortTopPriorityFirst(rows).map(buildExportRow);
 }

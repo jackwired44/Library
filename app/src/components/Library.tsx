@@ -40,6 +40,8 @@ import {
   deleteLibraryRow,
   moveLibraryRowToBucket,
   sortDynamicsStoredRows,
+  sortStoredTopPriorityFirst,
+  storedTopPriorityReason,
   setGroupPrivate,
   setGroupPublic,
   type LibraryEntry,
@@ -48,6 +50,7 @@ import {
 } from "../lib/library";
 import { hashFolderPassword, checkFolderPassword } from "../lib/folderAuth";
 import { toCSV } from "../lib/csv";
+import TopPriorityBadge from "./TopPriorityBadge";
 
 // Fields editable inline per lead — Product Area is controlled via the
 // "Move to" select instead (matches legacy's editableFields split).
@@ -236,7 +239,11 @@ export default function LibraryView({ backup, contacts, companyProfiles, entries
     // Dynamics downloads seat-count sorted, same ranking as everywhere
     // else — the underlying stored order (append order) is left alone;
     // only the exported/displayed view is reordered.
-    const rawText = entry.bucketKey === "dynamics" ? toCSV(sortDynamicsStoredRows(entry.rows), EXPORT_LABELS) : entry.rawText;
+    // Top priority leads lead the file, then the per-bucket ranking. The
+    // stored order (append order) is left alone; only the exported view is
+    // reordered — same contract the Dynamics sort already had.
+    const ranked = entry.bucketKey === "dynamics" ? sortDynamicsStoredRows(entry.rows) : entry.rows;
+    const rawText = toCSV(sortStoredTopPriorityFirst(ranked), EXPORT_LABELS);
     downloadBlob(rawText, entry.fileName);
   }
   function handleLoad(fileName: string, rawText: string) {
@@ -614,7 +621,7 @@ function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownl
   // Ranked highest seat/user/license count first when this is the
   // Dynamics 365 file — a lead with no stated count sinks to its own
   // lower block rather than being treated as a count of 0.
-  const displayRows = isDynamics ? sortDynamicsStoredRows(subFiltered) : subFiltered;
+  const displayRows = sortStoredTopPriorityFirst(isDynamics ? sortDynamicsStoredRows(subFiltered) : subFiltered);
   return (
     <div style={{ background: "#fff", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
       <div style={{ padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
@@ -695,6 +702,11 @@ function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownl
                               <option key={bk} value={bk}>{BUCKET_META[bk].label}</option>
                             ))}
                           </select>
+                          {storedTopPriorityReason(row) && (
+                            <div style={{ marginTop: 3 }}>
+                              <TopPriorityBadge reason={storedTopPriorityReason(row)!} />
+                            </div>
+                          )}
                           {row.__isPersonalProspect && (
                             <div title="Personal/free email domain, but the row's own content already cleared Strong Signal." style={{ fontSize: 9.5, background: "#DFF3F1", color: "#0F7A72", padding: "1px 6px", borderRadius: 20, fontWeight: 700, marginTop: 3, display: "inline-block" }}>
                               {PERSONAL_PROSPECT_LABEL}

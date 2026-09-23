@@ -4498,6 +4498,99 @@ start from scratch. Left the layout section itself alone rather than
 rewriting someone else's stated intent — but do not trust it as a file
 listing.
 
+### Main Scanner: top priority pin (Google → MS, wants a partner)
+
+Per Jack, in two messages: *"google migrations to microsoft need to be
+flagged as top priority for leads in main scanner"*, then *"anyone looking
+specifically to work with a partner also to be included with that."*
+
+**The trap, and why this is a new field rather than a one-line change.**
+`isGoogleToMicrosoft` is **no longer a Google signal**. It was deliberately
+widened (see "Google → Microsoft tab widened to migrations generally"
+above) to cover every migration-flavored hit — generic legacy/
+modernization and Azure on-prem lift-and-shift included — because it
+drives the *view tab*, which Jack asked to be a migrations tab. Pinning on
+it would have pinned roughly three times what he asked for. Confirmed with
+him before building; `isGoogleWorkspaceMigration` is the narrow one and the
+two must never be collapsed back together. The `top-priority` suite guards
+exactly that.
+
+- **Two flags, both on `PlatformHit` → `PlatformResult` → `ScanResult`
+  → `ResultRow`, and `StoredRow.__is…` for the Lead Library** (optional
+  there, so a row filed before they existed simply reads as unpinned):
+  - `isGoogleWorkspaceMigration` — `GOOGLE_TO_MICROSOFT_RE` on a Tenant
+    Support hit, i.e. the first of that widened flag's three disjuncts and
+    nothing else.
+  - `isPartnerSeeking` — `ONGOING_PARTNER_RE || PARTNER_ENGAGEMENT_RE` on
+    any hit, category-agnostic on purpose: someone shopping for a partner
+    is a Wired CIO lead whatever product they name. Both gates already
+    existed and already decide whether several categories count as a hit
+    at all, so nothing new was invented to qualify a lead.
+- **`topPriorityReason(row)`** (`lib/detection.ts`) returns `"google"`,
+  `"partner"` or `null` — one source of truth for both the badge and the
+  sort, so they cannot disagree. Google outranks partner (Jack called the
+  Google moves the huge opps and added partner as "also"); a row carrying
+  both reads as Google, the rarer signal.
+- **It is a BADGE and a SORT, nothing else.** `sortTopPriorityBy` /
+  `sortTopPriorityFirst` (live rows) and `sortStoredTopPriorityFirst`
+  (`lib/library.ts`, same rule over the `__`-prefixed fields) run AFTER any
+  per-bucket ranking, stable, so the Dynamics seat-count order is preserved
+  underneath. Applied in: the Scanner results table, `exportRowsForBucket`
+  (so Scanner's Final downloads AND History's per-entry redownload both
+  lead with the pinned rows), the Lead Library's per-file display and
+  download, and `getCombinedFolderExport`. A pin never changes category,
+  tier, bucket or which file a lead downloads in — the same leads come
+  out, the pinned ones just come out first. Asserted, not assumed.
+- **`components/TopPriorityBadge.tsx`** carries the reason on it (a Google
+  migration is a project, a partner-seeker is a relationship — the rep
+  should know which before dialling). Solid teal fill rather than the
+  tinted chip every other badge uses, so it wins the row at a glance;
+  `PRIORITY_META.high`'s teal, so a pinned Main lead looks like a High
+  priority lead on the other two scanners. Shared by `Scanner.tsx` and
+  `Library.tsx`, same pattern as `BookedStamp`/`OnCrmBadge`.
+- The unwired Main scoring engine (`scoreMainLead`) was updated in step so
+  it cannot contradict this when it is eventually wired: `pinned` is now
+  either reason, full hot-signal marks go to the literal Google move, and
+  the wider `isGoogleToMicrosoft` drops to a partial (0.7) signal. Still
+  **no callers** — nothing about the Main Scanner's scoring is live.
+- Documentation's Main Scanner section lists the two reasons from
+  `TOP_PRIORITY_ORDER`/`TOP_PRIORITY_META` rather than restating them.
+
+**Measured boundary, flagged NOT fixed — needs Jack's call.** Partner
+language is a *gate*: it decides whether other patterns count, but it
+creates no category hit of its own. So a note saying nothing except that
+they want a partner never becomes a row at all, and therefore cannot be
+pinned. Of 15 realistic phrasings, 7 qualify and pin; 6 produce **no row**:
+"Looking for a Microsoft partner.", "Need an implementation partner for
+this project.", "Want to work with a reseller going forward.", "Evaluating
+consultants to help us out.", "Looking for a new vendor.", and —
+surprisingly, since it names a product — "Looking for a partner to help
+with Microsoft 365 licensing." (One correct non-row: "Our current CSP
+handles this, no changes planned.") `ONGOING_PARTNER_SRC` phrasings (MSP,
+co-managed IT, ongoing IT support, partner engagement, outsourced IT) DO
+qualify, because that source is part of the Tenant Support pattern;
+`PARTNER_ENGAGEMENT_RE` is not part of any category pattern. Fixing this
+means making partner language qualify a lead on its own — that changes
+what counts as a lead in the Main Scanner, which is explicitly
+proposal-gated, and `PARTNER_ENGAGEMENT_RE` contains bare `\bcsp\b` and
+`\boutsourc\w*`, so as a lead *creator* it would pull real noise. The
+boundary is asserted in the `top-priority` suite so it stays visible.
+
+**Also flagged, not changed:** "Working with a vendor already on the ERP
+side" pins as a partner-seeker — they already HAVE a vendor, so that is a
+false pin. Same family as the CSP scanner's documented "wants a partner"
+over-fire (881 rows, 729 already partnered). Not guarded here because the
+fix is a judgment call about negation/incumbency that needs real data.
+
+**Not measured on Jack's own Main file** — `Book82626.csv` was not
+uploaded in this session, so there is no count of how many of his real
+rows pin. Worth re-running when he next uploads it.
+
+27 suites / 1,040 checks (`top-priority`, 31, is new). Verified live: five
+fixture leads, badge renders, pinned rows lead the table, and the download
+counts are unchanged (Dynamics 1 / M365 Azure 4 / All 5).
+
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool
