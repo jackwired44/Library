@@ -4591,6 +4591,48 @@ fixture leads, badge renders, pinned rows lead the table, and the download
 counts are unchanged (Dynamics 1 / M365 Azure 4 / All 5).
 
 
+## Where this is going: three scanners → one leads database
+
+Per Jack, stated as direction rather than a build request: *"i am going to
+build this out as three different scanners and then ultimatley build it into
+a massive leads database where you can filter through search and it be very
+detailed."*
+
+Full write-up: **`LEADS-DATABASE-ROADMAP.md`** at the repo root — measured
+against `scanner-platform-v29 @ e0402e8`, with the storage inventory,
+capacity ceilings, four architectural decisions, a five-phase plan and the
+invariants. **Nothing in it has been built.** Read it before starting any
+database work rather than re-deriving it; three findings in particular are
+load-bearing and were confirmed in code, not assumed:
+
+1. **Custom (SMC) and CSP persist ZERO leads.** `buildRun` (`lib/scanner2.ts`)
+   stores `{id, scanner, at, fileNames, ruleSetName, rowsRead,
+   duplicatesMerged, counts}` — no rows. Neither can file into the Lead
+   Library either (`Scanner2.tsx` has no filing path). Start over, and a
+   9,265-row scored CSP scan is gone unless the CSV was downloaded. Only the
+   Main Scanner keeps rows (History, full `ResultRow[]` including the raw CSV
+   row, unbounded). This is Phase 0 of the roadmap and the only urgent part.
+2. **The storage layer cannot answer a query.** `lib/db.ts` has **zero**
+   `createIndex` calls and **zero** cursors; the only read primitive is
+   `dbGetAll` — load a whole store into memory and filter in JS. Fine at
+   3,000 contacts (169 ms per keystroke after pagination), impossible at
+   "massive". Real indexes + `IDBKeyRange` cursor paging is Phase 2 and is
+   the same work whether or not a backend ever arrives, which is why the
+   roadmap recommends staying local for now.
+3. **There is no join key across the three sources.** SMC carries Microsoft
+   TPIDs/`msxAccount`/`leadId`. The REAL CSP export has 13 columns and no
+   account identifier at all (`customeridname` is a name string;
+   `msp_partneraccountidname` is the partner's name). Main carries nothing
+   but email. Getting a TPID or account GUID added to the CSP export at
+   source is a one-column ask and the difference between a reliable join and
+   permanent fuzzy matching — worth raising with Jack before more CSP files
+   are scanned.
+
+The roadmap's own open questions (local-only vs. a real backend; whether the
+database holds every scanned row or only qualified leads; retention) are
+Jack's calls and are NOT decided. The Access & ownership guardrail above
+still stands: a backend is a real sign-off, not an implementation detail.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool
