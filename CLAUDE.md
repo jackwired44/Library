@@ -4676,6 +4676,52 @@ above: M365 / Azure is now FOUR tabs, not three.**
 5-lead file split 1 Google / 2 Migrations / 2 Everything else, with the
 right companies under each and no console errors.
 
+### Custom scanner: a stated need decides the download file, not just the note
+
+Per Jack, on a Copilot/automation lead: *"Evaluate opportunities for
+automation using Copilot and Copilot Studio. this is not strong for
+dynamics."*
+
+**It was a real routing bug, and the row contradicted itself.**
+`productLineFor` (`lib/smcLead.ts`) read the propensity matrix alone — gaps
+first, then any non-Unknown propensity, **Dynamics winning every tie** — and
+never looked at `bant.need`, even though `callAngle` was changed earlier the
+same day to let a stated need pick the area. So a lead whose need said
+Copilot printed a note reading *"Expand M365"* while being FILED under
+Dynamics 365, and landed in the Dynamics CSV an SDR works from.
+
+Measured on the real 13,106-row export before and after:
+
+- **56 scored rows filed against their own stated need. All 56 wrongly
+  Dynamics, none the other way.** Real examples: `"Copilot + EntraID P2 +
+  Microsoft 365 E3"`, `"Copilot Chat Adoption"`, `"License review and
+  copilot potential discovery"`, `"Licensing consultation"`.
+- After: **0**.
+- **Bands are byte-identical** (1,114 / 1,954 / 7,497 / 1,553) — this
+  changes which FILE a lead lands in, never whether it qualifies.
+- High priority by product line: Dynamics 365 **777 → 738**, M365 / Azure
+  **337 → 376**. 39 leads moved out of the Dynamics download.
+
+The fix reuses `productFromNeed` (already the need→area mapper for the
+note), so the note and the file cannot disagree again:
+
+- Fires only when the need names a product on a line Wired CIO sells —
+  `productFromNeed` returns null otherwise, so an unrecognisable need
+  (`"Discovery call scheduled for next week"`) and a row with no need at all
+  both still fall through to the propensity model unchanged.
+- **A need naming a Dynamics product keeps the row on Dynamics** — this is
+  need-decides-the-line, not push-everything-to-M365. Verified on real rows:
+  `"Dynamics 365 BC"`, `"Dynamics CRM"` stay Dynamics, and a need listing
+  both (`"Copilot M365 E5 ... Dynamics 365 Business Central"`) goes Dynamics,
+  since `NEED_AREA` tests Dynamics patterns before M365.
+
+**Main Scanner needed no change** — checked, not assumed: the same phrase
+there already lands M365 / Azure at Needs Review, never Dynamics.
+
+27 suites / 1,062 checks (`call-angle` 36 → 46, covering both directions
+plus the note-and-file-agree case). Isolation suite still 26/26, so the
+three engines remain structurally separate.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

@@ -787,6 +787,24 @@ export function salesGaps(lead: SmcLead, rules?: SmcRules): Opportunity[] {
  * Main Scanner's CATEGORY_PRIORITY.
  */
 export function productLineFor(lead: SmcLead, rules?: SmcRules): ProductLine | null {
+  // A stated need outranks the propensity model, exactly as it does in
+  // callAngle. Per Jack, on a Copilot/automation lead: "this is not strong
+  // for dynamics." The line used to come from the propensity matrix alone,
+  // with Dynamics winning any tie - so a lead whose need says Copilot,
+  // licensing or Entra got FILED under Dynamics 365 while its own note read
+  // "Expand M365". Measured on the real 13,106-row export: 56 scored rows
+  // filed Dynamics 365 against their own stated need, none the other way,
+  // each one landing in the Dynamics CSV an SDR works from.
+  //
+  // Only fires when the need actually names a product on a line we sell
+  // (productFromNeed returns null otherwise), so a need that says nothing
+  // recognisable still falls through to the model below, and a need naming
+  // a Dynamics product keeps the row on Dynamics.
+  const stated = lead.bant.need ? productFromNeed(lead.bant.need, rules) : null;
+  if (stated) {
+    const statedLine = PRODUCT_LINE_OF[stated];
+    if (statedLine) return statedLine;
+  }
   const pick = (rows: { product: SmcProduct }[]): ProductLine | null => {
     const lines = new Set(rows.map((r) => PRODUCT_LINE_OF[r.product]).filter((l): l is ProductLine => l !== null));
     if (lines.has("Dynamics 365")) return "Dynamics 365";

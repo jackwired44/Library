@@ -14,7 +14,7 @@
 // propensity read. Inventing anything more pain-shaped is the exact defect
 // fixed on the Main Scanner (see snippet-truth).
 import {
-  callAngle, parseSmcLead, tidyBantValue,
+  callAngle, parseSmcLead, tidyBantValue, productLineFor,
 } from "../../src/lib/smcLead";
 
 let pass = 0, fail = 0;
@@ -104,6 +104,45 @@ console.log("  " + capped);
 const runsList = (/runs ([^·]+)/.exec(capped)?.[1] ?? "").trim().split(", ");
 ok("at most two products listed", runsList.length <= 2, runsList.join("|"));
 ok("the one on the pitched line comes first", runsList[0] === "D365", runsList.join("|"));
+
+
+// Per Jack, on a Copilot/automation lead: "this is not strong for dynamics."
+// productLineFor read the propensity matrix alone, with Dynamics winning any
+// tie, and never looked at the stated need - so a lead whose need said
+// Copilot got FILED under Dynamics 365 while its own note read "Expand
+// M365", and landed in the Dynamics CSV. Measured on the real 13,106-row
+// export: 56 scored rows filed against their own stated need, all of them
+// wrongly Dynamics. The note and the file must agree.
+console.log("\n== a stated need decides the download file, not just the note ==");
+const DYN_PROP = "Product Propensity Details: - D365 Sales Pro: Act Now (High Fit; High Prioritization Index) "
+  + "- Azure: Act Now (High Fit; High Prioritization Index) ";
+const lineFor = (need: string) =>
+  productLineFor(parseSmcLead("Company Name: Acme " + DYN_PROP + OWNS + (need ? `Need: ${need} ` : "")));
+for (const [need, want] of [
+  ["Evaluate opportunities for automation using Copilot and Copilot Studio", "M365 / Azure"],
+  ["Copilot + EntraID P2 + Microsoft 365 E3", "M365 / Azure"],
+  ["Copilot Chat Adoption", "M365 / Azure"],
+  ["Licensing consultation", "M365 / Azure"],
+  // A need naming a Dynamics product keeps the row on Dynamics - the need
+  // decides the line, it does not simply push everything to M365.
+  ["Business Central rollout", "Dynamics 365"],
+  ["Dynamics CRM", "Dynamics 365"],
+  // Dynamics is tested before M365, so a need listing both wins for Dynamics.
+  ["Copilot M365 E5 and Dynamics 365 Business Central", "Dynamics 365"],
+] as [string, string][]) {
+  ok(`${want.padEnd(12)} <- ${JSON.stringify(need.slice(0, 44))}`, lineFor(need) === want, String(lineFor(need)));
+}
+// No need at all: unchanged, the model still decides.
+ok("no stated need still falls through to the propensity model", lineFor("") === "Dynamics 365", String(lineFor("")));
+// A need naming nothing recognisable must not hijack the line either.
+ok("an unrecognisable need does not change the line",
+   lineFor("Discovery call scheduled for next week") === "Dynamics 365",
+   String(lineFor("Discovery call scheduled for next week")));
+// The note and the file now agree on the same lead.
+const both = parseSmcLead("Company Name: Acme " + DYN_PROP + OWNS + "Need: Copilot Chat Adoption ");
+ok("the note says M365 and the file says M365",
+   /M365/.test(callAngle(both)) && productLineFor(both) === "M365 / Azure",
+   `${callAngle(both)} | ${productLineFor(both)}`);
 
 console.log("\n== nothing to say beats saying something made up ==");
 ok("empty in, empty out", callAngle(parseSmcLead("")) === "" && callAngle(parseSmcLead("NULL")) === "");
