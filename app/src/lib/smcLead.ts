@@ -536,69 +536,138 @@ export function describeLead(lead: SmcLead, rules?: SmcRules): string {
 }
 
 /**
- * What to actually say when you ring them.
+ * The one thing to call this lead about.
  *
- * Per Jack: "matched snippet for custom scanner needs to show what it is
- * to call them about aside from being a match." The note used to open with
- * classification metadata — "Score 83 — High priority — Act Now + High+
- * Fit, not owned: Azure — High prioritization: Azure — SMC Medium" — which
- * says why the ENGINE liked the row and nothing about the conversation.
+ * Per Jack, tightening this over four messages: "matched snippet for custom
+ * scanner needs to show what it is to call them about aside from being a
+ * match" -> "we need to know what the pain point is and why to call not just
+ * everything" -> "get rid of what is not stated or indicated in the file" ->
+ * "just have it going towards a specific area so the call is direct with
+ * info for the sdr to act on it."
  *
- * Everything here is lifted from the blob's own fields. Nothing is
- * inferred about what the customer wants beyond what Cloud Ascent states,
- * and a stated Need is quoted rather than paraphrased, for the same reason
- * the Main Scanner's snippets are: a note a rep reads down the phone has
- * to be true.
+ * So the note names ONE area and leads with the instruction. Measured on the
+ * real 13,106-row export, the previous version failed that three ways:
  *
- * Order is by how useful it is on a call:
- *  1. A Need somebody actually wrote down. Rare (~5% of rows) and by far
- *     the best opener when it is there.
- *  2. What they are ready to buy and do not own yet. This is the pitch on
- *     the other 95%, said in English rather than in Cloud Ascent's
- *     stage/fit/index vocabulary.
- *  3. What they already run, because that is the foot in the door.
- *  4. Budget / authority / timeline where stated — who to ask for and when.
- *  5. What Microsoft is already pitching them, which is the pretext.
+ *  - 560 of 3,068 scored rows told the rep to pitch a product the SAME note
+ *    said they already own ("Act Now on M365 - already on O365, M365,
+ *    Azure"). The fallback ranked owned products last but did not exclude
+ *    them. Now ownership decides the VERB instead: a product they run is an
+ *    expand, not a pitch, which is what the data actually supports.
+ *  - 1,322 named a second product at the same stage as the first, so the
+ *    note offered two equally urgent directions and therefore none. The
+ *    follow-on clause is gone entirely.
+ *  - 82 carried a stated need whose pitch product contradicted what the
+ *    human wrote. A stated need now picks the area; the propensity model is
+ *    only consulted when the need names nothing recognisable.
+ *
+ * Nothing here is inferred beyond what the row states. A need is quoted, not
+ * paraphrased, for the same reason the Main Scanner's snippets are: a note a
+ * rep reads down the phone has to be true.
  */
 export function callAngle(lead: SmcLead, rules?: SmcRules): string {
   if (lead.empty) return "";
   const r = rules ?? DEFAULT_SMC_RULES;
   const bits: string[] = [];
-  const pitch = salesGaps(lead, r)[0] ?? bestOpportunity(lead, r);
 
-  // 1. WHY CALL. A need somebody actually typed is the only real pain this
-  //    data ever carries \u2014 86 of 1,114 High rows, and only 30 of those are
-  //    a sentence rather than a product name. Quote it whole: per Jack,
-  //    these are the rows where a human wrote why they care, so they get
-  //    the room. The ceiling only exists so one pathological value cannot
-  //    reproduce the 2,010-character note this replaces.
-  //    On the other 92% there IS no stated pain, and inventing one is the
-  //    defect just fixed twice on the Main Scanner. The honest "why now" is
-  //    Microsoft's own read: they are modelled ready for something they do
-  //    not own.
-  if (lead.bant.need) bits.push(`Needs: "${clip(lead.bant.need, NEED_MAX)}"`);
-  else if (pitch) bits.push(`${pitch.stage} on ${pitch.product}`);
+  // Every propensity row on a line Wired CIO actually sells.
+  const ops = opportunities(lead).filter((o) => {
+    const line = PRODUCT_LINE_OF[o.product];
+    return !!line && r.lines.includes(line);
+  });
 
-  // 2. WHAT TO PITCH. One product, never a list \u2014 an SDR pitching "Azure,
-  //    M365, D365 BC and Surface" is pitching nothing. Only needed when
-  //    their own words led, since a need does not say which product.
-  if (lead.bant.need && pitch) bits.push(`${pitch.product} whitespace`);
+  // THE AREA. A need somebody actually typed outranks the model, because a
+  // human wrote it about this account. Failing that, the whitespace gap;
+  // failing that, the strongest thing modelled at all (which may well be
+  // something they already run - see the verb below).
+  const need = lead.bant.need ? clip(lead.bant.need, NEED_MAX) : "";
+  const modelled = salesGaps(lead, r)[0]?.product
+    ?? ops.slice().sort((a, b) =>
+      (STAGE_FRACTION[b.stage] - STAGE_FRACTION[a.stage])
+      || (INDEX_FRACTION[b.index] - INDEX_FRACTION[a.index])
+      || (Number(a.owned) - Number(b.owned)))[0]?.product
+    ?? null;
+  const area = (need ? productFromNeed(need, r) : null) ?? modelled;
 
-  // 3. WHAT THEY RUN. The foot in the door, and the reason the pitch is
-  //    plausible. Present on 92% of High rows.
-  const owns = (Object.keys(lead.owns) as (keyof SmcLead["owns"])[]).filter((k) => lead.owns[k] === true);
-  if (owns.length) bits.push(`already on ${owns.join(", ")}`);
+  if (area) {
+    // Pitch vs expand. Cloud Ascent reporting Act Now on something they
+    // already run is real headroom - more seats, a higher SKU - so the
+    // direction is to grow it, not to sell it in.
+    // Ownership is only reported exactly for Azure and M365. "Has D365" is
+    // one flag across Business Central, F&O and Sales Pro, so a D365 owner
+    // running Sales Pro is a NEW customer for Business Central - calling
+    // that an expand would overclaim. Those stay a pitch, and the D365 they
+    // do run is listed under "runs" instead, which is all the row states.
+    const flag = ownedFlagFor(area);
+    const ownsExactly = flag === (area as string) && lead.owns[flag] === true;
+    const verb = ownsExactly ? "Expand" : "Pitch";
+    // Evidence for the direction, when the model has a row for that exact
+    // area. A need-picked area the model says nothing about carries none
+    // rather than borrowing another product's stage.
+    const op = ops.find((o) => o.product === area);
+    const evidence = need
+      ? ` — stated need: "${need}"`
+      : op ? ` (${op.stage}, ${op.fit} fit)` : "";
+    bits.push(`${verb} ${area}${evidence}`);
+  } else if (need) {
+    // Nothing modelled and the need names no product: the need IS the note.
+    bits.push(`Stated need: "${need}"`);
+  }
 
-  // 4. WHERE THEY GO NEXT, per Jack: "maybe where they may go direction
-  //    wise." The next workload they do not own, after the one being
-  //    pitched. Present on 88%.
-  const next = opportunities(lead)
-    .filter((o) => !o.owned && (!pitch || o.product !== pitch.product))
-    .sort((a, b) => STAGE_RANK.indexOf(a.stage) - STAGE_RANK.indexOf(b.stage))[0];
-  if (next) bits.push(`then ${next.product} (${next.stage})`);
+  // WHAT THEY RUN, as the way in - capped, because a four-product inventory
+  // only says "Microsoft shop", which is true of every row in the file. The
+  // area is already named above, so it never repeats here, and whatever
+  // sits on the same line as the pitch is listed first.
+  const areaLine = area ? PRODUCT_LINE_OF[area] : null;
+  const areaFlag = area && ownedFlagFor(area) === (area as string) ? ownedFlagFor(area) : null;
+  const runs = OWNED_ORDER
+    .filter((k) => lead.owns[k] === true && k !== areaFlag)
+    .sort((a, b) => Number(LINE_OF_OWNED[b] === areaLine) - Number(LINE_OF_OWNED[a] === areaLine))
+    .slice(0, RUNS_MAX);
+  if (runs.length) bits.push(`runs ${runs.join(", ")}`);
 
-  return bits.join(" \u00b7 ");
+  return bits.join(" · ");
 }
+
+/** At most this many owned products get listed. Two is enough to place the
+ *  account; the third and fourth were noise on 789 real rows. */
+export const RUNS_MAX = 2;
+
+type OwnedKey = keyof SmcLead["owns"];
+const OWNED_ORDER: OwnedKey[] = ["O365", "M365", "Azure", "D365"];
+const LINE_OF_OWNED: Record<OwnedKey, ProductLine> = {
+  O365: "M365 / Azure", M365: "M365 / Azure", Azure: "M365 / Azure", D365: "Dynamics 365",
+};
+
+/**
+ * Which area a stated need points at.
+ *
+ * Deliberately conservative: every pattern here is a product name, a SKU or
+ * a workload that belongs to exactly one area. Ambiguous words that could
+ * land anywhere - "cloud", "licensing", "support" on their own - are absent,
+ * because a wrong area is worse than falling through to the model. Dynamics
+ * is tested before Azure and M365 so the specific wins over the general.
+ *
+ * Returns null for a product on a line Wired CIO does not sell, so the note
+ * never points a rep at something there is nothing to sell them.
+ */
+export function productFromNeed(need: string, rules?: SmcRules): SmcProduct | null {
+  const r = rules ?? DEFAULT_SMC_RULES;
+  for (const { product, re } of NEED_AREA) {
+    if (!re.test(need)) continue;
+    const line = PRODUCT_LINE_OF[product];
+    return line && r.lines.includes(line) ? product : null;
+  }
+  return null;
+}
+
+const NEED_AREA: { product: SmcProduct; re: RegExp }[] = [
+  { product: "D365 BC", re: /\b(business central|(d365|dynamics 365) ?bc\b|\berp\b)/i },
+  { product: "D365 F&O", re: /\b(finance (and|&) operations|\bf&o\b|fin ?ops|supply chain)/i },
+  { product: "D365 Sales Pro", re: /\b(sales pro|dynamics 365 sales|customer engagement|customer insights|field service|\bcrm\b)/i },
+  { product: "Azure", re: /\b(azure|\bavd\b|virtual desktop|on[ -]?prem|lift and shift|data ?cent(er|re)|server migration|\bvms?\b|\biaas\b)/i },
+  { product: "M365", re: /\b(copilo\w*|microsoft 365|\bm365\b|office 365|\bo365\b|microsoft apps|apps for business|business (premium|standard|basic)|\be[135]\b|entra|azure ?ad\b|defender|intune|purview|sharepoint|exchange online|visio|modern workplace|teams|tenant|security|\bsec\.|licen[cs]\w*)/i },
+  { product: "Surface", re: /\b(surface|device refresh)/i },
+];
 
 /** A safety valve, not a style: one row in the real export carried a
  *  2,010-character note. Everything short of that is quoted whole. */
@@ -614,8 +683,6 @@ function clip(v: string, max: number): string {
   return (sp > max * 0.5 ? cut.slice(0, sp) : cut).replace(/[\s,;:.\-]+$/, "") + "\u2026";
 }
 
-/** Most-advanced stage first, for picking the best thing to lead with. */
-const STAGE_RANK: SmcStage[] = ["Act Now", "Evaluate", "Nurture", "Educate", "Unknown"];
 
 // ---------------------------------------------------------- campaign code
 //

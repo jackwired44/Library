@@ -770,7 +770,7 @@ export function classifySmc(
   // in the file, it is three words, and "nobody on it" is a real reason to
   // dial. Present on ~3% of rows, so it barely moves the median length.
   const partner = sc.partnerPosture === "open" ? "no partner on it"
-    : sc.partnerPosture === "held" ? `held by ${sc.partnerName}`
+    : sc.partnerPosture === "held" ? `held by ${partnerNameForNote(sc.partnerName)}`
     : "";
 
   // A large-only product (Power BI) is NEVER auto-High, whatever it scores
@@ -811,6 +811,22 @@ export function classifySmc(
     return { bucket: "review", score: sc, why: note("review", partner, mention) };
   }
   return { bucket: "excluded", score: sc, why: note("excluded", partner, mention) };
+}
+
+/**
+ * The partner field is usually a company name, but sellers sometimes type a
+ * paragraph into it - one real row carried 550 characters of qualification
+ * narrative, which made the whole note 827 characters long. The note only
+ * needs to say WHO holds the account, so it takes the first sentence and
+ * caps it. The Partner column still shows the field in full.
+ */
+const PARTNER_NAME_MAX = 60;
+function partnerNameForNote(name: string): string {
+  const first = (name || "").split(/(?<=[.!?])\s+/)[0].trim();
+  if (first.length <= PARTNER_NAME_MAX) return first;
+  const cut = first.slice(0, PARTNER_NAME_MAX - 1);
+  const sp = cut.lastIndexOf(" ");
+  return (sp > PARTNER_NAME_MAX * 0.5 ? cut.slice(0, sp) : cut).replace(/[\s,;:.-]+$/, "") + "\u2026";
 }
 
 // -------------------------------------------------------------- matching

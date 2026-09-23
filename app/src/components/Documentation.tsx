@@ -2,7 +2,7 @@ import { useState } from "react";
 import { EXPORT_LABELS } from "../lib/detection";
 import { SCANNER2_EXPORT_LABELS, CSP_EXPORT_LABELS } from "../lib/scanner2";
 import { BILLING_META, POSTURE_META, DEFAULT_CSP_RULES, DEFAULT_CSP_WEIGHTS, WEIGHT_META, DEAD_PATTERNS, MOTION_PATTERNS, MOTION_WEIGHT, CSP_COLUMN_HINTS, WANTS_PARTNER_LABEL } from "../lib/cspRenewal";
-import { SMC_PRODUCTS, DEFAULT_SMC_SCORE_RULES, DEFAULT_SMC_WEIGHTS, SMC_FACTOR_META, SMC_PARTNER_META } from "../lib/smcLead";
+import { SMC_PRODUCTS, DEFAULT_SMC_SCORE_RULES, DEFAULT_SMC_WEIGHTS, SMC_FACTOR_META, SMC_PARTNER_META, RUNS_MAX } from "../lib/smcLead";
 
 /**
  * The reference for the whole platform: what each scanner reads, what it
@@ -294,8 +294,18 @@ export default function Documentation() {
             Five files: High priority split by product line (Dynamics 365, M365 / Azure) plus a combined High file,
             Medium priority whole, and High + Medium together — High gets called, Medium gets emailed. Every file is
             <b> ranked by score, best first</b>, the same order the CSP files come out in, and a manual High / Medium /
-            Low override wins over the score. Low priority is never downloaded. Product Area carries the product line;
-            the score, the reason, who holds the account and the campaign fold into Notes.
+            Low override wins over the score. Low priority is never downloaded. Product Area carries the product line.
+          </p>
+          <H>What the note tells the rep</H>
+          <p style={{ margin: 0 }}>
+            The Notes column is the call note, and it names <b>one area</b> so the call has a direction rather
+            than a summary. It opens with the instruction &mdash; <b>Pitch</b> a product they do not run,
+            <b> Expand</b> one they do &mdash; then the evidence for it: a <b>stated need quoted verbatim</b> when
+            a human wrote one, otherwise Cloud Ascent&rsquo;s own stage and fit. A stated need picks the area
+            outright, ahead of the propensity ranking, because a human wrote it about this account. After that
+            come up to {RUNS_MAX} products they already run (closest to the pitch first), the band and score, and
+            who holds the account. A second, competing product is never named, and a product they already run is
+            never pitched to them.
           </p>
         </>
       ), `Scored 0–100 across six factors plus a ±${DEFAULT_SMC_SCORE_RULES.partnerAdjust} partner lane; High at ${DEFAULT_SMC_SCORE_RULES.strongAt}+`)}
