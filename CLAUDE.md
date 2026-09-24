@@ -4784,6 +4784,53 @@ the coupling that invites someone to import it later.
 
 27 suites / 1,083 checks (`top-priority` 43 → 64).
 
+### The SKU badge quotes the row (app/ only)
+
+Per Jack: *"dont make assumptions on the detected sku use the info given."*
+Same class of defect as the partner tag, in a different field.
+
+**The engine recorded its own CATALOGUE LABEL and threw the matched text
+away.** Measured over **6,091 real rows carrying a licensing hit**:
+
+| | rows |
+|---|---|
+| Badge showed a name the row **never wrote** | **4,679 (77%)** |
+| Several SKUs found, badge showed **one** (`skus[0]`) | **3,662 (60%)** |
+| Count shown **was not near** the SKU it was pinned to | **867** |
+
+Real examples: a row saying `Power BI` displayed **"Power BI Pro /
+Premium"** — a tier nobody stated; `Microsoft 365 F3` displayed
+**"Microsoft 365 F1 / F3"**; `e5` displayed **"Bare E3 / E5 mention"**. The
+third row is the damaging one — `"Business Basic · 818"` where the 818
+belonged to a different product entirely, so a rep calls about 818 seats
+that do not exist.
+
+- **`LicensingHit { sku, matched, count }`** (`lib/detection.ts`). `sku` is
+  the catalogue label and stays the stable key the RULES read; `matched` is
+  verbatim from the row and is the only thing displayed.
+- **One chip per product, in the order the row reads**, worded with the
+  LONGEST phrasing the row used. Two collapse rules, both decided purely on
+  the customer's own text so nothing is assumed about what a catch-all
+  "really" meant: a match wholly CONTAINED in another is dropped, and a
+  product whose wording is a substring of another's is dropped (so
+  `Microsoft 365 E3` + `E3` is one chip, not two).
+- **`countWrittenBeside`** is a NEW display-only count, deliberately
+  separate from `extractCountNear`, which is untouched because it feeds the
+  qualify threshold. The old one reads a wide symmetric window and
+  `.match()` returns only the FIRST hit, so in *"Microsoft 365 E3 for 5
+  users, and Microsoft 365 Copilot for 300 users"* the Copilot chip picked
+  up the **5** — the number belonging to the product before it. The new one
+  locates every candidate and takes the CLOSEST, within a short reach, so a
+  product with no number of its own shows none rather than borrowing.
+- The derived notes summary (and therefore the CSV Notes column) now quotes
+  the row too, instead of listing catalogue labels.
+
+**Qualification is untouched, proven not assumed.** Fingerprinted tier,
+category, DQ reasons, licensing status, count and skus across **14,635
+rows** of both real uploads: hash identical before and after.
+
+28 suites / 1,098 checks (`sku-truth`, 15, is new).
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

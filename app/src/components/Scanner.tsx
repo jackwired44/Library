@@ -1566,7 +1566,22 @@ export default function Scanner({
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                         {topPriorityReason(r) && <TopPriorityBadge reason={topPriorityReason(r)!} />}
                         {r.isDuplicate && <span style={{ fontSize: 10.5, background: "#F7B955", color: "#5C3A00", padding: "2px 7px", borderRadius: 20, fontWeight: 700 }}>DUPLICATE</span>}
-                        {r.licensing && <span style={{ fontSize: 10.5, background: "#FBF0DC", color: "#8A5A00", padding: "2px 7px", borderRadius: 20 }}>{r.licensing.skus[0]}{r.licensing.count ? ` · ${r.licensing.count}` : ""}</span>}
+                        {/* What the ROW wrote, not the catalogue's name for it, and
+                            each count beside the product it was actually found next
+                            to - per Jack, "use the info given". Every distinct match
+                            is shown: hiding the rest behind skus[0] was concealing a
+                            second product on 60% of real licensing rows. */}
+                        {r.licensing?.hits.map((h, i) => (
+                          <span
+                            key={`${h.matched}-${i}`}
+                            title={h.count != null
+                              ? `The row says "${h.matched}" with ${h.count} beside it.`
+                              : `The row says "${h.matched}". No count stated next to it.`}
+                            style={{ fontSize: 10.5, background: "#FBF0DC", color: "#8A5A00", padding: "2px 7px", borderRadius: 20 }}
+                          >
+                            {h.matched}{h.count != null ? ` · ${h.count}` : ""}
+                          </span>
+                        ))}
                         {r.categories.filter((ck) => !(ck === "m365Tenant" && r.licensing)).map((ck) => (
                           <span key={ck} style={{ fontSize: 10.5, background: CATEGORY_META[ck].bg, color: CATEGORY_META[ck].color, padding: "2px 7px", borderRadius: 20 }}>
                             {CATEGORY_META[ck].label}{ck === "dynamics365" && r.dynamicsSeatCount != null ? ` · ${r.dynamicsSeatCount}` : ""}

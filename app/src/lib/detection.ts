@@ -206,11 +206,82 @@ function extractCountNear(haystack: string, matchIndex: number, matchLength: num
   return { count: best, window: win.trim() };
 }
 
+/**
+ * The count to SHOW beside one SKU chip - the number written nearest to
+ * that product, or null.
+ *
+ * Deliberately separate from extractCountNear above, which stays exactly
+ * as it is because it feeds the qualify threshold and changing it would
+ * change which leads qualify. This one answers a different question: not
+ * "is there a seat count in this row" but "what number did the customer
+ * write next to THIS product".
+ *
+ * extractCountNear cannot answer that. It reads a wide symmetric window
+ * and `.match()` returns only the FIRST occurrence, so in "Microsoft 365
+ * E3 for 5 users, and Microsoft 365 Copilot for 300 users" the Copilot
+ * chip picked up the 5 - the number belonging to the product before it.
+ * Here every candidate is located and the CLOSEST one wins, and only
+ * within a short reach, so a product with no number of its own shows none
+ * rather than borrowing its neighbour's.
+ */
+const CHIP_COUNT_REACH = 60;
+function countWrittenBeside(haystack: string, matchIndex: number, matchLength: number): number | null {
+  const start = Math.max(0, matchIndex - CHIP_COUNT_REACH);
+  const end = Math.min(haystack.length, matchIndex + matchLength + CHIP_COUNT_REACH);
+  const win = maskProductTokens(maskContactDigits(haystack.slice(start, end)));
+  const anchorAt = matchIndex - start;
+  let best: { n: number; d: number } | null = null;
+  for (const re of COUNT_PATTERNS) {
+    const g = new RegExp(re.source, re.flags.includes("g") ? re.flags : re.flags + "g");
+    let m: RegExpExecArray | null;
+    while ((m = g.exec(win)) !== null) {
+      const raw = m[1] && /^\d+$/.test(m[1]) ? m[1] : m[2];
+      const n = parseInt(raw, 10);
+      if (!Number.isNaN(n)) {
+        // distance from the number to the nearest edge of the SKU match
+        const d = m.index < anchorAt
+          ? anchorAt - (m.index + m[0].length)
+          : m.index - (anchorAt + matchLength);
+        if (best === null || Math.abs(d) < Math.abs(best.d)) best = { n, d };
+      }
+      if (m.index === g.lastIndex) g.lastIndex++;
+    }
+  }
+  return best ? best.n : null;
+}
+
+/**
+ * One SKU match, as the row actually wrote it.
+ *
+ * Per Jack: "dont make assumptions on the detected sku use the info
+ * given." The engine used to record only the CATALOGUE LABEL and throw the
+ * matched text away, so the badge asserted things the row never said.
+ * Measured over 6,091 real rows carrying a licensing hit: 4,679 (77%)
+ * displayed a name the row never wrote - "Power BI" shown as "Power BI Pro
+ * / Premium" (a tier nobody stated), "Microsoft 365 F3" shown as
+ * "Microsoft 365 F1 / F3", "e5" shown as "Bare E3 / E5 mention".
+ */
+export interface LicensingHit {
+  /** The catalogue label. The stable key the RULES read - never displayed
+   *  on its own, because it is the engine's word, not the customer's. */
+  sku: string;
+  /** Verbatim from the row. This is what gets shown. */
+  matched: string;
+  /** A count found beside THIS hit, or null. Never borrowed from another
+   *  SKU's number: 867 real rows displayed a count that sat nowhere near
+   *  the product it was pinned to ("Business Basic - 818" where the 818
+   *  belonged to something else entirely). */
+  count: number | null;
+}
+
 export interface LicensingResult {
   skus: string[];
   count: number | null;
   snippet: string;
   status: "qualified" | "review" | "dq";
+  /** Every match, in the row's own words. Deliberately additive: `skus`
+   *  and `count` keep their exact meaning so qualification is untouched. */
+  hits: LicensingHit[];
 }
 
 // Returns null if nothing found. A confirmed count under the qualify
@@ -221,13 +292,19 @@ export interface LicensingResult {
 export function scanRowLicensing(row: Record<string, unknown>, columns: string[], qualifyThreshold: number = QUALIFY_THRESHOLD): LicensingResult | null {
   const fields = columns.map((c) => String(row[c] ?? ""));
   const combined = fields.join("   ");
-  const hits: { sku: string; count: number | null; snippet: string }[] = [];
+  const hits: { sku: string; matched: string; count: number | null; chipCount: number | null; snippet: string; at: number; len: number }[] = [];
   for (const sku of SKU_CATALOGUE) {
     const re = new RegExp(sku.pattern.source, sku.pattern.flags.includes("g") ? sku.pattern.flags : sku.pattern.flags + "g");
     let m: RegExpExecArray | null;
     while ((m = re.exec(combined)) !== null) {
       const { count, window } = extractCountNear(combined, m.index, m[0].length);
-      hits.push({ sku: sku.label, count, snippet: window });
+      // m[0] is what the row actually wrote - keep it, it is the whole point.
+      hits.push({
+        sku: sku.label, matched: m[0].replace(/\s+/g, " ").trim(),
+        count,                                            // rules: unchanged
+        chipCount: countWrittenBeside(combined, m.index, m[0].length), // display
+        snippet: window, at: m.index, len: m[0].length,
+      });
       if (m.index === re.lastIndex) re.lastIndex++;
     }
   }
@@ -237,7 +314,56 @@ export function scanRowLicensing(row: Record<string, unknown>, columns: string[]
   const bestCount = countsFound.length ? Math.max(...countsFound) : null;
   const bestSnippetHit = hits.find((h) => h.count === bestCount && bestCount !== null) || hits[0];
   const status: LicensingResult["status"] = bestCount === null ? "review" : bestCount < qualifyThreshold ? "dq" : "qualified";
-  return { skus: skuSet, count: bestCount, snippet: bestSnippetHit.snippet, status };
+  // ONE CHIP PER PRODUCT, worded the way the row worded it.
+  //
+  // Two things had to be separated here. The engine's catalogue label is
+  // the stable identity of a product; the row's text is what the customer
+  // actually called it. The old badge showed the first label and hid the
+  // rest. Showing every raw match instead just repeated one product back
+  // in several phrasings, because a long note says "Copilot" five times
+  // and several catalogue patterns match the same span.
+  //
+  // So: group by catalogue SKU, then within each group display the LONGEST
+  // phrasing the row used - the most specific thing the customer wrote,
+  // never a name invented for them - and the count belonging to that SKU
+  // rather than the batch maximum.
+  const byLabel = new Map<string, typeof hits>();
+  for (const h of hits) {
+    const g = byLabel.get(h.sku);
+    if (g) g.push(h); else byLabel.set(h.sku, [h]);
+  }
+  const shown: LicensingHit[] = [...byLabel.values()]
+    .map((group) => {
+      const longest = group.reduce((a, b) => (b.len > a.len ? b : a));
+      const counted = group.find((h) => h.chipCount !== null);
+      return {
+        sku: longest.sku,
+        matched: longest.matched,
+        // A count only if one was found beside THIS product. Never the
+        // batch max: 867 real rows pinned another product's number here.
+        count: counted ? counted.chipCount : null,
+        at: Math.min(...group.map((h) => h.at)),
+      };
+    })
+    .sort((a, b) => a.at - b.at);                // the order the row reads
+
+  // Finally, drop a product whose wording is contained in another's. The
+  // catalogue carries deliberate catch-alls ("Bare E3 / E5 mention",
+  // "Microsoft Copilot") so a row that says ONLY "E3" still registers - but
+  // when the row also wrote "Microsoft 365 E3", the bare one is the same
+  // mention seen through a wider net, not a second product. Decided purely
+  // on the customer's own text, so nothing is assumed about which SKU a
+  // catch-all "really" meant.
+  const specific = shown.filter((h) => !shown.some((o) =>
+    o !== h && o.matched.length > h.matched.length
+      && o.matched.toLowerCase().includes(h.matched.toLowerCase())));
+
+
+
+  return {
+    skus: skuSet, count: bestCount, snippet: bestSnippetHit.snippet, status,
+    hits: specific.map(({ sku, matched, count }) => ({ sku, matched, count })),
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -1368,7 +1494,8 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
   // named Microsoft SKUs and a confirmed seat count are things the row
   // actually says, unlike a category description.
   const licensingFacts = licensing
-    ? [licensing.skus.join(", "), licensing.count ? `${licensing.count} seats stated` : ""].filter(Boolean).join(", ")
+    ? [licensing.hits.map((h) => h.count != null ? `${h.matched} (${h.count})` : h.matched).join(", "),
+       licensing.count ? `${licensing.count} seats stated` : ""].filter(Boolean).join(", ")
     : "";
 
   let notesSummary: string;
