@@ -4722,6 +4722,68 @@ there already lands M365 / Azure at Needs Review, never Dynamics.
 plus the note-and-file-agree case). Isolation suite still 26/26, so the
 three engines remain structurally separate.
 
+### "Wants a partner" now requires a CONFIRMED ask (app/ only)
+
+Per Jack: *"dont make assumptions with the detected tag wants a partner
+only put that if it is confirmed."* He was right, and by a mile.
+
+**The badge ran on two QUALIFICATION GATES.** `isPartnerSeeking` was
+`ONGOING_PARTNER_RE || PARTNER_ENGAGEMENT_RE` — patterns built to answer
+"is a partner anywhere in this story", never "did this customer ask for
+one". Measured over **7,876 real seller-written notes** (the CSP export's
+`msp_forecastcomments`, the closest real analogue to the Comments column
+the Main Scanner reads — Jack's own Main file was not in the session):
+
+| | rows |
+|---|---|
+| Badged **before** | **3,839 (48.7%)** |
+| …Microsoft CRM template language | 1,242 |
+| …accounts that ALREADY have a partner | 352 |
+| …bare mentions, no ask either way | 1,734 |
+| Badged **after** | **139 (1.8%)** |
+
+- **`partnerAskConfirmed` / `partnerAskMatch`** (`lib/detection.ts`). The
+  match-returning variant exists so "why is this tagged?" always has an
+  answer — and it is what caught the over-fire that a boolean hid.
+- **The verb list is deliberately short**, because measuring the first
+  draft showed every permissive verb was pulling in internal workflow
+  language, not customer intent: `need`/`needs` (200 — **"Need" is a BANT
+  and hygiene FIELD LABEL** in these exports), `evaluating` (112 — a
+  PROJECT being evaluated), `engage`/`engaging` (100 — **the seller's own
+  action**: "DAS to engage with the partner"), `requested` (35 — "CLM
+  requested to follow up"). None of those is a customer asking.
+- **Four context guards**, ±110 chars: Microsoft template language, the
+  seller's OWN partner activity, incumbency, and negation.
+- **Leaving-the-incumbent forms bypass the incumbency guard.** "no partner
+  yet", "unhappy with their current reseller", "switching partners" NAME
+  the incumbent by nature. Caught live — "Unhappy with their current
+  reseller, switching partners" scored null on the first draft.
+- **A badge-specific noun list.** Bare `csp`, `provider` and `vendor` are
+  dropped: in a CSP export **"CSP" is the billing programme**, so "want
+  them to go CSP" is a programme move. A narrow article form
+  (`need a CSP`, `want an MSP` — verb + article + noun, adjacent) keeps
+  the genuine ask, and cannot match "Sales Stage, Need, Source".
+
+**Scope: the badge and the pin order, nothing else.** `isPartnerSeeking`
+feeds only `topPriorityReason` (badge + sort) and the unwired score —
+verified by grep across the whole app. It never gated tier, category or
+bucket, so **no lead changed qualification**; the suite asserts a mention
+still reaches Strong Signal and merely loses its badge.
+
+**Two suite assertions re-pointed, not loosened** — both were mine from
+the previous session and encoded the over-fire Jack just corrected.
+"Interested in co-managed IT alongside our internal team" is interest in a
+service MODEL, not an ask. "Need a CSP to route our Azure billing through"
+IS an ask and is kept, via the article form above.
+
+**An isolation failure caught here was a comment, not an import.** The
+explanation named `lib/cspRenewal.ts` by filename; the `isolation` suite
+matches plain text, so it failed. The check was left strict and the
+comment reworded — naming another engine's file in a comment is exactly
+the coupling that invites someone to import it later.
+
+27 suites / 1,083 checks (`top-priority` 43 → 64).
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

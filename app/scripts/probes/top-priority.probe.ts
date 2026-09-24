@@ -18,7 +18,7 @@
 import { parseCSVText } from "../../src/lib/csv";
 import {
   scanParsedFiles, topPriorityReason, sortTopPriorityFirst, exportRowsForBucket,
-  m365SubViewOf, M365_SUB_VIEWS, CATEGORY_META, type ResultRow,
+  m365SubViewOf, M365_SUB_VIEWS, CATEGORY_META, partnerAskMatch, type ResultRow,
 } from "../../src/lib/detection";
 import { sortStoredTopPriorityFirst, storedTopPriorityReason, storedM365SubView } from "../../src/lib/library";
 
@@ -56,10 +56,17 @@ for (const n of [
 console.log("\n== shopping for a partner is pinned ==");
 for (const n of [
   "Want to bring in an MSP for ongoing IT support.",
-  "Interested in co-managed IT alongside our internal team.",
   "Need a CSP to route our Azure billing through.",
   "Looking to hire a consultant to run the Business Central rollout.",
 ]) ok(JSON.stringify(n.slice(0, 44)), why(n) === "partner", String(why(n)));
+// RE-POINTED, not loosened. This line previously asserted that "Interested
+// in co-managed IT alongside our internal team" earns the badge. Per Jack -
+// "only put that if it is confirmed" - it does not: that is interest in a
+// service MODEL, not a customer asking for a partner. It still qualifies as
+// Strong Signal M365/Azure exactly as before; only the badge changed.
+ok("interest in a service model is not a confirmed ask",
+   why("Interested in co-managed IT alongside our internal team.") === null,
+   String(why("Interested in co-managed IT alongside our internal team.")));
 
 // The boundary, measured and deliberate rather than an oversight. Partner
 // language is a GATE — it decides whether other patterns count — but it
@@ -168,6 +175,56 @@ ok("a filed licensing lead", storedM365SubView({} as never) === "other");
 // than vanishing - honest, since the narrow flag was never recorded for it.
 ok("a pre-existing filed row still lands in exactly one tab",
    storedM365SubView({ __isGoogleToMicrosoft: true, __isGoogleWorkspaceMigration: undefined } as never) === "migration");
+
+
+// Per Jack: "dont make assumptions with the detected tag wants a partner
+// only put that if it is confirmed." Measured over 7,876 real seller notes,
+// the first version fired on 3,839 (48.7%) - Microsoft's CRM template
+// language, accounts that already HAD a partner, and bare mentions. Only a
+// confirmed ask earns the badge now: 130 of the same notes (1.7%).
+console.log("\n== the partner badge requires a CONFIRMED ask ==");
+for (const [t, want] of [
+  // real asks
+  ["Client looking for a Microsoft partner with deep licensing knowledge.", true],
+  ["The customer is open to engaging another partner if needed.", true],
+  ["Proposed bringing in a US-based Microsoft partner.", true],
+  ["We want a partner to run the Business Central rollout.", true],
+  ["Looking for an MSP for ongoing support.", true],
+  // leaving the incumbent IS an ask - and names the incumbent by nature, so
+  // it must bypass the incumbency guard
+  ["No partner yet identified for this opportunity.", true],
+  ["Unhappy with their current reseller, switching partners.", true],
+  // they already HAVE one - Jack's own earlier flag on this badge
+  ["Working with a vendor already on the ERP side.", false],
+  ["Our current MSP handles this, no changes planned.", false],
+  ["Partner of record is CDW.", false],
+  // Microsoft's own CRM template language
+  ["Partner: Not discovered - recommend initiating partner discovery.", false],
+  // the seller's own partner activity, not the customer's ask
+  ["DAS to engage with the partner. Re-engaged partner to confirm status.", false],
+  ["Partner has been informed about this deal.", false],
+  // field labels - "Need" is a BANT/hygiene column in these exports, which
+  // is why the permissive verb list scored 200 false hits on it
+  ["Validated opportunity data including Sales Stage, Need, Source and Partner.", false],
+  ["Need: Copilot + EntraID P2. Partner: SIS LLC.", false],
+  // "CSP" is the BILLING PROGRAMME in a CSP export, not a partner
+  ["They want them to go CSP next term.", false],
+  ["Switching to CSP billing in January.", false],
+  // negation
+  ["They want to avoid duplicate vendor spend this year.", false],
+] as [string, boolean][]) {
+  const got = partnerAskMatch(t);
+  ok(`${want ? "ask  " : "noise"} ${JSON.stringify(t.slice(0, 52))}`, (got !== null) === want, JSON.stringify(got));
+}
+// The badge must never change what qualifies - only the badge and the sort.
+const partnerRow = scan(["Want to bring in an MSP for ongoing IT support."])[0];
+ok("a partner lead still qualifies exactly as before",
+   !!partnerRow && partnerRow.tier === "signal" && partnerRow.category === "m365Tenant",
+   `${partnerRow?.tier}/${partnerRow?.category}`);
+const mentionRow = scan(["Our current MSP handles our ongoing IT support."])[0];
+ok("a MENTION still qualifies too - only the badge changed",
+   !!mentionRow && mentionRow.tier === "signal", String(mentionRow?.tier));
+ok("...but it is no longer badged", mentionRow && !topPriorityReason(mentionRow), String(topPriorityReason(mentionRow)));
 
 console.log(`\n${pass}/${pass + fail} checks passed`);
 if (fail) process.exit(1);

@@ -329,7 +329,7 @@ const GROWTH_OVERLOAD_RE =
 // desk" mention (still part of the category match above, just not
 // promoted to Strong Signal by itself).
 const GOOGLE_TO_MICROSOFT_RE = new RegExp(GOOGLE_TO_MICROSOFT_SRC, "i");
-const ONGOING_PARTNER_RE = new RegExp(ONGOING_PARTNER_SRC, "i");
+export const ONGOING_PARTNER_RE = new RegExp(ONGOING_PARTNER_SRC, "i");
 // Security design/hardening work is also a Strong Signal boost, same
 // footing as the Google->Microsoft/ongoing-partner language above.
 const SECURITY_DESIGN_RE = new RegExp(SECURITY_DESIGN_SRC, "i");
@@ -353,7 +353,7 @@ const PARTNER_VERB_SRC =
   "(?:look(?:ing)?\\s*(?:for|at|into)|search(?:ing)?\\s*for|bring(?:ing)?\\s*(?:in|on)|need(?:s|ing)?|want(?:s|ing)?|seek(?:s|ing)?|hir(?:e|ing)|engag(?:e|ing)|onboard(?:ing)?|evaluat(?:e|ing)|consider(?:ing)?|work(?:ing)?\\s*with|partner(?:ing)?\\s*with|select(?:ing)?|choos(?:e|ing)|switch(?:ing)?\\s*to|mov(?:e|ing)\\s*to)";
 const PARTNER_NOUN_SRC =
   "(?:implementation\\s*partner|managed\\s*service\\s*provider|systems?\\s*integrator|solution\\s*provider|partner|vendor|consultant|consultancy|consulting\\s*firm|reseller|integrator|msp|csp)";
-const PARTNER_ENGAGEMENT_RE = new RegExp(
+export const PARTNER_ENGAGEMENT_RE = new RegExp(
   [
     // verb ... noun, with up to three words of slack between them
     "\\b" + PARTNER_VERB_SRC + "\\b(?:\\s+[\\w'-]+){0,3}?\\s+\\b" + PARTNER_NOUN_SRC + "\\b",
@@ -366,6 +366,153 @@ const PARTNER_ENGAGEMENT_RE = new RegExp(
   ].join("|"),
   "i"
 );
+
+/**
+ * A CONFIRMED ask for a partner - the only thing that earns the
+ * "Wants a partner" top-priority badge.
+ *
+ * Per Jack: "dont make assumptions with the detected tag wants a partner
+ * only put that if it is confirmed." He was right, and by a mile. The badge
+ * ran on `ONGOING_PARTNER_RE || PARTNER_ENGAGEMENT_RE` - both of which are
+ * QUALIFICATION GATES, built to answer "is a partner anywhere in this
+ * story", never "did this customer ask for one". Measured over 7,876 real
+ * seller-written notes: that fired on 3,839 of them (49%), of which only
+ * ~511 (13%) contained an actual ask. The rest were Microsoft's own CRM
+ * template language (1,242), accounts that ALREADY have a partner (352),
+ * and bare mentions (1,734).
+ *
+ * The CSP engine reached the same three-part shape for the same reason,
+ * and this is deliberately its own copy rather than a shared import: the
+ * three engines must never import each other (the `isolation` suite
+ * asserts it), so each can be tuned without silently changing the others.
+ *
+ * SCOPE: this changes the BADGE and the pin order, nothing else.
+ * ONGOING_PARTNER_RE and PARTNER_ENGAGEMENT_RE keep their existing jobs
+ * untouched - promoting M365/Azure to Strong Signal, and gating Power BI /
+ * Migration / Fabric. No lead changes tier, category or download file.
+ */
+/** The nouns that can earn the badge. Deliberately NOT PARTNER_NOUN_SRC:
+ *  that list is a qualification gate and includes bare "csp", "provider"
+ *  and "vendor", all far too overloaded to signal an ask. In a CSP export
+ *  "CSP" is the BILLING PROGRAMME, so "want them to go CSP" and "switching
+ *  to CSP" are programme moves, not somebody shopping. A genuine "looking
+ *  for a CSP partner" still matches here, on "partner". */
+const PARTNER_ASK_NOUN_SRC =
+  "(?:implementation\\s*partner|managed\\s*service\\s*provider|systems?\\s*integrator"
+  + "|solution\\s*provider|partner|reseller|consultant|consultancy|consulting\\s*firm|integrator|msp)";
+
+const PARTNER_ASK_RE = new RegExp(
+  [
+    // A shopping verb reaching a partner noun, up to three words apart.
+    // The verb list is deliberately SHORT. Measuring the first draft over
+    // 7,876 real notes showed the permissive verbs were all pulling in
+    // Microsoft's internal workflow language rather than customer intent:
+    //   need/needs (200)  - "Need" is a BANT and hygiene FIELD LABEL in
+    //                       these exports ("Validated ... Sales Stage,
+    //                       Need, Source"), not somebody needing anything
+    //   evaluating (112)  - nearly always evaluating a PROJECT, with a
+    //                       partner word elsewhere in the note
+    //   engage/-ing (100) - the seller's own action: "DAS to engage with
+    //                       the partner", "Re-engaged partner to confirm
+    //                       opportunity status"
+    //   requested (35)    - "CLM requested to follow up", internal
+    // None of those is a customer asking for a partner, so none of them
+    // is here. Only verbs that mean somebody is shopping survive.
+    "\\b(?:look(?:ing|s)?\\s+for|search(?:ing)?\\s+for|shopping\\s+for|in\\s+the\\s+market\\s+for"
+      + "|want(?:s|ing)?|seek(?:s|ing)?|bring(?:ing)?\\s+(?:in|on)|hir(?:e|ing)"
+      + "|switch(?:ing)?\\s+to|open\\s+to)\\b"
+      + "(?:\\s+[\\w'-]+){0,3}?\\s+\\b" + PARTNER_ASK_NOUN_SRC + "\\b",
+    // "need a CSP", "want an MSP" - a shopping verb, an ARTICLE, and the
+    // noun directly after it. The article and the adjacency are what make
+    // this safe: "need" was pulled from the verb list above because it is
+    // a BANT/hygiene FIELD LABEL in these exports, but "Sales Stage, Need,
+    // Source and Partner" and "Need: Copilot ... Partner: SIS LLC" both
+    // lack an article and are far from the noun, so neither matches here.
+    // Bare "csp" is allowed ONLY in this shape, for the same reason -
+    // "want them to go CSP" and "switching to CSP" have no article.
+    "\\b(?:need(?:s|ing)?|want(?:s|ing)?|look(?:ing|s)?\\s+for|seek(?:s|ing)?)\\s+(?:a|an)\\s+(?:new\\s+)?"
+      + "(?:csp|msp|partner|reseller|consultant|consultancy|integrator)\\b",
+  ].join("|"),
+  "i",
+);
+
+/**
+ * Leaving, or never had one. These are asks with no verb needed - and they
+ * get their own pattern because each one NAMES the incumbent by nature
+ * ("unhappy with their current reseller"), so running them through the
+ * incumbency guard below would reject the very phrasings that prove intent.
+ * Caught live: "Unhappy with their current reseller, switching partners"
+ * scored null on the first draft.
+ */
+const PARTNER_LEAVING_RE =
+  /\bno\s+partner\s+(?:yet|identified|selected|in\s+place|assigned)\b|\bunhappy\s+with\s+(?:their\s+|our\s+)?(?:current\s+)?(?:partner|reseller|provider|msp)\b|\bswitch(?:ing)?\s+(?:partners?|resellers?|msps?)\b/i;
+
+/** The seller's OWN partner activity, not the customer's ask. Measured:
+ *  21 of the first draft's 605 survivors were Microsoft staff working
+ *  their own partner - "DAS to engage with the partner", "Re-engaged
+ *  partner to confirm opportunity status", "To validate with the partner",
+ *  "Partner has been informed about this deal". */
+const PARTNER_SELLER_ACTIVITY_RE =
+  /\b(?:re-?engag\w*|engag\w*|validat\w*|confirm\w*|align\w*|updat\w*|check\w*|follow(?:ed|ing)?\s*up)\s+(?:\w+\s+){0,2}with\s+(?:the|our|their)\s+(?:partner|reseller|msp|csp)\b|\bre-?engaged?\s+(?:the\s+)?partner\b|\bpartner\s+(?:has\s+been\s+)?informed\b|\bpartner\s+engaging\s+with\b|\b(?:das|clm|poe)\b[^.]{0,40}\bpartner\b/i;
+
+/** Microsoft's own CRM form and workflow language. A partner word inside
+ *  this context is a field label, not a customer asking for anything. */
+const PARTNER_TEMPLATE_RE =
+  /(?:partner\s*:\s*(?:not\s+)?discovered|partner\s+not\s+discovered|recommend\s+initiating\s+partner\s+discovery|partner\s+recommendation|partner\s+referral|partner\s+poc|partner\s+summary|partner\s+contact\s*:|solution\s+(?:area|play)|opportunity\s+insights|orchestration\s+note|task\s+subject)/i;
+
+/** They already HAVE one. Per Jack's own earlier flag on this same badge:
+ *  "Working with a vendor already on the ERP side" was being pinned as a
+ *  partner-seeker. Having a partner is the opposite of wanting one. */
+const PARTNER_INCUMBENT_RE =
+  /\b(?:current|existing|incumbent|already|their|our)\s+(?:[\w'-]+\s+){0,2}(?:partner|reseller|msp|csp|provider|vendor)\b|\b(?:work(?:s|ing)?|partnered)\s+with\s+(?:a\s+|an\s+|the\s+|their\s+|our\s+)?(?:current\s+|existing\s+)?(?:partner|reseller|msp|csp|provider|vendor)\b|\bpartner\s+of\s+record\b/i;
+
+/** "not looking for a partner" is not "looking for a partner". */
+const PARTNER_NEGATION_RE =
+  /\b(?:do(?:es)?\s+n[o']t|did\s+n[o']t|not\s+seeking|not\s+looking|no\s+longer|never|without\s+a)\s+(?:[\w'-]+\s+){0,3}(?:want|need|seek|require|involv|partner|reseller|msp)/i;
+
+/** How far either side of the ask to read for context. 110 characters,
+ *  matching the CSP engine: wide enough to catch the label a form value
+ *  hangs off, narrow enough not to reach an unrelated sentence. */
+const PARTNER_CONTEXT_CHARS = 110;
+
+/**
+ * Did this customer actually ask for a partner? One named function rather
+ * than an inline test, because it is the single question the badge turns
+ * on and it has to be readable.
+ */
+export function partnerAskConfirmed(text: string): boolean {
+  return partnerAskMatch(text) !== null;
+}
+
+/** The exact phrase that earned the badge, or null. Separate from the
+ *  boolean so a "why is this tagged?" answer is always available - and so
+ *  the suite can assert on WHAT matched rather than only that something
+ *  did, which is how the first draft's over-fire hid. */
+export function partnerAskMatch(text: string): string | null {
+  const t = String(text ?? "");
+  // Leaving-the-incumbent forms first, and WITHOUT the incumbency guard -
+  // naming the current partner is what makes them an ask.
+  const leaving = PARTNER_LEAVING_RE.exec(t);
+  if (leaving && !blockedNearby(t, leaving, false)) return leaving[0];
+  const m = PARTNER_ASK_RE.exec(t);
+  if (!m) return null;
+  return blockedNearby(t, m, true) ? null : m[0];
+}
+
+/** Is the context around a match something that cancels it? Template
+ *  language, the seller's own partner activity and negation always cancel;
+ *  incumbency only for the verb+noun form (see PARTNER_LEAVING_RE). */
+function blockedNearby(t: string, m: RegExpExecArray, checkIncumbent: boolean): boolean {
+  const around = t.slice(
+    Math.max(0, m.index - PARTNER_CONTEXT_CHARS),
+    Math.min(t.length, m.index + m[0].length + PARTNER_CONTEXT_CHARS),
+  );
+  return PARTNER_TEMPLATE_RE.test(around)
+    || PARTNER_SELLER_ACTIVITY_RE.test(around)
+    || PARTNER_NEGATION_RE.test(around)
+    || (checkIncumbent && PARTNER_INCUMBENT_RE.test(around));
+}
+
 // Azure Document Intelligence and full custom-app builds are hot per
 // Jack's ask — shared sub-patterns so Azure's own gate and Fabric's project
 // gate below both recognize them the same way.
@@ -858,7 +1005,7 @@ export function scanRowPlatform(
           cat.label === MIGRATION_LABEL ||
           (cat.label === "Azure" && AZURE_MIGRATION_OVERRIDE_RE.test(win)),
         isGoogleWorkspaceMigration: cat.label === TENANT_SUPPORT_LABEL && GOOGLE_TO_MICROSOFT_RE.test(win),
-        isPartnerSeeking: ONGOING_PARTNER_RE.test(win) || PARTNER_ENGAGEMENT_RE.test(win),
+        isPartnerSeeking: partnerAskConfirmed(win),
         isBusinessCentral: cat.label === "Dynamics 365" && BUSINESS_CENTRAL_RE.test(win),
         isSalesCrm: cat.label === "Dynamics 365" && SALES_CRM_RE.test(win),
       });
@@ -893,7 +1040,7 @@ export function scanRowPlatform(
           cat.label === MIGRATION_LABEL ||
           (cat.label === "Azure" && AZURE_MIGRATION_OVERRIDE_RE.test(paText)),
         isGoogleWorkspaceMigration: cat.label === TENANT_SUPPORT_LABEL && GOOGLE_TO_MICROSOFT_RE.test(paText),
-        isPartnerSeeking: ONGOING_PARTNER_RE.test(paText) || PARTNER_ENGAGEMENT_RE.test(paText),
+        isPartnerSeeking: partnerAskConfirmed(paText),
         isBusinessCentral: cat.label === "Dynamics 365" && BUSINESS_CENTRAL_RE.test(paText),
         isSalesCrm: cat.label === "Dynamics 365" && SALES_CRM_RE.test(paText),
       });
