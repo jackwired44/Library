@@ -233,7 +233,7 @@ export function tidyBantValue(raw: string): string {
   // ("ratio 3:1") is untouched.
   const nextField = /\s(?=(?:[A-Z][A-Za-z&/]*(?:\s[A-Z][A-Za-z&/]*){0,2})\s*:\s)/.exec(v);
   if (nextField && nextField.index > 0) v = v.slice(0, nextField.index).trim();
-  v = v.replace(/^[•\-–—\s]+/, "").replace(/[•\s;,]+$/, "").trim();
+  v = v.replace(/^[•–—\s-]+/, "").replace(/[•\s;,]+$/, "").trim();
   // A value that was nothing but scaffolding is no value at all.
   if (/^(tbd|none|n\/a|unknown|confirmed|unverified)$/i.test(v)) return "";
   return v;
@@ -259,7 +259,7 @@ export function cleanPartner(raw: string): string {
   // An email or a phone number is contact detail, never part of the name.
   const contact = /\s(?:[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|\(?\d{3}\)?[-. ]?\d{3}[-. ]?\d{4})/.exec(v);
   if (contact) v = v.slice(0, contact.index);
-  v = v.replace(/[\s,;:\-–]+$/, "").trim();
+  v = v.replace(/[\s,;:–-]+$/, "").trim();
   // A bare TPID trailing the name ("3RT Networks 6647767") is an id, not
   // part of what the partner is called.
   v = v.replace(/\s+\d{6,}$/, "").trim();
@@ -680,7 +680,7 @@ function clip(v: string, max: number): string {
   if (s.length <= max) return s;
   const cut = s.slice(0, max - 1);
   const sp = cut.lastIndexOf(" ");
-  return (sp > max * 0.5 ? cut.slice(0, sp) : cut).replace(/[\s,;:.\-]+$/, "") + "\u2026";
+  return (sp > max * 0.5 ? cut.slice(0, sp) : cut).replace(/[\s,;:.-]+$/, "") + "\u2026";
 }
 
 

@@ -135,7 +135,7 @@ const COUNT_PATTERNS: RegExp[] = [
   // the product tokens above are masked first; without that, the gap
   // would let "365" itself be read as the count.
   /(\d{1,4})\s*\+?\s*(?:[A-Za-z][\w-]*\s+){0,3}(users?|seats?|licenses?|licences?|employees?|people|mailboxes?)\b/i,
-  /\b(users?|seats?|licenses?|licences?)\s*(?:for\s*)?[:\-]?\s*(\d{1,4})\b/i,
+  /\b(users?|seats?|licenses?|licences?)\s*(?:for\s*)?[:-]?\s*(\d{1,4})\b/i,
   /\bx\s*(\d{1,4})\b/i,
   /(\d{1,4})\s*x\b/i,
 ];
@@ -568,13 +568,13 @@ function hasBareTrailingCount(afterText: string) {
   const snippet = afterText.slice(0, 80);
   const terminatorIdx = snippet.search(/[.!?\n]/);
   const clause = (terminatorIdx === -1 ? snippet : snippet.slice(0, terminatorIdx + 1)).trim();
-  return /^[a-z\s\-:,/&]*(?:^|[\s\-:,])(?!1\s*[.,]?$)(?!(?:19|20)\d{2}\s*[.,]?$)\d{1,4}\s*[.,]?$/i.test(clause);
+  return /^[a-z\s:,/&-]*(?:^|[\s:,-])(?!1\s*[.,]?$)(?!(?:19|20)\d{2}\s*[.,]?$)\d{1,4}\s*[.,]?$/i.test(clause);
 }
 function hasBareLeadingCount(beforeText: string) {
   const snippet = beforeText.slice(-80);
   const terminatorIdx = snippet.search(/[.!?\n](?=[^.!?\n]*$)/);
   const clause = (terminatorIdx === -1 ? snippet : snippet.slice(terminatorIdx + 1)).trim();
-  const m = /^(\d{1,4})\b(?:[\s\-:,/&]|[a-z])*$/i.exec(clause);
+  const m = /^(\d{1,4})\b(?:[\s:,/&-]|[a-z])*$/i.exec(clause);
   if (!m) return false;
   if (m[1] === "1") return false;
   if (/^(?:19|20)\d{2}$/.test(m[1])) return false;
@@ -586,10 +586,10 @@ const AZURE_MIGRATION_OVERRIDE_RE =
   /\bazure\b[^.!?\n]{0,80}\bmigrat\w*\b|\bmigrat\w*\b[^.!?\n]{0,80}\bazure\b|\bon-?prem\w*\s*(?:to|into|→)\s*(?:the\s*)?cloud\b|\bon-?prem\w*\b[^.!?\n]{0,80}\bazure\b|\bazure\b[^.!?\n]{0,80}\bon-?prem\w*\b|\blift\s*and\s*shift\b[^.!?\n]{0,80}\bazure\b|\bazure\b[^.!?\n]{0,80}\blift\s*and\s*shift\b/i;
 
 const DATE_RE =
-  /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s*\d{0,2}(?:st|nd|rd|th)?,?\s*\d{0,4}\b|\b\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}\b|\b(?:19|20)\d{2}\b|\bQ[1-4]\b|\b(?:this|next|last)\s+(?:year|quarter|month|week)\b/i;
+  /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s*\d{0,2}(?:st|nd|rd|th)?,?\s*\d{0,4}\b|\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b|\b(?:19|20)\d{2}\b|\bQ[1-4]\b|\b(?:this|next|last)\s+(?:year|quarter|month|week)\b/i;
 const BILLING_BANT_RE =
   /\$\s?\d[\d,]*(?:\.\d{1,2})?\b|\b\d+\s*(?:k|thousand|million)\b|\b(budget|pricing|price|quote|quoted|cost|contract|renewal|renew\w*|invoice|deadline|timeline|decision[\s-]?maker|approv\w*|procurement|purchase\s*order|\bpo\b|per\s*(?:seat|user|month|year))\b/i;
-const SERIAL_RE = /\b(?:serial|order|invoice|case|ticket|ref(?:erence)?)\s*#?\s*[:\-]?\s*[a-z0-9-]{4,}\b|\b[a-z]{1,3}-?\d{4,}\b|\b\d{5,}\b/i;
+const SERIAL_RE = /\b(?:serial|order|invoice|case|ticket|ref(?:erence)?)\s*#?\s*[:-]?\s*[a-z0-9-]{4,}\b|\b[a-z]{1,3}-?\d{4,}\b|\b\d{5,}\b/i;
 // Email/phone already have their own dedicated export columns — see
 // CLAUDE.md — so a candidate summary sentence carrying either is dropped
 // here rather than shown a second time in the Matched snippet/Notes text.
@@ -672,7 +672,7 @@ function normalizeSentence(s: string) {
   t = t.replace(/^(and|but|so|because|which|who|that)\s+/i, "");
   if (!t) return "";
   t = t.charAt(0).toUpperCase() + t.slice(1);
-  t = t.replace(/[,;:\-\s]+$/, "");
+  t = t.replace(/[,;:\s-]+$/, "");
   if (!/[.!?]$/.test(t)) t += ".";
   return t;
 }
@@ -709,7 +709,7 @@ function truncateAtWord(s: string, maxLen: number): { text: string; safe: boolea
   if (s.length <= maxLen) return { text: s, safe: true };
   const cut = s.slice(0, maxLen - 1);
   const lastSpace = cut.lastIndexOf(" ");
-  const head = (lastSpace > 40 ? cut.slice(0, lastSpace) : cut).trim().replace(/[,;:\-\s]+$/, "");
+  const head = (lastSpace > 40 ? cut.slice(0, lastSpace) : cut).trim().replace(/[,;:\s-]+$/, "");
   const tail = s.slice(head.length);
   if (REVERSAL_RE.test(tail) && !REVERSAL_RE.test(head)) return { text: "", safe: false };
   return { text: head + "…", safe: true };

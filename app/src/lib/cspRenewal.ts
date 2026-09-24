@@ -289,11 +289,11 @@ export function latestEntry(notes: string): string {
 }
 
 /** The first "Next Step / Next Action" sentence, for the notes line. */
-const NEXT_STEP_RE = /next\s+(?:steps?|action)\s*[:\-]?\s*([^.·|]{8,180})/i;
+const NEXT_STEP_RE = /next\s+(?:steps?|action)\s*[:-]?\s*([^.·|]{8,180})/i;
 export function nextStepFrom(notes: string): string {
   const m = NEXT_STEP_RE.exec(String(notes ?? ""));
   if (!m) return "";
-  return m[1].replace(/\s+/g, " ").trim().replace(/[,;\-\s]+$/, "");
+  return m[1].replace(/\s+/g, " ").trim().replace(/[,;\s-]+$/, "");
 }
 
 /**
@@ -319,7 +319,7 @@ export function isDialable(raw: string): boolean {
  * file saved out of Excel routinely loses it, and a lead with no company
  * cannot be called or matched in Apollo.
  */
-const NOTES_COMPANY_RE = /\bcompany\s*name\s*[:\-]\s*([^\n;|]{2,80})/i;
+const NOTES_COMPANY_RE = /\bcompany\s*name\s*[:-]\s*([^\n;|]{2,80})/i;
 // These blobs run several labelled fields together on one line
 // ("Company Name: SOFVARE Website: https://…"), so the value has to stop at
 // the next label. Cutting at "any capitalised word before a colon" splits
@@ -372,7 +372,7 @@ export function companyDomainFromEmail(email: string): string {
  * Even a LABELLED number is rejected when partner/reseller language sits
  * immediately before it, for the same reason.
  */
-const LABELLED_PHONE_RE = /(?:business|work|direct|mobile|cell|office|main)?\s*phone\s*(?:number)?\s*[:\-]\s*(\+?[\d][\d\s().\-]{7,})/i;
+const LABELLED_PHONE_RE = /(?:business|work|direct|mobile|cell|office|main)?\s*phone\s*(?:number)?\s*[:-]\s*(\+?[\d][\d\s().-]{7,})/i;
 const PARTNER_CONTEXT_RE = /\b(partner|reseller|distributor|\bAE\b|account\s+executive|co-?sell)\b/i;
 export function labelledPhoneFrom(notes: string): string {
   const text = String(notes ?? "");
@@ -381,7 +381,7 @@ export function labelledPhoneFrom(notes: string): string {
   // Whose number is this? If the run-up names a partner, it is not ours.
   const before = text.slice(Math.max(0, m.index - 80), m.index);
   if (PARTNER_CONTEXT_RE.test(before)) return "";
-  const v = m[1].trim().replace(/[\s.\-]+$/, "");
+  const v = m[1].trim().replace(/[\s.-]+$/, "");
   if (!isDialable(v)) return "";
   // A repeated-digit placeholder ("8888888888") is not a phone number.
   const digits = v.replace(/\D/g, "").replace(/^1/, "");
