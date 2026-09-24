@@ -4592,6 +4592,109 @@ rows pin. Worth re-running when he next uploads it.
 fixture leads, badge renders, pinned rows lead the table, and the download
 counts are unchanged (Dynamics 1 / M365 Azure 4 / All 5).
 
+### Main Scanner: a product name was being read as a seat count
+
+Per Jack: *"double check qualifying rules for main scanner lets not make
+license sku assumptions."* One real bug, found by auditing the licensing
+engine against his two real files (14,635 rows) rather than by reading the
+code.
+
+**The bug.** `maskProductTokens` exists precisely so a SKU's own digits are
+never read as a headcount (E3→3, F1→1, and above all "Microsoft 365"→365).
+It ran on the **sliced ±65 window instead of the full text**, so a product
+name straddling the window edge arrived cut in half — "osoft 365" — and
+`\bmicrosoft\s*365\b` cannot match a word it can only see part of. The bare
+365 survived the mask and `bestCount` takes `Math.max`, so it beat every
+real number in the row. **85 rows carried a licensing count of exactly
+365.** One of them read `"crosoft 365 licenses: 26 Business Premium"` — the
+true count of 26 was sitting right there and lost to half a product name.
+
+**The fix is an ordering change, not a new rule.** Mask the whole row once
+(`maskAll`), then slice; both masks are length-preserving by construction,
+so every index still lines up and slicing a mirror costs nothing.
+`extractCountNear` now takes the pre-masked string alongside the raw one,
+and all three call sites pass it.
+
+Auditing the survivors turned up a second class of the same defect — product
+names the mask simply did not know: `Agent 365`, `Copilot 365`, `A365`,
+`MS 365`, `M365BP` (the existing `\b[mo]365\b` cannot match when letters
+follow the digits) and a bare `365` carrying a plan code (`"upgrading 365 E3
+Licenses to E5"`). `PRODUCT_TOKEN_RE` was widened for each.
+
+**Measured impact: 85 rows reading 365 → 1, and 7 rows move tier.** All 7
+were Strong Signal on a count that was half a product name:
+
+| | |
+|---|---|
+| signal → dq | 5 (real counts of 7, 7, 2, 9 and 0 — genuinely under the 10 threshold) |
+| signal → mention | 2 (no stated count at all, so Needs Review is correct) |
+
+Totals go 5287/5573/3775 → 5280/5575/3780. An earlier, looser check
+suggested ~196 rows would move; that compared the rule's number against
+*any* number beside *any* SKU, which is a different question. **7 is the
+measured figure for this change.**
+
+The one remaining row reads `"supported base 365 licenses required for
+Copilot Premium"` — a genuinely bare 365 with no product word attached.
+Left alone deliberately: masking an unqualified 365 would also suppress a
+real 365-seat lead, and that trade is not obviously worth it for one row in
+14,635. Flagged rather than fixed.
+
+### Main Scanner: the Detected column condenses its SKU chips
+
+Per Jack, pasting two real rows: *"condese those or move them from view
+under detected."* Each was a star badge over six or seven stacked SKU chips.
+
+Measured: of 6,091 rows carrying a licensing hit, **1,200 carry more than
+three chips** and the worst carries **18** — "Microsoft 365 E3 ·790 | E5 ·10
+| Copilot ·10 | Business Standard | Business Premium | Business Basic |
+Exchange Online | Teams Rooms | Visio | Project Plan 3 | Defender for Office
+365 ·818 | Purview | Intune". That is a licence inventory, not a reason to
+call.
+
+- **`splitLicensingHits` / `SKU_CHIPS_SHOWN` (= 2)** in `lib/detection.ts`.
+  Two chips render; the rest fold into a `+N` pill listing them on hover.
+  **Nothing is dropped and nothing is hidden** — every SKU is still one
+  keystroke away.
+- **Order is the only judgement made**: SKUs the row put a seat count
+  against come first, **largest count first**, then uncounted ones in the
+  row's own reading order. Row order alone was actively bad — on the
+  heaviest real row it surfaced `Power BI Premium ·38` and hid
+  `Microsoft 365 E3 ·1335`, purely because the 38 appeared earlier in a
+  4,000-character note. It now leads with `Defender for Office 365 ·7500`
+  and `Microsoft 365 E3 ·1335`.
+- **Display-only.** `LicensingResult.skus`, `.count` and `.status` are
+  untouched, so qualification, the three CSV downloads and the Lead Library
+  see exactly what they saw before — asserted, not assumed.
+- Chips rendered across both real files fall 14,440 → 10,985 (−24%); the
+  most any row can now show is three (two plus the pill); 1,865 rows carry a
+  `+N`.
+
+Jack's own two rows now read:
+
+```
+★ Google → MS   Microsoft 365 A1   Microsoft 365 Business Basic   +5
+★ Google → MS   Microsoft 365 Business Basic · 300   Microsoft 365 Business Standard · 300   +4
+```
+
+**Flagged, NOT changed:** `countWrittenBeside` is nearest-wins within 60
+characters, so when one number sits in a list of products it is pinned to
+several of them. **430 rows (7%) pin one number to more than one product;
+on 347 rows both visible chips show the same number** — including Jack's
+second example, where both read `· 300`. Sometimes that is genuinely true
+("Business Basic and Business Standard for 300 users"); sometimes a product
+in the next sentence is borrowing it. Jack pasted that row without flagging
+it, and deciding whether to group those into one chip or suppress the repeat
+is a product call, not a bug fix.
+
+`sku-truth` grew 15 → 38 checks covering both changes. The 365 guard is a
+**sweep** over 40 separations between the product name and the SKU the count
+anchors on, not a single fixture: the window edge has to land strictly
+inside "Microsoft 365" to reproduce it, a band only a few characters wide,
+so one fixture would silently stop guarding the moment `WINDOW` moved. The
+sweep was confirmed to FAIL on the pre-fix engine (offset 32) before being
+kept.
+
 
 ## Where this is going: three scanners → one leads database
 

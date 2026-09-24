@@ -106,9 +106,18 @@ export const SKU_CATALOGUE: { label: string; pattern: RegExp }[] = [
 // widening the adjacency rule).
 const PRODUCT_TOKEN_RE = new RegExp(
   [
-    "\\b(?:microsoft|office|dynamics|windows)\\s*365\\b",
-    "\\b[mo]365\\b",
+    // Any product word in front of 365. "Agent 365", "Copilot 365" and
+    // "MS 365" are all real phrasings in Jack's files that were being read
+    // as a seat count of 365.
+    "\\b(?:microsoft|ms|office|dynamics|windows|agent|copilot)\\s*365\\b",
+    // Trailing characters too: "M365BP and E5 licenses" read as 365,
+    // because \b[mo]365\b cannot match when "BP" follows the digits.
+    "\\b[maod]365\\w*",
     "\\bd\\s*365\\b",
+    // A bare 365 carrying a plan code — "upgrading 365 E3 Licenses to E5".
+    // The E3 is masked by the plan-code rule below; without this the 365
+    // in front of it survives as a number.
+    "\\b365(?=\\s*[efgap][1-7]\\b)",
     "\\bpower\\s*bi\\b",
     "\\bsql\\s*server\\s*\\d{4}\\b",
     "\\bserver\\s*\\d{4}\\b",
@@ -188,11 +197,36 @@ function maskContactDigits(text: string): string {
   return text.replace(CONTACT_DIGITS_RE, (m) => "#".repeat(m.length));
 }
 
-function extractCountNear(haystack: string, matchIndex: number, matchLength: number) {
+/** Both masks, applied to the WHOLE row text exactly once per scan. Every
+ *  replacement is the same length as what it replaces, so the result is a
+ *  positional mirror of the original and can be sliced with the same
+ *  indices. */
+function maskAll(text: string): string {
+  return maskProductTokens(maskContactDigits(text));
+}
+
+/**
+ * `masked` MUST be maskAll(haystack) — masked over the WHOLE text, then
+ * sliced here. Not sliced then masked.
+ *
+ * That ordering is the entire fix for a real qualification bug. A +/-65
+ * window cuts wherever it lands, so "Microsoft 365" straddling the edge
+ * arrives as "osoft 365" - and `\bmicrosoft\s*365\b` cannot match a word
+ * it can only see half of. The product token escaped masking and the bare
+ * 365 was read as a seat count. 85 real rows in Jack's own file carried a
+ * licensing count of exactly 365, off snippets like "osoft 365 usage with
+ * mixed licenses" and "crosoft 365 licenses: 26 Business Premium" - the
+ * second one had a real count of 26 sitting right there and lost to a
+ * number that was half a product name.
+ *
+ * Masking is length-preserving by construction (same-length spaces / #s),
+ * so masking first costs nothing and every index still lines up.
+ */
+function extractCountNear(haystack: string, masked: string, matchIndex: number, matchLength: number) {
   const start = Math.max(0, matchIndex - WINDOW);
   const end = Math.min(haystack.length, matchIndex + matchLength + WINDOW);
   const win = haystack.slice(start, end);
-  const searchable = maskProductTokens(maskContactDigits(win));
+  const searchable = masked.slice(start, end);
   let best: number | null = null;
   for (const re of COUNT_PATTERNS) {
     const m = searchable.match(re);
@@ -225,10 +259,12 @@ function extractCountNear(haystack: string, matchIndex: number, matchLength: num
  * rather than borrowing its neighbour's.
  */
 const CHIP_COUNT_REACH = 60;
-function countWrittenBeside(haystack: string, matchIndex: number, matchLength: number): number | null {
+/** `masked` is maskAll(full text) — see extractCountNear on why the mask
+ *  must come before the slice, never after. */
+function countWrittenBeside(masked: string, matchIndex: number, matchLength: number): number | null {
   const start = Math.max(0, matchIndex - CHIP_COUNT_REACH);
-  const end = Math.min(haystack.length, matchIndex + matchLength + CHIP_COUNT_REACH);
-  const win = maskProductTokens(maskContactDigits(haystack.slice(start, end)));
+  const end = Math.min(masked.length, matchIndex + matchLength + CHIP_COUNT_REACH);
+  const win = masked.slice(start, end);
   const anchorAt = matchIndex - start;
   let best: { n: number; d: number } | null = null;
   for (const re of COUNT_PATTERNS) {
@@ -274,6 +310,57 @@ export interface LicensingHit {
   count: number | null;
 }
 
+/**
+ * How many SKU chips the Detected column shows before collapsing the rest.
+ *
+ * Jack pasted two real rows, seven and six chips deep, under one badge.
+ * Measured across his two files: 6,091 rows carry a licensing hit, 1,200 of
+ * them carry MORE THAN THREE chips, and the worst single row carries 18 -
+ * "Microsoft 365 E3 ·790 | E5 ·10 | Copilot ·10 | Business Standard |
+ * Business Premium | Business Basic | Exchange Online | Teams Rooms | Visio
+ * | Project Plan 3 | Defender for Office 365 ·818 | Purview | Intune". That
+ * is a licence inventory, not a reason to call.
+ */
+export const SKU_CHIPS_SHOWN = 2;
+
+/**
+ * Which SKU chips to show, and which to fold into a "+N" pill.
+ *
+ * Nothing is dropped - the caller shows the rest on hover. The only
+ * judgement here is ORDER:
+ *
+ *  1. SKUs the row put a seat count against, LARGEST COUNT FIRST. That is
+ *     the scale of the account and the reason to call. Row order is a poor
+ *     tie-break on its own: on the heaviest real row it surfaced
+ *     "Power BI Premium ·38" and hid "Microsoft 365 E3 ·1335", purely
+ *     because the 38 appeared earlier in a 4,000-character note.
+ *  2. SKUs with no count, in the row's own reading order.
+ *
+ * Still the row's own words throughout - this reorders what is shown and
+ * invents nothing.
+ *
+ * Deliberately display-only. `skus` and `count` on LicensingResult are
+ * untouched, so qualification, downloads and the Lead Library all see
+ * exactly what they saw before.
+ */
+export function splitLicensingHits(
+  hits: LicensingHit[],
+  max: number = SKU_CHIPS_SHOWN
+): { shown: LicensingHit[]; hidden: LicensingHit[] } {
+  if (hits.length <= max) return { shown: hits, hidden: [] };
+  const ordered = hits
+    .map((h, i) => ({ h, i }))
+    .sort((a, b) => {
+      const ac = a.h.count != null ? 0 : 1;
+      const bc = b.h.count != null ? 0 : 1;
+      if (ac !== bc) return ac - bc;                    // counted first
+      if (ac === 0 && a.h.count !== b.h.count) return b.h.count! - a.h.count!;
+      return a.i - b.i;                                  // else row order
+    })
+    .map((x) => x.h);
+  return { shown: ordered.slice(0, max), hidden: ordered.slice(max) };
+}
+
 export interface LicensingResult {
   skus: string[];
   count: number | null;
@@ -292,17 +379,18 @@ export interface LicensingResult {
 export function scanRowLicensing(row: Record<string, unknown>, columns: string[], qualifyThreshold: number = QUALIFY_THRESHOLD): LicensingResult | null {
   const fields = columns.map((c) => String(row[c] ?? ""));
   const combined = fields.join("   ");
+  const masked = maskAll(combined);
   const hits: { sku: string; matched: string; count: number | null; chipCount: number | null; snippet: string; at: number; len: number }[] = [];
   for (const sku of SKU_CATALOGUE) {
     const re = new RegExp(sku.pattern.source, sku.pattern.flags.includes("g") ? sku.pattern.flags : sku.pattern.flags + "g");
     let m: RegExpExecArray | null;
     while ((m = re.exec(combined)) !== null) {
-      const { count, window } = extractCountNear(combined, m.index, m[0].length);
+      const { count, window } = extractCountNear(combined, masked, m.index, m[0].length);
       // m[0] is what the row actually wrote - keep it, it is the whole point.
       hits.push({
         sku: sku.label, matched: m[0].replace(/\s+/g, " ").trim(),
         count,                                            // rules: unchanged
-        chipCount: countWrittenBeside(combined, m.index, m[0].length), // display
+        chipCount: countWrittenBeside(masked, m.index, m[0].length), // display
         snippet: window, at: m.index, len: m[0].length,
       });
       if (m.index === re.lastIndex) re.lastIndex++;
@@ -1019,6 +1107,7 @@ export function scanRowPlatform(
 ): PlatformResult | null {
   const fields = columns.map((c) => String(row[c] ?? ""));
   const combined = fields.join("   ");
+  const masked = maskAll(combined);
   const hits: PlatformHit[] = matchCustomKeywords(combined, customKeywords);
   for (const cat of PLATFORM_CATALOGUE) {
     const re = new RegExp(cat.pattern.source, cat.pattern.flags.includes("g") ? cat.pattern.flags : cat.pattern.flags + "g");
@@ -1117,7 +1206,7 @@ export function scanRowPlatform(
         // Same seat/user/license number extraction the licensing engine
         // uses, reused here so a Dynamics lead's real count (not just
         // "a count was mentioned") survives into the result for ranking.
-        seatCount: cat.label === "Dynamics 365" ? extractCountNear(combined, m.index, m[0].length).count : null,
+        seatCount: cat.label === "Dynamics 365" ? extractCountNear(combined, masked, m.index, m[0].length).count : null,
         moduleTier: cat.label === "Dynamics 365" ? (DYNAMICS_ERP_RE.test(win) ? 0 : DYNAMICS_CRM_RE.test(win) ? 1 : 2) : undefined,
         // Per Jack: the Google->Microsoft tab should also pick up any
         // other migration-flavored lead that's already qualifying as
