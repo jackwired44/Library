@@ -777,6 +777,16 @@ const BUSINESS_CENTRAL_RE = /\b(business\s*central|erp)\b/i;
 // Engagement" with no bare "Sales" or "CRM" wording doesn't trigger this
 // tab, even though it shares the same module-tier ranking block.
 const SALES_CRM_RE = /\b(sales|crm)\b/i;
+// Supply Chain Management, per Jack: it "always goes with everything else
+// for dynamics view." Its own D365 module and its own sales motion — not a
+// Business Central conversation, and not Sales/CRM. Kept separate from
+// DYNAMICS_ERP_RE (which still ranks SCM in the tier-0 block, unchanged —
+// this decides a TAB, not an order) so the two can be tuned apart.
+const SUPPLY_CHAIN_RE = /\bsupply\s*chain(?:\s*mgmt|\s*management)?\b|\b(?:d|dynamics\s*)365\s*scm\b/i;
+// The one thing that outranks it: naming Business Central outright.
+// Deliberately NOT BUSINESS_CENTRAL_RE — that one also accepts a bare
+// "ERP", which is exactly the word a supply-chain note always carries.
+const BUSINESS_CENTRAL_ONLY_RE = /\bbusiness\s*central\b/i;
 
 function hasBareTrailingCount(afterText: string) {
   const snippet = afterText.slice(0, 80);
@@ -1278,8 +1288,24 @@ export function scanRowPlatform(
   // covers a row with two separate hits (one BC-flavored, one Sales/CRM-
   // flavored, from different sentences), not just one hit matching both
   // keywords in its own signal window.
-  const isBusinessCentral = hits.some((h) => h.isBusinessCentral);
-  const isSalesCrm = !isBusinessCentral && hits.some((h) => h.isSalesCrm);
+  //
+  // Supply Chain Management always goes with Everything else, per Jack.
+  // SCM is its own D365 module with its own sales motion — it is not a
+  // Business Central conversation and it is certainly not Sales/CRM — but
+  // a supply-chain note almost always carries the word "ERP" somewhere,
+  // and manufacturing/distribution language ("Manufacturing
+  // Sales/distribution Warehousing") trips the bare `sales` keyword. On
+  // the real files, 193 rows mention supply chain: 10 were showing under
+  // Sales / CRM and 33 under Business Central / ERP on a standalone "ERP"
+  // with no Business Central anywhere.
+  //
+  // The one guard: a row that names Business Central OUTRIGHT stays
+  // Business Central. 127 real rows say both, and "we want Business
+  // Central" belongs in the BC tab whatever else the note mentions —
+  // same precedence idea as BC beating Sales/CRM directly below.
+  const supplyChainOnly = SUPPLY_CHAIN_RE.test(combined) && !BUSINESS_CENTRAL_ONLY_RE.test(combined);
+  const isBusinessCentral = !supplyChainOnly && hits.some((h) => h.isBusinessCentral);
+  const isSalesCrm = !supplyChainOnly && !isBusinessCentral && hits.some((h) => h.isSalesCrm);
   const dynamicsCounts = hits.filter((h) => h.category === "Dynamics 365" && h.seatCount != null).map((h) => h.seatCount as number);
   const dynamicsSeatCount = dynamicsCounts.length ? Math.max(...dynamicsCounts) : null;
   const dynamicsModuleTiers = hits.filter((h) => h.category === "Dynamics 365" && h.moduleTier != null).map((h) => h.moduleTier as number);

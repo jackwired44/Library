@@ -249,6 +249,12 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
             <strong>Everything else</strong> — every other Dynamics hit: Finance and Operations, Supply Chain Management,
             Customer Engagement/Insights, Field Service, Marketing, Project Operations, Human Resources, and anything with
             no specific module named.
+            <br />
+            <strong>Supply Chain Management always lands in Everything else</strong>, even though a supply-chain note
+            usually carries the word "ERP" and manufacturing/distribution wording ("Sales/distribution") trips the bare
+            "Sales" keyword. The one exception: a row that names <em>Business Central</em> outright stays under Business
+            Central / ERP. This decides the tab only — SCM still ranks in the tier-0 block and still downloads in the
+            Dynamics 365 file.
           </CategoryDetail>
           <CategoryDetail k="m365Tenant">
             <strong>Four tabs, always: All M365/Azure · Google → Microsoft · Migrations · Everything else.</strong>

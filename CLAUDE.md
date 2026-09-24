@@ -4934,6 +4934,57 @@ rows** of both real uploads: hash identical before and after.
 
 28 suites / 1,098 checks (`sku-truth`, 15, is new).
 
+### Supply Chain Management always goes with Everything else (app/ only)
+
+Per Jack: *"supply chain managment always goes with everything else for
+dynamics view."* SCM is its own D365 module with its own sales motion — not
+a Business Central conversation, and certainly not Sales/CRM.
+
+**Measured first, because the naive reading would have been destructive.**
+Across both real files, 193 Dynamics rows mention supply chain:
+
+| | rows |
+|---|---|
+| In **Business Central / ERP**, and they say "Business Central" outright | **127** |
+| In **Business Central / ERP** on a standalone "ERP" only | **33** |
+| In **Sales / CRM**, caught by the bare word `sales` | **10** |
+| Already in Everything else | 23 |
+
+The 33 and the 10 are the real misfilings, and the cause in each case is
+incidental wording, not intent: a supply-chain note almost always carries
+the word "ERP" somewhere ("ERP modernization"), and manufacturing/
+distribution language trips `SALES_CRM_RE`'s bare `sales` —
+*"Manufacturing Sales/distribution Warehousing"* was showing under
+Sales / CRM.
+
+The 127 are NOT a misfiling, and moving them would have been the mistake.
+They explicitly ask for Business Central and merely mention supply chain
+alongside it. So the rule carries one guard: **naming Business Central
+outright wins.** Same precedence idea as BC already beating Sales/CRM.
+
+- **`SUPPLY_CHAIN_RE`** and **`BUSINESS_CENTRAL_ONLY_RE`**
+  (`lib/detection.ts`). The second is deliberately NOT `BUSINESS_CENTRAL_RE`
+  — that one also accepts a bare "ERP", which is exactly the word being
+  ruled out here.
+- Applied at the **row level**, in `scanRowPlatform`'s aggregation beside
+  the existing BC-beats-Sales/CRM line, not per-hit: the View tabs are a
+  row-level property, and a row is either an SCM lead or it isn't.
+- **It decides a TAB, nothing else.** `DYNAMICS_ERP_RE` is untouched, so
+  SCM still ranks in the tier-0 block, still files under Dynamics 365, and
+  still downloads in the same file. Measured after: tiers unchanged
+  (5280/5575/3780), categories unchanged, tier-0 count unchanged (1069);
+  supply-chain rows now 127 BC/ERP (every one naming Business Central) +
+  66 Everything else.
+- A row filed in the Lead Library BEFORE this keeps its old
+  `__isBusinessCentral`/`__isSalesCrm` — same honest degradation already
+  documented for the narrow M365 flag; it corrects itself on a re-scan.
+
+**New `dynamics-views` suite (24 checks)** — there was no coverage of the
+Dynamics View tabs at all, despite three explicit rules from Jack now
+governing them (BC beats Sales/CRM, the locked four-tab set, and this).
+Confirmed to FAIL on the pre-change engine, on exactly the two real
+misfilings above, before being kept.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool
