@@ -162,7 +162,12 @@ export default function App() {
     scanned: ResultRow[],
     tag = "",
     duplicatesRemoved = 0,
-    dropped: { noSignalRows?: NoSignalRow[]; duplicateRows?: DuplicateRow[] } = {}
+    dropped: { noSignalRows?: NoSignalRow[]; duplicateRows?: DuplicateRow[] } = {},
+    // Adding or removing a file post-scan re-scans the SAME batch, so the
+    // entry it already recorded is superseded rather than joined by a
+    // second one — otherwise History shows one upload twice with
+    // different file lists and no way to tell which is current.
+    replaceId: string | null = null
   ) {
     // The true row count read from the file(s), not just the subset that
     // cleared detection — see Scanner.tsx's lastScanStats for the same fix
@@ -182,8 +187,9 @@ export default function App() {
       r.__sourceEntryId = entry.id;
       r.__sourceRowId = r.id;
     });
-    setHistoryEntries((prev) => [entry, ...prev]);
+    setHistoryEntries((prev) => [entry, ...(replaceId ? prev.filter((e) => e.id !== replaceId) : prev)]);
     persistHistoryEntry(entry);
+    if (replaceId) deleteHistoryEntryFromDB(replaceId);
     mergeContacts(parsedFiles, scanned);
     // Which of this batch's companies still have no Apollo profile — the
     // list the "enrich now?" prompt is built from. Computed from the raw

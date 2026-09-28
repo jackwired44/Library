@@ -26,6 +26,8 @@ import {
   type BucketKey,
   type NoSignalRow,
   type DuplicateRow,
+  carryRowEdits,
+  countUncarryableEdits,
 } from "../lib/detection";
 import { dispositionMetaFor, type CustomDisposition } from "../lib/dispositions";
 import DispositionOptions from "./DispositionOptions";
@@ -141,7 +143,10 @@ interface ScannerProps {
     scanned: ResultRow[],
     tag?: string,
     duplicatesRemoved?: number,
-    dropped?: { noSignalRows?: NoSignalRow[]; duplicateRows?: DuplicateRow[] }
+    dropped?: { noSignalRows?: NoSignalRow[]; duplicateRows?: DuplicateRow[] },
+    // Set when a post-scan add/remove re-scans this same batch, so its
+    // existing entry is superseded rather than joined by a second one.
+    replaceId?: string | null
   ) => HistoryEntry;
   // Dropped rows for a batch loaded in from History or the Lead Library —
   // Scanner sets its own on a fresh upload, but those paths bypass it.
@@ -314,6 +319,11 @@ export default function Scanner({
   // tracked separately, read-only, current-batch-only (never persisted
   // into History — see CLAUDE.md, History already keeps every row
   // forever with no cap, and these would only add to that).
+  // The batch's raw parsed files, kept so a file can be added or removed
+  // after the scan without re-reading anything from disk. Held only while
+  // a batch is on screen — reset() drops it, and Scanner unmounts on
+  // "Start over", so it does not outlive the results it belongs to.
+  const [parsedFiles, setParsedFiles] = useState<ParsedFile[]>([]);
   const [noSignalRows, setNoSignalRows] = useState<NoSignalRow[]>([]);
   const [duplicateRows, setDuplicateRows] = useState<DuplicateRow[]>([]);
   // Which audit tab, if any, replaces the results table. Both are
@@ -336,6 +346,9 @@ export default function Scanner({
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Separate from fileInputRef: that one is the landing screen's upload,
+  // this one adds to a batch already on screen.
+  const addFileInputRef = useRef<HTMLInputElement>(null);
   // High Priority panel (landing screen) — filter by which source CSV a
   // priority lead came from; "all" shows every priority lead across all
   // of History, not just the recent-uploads slice.
@@ -366,6 +379,64 @@ export default function Scanner({
   const [pickerFolderId, setPickerFolderId] = useState("");
   const [pickerFileKey, setPickerFileKey] = useState("");
 
+  /**
+   * The one scan path. A fresh upload and a post-scan add/remove differ
+   * only in whether there is previous work to carry and an existing
+   * History entry to supersede — everything else about scanning a set of
+   * files is identical, so it lives here once.
+   */
+  function applyScan(
+    files: ParsedFile[],
+    opts: { carryFrom?: ResultRow[] | null; replaceHistoryId?: string | null } = {}
+  ): boolean {
+    // Scanning is synchronous, so an oversized set freezes the tab rather
+    // than failing — refuse it with a real number instead.
+    const totalRows = files.reduce((n, pf) => n + pf.data.length, 0);
+    if (totalRows > MAX_TOTAL_ROWS) {
+      setError(
+        `That's ${totalRows.toLocaleString()} rows across ${files.length} file${files.length === 1 ? "" : "s"} — over the ${MAX_TOTAL_ROWS.toLocaleString()}-row limit for one scan. ` +
+        `Split it and combine the batches from History afterwards, which still catches duplicates across them.`
+      );
+      return false;
+    }
+    const { results: scanned, rowsScanned, duplicatesRemoved, noSignalRows: skipped, duplicateRows: merged } = scanParsedFiles(files, ruleOverrides);
+    applyStickyState(scanned, contacts);
+    applyCompetitorDQ(scanned, companyProfiles);
+    // LAST, so a manual call outranks anything re-derived above.
+    const carried = opts.carryFrom ? carryRowEdits(scanned, opts.carryFrom) : 0;
+    setParsedFiles(files);
+    setResults(scanned);
+    setUploadedFiles(files.map((pf) => ({ name: pf.name, rows: pf.data.length })));
+    const largestDuplicateGroup = Math.max(0, ...scanned.map((r) => r.duplicateGroupSize || 0));
+    setLastScanStats({ rowsScanned, duplicatesRemoved, largestDuplicateGroup });
+    setNoSignalRows(skipped);
+    setDuplicateRows(merged);
+    setDroppedView("none");
+    setPage(1);
+    setSelected(new Set());
+    const historyEntry = onRecordHistory(
+      files, scanned, "", duplicatesRemoved,
+      { noSignalRows: skipped, duplicateRows: merged },
+      opts.replaceHistoryId ?? null
+    );
+    setCurrentHistoryEntryId(historyEntry.id);
+    setLibraryFiledForBatch(false);
+    if (opts.carryFrom) {
+      setFiledNotice(
+        `Re-scanned ${files.length} file${files.length === 1 ? "" : "s"} — ${scanned.length.toLocaleString()} rows` +
+        (carried ? `, and your edits on ${carried.toLocaleString()} lead${carried === 1 ? "" : "s"} carried across.` : ".")
+      );
+    }
+    // Per Jack: no duplicate (exact name+company match within this same
+    // upload) should ever make it into the uploaded leads at all — the
+    // first-seen row is kept, every repeat was already merged into it
+    // inside scanParsedFiles. Surfaced here so it isn't silent — worded
+    // as "recognized and merged" rather than "removed," since nothing is
+    // actually lost (a lead that appeared, say, 6 times in the file
+    // still ends up as one contact, not zero).
+    return true;
+  }
+
   async function handleFiles(fileListLike: FileList | null) {
     const all = Array.from(fileListLike || []).filter((f) => /\.csv$/i.test(f.name));
     if (!all.length) return;
@@ -378,39 +449,56 @@ export default function Scanner({
     setError(notice);
     setFiledNotice(null);
     try {
-      const parsedFiles = await Promise.all(files.map(parseCSVFile));
-      // Scanning is synchronous, so an oversized upload freezes the tab
-      // rather than failing — refuse it with a real number instead.
-      const totalRows = parsedFiles.reduce((n, pf) => n + pf.data.length, 0);
-      if (totalRows > MAX_TOTAL_ROWS) {
-        setError(
-          `That's ${totalRows.toLocaleString()} rows across ${parsedFiles.length} file${parsedFiles.length === 1 ? "" : "s"} — over the ${MAX_TOTAL_ROWS.toLocaleString()}-row limit for one scan. ` +
-          `Split it and combine the batches from History afterwards, which still catches duplicates across them.`
-        );
-        return;
-      }
-      const { results: scanned, rowsScanned, duplicatesRemoved, noSignalRows: skipped, duplicateRows: merged } = scanParsedFiles(parsedFiles, ruleOverrides);
-      applyStickyState(scanned, contacts);
-      applyCompetitorDQ(scanned, companyProfiles);
-      setResults(scanned);
-      setUploadedFiles(parsedFiles.map((pf) => ({ name: pf.name, rows: pf.data.length })));
-      const largestDuplicateGroup = Math.max(0, ...scanned.map((r) => r.duplicateGroupSize || 0));
-      setLastScanStats({ rowsScanned, duplicatesRemoved, largestDuplicateGroup });
-      setNoSignalRows(skipped);
-      setDuplicateRows(merged);
-      setDroppedView("none");
-      setPage(1);
-      setSelected(new Set());
-      const historyEntry = onRecordHistory(parsedFiles, scanned, "", duplicatesRemoved, { noSignalRows: skipped, duplicateRows: merged });
-      setCurrentHistoryEntryId(historyEntry.id);
-      setLibraryFiledForBatch(false);
-      // Per Jack: no duplicate (exact name+company match within this same
-      // upload) should ever make it into the uploaded leads at all — the
-      // first-seen row is kept, every repeat was already merged into it
-      // inside scanParsedFiles. Surfaced here so it isn't silent — worded
-      // as "recognized and merged" rather than "removed," since nothing is
-      // actually lost (a lead that appeared, say, 6 times in the file
-      // still ends up as one contact, not zero).
+      applyScan(await Promise.all(files.map(parseCSVFile)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not parse one or more of these files.");
+    }
+  }
+
+  /**
+   * Drop one file from the current batch and re-scan what's left.
+   *
+   * A re-scan rather than a filter over `sourceFile`, deliberately:
+   * duplicate detection is batch-scoped, so a lead that was merged away
+   * against a copy in the file being dropped has to come back, and
+   * filtering would make it vanish instead.
+   */
+  function removeUploadedFile(name: string) {
+    if (!results || libraryFiledForBatch) return;
+    const next = parsedFiles.filter((pf) => pf.name !== name);
+    if (!next.length) { reset(); return; }
+    const lost = countUncarryableEdits(results);
+    if (lost && !window.confirm(
+      `Remove "${name}" and re-scan the other ${next.length} file${next.length === 1 ? "" : "s"}?\n\n` +
+      `Your edits carry across wherever a lead can be matched by name + company. ` +
+      `${lost} edited row${lost === 1 ? " has" : "s have"} no name or company to match on, so ${lost === 1 ? "it" : "they"} will reset.`
+    )) return;
+    setError(null);
+    applyScan(next, { carryFrom: results, replaceHistoryId: currentHistoryEntryId });
+  }
+
+  /** Add more files to the batch already on screen, and re-scan the union
+   *  — so duplicates ACROSS the old and new files are caught, which is
+   *  the whole reason this beats scanning them separately. */
+  async function addMoreFiles(fileListLike: FileList | null) {
+    if (!results || libraryFiledForBatch) return;
+    const picked = Array.from(fileListLike || []).filter((f) => /\.csv$/i.test(f.name));
+    if (!picked.length) return;
+    const have = new Set(parsedFiles.map((pf) => pf.name));
+    const fresh = picked.filter((f) => !have.has(f.name));
+    if (!fresh.length) {
+      setError(`${picked.length === 1 ? "That file is" : "Those files are"} already in this batch.`);
+      return;
+    }
+    if (parsedFiles.length + fresh.length > MAX_FILES) {
+      setError(`That would be ${parsedFiles.length + fresh.length} files — the limit for one scan is ${MAX_FILES}.`);
+      return;
+    }
+    setError(null);
+    setFiledNotice(null);
+    try {
+      const added = await Promise.all(fresh.map(parseCSVFile));
+      applyScan([...parsedFiles, ...added], { carryFrom: results, replaceHistoryId: currentHistoryEntryId });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not parse one or more of these files.");
     }
@@ -428,6 +516,7 @@ export default function Scanner({
     setPriorityOnly(false);
     setM365SubView("all");
     setDynamicsSubView("all");
+    setParsedFiles([]);
     setNoSignalRows([]);
     setDuplicateRows([]);
     setDroppedView("none");
@@ -1036,12 +1125,47 @@ export default function Scanner({
       <div className="page-bar">
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <h2 style={{ margin: 0, fontSize: 16 }}>Scan results</h2>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
             {uploadedFiles.map((f) => (
               <span key={f.name} className="file-chip">
                 <b>{f.name}</b> · {f.rows.toLocaleString()} rows
+                {/* Removing the only file is just Start over, so the ✕ is
+                    hidden then rather than rendered as a second way to do
+                    it. Filed batches can't change: those rows are a copy
+                    in the Lead Library and would silently disagree. */}
+                {parsedFiles.length > 1 && !libraryFiledForBatch && (
+                  <button
+                    type="button"
+                    className="file-chip-x"
+                    aria-label={`Remove ${f.name} and re-scan`}
+                    title={`Remove ${f.name} and re-scan the rest`}
+                    onClick={() => removeUploadedFile(f.name)}
+                  >
+                    ✕
+                  </button>
+                )}
               </span>
             ))}
+            {!libraryFiledForBatch && (
+              <>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => addFileInputRef.current?.click()}
+                  title="Add more CSVs to this batch and re-scan, so duplicates across all of them are caught"
+                >
+                  + Add files
+                </button>
+                <input
+                  ref={addFileInputRef}
+                  type="file"
+                  accept=".csv"
+                  multiple
+                  hidden
+                  onChange={(e) => { addMoreFiles(e.target.files); e.target.value = ""; }}
+                />
+              </>
+            )}
           </div>
         </div>
         <button onClick={reset} className="btn btn-secondary">

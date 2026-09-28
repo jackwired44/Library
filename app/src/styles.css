@@ -568,6 +568,34 @@ button:disabled {
   color: var(--ink);
   font-weight: 600;
 }
+/* Remove-this-file control inside a chip. Deliberately low-contrast
+   until hovered: it re-scans the batch, so it should not read as the
+   chip's primary affordance. 18px square keeps it a real hit target
+   inside a 3px-padded pill. */
+.file-chip-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin: -2px -6px -2px 1px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+.file-chip-x:hover {
+  background: var(--danger-soft, #fbeae8);
+  color: var(--danger, #b5443b);
+}
+.file-chip-x:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
 
 /* Buttons ----------------------------------------------------------- */
 .btn {

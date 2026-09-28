@@ -2124,6 +2124,82 @@ function duplicateKeepRank(r: ResultRow): [number, number, number] {
   return [tierRank, -filled, -evidence];
 }
 
+/**
+ * Re-apply manual per-row work to a fresh scan of the same batch.
+ *
+ * Adding or removing a file post-scan re-runs the whole batch (it has to:
+ * duplicate detection is batch-scoped, so a lead merged away against a
+ * file you just dropped must come back). That rebuilds every ResultRow
+ * from scratch, which would silently throw away dispositions, tier
+ * promotions, category moves, cross-outs and stars.
+ *
+ * Keyed on `dupKey` — name + company, the same key duplicate detection
+ * and the Lead Lists already use — never on `id`, which is
+ * `fileIndex-rowIndex` and therefore shifts the moment a file leaves the
+ * set. A row missing either half has no key and keeps nothing; that is
+ * the same "can't key it reliably" rule as everywhere else, and the
+ * caller reports the number so it is never silent.
+ *
+ * Only genuine EDITS carry, not the engine's own verdict:
+ *  - disposition / note / crossedOut / priority always start "none"/false
+ *    from a scan, so any other value is a person's doing.
+ *  - `category` is compared against `autoCategory`, which is the engine's
+ *    own pick, so only a real reassignment carries.
+ *  - `tier` has no auto- twin, so it is compared against the FRESH row's
+ *    tier. Detection is deterministic over identical row text, so a
+ *    difference can only be a manual toggle — and letting it win is
+ *    deliberate: a lead you promoted by hand stays promoted even if a
+ *    rule (Auto-DQ included) would put it back.
+ *
+ * Runs LAST, after applyStickyState and applyCompetitorDQ, for that
+ * reason: the person's own call outranks anything re-derived.
+ *
+ * Returns how many rows carried something.
+ */
+export function carryRowEdits(fresh: ResultRow[], previous: ResultRow[]): number {
+  // Every keyable previous row goes in, not just ones that look edited:
+  // a tier change is only detectable against its fresh twin below, so a
+  // row whose ONLY edit is a tier toggle has to still be reachable.
+  const edited = new Map<string, ResultRow>();
+  for (const p of previous) if (p.dupKey) edited.set(p.dupKey, p);
+  let carried = 0;
+  for (const r of fresh) {
+    if (!r.dupKey) continue;
+    const p = edited.get(r.dupKey);
+    if (!p) continue;
+    let touched = false;
+    if (p.disposition !== "none") { r.disposition = p.disposition; touched = true; }
+    if (p.dispositionNote) { r.dispositionNote = p.dispositionNote; touched = true; }
+    if (p.crossedOut) { r.crossedOut = true; touched = true; }
+    if (p.priority) { r.priority = true; r.priorityMonth = p.priorityMonth; touched = true; }
+    if (p.category !== p.autoCategory) { r.category = p.category; touched = true; }
+    if (p.tier !== r.tier) { r.tier = p.tier; touched = true; }
+    if (touched) carried++;
+  }
+  return carried;
+}
+
+/**
+ * Edited rows a re-scan CANNOT carry — the number actually worth putting
+ * in front of someone, since everything keyable survives.
+ *
+ * A row with manual work but no name or company has no `dupKey`, so
+ * `carryRowEdits` can't match it to anything and its edits are genuinely
+ * lost. Tier-only edits aren't counted: `tier` has no auto- twin to
+ * compare against outside a fresh scan, so this under-reports rather
+ * than inventing a number it can't stand behind.
+ */
+export function countUncarryableEdits(rows: ResultRow[]): number {
+  return rows.filter((r) =>
+    !r.dupKey &&
+    (r.disposition !== "none" ||
+      !!r.dispositionNote ||
+      r.crossedOut ||
+      r.priority ||
+      r.category !== r.autoCategory)
+  ).length;
+}
+
 export function markDuplicateLeads(results: ResultRow[]): void {
   const groups = new Map<string, ResultRow[]>();
   results.forEach((r) => {

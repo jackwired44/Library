@@ -4985,6 +4985,72 @@ governing them (BC beats Sales/CRM, the locked four-tab set, and this).
 Confirmed to FAIL on the pre-change engine, on exactly the two real
 misfilings above, before being kept.
 
+### Change the file set after a scan — ✕ a file, or add more (all three scanners)
+
+Per Jack: *"add in a feature to unselect the csv uploaded under scan
+results at the top a little x on each file or be able to add more in post
+scan."* Proposed and approved before building; he chose carrying per-row
+work across, and all three scanners.
+
+**Both asks are one mechanism**: re-scan whatever set of files is now
+selected. A ✕ on each file chip and a **+ Add files** button beside them,
+on the results screen of the Main, Custom September and CSP scanners.
+
+**It is a real re-scan, NOT a filter over `sourceFile`** — the cheaper
+version is wrong. Duplicate detection is batch-scoped, so a lead that was
+merged away against a copy in the file you drop has to come back;
+filtering would make it vanish instead. The suite asserts exactly that
+case (the same person in both files, drop the file whose copy won, she
+reappears from the other — and that a `sourceFile` filter would have lost
+her).
+
+- **`carryRowEdits(fresh, previous)`** (`lib/detection.ts`) re-applies
+  manual work, keyed on **`dupKey`** — name + company, already computed on
+  every row by `markDuplicateLeads` and already null when it can't be
+  keyed — never on `id`, which is `fileIndex-rowIndex` and shifts the
+  moment a file leaves the set.
+  Only genuine EDITS carry, not the engine's verdict: disposition, note,
+  cross-out and priority always start `"none"`/false from a scan, so any
+  other value is a person's doing; `category` is compared against
+  `autoCategory` (the engine's own pick); `tier` has no auto- twin, so it
+  is compared against the FRESH row's tier — detection is deterministic
+  over identical text, so a difference can only be a manual toggle.
+  It runs **last**, after `applyStickyState` and `applyCompetitorDQ`:
+  a hand promotion outranks anything re-derived, Auto-DQ included.
+- **`countUncarryableEdits`** feeds the confirm dialog. The useful number
+  is not "how many rows have edits" but how many have edits AND no name or
+  company to match on — those are the only ones that genuinely reset. It
+  under-reports rather than guessing: a tier-only edit can't be detected
+  outside a fresh scan, and inventing a number it can't stand behind would
+  be worse.
+- **Custom + CSP needed no carry-over at all.** Curation is keyed on
+  `leadKey` (company + contact, content-derived) and lives in its own
+  IndexedDB store, so a keep/reject survives a re-scan by construction
+  even though every row id changes (`s2-${Date.now()}-…`). `Scanner2`'s
+  `rescan(withSet, withFiles)` already took a file list, so this was two
+  handlers, not a rewrite.
+- **History / run records are SUPERSEDED, not duplicated.** A re-scan is
+  the same sitting, so `recordHistory` gained a `replaceId` (Main) and
+  `rescanWithFiles` swaps its `Run2` (Custom/CSP) — otherwise the list
+  shows one upload twice with different file lists and no way to tell
+  which is current.
+- **A batch already filed to the Lead Library can't change its files.**
+  Those rows are a separate copy and would silently disagree; the ✕ and
+  + Add are hidden rather than failing on click. Removing the *only* file
+  is just Start over, so the ✕ hides at one file rather than being a
+  second way to do it.
+- Main Scanner now retains the batch's `ParsedFile[]` so a re-scan needs
+  no disk read. **Measured cost: +4 MB on the real 9,265-row file (3%)**,
+  not the large figure a naive `heapUsed` read suggests — `ResultRow.row`
+  already holds the raw content, so this mostly adds references to objects
+  that were alive anyway. Freed on Start over. (First measurement without
+  forced GC read +96 MB and was wrong; the number above is with GC.)
+
+**New `file-set-edit` suite (22 checks)**, covering the cross-file
+duplicate returning, every carried field, the engine's verdict still
+flowing through on an unedited batch, a hand-promoted tier beating the
+engine's own `mention`, and the unkeyable-row accounting.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

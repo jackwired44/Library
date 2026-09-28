@@ -843,6 +843,10 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
   const [ruleSets, setRuleSets] = useState<RuleSet2[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [files, setFiles] = useState<{ name: string; fields: string[]; data: Record<string, unknown>[] }[]>([]);
+  // The run record this batch wrote, so a post-scan add/remove supersedes
+  // it instead of recording the same sitting twice.
+  const lastRunId = useRef<string | null>(null);
+  const addFileInputRef = useRef<HTMLInputElement>(null);
   const [result, setResult] = useState<Scan2Result | null>(null);
   const [profiles, setProfiles] = useState<ColumnProfile[]>([]);
   const [runs, setRuns] = useState<Run2[]>([]);
@@ -1018,6 +1022,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
       setNotice(mappingNote || null);
       // Recording the run is a nicety; the results on screen are the point.
       const run = buildRun(parsed.map((p) => p.name), set.name, res, kind);
+      lastRunId.current = run.id;
       try {
         await saveRun(run);
         setRuns((prev) => [run, ...prev]);
@@ -1028,11 +1033,83 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
     setBusy(false);
   }
 
+  /**
+   * Re-scan the batch on screen with a different set of files — what both
+   * the chip ✕ and "+ Add files" do.
+   *
+   * A real re-scan, not a filter over `sourceFile`: duplicate detection is
+   * batch-scoped, so a lead merged away against a copy in the file being
+   * dropped has to come back, and filtering would make it disappear
+   * instead.
+   *
+   * Curation needs no carrying — it is keyed on `leadKey` (company +
+   * contact, content-derived) and lives in its own store, so a keep/reject
+   * survives a re-scan by construction even though every row id changes.
+   */
+  async function rescanWithFiles(next: typeof files) {
+    if (!active) return;
+    if (next.length === 0) { startOver(); return; }
+    setBusy(true); setError(null); setNotice(null);
+    try {
+      const res = scan2(next, active);
+      setFiles(next);
+      setProfiles(profileColumns(next));
+      setResult(res);
+      setPage(1);
+      setSelected(new Set());
+      // Supersede this batch's run record rather than adding a second one
+      // for the same sitting — otherwise the run list shows the upload
+      // twice with different file lists and no way to tell which is live.
+      const prior = lastRunId.current;
+      const run = buildRun(next.map((p) => p.name), active.name, res, kind);
+      lastRunId.current = run.id;
+      try {
+        await saveRun(run);
+        setRuns((prev) => [run, ...(prior ? prev.filter((r) => r.id !== prior) : prev)]);
+        if (prior) await deleteRun(prior);
+      } catch (e) {
+        setError(`Results are shown, but this run could not be recorded: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      setNotice(`Re-scanned ${next.length} file${next.length === 1 ? "" : "s"} — ${res.rows.length.toLocaleString()} rows.`);
+    } catch (e) {
+      setError(`Could not re-scan: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    setBusy(false);
+  }
+
+  function removeFile(name: string) {
+    void rescanWithFiles(files.filter((f) => f.name !== name));
+  }
+
+  /** Add more CSVs to the batch already on screen and re-scan the union,
+   *  so duplicates ACROSS the old and new files are caught — which is the
+   *  whole reason this beats scanning them as two separate batches. */
+  async function addMoreFiles(list: FileList | null) {
+    const picked = Array.from(list || []);
+    if (!picked.length || !active) return;
+    const have = new Set(files.map((f) => f.name));
+    const fresh = picked.filter((f) => !have.has(f.name));
+    if (!fresh.length) {
+      setError(`${picked.length === 1 ? "That file is" : "Those files are"} already in this batch.`);
+      return;
+    }
+    setBusy(true); setError(null);
+    try {
+      const added = await Promise.all(fresh.map((f) => parseCSVFile(f)));
+      setBusy(false);
+      await rescanWithFiles([...files, ...added]);
+    } catch (e) {
+      setError(`Could not read that upload: ${e instanceof Error ? e.message : String(e)}`);
+      setBusy(false);
+    }
+  }
+
   function startOver() {
     // The remount is what actually reclaims the memory (see onStartOver).
     // The state clears below still run, so Start over is correct even if
     // no parent supplies the prop.
     onStartOver?.();
+    lastRunId.current = null;
     setFiles([]); setResult(null); setProfiles([]); setBucketFilter("all");
     setCurationFilter("all"); setSearch(""); setPage(1); setNotice(null); setError(null);
     setSelected(new Set()); setListNote(null);
@@ -1472,12 +1549,45 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
           <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
             {isCsp ? "CSP licensing renewals" : "Microsoft SMC / Cloud Ascent"}
           </span>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
             {files.map((f) => (
               <span key={f.name} className="file-chip">
                 <b>{f.name}</b> · {f.data.length.toLocaleString()} rows
+                {/* Dropping the only file is just Start over, so the ✕ is
+                    hidden then rather than being a second way to do it. */}
+                {files.length > 1 && !busy && (
+                  <button
+                    type="button"
+                    className="file-chip-x"
+                    aria-label={`Remove ${f.name} and re-scan`}
+                    title={`Remove ${f.name} and re-scan the rest`}
+                    onClick={() => removeFile(f.name)}
+                  >
+                    ✕
+                  </button>
+                )}
               </span>
             ))}
+            {result && !busy && (
+              <>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => addFileInputRef.current?.click()}
+                  title="Add more CSVs to this batch and re-scan, so duplicates across all of them are caught"
+                >
+                  + Add files
+                </button>
+                <input
+                  ref={addFileInputRef}
+                  type="file"
+                  accept=".csv"
+                  multiple
+                  hidden
+                  onChange={(e) => { void addMoreFiles(e.target.files); e.target.value = ""; }}
+                />
+              </>
+            )}
           </div>
         </div>
         {result && <button className="btn btn-secondary" onClick={startOver}>Start over</button>}
