@@ -3,7 +3,7 @@
 // used. No server, no shared backend (see CLAUDE.md, Access & ownership).
 
 export const DB_NAME = "wiredCioUnifiedLeadScannerLibrary_v1";
-export const DB_VERSION = 15;
+export const DB_VERSION = 16;
 export const STORE_LIBRARY = "files";
 export const STORE_GROUPS = "groups";
 export const STORE_HISTORY = "history";
@@ -22,6 +22,10 @@ export const STORE_EMAIL_ACCOUNTS = "emailAccounts";
 export const STORE_DISPOSITIONS = "dispositions";
 export const STORE_COMPANY_PROFILES = "companyProfiles";
 export const STORE_OUTREACH_ATTEMPTS = "outreachAttempts";
+// Apollo sequence membership, keyed by normalised email — see
+// lib/apolloSequenceIndex.ts for why this is an index rather than a
+// lookup per upload.
+export const STORE_APOLLO_INDEX = "apolloIndex";
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -50,6 +54,7 @@ function openDB(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE_DISPOSITIONS)) db.createObjectStore(STORE_DISPOSITIONS, { keyPath: "id" });
       if (!db.objectStoreNames.contains(STORE_COMPANY_PROFILES)) db.createObjectStore(STORE_COMPANY_PROFILES, { keyPath: "key" });
       if (!db.objectStoreNames.contains(STORE_OUTREACH_ATTEMPTS)) db.createObjectStore(STORE_OUTREACH_ATTEMPTS, { keyPath: "id" });
+      if (!db.objectStoreNames.contains(STORE_APOLLO_INDEX)) db.createObjectStore(STORE_APOLLO_INDEX, { keyPath: "key" });
     };
     req.onsuccess = () => {
       const db = req.result;
@@ -161,6 +166,33 @@ export async function dbDelete(storeName: string, id: string): Promise<void> {
     // that failed for lack of space simply hung, with nothing shown
     // anywhere. Reject, and name the quota case so it reads as "out of
     // room" rather than a mystery stall.
+    tx.onabort = () => { db.close(); reject(describeTxError(tx.error)); };
+  });
+}
+
+// One transaction for a whole batch. dbPut opens and closes the database
+// per record, which is fine for a single edit but ruinous for a sync
+// writing 100 rows a page — that would be 100 open/close cycles per page.
+export async function dbPutMany<T>(storeName: string, entries: T[]): Promise<void> {
+  if (!entries.length) return;
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readwrite");
+    const store = tx.objectStore(storeName);
+    entries.forEach((e) => store.put(e));
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
+    tx.onabort = () => { db.close(); reject(describeTxError(tx.error)); };
+  });
+}
+
+export async function dbClear(storeName: string): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readwrite");
+    tx.objectStore(storeName).clear();
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
     tx.onabort = () => { db.close(); reject(describeTxError(tx.error)); };
   });
 }

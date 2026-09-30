@@ -28,6 +28,7 @@ import type { CompanyEnrichOutcome } from "../lib/apolloEnrich";
 import { downloadCSV, parseCSVFile, parseCSVText } from "../lib/csv";
 import type { LeadList } from "../lib/leadLists";
 import BookedStamp from "./BookedStamp";
+import LeadHistoryBadge from "./LeadHistoryBadge";
 import OnCrmBadge from "./OnCrmBadge";
 import {
   getMonthOptionsForFiling,
@@ -44,6 +45,7 @@ import {
 } from "../lib/library";
 import type { HistoryEntry } from "../lib/history";
 import { applyStickyState, buildContactIndex, lookupContact, type Contact } from "../lib/contacts";
+import { applyLeadHistory, type ApolloIndexEntry } from "../lib/apolloSequenceIndex";
 import { applyCompetitorDQ, type CompanyProfile } from "../lib/companyProfiles";
 import { MAX_COMPANY_BATCH } from "../lib/apolloEnrich";
 import type { UploadedFile } from "../App";
@@ -116,6 +118,16 @@ function applyFacets(rows: ResultRow[], f: Facets): ResultRow[] {
 const TIER_CYCLE: Tier[] = ["signal", "mention", "dq"];
 
 interface ScannerProps {
+  // Apollo sequence membership, already in memory — see
+  // lib/apolloSequenceIndex.ts. A null syncedAt means nobody has checked
+  // yet, and rows are drawn as "not checked" rather than "never sequenced".
+  apolloIndex: Map<string, ApolloIndexEntry>;
+  apolloSyncedAt: string | null;
+  apolloSyncing: boolean;
+  apolloSyncNote: string | null;
+  onApolloSync: () => void;
+  onApolloReset: () => void;
+  apolloIndexSize: number;
   results: ResultRow[] | null;
   setResults: React.Dispatch<React.SetStateAction<ResultRow[] | null>>;
   uploadedFiles: UploadedFile[];
@@ -191,6 +203,13 @@ interface ScannerProps {
 }
 
 export default function Scanner({
+  apolloIndex,
+  apolloSyncedAt,
+  apolloSyncing,
+  apolloSyncNote,
+  onApolloSync,
+  onApolloReset,
+  apolloIndexSize,
   results,
   setResults,
   uploadedFiles,
@@ -253,6 +272,10 @@ export default function Scanner({
   // uploadedFiles) since scanParsedFiles is the one source of truth for
   // both numbers together.
   const [lastScanStats, setLastScanStats] = useState<{ rowsScanned: number; duplicatesRemoved: number; largestDuplicateGroup: number } | null>(null);
+  // How many of this upload's leads we already knew about — set by
+  // applyLeadHistory at scan time, cleared on Start over like every
+  // other per-batch figure.
+  const [historyCounts, setHistoryCounts] = useState<{ inSequence: number; seenBefore: number; contactedBefore: number; fresh: number; unknown: number } | null>(null);
   // Adopts App.tsx's loadedScanStats whenever it changes (a fresh reopen/
   // combine from History) — a plain upload sets lastScanStats directly via
   // handleFiles/loadFromLibraryPicker instead, so this only ever fires for
@@ -386,6 +409,7 @@ export default function Scanner({
       const { results: scanned, rowsScanned, duplicatesRemoved, noSignalRows: skipped, duplicateRows: merged } = scanParsedFiles(parsedFiles, ruleOverrides);
       applyStickyState(scanned, contacts);
       applyCompetitorDQ(scanned, companyProfiles);
+      setHistoryCounts(applyLeadHistory(scanned, { contacts, index: apolloIndex, synced: Boolean(apolloSyncedAt) }));
       setResults(scanned);
       setUploadedFiles(parsedFiles.map((pf) => ({ name: pf.name, rows: pf.data.length })));
       const largestDuplicateGroup = Math.max(0, ...scanned.map((r) => r.duplicateGroupSize || 0));
@@ -485,6 +509,7 @@ export default function Scanner({
     const parsed = parseCSVText(fileName, rawText);
     const { results: scanned, rowsScanned, duplicatesRemoved, noSignalRows: skipped, duplicateRows: merged } = scanParsedFiles([parsed], ruleOverrides);
     applyStickyState(scanned, contacts);
+    setHistoryCounts(applyLeadHistory(scanned, { contacts, index: apolloIndex, synced: Boolean(apolloSyncedAt) }));
     setResults(scanned);
     setUploadedFiles([{ name: parsed.name, rows: parsed.data.length }]);
     const largestDuplicateGroup = Math.max(0, ...scanned.map((r) => r.duplicateGroupSize || 0));
@@ -941,6 +966,54 @@ export default function Scanner({
           Past uploads are in <b>History</b> — open one there to reload it into the Scanner.
         </div>
 
+        {/* The Apollo check. Kept on the landing screen deliberately: the
+            moment that matters is just before an upload, when a stale
+            index would quietly report already-worked leads as new. */}
+        <div style={{ marginTop: 16, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "13px 15px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em" }}>
+              Apollo sequence check
+            </div>
+            <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+              <button className="btn btn-sm btn-secondary" onClick={onApolloSync}>
+                {apolloSyncing ? "Stop" : apolloSyncedAt ? "Refresh" : "Check Apollo"}
+              </button>
+              {apolloSyncedAt && !apolloSyncing && (
+                <button
+                  className="btn btn-sm btn-ghost"
+                  title="Throw away the stored index. Nothing in your Contacts, Library or History is touched — only the cached Apollo lookup."
+                  onClick={() => {
+                    if (window.confirm("Clear the stored Apollo index? Your leads, Library and History are untouched — only the cached sequence lookup is discarded, and uploads will stop reporting sequence membership until you check again.")) {
+                      onApolloReset();
+                    }
+                  }}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
+          <div style={{ marginTop: 7, fontSize: 12.5, color: "var(--muted)", lineHeight: 1.45 }}>
+            {apolloSyncedAt ? (
+              <>
+                <b>{apolloIndexSize.toLocaleString()}</b> leads indexed, last checked{" "}
+                <b>{new Date(apolloSyncedAt).toLocaleString()}</b>. Every upload is matched against
+                this, so a lead already in one of Jack&rsquo;s or Carly&rsquo;s sequences is flagged
+                before you file or enroll it.
+              </>
+            ) : (
+              <>
+                Not checked yet. Until this runs, uploads can still tell you who you&rsquo;ve
+                <b> seen before</b> and <b>contacted</b> from your own records, but not whether
+                they&rsquo;re already in an Apollo sequence. Reads only &mdash; no Apollo credits.
+              </>
+            )}
+          </div>
+          {apolloSyncNote && (
+            <div style={{ marginTop: 6, fontSize: 12.5, color: "var(--accent)" }}>{apolloSyncNote}</div>
+          )}
+        </div>
+
         {priorityLeads.length > 0 && (
           <div style={{ marginTop: 20, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "14px 16px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
@@ -1194,6 +1267,43 @@ export default function Scanner({
                 duplicates merged
               </span>
               {lastScanStats.largestDuplicateGroup > 2 && ` (one ×${lastScanStats.largestDuplicateGroup})`}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* What we already knew about this batch. Sits directly under the
+          accounting line because it answers the same question about the
+          same upload: not just how many rows, but how many of them are
+          actually new to us. */}
+      {historyCounts && results.length > 0 && (
+        <div className="history-note">
+          {apolloSyncedAt ? (
+            <>
+              <strong>{historyCounts.fresh.toLocaleString()}</strong> genuinely new
+              {" · "}
+              <strong>{historyCounts.inSequence.toLocaleString()}</strong>{" "}
+              <span title="Already enrolled in one of Jack's or Carly's Apollo sequences — adding them again would duplicate the cadence.">
+                already in a sequence
+              </span>
+              {" · "}
+              <strong>{historyCounts.contactedBefore.toLocaleString()}</strong>{" "}
+              <span title="A call, an email or a disposition is already on record for this person.">contacted before</span>
+              {" · "}
+              <strong>{historyCounts.seenBefore.toLocaleString()}</strong>{" "}
+              <span title="This exact person appeared in an earlier upload.">seen in a past upload</span>
+            </>
+          ) : (
+            <>
+              <strong>{historyCounts.seenBefore.toLocaleString()}</strong>{" "}
+              <span title="This exact person appeared in an earlier upload.">seen in a past upload</span>
+              {" · "}
+              <strong>{historyCounts.contactedBefore.toLocaleString()}</strong>{" "}
+              <span title="A call, an email or a disposition is already on record.">contacted before</span>
+              {" · "}
+              <span style={{ color: "var(--warn, #96600a)" }}>
+                sequence membership not checked — run the Apollo check in Contacts
+              </span>
             </>
           )}
         </div>
@@ -1539,6 +1649,7 @@ export default function Scanner({
                     </td>
                     <td style={{ padding: "10px 11px", fontWeight: 600, minWidth: 128 }}>
                       {r.disposition === "meeting-booked" && <BookedStamp />}
+                      <LeadHistoryBadge history={r.leadHistory} />
                       <div style={strike}>{f.company || "—"}</div>
                     </td>
                     <td style={{ padding: "10px 11px", minWidth: 104, whiteSpace: "nowrap", ...strike }}>

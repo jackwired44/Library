@@ -26,7 +26,19 @@ export type ClaudeMcpWatchEvent =
 
 export interface ClaudeMcpNamespace {
   listTools(): Promise<{ servers: { server: string; authStatus: string; tools: { name: string }[] }[] }>;
-  callTool(server: string, tool: string, input?: unknown): Promise<ClaudeMcpResult>;
+  // `options` carries the runtime's caching and cancellation controls. It
+  // was missing here while the real contract has always accepted it, so
+  // any call site that wanted a cached read failed to compile. Kept
+  // optional and narrow — only the members this app actually passes.
+  callTool(
+    server: string,
+    tool: string,
+    input?: unknown,
+    options?: {
+      cache?: false | { staleTime?: number; gcTime?: number; refresh?: boolean };
+      signal?: AbortSignal;
+    }
+  ): Promise<ClaudeMcpResult>;
   // The DISPLAY arm: replays any cached entry immediately, refreshes when
   // stale, and delivers every later result for the same identity —
   // including its own `refetchInterval` polls, which the runtime clamps to

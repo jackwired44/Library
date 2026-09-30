@@ -4593,6 +4593,84 @@ would ship the test credentials. Always `npm run build` again and confirm
 the real `PASSWORD_HASH` from `lib/auth.ts` is present and the test hash is
 absent.
 
+## Lead history at upload time: seen before, contacted, already sequenced (app/ only)
+
+Per Jack: "so the lead scanner scans leads then can tell us if any of those
+companies and contacts have been in sequences before or contacted or if we
+have seen them in past lead uploads" — and the reason: "so we dont
+duplicate leads to sequences and we know where each contact stands."
+
+Three independent questions, answered on every upload, stamped onto each
+`ResultRow` as `leadHistory` by `applyLeadHistory`
+(`app/src/lib/apolloSequenceIndex.ts`) in the same position and with the
+same contract as `applyStickyState` — immediately after `scanParsedFiles`,
+before anything is shown or recorded. Wired into all four scan paths
+(Scanner's upload and Library picker, App's "Load into Scanner", and
+Library's upload-into-folder).
+
+**Two of the three cost nothing.** "Seen in a past upload" and "contacted
+before" come from the Contacts directory this app already keeps, which
+captures every row of every upload — so they work with Apollo
+disconnected, and they were already sitting there unused.
+
+**The third needs Apollo, and is an INDEX rather than a lookup per
+upload.** Apollo's contact search has no filter for "these N emails" and no
+campaign filter at all (verified live, 30 Sep 2026) — the only way to ask
+about one person is a search per person, so a 500-row CSV would mean 500
+calls before the Scanner could draw a row. Instead `syncApolloSequenceIndex`
+walks contacts newest-first ONCE into a local store keyed by normalised
+email (`STORE_APOLLO_INDEX`, `DB_VERSION` 15→16), and every upload
+afterwards answers from memory with zero network. Explicit, stoppable,
+resumable, progress shown; every call is a read and costs no credits.
+
+**Why not the task roster.** `apollo_tasks_search` looks like the obvious
+way to list who is in a sequence. A task's contact is
+`{id, name, linkedin_url}` — **no email, no company** — so it cannot be
+matched back to a Scanner lead. `apollo_contacts_search` returns the email
+AND `emailer_campaign_ids` on the same record, which is what makes one pass
+sufficient.
+
+**Scope**: only sequences owned by `OWNER_EMAILS` (Jack, Carly) count, per
+"just jack and carly that is it." Matched on email, not user id, so an id
+change can't silently empty the index. If neither owner resolves, the sync
+counts EVERY sequence and says so, rather than indexing nothing — an empty
+scope would make every lead read "never sequenced", which is the dangerous
+wrong answer.
+
+**"Not checked" is a real state.** `apolloSyncedAt === null` renders as
+"not checked", never as "never sequenced". Claiming a lead is fresh when
+nobody has looked is the one answer that would actively cause the
+duplicate enrollments this feature exists to prevent.
+
+- `components/LeadHistoryBadge.tsx` (new, shared) draws at most four pills
+  on a row — IN SEQUENCE / SEQUENCE DONE / OTHER CADENCE, CONTACTED, SEEN
+  BEFORE ×N, COMPANY KNOWN — in order of how much they should change what
+  you do. A lead with no history gets **no badge at all**: a clean row
+  should read clean, and stamping "new" on the majority would be noise.
+- COMPANY KNOWN is the company-level answer Jack asked for: a brand-new
+  person at a company we already have contacts for, or whose company is
+  already in a cadence.
+- Scanner's accounting line gained a second row: genuinely new / already in
+  a sequence / contacted before / seen in a past upload. With no index
+  synced it drops the sequence clause and says so instead of showing 0.
+- The sync control sits on Scanner's landing screen, not in Contacts —
+  the moment that matters is just before an upload, when a stale index
+  would quietly report already-worked leads as new. "Clear" confirms and
+  states plainly that only the cached lookup is discarded.
+
+**Bug found while building: `tsc --noEmit` does not catch what `tsc -b`
+does.** The app's own `ClaudeMcpNamespace.callTool` (`lib/claudeRuntime.ts`)
+declared only 2-3 parameters while the real runtime contract has always
+accepted a fourth `options` (caching, cancellation) — so any call site
+wanting a cached read failed to compile, and only the project-references
+build surfaced it. Widened to match the contract. **Verify with
+`npm test` (which runs `tsc -b`), not `tsc --noEmit`.**
+
+**New Apollo tools needed in the published manifest** — `apollo_contacts_search`
+and `apollo_users_search`, alongside everything already declared. Remember
+`capabilities` is a full-set declaration: restate `downloads: true` and
+every Apollo tool on every republish.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

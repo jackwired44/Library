@@ -30,6 +30,14 @@ import { deleteContactsFromDB, dedupeExistingContacts } from "./lib/contacts";
 import { importCrmDeals, type CrmImportResult } from "./lib/crmImport";
 import { CRM_SEED_CSV, CRM_SEED_ENABLED, CRM_SEED_SOURCE } from "./lib/crmSeed";
 import { parseCSVText } from "./lib/csv";
+import {
+  loadApolloIndex,
+  applyLeadHistory,
+  syncApolloSequenceIndex,
+  clearApolloIndex,
+  type ApolloIndexEntry,
+  type SyncProgress,
+} from "./lib/apolloSequenceIndex";
 import { applyStickyState, attachScanResultsToContacts, loadContactsFromDB, mergeContactsFromParsedFiles, mergeManualContact, persistContact, type Contact, type ManualContactInput } from "./lib/contacts";
 import {
   loadHistoryFromDB,
@@ -326,6 +334,15 @@ export default function App() {
   const [tasksError, setTasksError] = useState<string | null>(null);
 
   const [contacts, setContacts] = useState<Contact[]>([]);
+  // Apollo sequence membership, held locally so an upload can answer
+  // "already in a sequence?" with no network call. apolloSyncedAt being
+  // null is meaningful: it means nobody has checked, and the UI must say
+  // so rather than reporting every lead as never sequenced.
+  const [apolloIndex, setApolloIndex] = useState<Map<string, ApolloIndexEntry>>(new Map());
+  const [apolloSyncedAt, setApolloSyncedAt] = useState<string | null>(null);
+  const [apolloSyncing, setApolloSyncing] = useState(false);
+  const [apolloSyncNote, setApolloSyncNote] = useState<string | null>(null);
+  const apolloStopRef = useRef(false);
   const [contactsLoading, setContactsLoading] = useState(true);
   const [contactsError, setContactsError] = useState<string | null>(null);
 
@@ -521,6 +538,16 @@ export default function App() {
         setTasksError("Couldn't load your task board from this browser's local storage.");
         setTasksLoading(false);
       });
+    loadApolloIndex()
+      .then((map) => {
+        setApolloIndex(map);
+        // The freshest entry's stamp is the index's age. An empty index
+        // stays null — "never synced", not "synced and found nothing".
+        let newest: string | null = null;
+        map.forEach((e) => { if (!newest || e.syncedAt > newest) newest = e.syncedAt; });
+        setApolloSyncedAt(newest);
+      })
+      .catch(() => { /* index is an enhancement; the app works without it */ });
     loadContactsFromDB()
       .then((loaded) => {
         setContacts(loaded);
@@ -744,6 +771,45 @@ export default function App() {
   // and status) and the Apollo enrichment result both land here — a plain
   // per-contact patch, no dedup/merge logic needed since these are direct
   // edits to one already-identified Contact, not a new CSV/manual input.
+  // Explicit, stoppable, resumable. Never runs on its own — per Jack's
+  // standing rule that nothing Apollo-related happens in the background.
+  // Every call inside is a read and costs no Apollo credits.
+  async function runApolloSync() {
+    if (apolloSyncing) { apolloStopRef.current = true; return; }
+    apolloStopRef.current = false;
+    setApolloSyncing(true);
+    setApolloSyncNote("Checking Apollo…");
+    const res = await syncApolloSequenceIndex({
+      shouldStop: () => apolloStopRef.current,
+      onProgress: (p: SyncProgress) => {
+        setApolloSyncNote(
+          p.done
+            ? null
+            : `Page ${p.page} · ${p.indexed.toLocaleString()} leads indexed · ${p.inSequence.toLocaleString()} already sequenced`
+        );
+      },
+    });
+    // Re-read from storage rather than trusting an in-memory accumulation,
+    // so a sync that stopped half way still leaves the index consistent
+    // with what was actually persisted.
+    try {
+      const map = await loadApolloIndex();
+      setApolloIndex(map);
+      let newest: string | null = null;
+      map.forEach((e) => { if (!newest || e.syncedAt > newest) newest = e.syncedAt; });
+      setApolloSyncedAt(newest);
+    } catch { /* keep whatever is already loaded */ }
+    setApolloSyncing(false);
+    setApolloSyncNote(res.message);
+  }
+
+  async function resetApolloIndex() {
+    await clearApolloIndex();
+    setApolloIndex(new Map());
+    setApolloSyncedAt(null);
+    setApolloSyncNote("Apollo index cleared.");
+  }
+
   function updateContact(id: string, patch: Partial<Contact>) {
     setContacts((prev) => {
       const next = prev.map((c) => (c.id === id ? { ...c, ...patch } : c));
@@ -1353,6 +1419,7 @@ export default function App() {
   function loadParsedFilesIntoScanner(parsedFiles: ParsedFile[], tag = "Loaded from Lead Library") {
     const { results: scanned, duplicatesRemoved, noSignalRows, duplicateRows } = scanParsedFiles(parsedFiles, ruleOverrides);
     applyStickyState(scanned, contacts);
+    applyLeadHistory(scanned, { contacts, index: apolloIndex, synced: Boolean(apolloSyncedAt) });
     applyCompetitorDQ(scanned, companyProfiles);
     setResults(scanned);
     setUploadedFiles(parsedFiles.map((pf) => ({ name: pf.name, rows: pf.data.length })));
@@ -1604,6 +1671,13 @@ export default function App() {
               </button>
             </div>
             <Scanner
+              apolloIndex={apolloIndex}
+              apolloSyncedAt={apolloSyncedAt}
+              apolloSyncing={apolloSyncing}
+              apolloSyncNote={apolloSyncNote}
+              onApolloSync={runApolloSync}
+              onApolloReset={resetApolloIndex}
+              apolloIndexSize={apolloIndex.size}
               results={results}
               setResults={setResults}
               uploadedFiles={uploadedFiles}

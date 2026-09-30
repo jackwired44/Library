@@ -1374,6 +1374,29 @@ export interface ResultRow {
   isBusinessCentral: boolean;
   isSalesCrm: boolean;
   isPersonalProspect: boolean;
+  // What we already knew about this lead before today: Apollo sequence
+  // membership, whether they've ever been contacted, and whether they (or
+  // anyone at their company) appeared in a past upload. Stamped by
+  // applyLeadHistory (lib/apolloSequenceIndex.ts)
+  // straight after the scan, from a locally-held index, so it costs no
+  // network at upload time. Deliberately optional: a row scanned before
+  // the index was ever synced reads as undefined, which the UI must draw
+  // as "not checked" rather than "never sequenced". Claiming a lead is
+  // fresh when nobody has actually looked is the one wrong answer here.
+  // Typed structurally rather than importing LeadHistory, so detection.ts
+  // keeps no dependency on the Apollo/contacts layer that produces it.
+  leadHistory?: {
+    apolloStanding: string;
+    apolloStandingLabel: string;
+    apolloSequences: { id: string; name: string; status: string; step?: number }[];
+    seenBefore: boolean;
+    timesSeen: number;
+    firstSeenAt?: string;
+    priorFiles: string[];
+    companyPriorContacts: number;
+    companyInSequence: boolean;
+    contactedBefore: boolean;
+  };
   // Manual status tracking (see DISPOSITION_META above) — never set by the
   // scan itself, always "none"/false/null until someone sets it by hand.
   disposition: Disposition;
