@@ -230,6 +230,87 @@ const ASK_FILLER_RES: RegExp[] = [
   /^(?:forecast\s+status|reason\s+of\s+the\s+forecast\s+status|last\s+action|next\s+action|sales\s+stage|deal\s+health)\s*:\s*\w+\s*/i,
 ];
 
+/**
+ * When their agreement actually renews — or, failing that, the seller's own
+ * forecast window.
+ *
+ * Per Jack: "add that in to notes if anything indicates renewal date for
+ * csp agreements or purchasing licneses from a partner directly or if
+ * there is a high level time frame", then "Renewals are important."
+ *
+ * The export has NO renewal-date column (13 columns, none of them a date
+ * you could use), so this can only come from the seller's notes. Measured
+ * on the real 9,265-row file:
+ *
+ *   487 (5.3%)  a customer renewal / expiry / term-end date
+ *   857 (9.2%)  only a seller forecast close date or timeline
+ *   693         a label whose value says "not mentioned" / TBD / unknown
+ *
+ * Those last 693 are why `NO_DATE_RE` exists and is checked BEFORE any
+ * date pattern: "Estimated Close Date: Not explicitly mentioned" contains
+ * no date, but "Estimated Close Date: Not available — ECD DATES file not
+ * found in June" does, and printing "June" off that would be inventing a
+ * renewal date out of a missing-file message.
+ *
+ * The two kinds are kept apart because they are different facts. A renewal
+ * is the customer's contract; a forecast close is the seller's guess. A rep
+ * opening with "your agreement renews in August" is on solid ground; the
+ * same sentence off a forecast date is not.
+ */
+export type RenewalKind = "renewal" | "forecast";
+export interface RenewalWhen {
+  /** Verbatim from the notes — "August", "12/18/26", "Q3 2026", "within 6-9 months". */
+  when: string;
+  kind: RenewalKind;
+}
+
+/** The customer's own contract date. */
+const RENEWAL_LABEL_RE =
+  /(?:renewal\s*(?:date)?|renews?\s*(?:on|in|up|at)?|term\s+end|end\s+of\s+term|expir\w+|anniversary|co-?term\w*|subscription\s+end)/i;
+/** The seller's forecast — weaker, and labelled as such when shown. */
+const FORECAST_LABEL_RE = /(?:estimated\s+close\s+date|close\s+date|timeline)/i;
+/** Anything a date could be written as, including a high-level window. */
+const WHEN_RE = new RegExp(
+  [
+    String.raw`\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\w*\s+\d{1,2},?\s+\d{4}\b`,
+    String.raw`\b\d{1,2}/\d{1,2}/\d{2,4}\b`,
+    String.raw`\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\w*\s+(?:cy\s*)?\d{4}\b`,
+    String.raw`\b(?:q[1-4]|h[12])\s*(?:cy|fy)?\s*\d{2,4}\b`,
+    String.raw`\bwithin\s+\d+\s*[–—-]?\s*\d*\s*(?:month|week|quarter)s?\b`,
+    String.raw`\bnext\s+\d+\s*(?:month|week|quarter)s?\b`,
+    String.raw`\bend\s+of\s+(?:the\s+)?(?:year|month|quarter|january|february|march|april|may|june|july|august|september|october|november|december)\b`,
+    String.raw`\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\b`,
+  ].join("|"),
+  "i",
+);
+/** The seller saying there ISN'T one. 693 real rows; never print a date
+ *  from a segment carrying this, even when a month appears later in it. */
+const NO_DATE_RE =
+  /not\s+(?:explicitly\s+)?(?:mentioned|available|specified|stated|provided|discussed|identified|given|set|defined|confirmed)|unknown|\btbd\b|\bn\/?a\b|no\s+(?:date|renewal)/i;
+
+/** Read the value written after a label, stopping at the sentence end. */
+function whenAfter(notes: string, label: RegExp): string | null {
+  const re = new RegExp(label.source + String.raw`[^.|]{0,60}`, "gi");
+  for (let m = re.exec(notes); m; m = re.exec(notes)) {
+    const seg = m[0];
+    if (NO_DATE_RE.test(seg)) continue;
+    const d = WHEN_RE.exec(seg);
+    if (d) return d[0].replace(/\s+/g, " ").trim();
+  }
+  return null;
+}
+
+export function renewalFrom(notes: string): RenewalWhen | null {
+  const t = String(notes ?? "");
+  if (!t) return null;
+  // The contract date wins; the forecast is the fallback, never a
+  // substitute presented as the same thing.
+  const own = whenAfter(t, RENEWAL_LABEL_RE);
+  if (own) return { when: own, kind: "renewal" };
+  const fc = whenAfter(t, FORECAST_LABEL_RE);
+  return fc ? { when: fc, kind: "forecast" } : null;
+}
+
 export function partnerAskFrom(notes: string, today: string): PartnerAsk | null {
   const t = String(notes ?? "");
   if (!t) return null;
@@ -547,6 +628,10 @@ export interface CspLead {
   deadInLatest: boolean;
   motion: string[];
   nextStep: string;
+  /** When their agreement renews, or the seller's forecast window when the
+   *  contract date is not stated. Null when the notes say neither — and
+   *  null when they say "not mentioned", which is not the same as a date. */
+  renewal: RenewalWhen | null;
   /** Weighted strength of the motion language in the notes — the second
    *  ranking key after billing shape. */
   strength: number;
@@ -689,6 +774,7 @@ export function readCspLead(
     deadInLatest: DEAD_PATTERNS.some((p) => p.re.test(latestEntry(notes))),
     motion,
     nextStep: nextStepFrom(notes),
+    renewal: renewalFrom(notes),
     strength: notesStrength(motion),
     skus: skusMentioned(notes),
     wantsPartner,
@@ -894,6 +980,13 @@ export function cspNote(lead: CspLead, score: number, flags: string[] = [], pin 
       : POSTURE_META[lead.posture].short === "Direct" ? "MS direct"
       : POSTURE_META[lead.posture].short;
   const conflict = lead.partnerConflict ? `${firstWord(lead.partnerConflict)} on record` : "";
+  // Renewals are the whole play on this list, so this sits directly after
+  // the money and never gets shed — a renewal in August IS the reason to
+  // dial. "renews" is their contract; "close" is the seller's forecast,
+  // worded differently so the two can never be read as the same promise.
+  const renewal = lead.renewal
+    ? `${lead.renewal.kind === "renewal" ? "renews" : "close"} ${lead.renewal.when}`
+    : "";
   const age = lead.ageDays == null ? "" : lead.ageDays === 0 ? "touched today" : `${lead.ageDays}d cold`;
   // "older note: no-show / no response" is six words for a caution. Where
   // the flag sits still matters — an older entry is history, the latest one
@@ -914,10 +1007,10 @@ export function cspNote(lead: CspLead, score: number, flags: string[] = [], pin 
     // Shed billing, then licences. Never the lane, the age or the rank —
     // those are what decide whether to dial at all.
     const shed: string[][] = [
-      [value, skus, billing, lane, conflict, warn, age, rank],
-      [value, skus, lane, conflict, warn, age, rank],
-      [value, lane, conflict, warn, age, rank],
-      [value, lane, age, rank],
+      [value, renewal, skus, billing, lane, conflict, warn, age, rank],
+      [value, renewal, skus, lane, conflict, warn, age, rank],
+      [value, renewal, lane, conflict, warn, age, rank],
+      [value, renewal, lane, age, rank],
     ];
     for (const parts of shed) {
       const s = parts.filter(Boolean).join(" · ");
@@ -937,10 +1030,10 @@ export function cspNote(lead: CspLead, score: number, flags: string[] = [], pin 
   const mark = lead.perfect ? "★" : "⚑";
   const stem = `${mark} Wants partner${ask?.when ? ` (${shortAskDate(ask.when)})` : ""}`;
   const tails = [
-    [value, billing, lane, conflict, warn, age, rank],
-    [value, lane, conflict, warn, age, rank],
-    [value, lane, warn, age, rank],
-    [value, lane, age, rank],
+    [value, renewal, billing, lane, conflict, warn, age, rank],
+    [value, renewal, lane, conflict, warn, age, rank],
+    [value, renewal, lane, warn, age, rank],
+    [value, renewal, lane, age, rank],
   ].map((t) => t.filter(Boolean).join(" · "));
   // Take the richest tail that leaves room for at least a short reason,
   // else the shortest tail there is.

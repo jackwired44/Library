@@ -120,5 +120,58 @@ ok("shortAskDate formats without a timezone shift", shortAskDate("2026-06-12") =
 ok("cspNote is callable directly for a row with no ask",
    !cspNote(plain, 62, []).includes("⚑"), cspNote(plain, 62, []));
 
+console.log("\n== renewals: their contract date, and the seller's guess, kept apart ==");
+// Per Jack: "Renewals are important." The export has no renewal-date
+// column at all, so this can only come out of the seller's notes.
+const REN = mk("MA - 3/Sep - Customer renewal is up end of August, wants to review licensing.");
+ok("a customer renewal date is read", REN.renewal?.kind === "renewal", JSON.stringify(REN.renewal));
+ok("  verbatim from the notes", /end of august/i.test(REN.renewal?.when ?? ""), REN.renewal?.when);
+ok("  and the note says \"renews\"", /renews end of August/i.test(noteOf(REN)), noteOf(REN));
+
+const FC = mk("MA - 3/Sep - Estimated Close Date: September 30, 2026. Reviewing options.");
+ok("a seller forecast is read as a forecast, not a renewal", FC.renewal?.kind === "forecast", JSON.stringify(FC.renewal));
+ok("  and the note says \"close\", never \"renews\"",
+   /close September 30, 2026/.test(noteOf(FC)) && !/renews/.test(noteOf(FC)), noteOf(FC));
+
+const BOTH = mk("MA - 3/Sep - Estimated Close Date: July 2026. Their term end is January 2027.");
+ok("with both present the CONTRACT date wins", BOTH.renewal?.kind === "renewal", JSON.stringify(BOTH.renewal));
+ok("  and it is the January one", /january/i.test(BOTH.renewal?.when ?? ""), BOTH.renewal?.when);
+
+console.log("\n== a stated absence is not a date ==");
+// 693 real rows carry a label whose value says there is no date.
+for (const [label, txt] of [
+  ["not explicitly mentioned", "MA - 3/Sep - Estimated Close Date: Not explicitly mentioned in the notes."],
+  ["TBD", "MA - 3/Sep - Renewal date: TBD pending procurement."],
+  ["unknown", "MA - 3/Sep - Close date: unknown at this stage."],
+] as [string, string][]) {
+  const lead = mk(txt);
+  ok(`"${label}" yields no date`, lead.renewal === null, JSON.stringify(lead.renewal));
+}
+// The nastiest real shape: the absence message itself contains a month.
+const TRAP = mk("MA - 3/Sep - Estimated Close Date: Not available — ECD DATES file not found in June.");
+ok("a month inside a 'not available' message is NOT printed as a date",
+   TRAP.renewal === null, JSON.stringify(TRAP.renewal));
+
+console.log("\n== a high-level window counts, per the ask ==");
+for (const [label, txt, want] of [
+  ["a quarter", "MA - 3/Sep - Timeline: Q3 2026 for the licensing decision.", /q3\s*2026/i],
+  ["a relative window", "MA - 3/Sep - Timeline: next 3 months for the renewal decision.", /next 3 months/i],
+  ["end of a period", "MA - 3/Sep - Renewal expires end of the quarter.", /end of the quarter/i],
+] as [string, string, RegExp][]) {
+  const lead = mk(txt);
+  ok(`${label} is read`, want.test(lead.renewal?.when ?? ""), JSON.stringify(lead.renewal));
+}
+
+console.log("\n== the renewal is never shed to make room ==");
+const DENSE = mk("MA - 3/Sep - Renewal is January 2027. Running M365 E5, Copilot, Azure, Entra ID and Defender, reviewing options.");
+const dn = noteOf(DENSE);
+ok("a dense row still fits the cap", words(dn) <= CSP_NOTE_MAX_WORDS, `${words(dn)}w: ${dn}`);
+ok("  and the renewal survived it", /renews January 2027/i.test(dn), dn);
+const DENSE_ASK = mk("RZ - 3/Sep - Customer is looking for a partner to take over licensing. Renewal is January 2027. Running M365 E5, Copilot, Azure and Defender.");
+const dan = noteOf(DENSE_ASK);
+ok("an ask row with a renewal fits too", words(dan) <= CSP_NOTE_MAX_WORDS_ASK, `${words(dan)}w: ${dan}`);
+ok("  keeping both the ask and the renewal",
+   /Wants partner/.test(dan) && /renews January 2027/i.test(dan), dan);
+
 console.log(`\n${pass}/${pass + fail} checks passed`);
 if (fail) process.exit(1);

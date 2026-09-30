@@ -4783,6 +4783,62 @@ filler list catches the common openers, not every one. 108 of 109 flagged
 rows carry a readable reason, so this is diminishing returns rather than a
 defect.
 
+### CSP Scanner: the renewal date in the Notes line
+
+Per Jack: *"for csp scanner if theres a renewal date that is important"*,
+then *"add that in to notes if anything indicates renewal date for csp
+agreements or purchasing licneses from a partner directly or if there is a
+high level time frame"*, then *"Renewals are important."*
+
+**The export has no renewal-date column.** Thirteen columns, none of them a
+usable date — so this can only come out of the seller's notes. Measured on
+the real 9,265-row file before building:
+
+| | rows |
+|---|---|
+| A customer renewal / expiry / term-end date | **487 (5.3%)** |
+| Only a seller forecast close date or timeline | 857 (9.2%) |
+| A label whose value says "not mentioned" / TBD / unknown | **693** |
+| Neither | 7,921 |
+
+- **The two kinds are kept apart, because they are different facts.** A
+  renewal is the customer's contract; a forecast close is the seller's
+  guess. `RenewalWhen {when, kind}` carries which, and the note words them
+  differently — **`renews August 1, 2026`** vs **`close September 30,
+  2026`** — so a rep opening with "your agreement renews in August" is
+  never doing it off someone's forecast. When a row states both, the
+  contract date wins.
+- **`NO_DATE_RE` is checked BEFORE any date pattern**, which is the whole
+  reason those 693 rows are safe. "Estimated Close Date: Not explicitly
+  mentioned" contains no date and is easy; the real trap is *"Not available
+  — ECD DATES file not found in June"*, where a month sits inside the
+  message saying there is no date. Printing "June" off that would be
+  inventing a renewal out of a missing-file error. Asserted directly.
+- **A high-level window counts**, per the ask: quarters (`Q3 2026`),
+  relative windows (`next 3 months`, `within 6-9 months`), `end of the
+  quarter`, and a bare month all read.
+- **It sits directly after the money and is never shed.** The shed ladder
+  drops billing, then licences, then the extras — the renewal outranks all
+  of them, because a renewal in August IS the reason to dial. Verified: a
+  deliberately dense row still fits 20 words with the renewal intact, and
+  an ask row keeps both the ask and the renewal inside 26.
+
+**On the real file: 319 of 2,152 High priority rows now carry one** (193
+`renews`, 126 `close`), **zero junk leaked**, median still 16 words, still
+zero rows over cap.
+
+`csp-notes` grew 33 → 51 checks. **31 suites / 1,219 checks.**
+
+**Flagged, NOT built — both are real product decisions:**
+- **A renewal 30 days out is a far hotter lead than one 11 months out, and
+  the score does not know that.** Recency scores the last *touch*, not the
+  renewal. Making the renewal a scoring factor changes what High priority
+  means, so it needs Jack's call.
+- **No "renewing in the next 90 days" filter.** That is arguably the single
+  most valuable filter this scanner could have, and the data is now there
+  for it — but the dates are verbatim strings ("end of August", "Q3 2026"),
+  not parsed instants, so filtering needs a normalisation pass first.
+
 ## Where this is going: three scanners → one leads database
 
 Per Jack, stated as direction rather than a build request: *"i am going to
