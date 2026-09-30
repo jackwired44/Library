@@ -116,7 +116,8 @@ const perfect = mk({ msp_licensingprogramname: "CSP | Annual New Upfront Billing
 ok("★ wants partner + none assigned + annual upfront is flagged perfect", perfect.lead.perfect);
 ok("  and is Strong Signal", perfect.v.bucket === "priority", perfect.v.why);
 ok("  with a high score", perfect.v.score >= 80, String(perfect.v.score));
-ok("  the note says so", /wants a partner, none assigned, annual upfront/.test(perfect.v.why), perfect.v.why);
+ok("  the note marks it ★, not ⚑", /^★ Wants partner/.test(perfect.v.why), perfect.v.why);
+ok("  and says when they asked and why", /\(\d{1,2} \w{3}\): .+/.test(perfect.v.why), perfect.v.why);
 ok("  breakdown leads with the pin", perfect.v.breakdown[0].startsWith("★"));
 
 const strong = mk({ msp_licensingprogramname: "CSP | Annual New Upfront Billing", estimatedvalue: "120000", msp_partneraccountidname: "NULL" }, `${fresh}Quote sent, meeting set for next week. Next Steps: review pricing.`);
@@ -142,7 +143,9 @@ const deadNow = mk({ msp_licensingprogramname: "CSP | Annual New Upfront Billing
 ok("dead language in the LATEST entry still gets a score", deadNow.v.score > 0, String(deadNow.v.score));
 ok("  costs the full latest-entry penalty", alive.v.score - deadNow.v.score >= R.deadLatestPenalty - 3, `${alive.v.score} -> ${deadNow.v.score}`);
 ok("  the breakdown shows the deduction", deadNow.v.breakdown.some((b) => /latest entry .*\u2212/.test(b)), deadNow.v.breakdown.join(" | "));
-ok("  and the notes line flags it", /latest note: .*no-show/i.test(deadNow.v.why), deadNow.v.why);
+ok("  and the notes line flags it, naming a real reason off the row",
+   /⚠ now: /.test(deadNow.v.why) && deadNow.lead.deadReasons.some((d) => deadNow.v.why.includes(d.split(" ")[0])),
+   `${deadNow.v.why} || ${deadNow.lead.deadReasons.join(", ")}`);
 ok("  it is not hard-stopped by default", deadNow.v.bucket !== "excluded" || deadNow.v.score < R.reviewAt, `${deadNow.v.bucket} ${deadNow.v.score}`);
 
 const deadOld = mk({ msp_licensingprogramname: "CSP | Annual New Upfront Billing", estimatedvalue: "500000", msp_partneraccountidname: "NULL" },
@@ -150,10 +153,10 @@ const deadOld = mk({ msp_licensingprogramname: "CSP | Annual New Upfront Billing
 ok("a no-show in an OLDER entry is only a light discount", alive.v.score - deadOld.v.score <= R.deadOlderPenalty + 2 && deadOld.v.score < alive.v.score, `${alive.v.score} -> ${deadOld.v.score}`);
 ok("  the lead is still High priority on its merits", deadOld.v.bucket === "priority", `${deadOld.v.bucket} ${deadOld.v.score}`);
 ok("  deadInLatest is false", !deadOld.lead.deadInLatest);
-ok("  the older entry is named as such", /older note: /.test(deadOld.v.why), deadOld.v.why);
+ok("  the older entry is named as such", /⚠ older: /.test(deadOld.v.why), deadOld.v.why);
 
 const hard = classifyCsp(deadNow.lead, resolveCspRules({ hardStopDead: true }), { hasPhone: true, hasEmail: true });
-ok("the hard-stop toggle still forces Low priority when wanted", hard.bucket === "excluded" && /hard stop/.test(hard.why), hard.why);
+ok("the hard-stop toggle still forces Low priority when wanted", hard.bucket === "excluded" && /⚠ now: /.test(hard.why), hard.why);
 const legacy = resolveCspRules({ dqDead: true } as never);
 ok("a rule set saved with the old dqDead:true keeps hard-stopping (no silent change)", legacy.hardStopDead === true);
 ok("a fresh rule set does not hard-stop", resolveCspRules().hardStopDead === false);
@@ -219,18 +222,18 @@ const acme = rows.find(({ e }) => /ACME/.test(e["Company Name"]));
 ok("the perfect lead is Strong Signal", acme?.r.bucket === "priority", acme?.r.snippet);
 ok("  flagged perfect on the row", !!acme?.r.csp?.perfect);
 ok("  Product Area carries the effective PRIORITY, not a product line", toApolloRow(acme!.r, CSP_BUCKET_META[acme!.r.bucket].label)["Product Area"] === "High priority");
-ok("  and the partner posture is in Notes instead", /no partner assigned/i.test(acme?.e.Notes ?? ""), acme?.e.Notes);
+ok("  and the partner posture is in Notes instead", /Open lane/.test(acme?.e.Notes ?? ""), acme?.e.Notes);
 ok("  with no override passed it still says something true (partner label)", acme?.e["Product Area"] === "Open — no partner assigned", acme?.e["Product Area"]);
 ok("  contact + phone + email carry through", acme?.e["First Name"] === "Dana" && acme?.e["Last Name"] === "Reyes" && acme?.e.Email === "dana@acme.com" && acme?.e["Work Direct Phone"] === "312-555-0147");
-ok("  Notes lead with the score", /^Score \d+/.test(acme?.e.Notes ?? ""), acme?.e.Notes);
+ok("  Notes carry the score, at the end", /\(\d{1,3}\)$/.test(acme?.e.Notes ?? ""), acme?.e.Notes);
 ok("  Notes carry the value and billing", /\$45k/.test(acme?.e.Notes ?? "") && /annual new/i.test(acme?.e.Notes ?? ""), acme?.e.Notes);
 const skuRow = mk({ msp_licensingprogramname: "CSP | Annual New Upfront Billing", estimatedvalue: "50000", msp_partneraccountidname: "NULL" }, `${fresh}Moving 225 users from E5 to E7, Copilot workshop next week.`);
-ok("license SKUs the notes refer to are kept in the notes line", /licenses: .*E7/.test(skuRow.v.why) && /Copilot/.test(skuRow.v.why), skuRow.v.why);
+ok("license SKUs the notes refer to are kept in the notes line", /E7/.test(skuRow.v.why) && /Copilot/.test(skuRow.v.why), skuRow.v.why);
 ok("  but no Dynamics / M365 product line is assigned", !("productLine" in skuRow.lead));
 ok("  receivedOn is the last seller touch, so the date filter works", acme?.r.receivedOn === plus(-5), String(acme?.r.receivedOn));
 
 const heldRow = rows.find(({ e }) => /HELD CO/.test(e["Company Name"]));
-ok("the held deal's Notes name the partner", /partner: CDW Logistics LLC/.test(heldRow?.e.Notes ?? ""), heldRow?.e.Notes);
+ok("the held deal's Notes name the partner", /Held: CDW/.test(heldRow?.e.Notes ?? ""), heldRow?.e.Notes);
 ok("a manual Low override maps to the Low priority bucket", CURATION_TO_BUCKET.reject === "excluded" && CSP_BUCKET_META.excluded.label === "Low priority");
 ok("perfect outranks the bigger held deal", compareCspLeads(acme?.r.csp, heldRow?.r.csp) < 0);
 
@@ -240,7 +243,7 @@ ok("  and is Low priority after the penalty (monthly, no phone, no-show now)", g
 
 const np = rows.find(({ e }) => /NOTES PHONE/.test(e["Company Name"]));
 ok("a phone labelled in the notes fills an empty phone column", np?.e["Work Direct Phone"] === "+1 786 953 5229", np?.e["Work Direct Phone"]);
-ok("  Microsoft direct is named in its Notes", /Microsoft direct/.test(np?.e.Notes ?? ""), np?.e.Notes);
+ok("  Microsoft direct is named in its Notes", /MS direct/.test(np?.e.Notes ?? ""), np?.e.Notes);
 
 {
   // A subset file saved out of Excel that LOST the company column — this is
@@ -377,7 +380,7 @@ const wp = mk(
 ok("a stated want is flagged even with a named partner and monthly billing", wp.lead.wantsPartner);
 ok("  it is forced to High priority", wp.v.bucket === "priority", `${wp.v.bucket} @ ${wp.v.score}`);
 ok("  even though its score is under the High line", wp.v.score < R.strongAt, String(wp.v.score));
-ok("  and the reason says TOP QUALITY", /TOP QUALITY/.test(wp.v.why), wp.v.why.slice(0, 90));
+ok("  and the reason flags the ask", /[★⚑] Wants partner/.test(wp.v.why), wp.v.why.slice(0, 90));
 ok("  the breakdown explains the override", wp.lead.breakdown.some((b) => /top quality/i.test(b)), wp.lead.breakdown.join(" | "));
 
 // A lead that does NOT state it is judged on score alone, as before.

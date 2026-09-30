@@ -57,7 +57,7 @@ check("Email is a real address", (v) => /^[^@\s,;]+@[^@\s,;]+\.[a-z]{2,}$/i.test
 check("Work phone has >= 7 digits and no E+ notation", (v) => (v.match(/\d/g) || []).length >= 7 && !/[eE]\s*\+/.test(v), "Work Direct Phone");
 check("Mobile phone likewise", (v) => (v.match(/\d/g) || []).length >= 7 && !/[eE]\s*\+/.test(v), "Mobile Phone");
 check("Product Area is one of the priority bands", (v) => ["High priority", "Medium priority", "Low priority", "No signal"].includes(v), "Product Area");
-check("Notes start with a score", (v) => /^Score \d+/.test(v), "Notes");
+check("Notes end with a score", (v) => /\(\d{1,3}\)$/.test(v), "Notes");
 check("Name has no stray comma/semicolon that would split a cell", (v) => !/[\r\n]/.test(v), "First Name");
 check("Company has no newline", (v) => !/[\r\n]/.test(v), "Company Name");
 check("Notes have no newline (would break a naive importer)", (v) => !/[\r\n]/.test(v), "Notes");

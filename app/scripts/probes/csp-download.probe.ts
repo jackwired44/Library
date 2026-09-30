@@ -44,12 +44,12 @@ ok("Notes on every row", filled("Notes") === rows.length);
 
 console.log("\n=== content ===");
 ok("Product Area is the priority on every row, not a product line", rows.every((r) => r["Product Area"] === "High priority"), [...new Set(rows.map((r) => r["Product Area"]))].join(" | "));
-ok("every Notes line leads with the score", rows.every((r) => /^Score \d+/.test(r.Notes)), rows.find((r) => !/^Score \d+/.test(r.Notes))?.Notes.slice(0, 80));
+ok("every Notes line carries its score, at the end", rows.every((r) => /\(\d{1,3}\)$/.test(r.Notes)), rows.find((r) => !/\(\d{1,3}\)$/.test(r.Notes))?.Notes.slice(0, 80));
 ok("no literal 'undefined' / 'null' / 'NULL' anywhere", !/\bundefined\b|\bnull\b|\bNULL\b/.test(csv));
 ok("no literal \\u escapes leaked into the file", !/\\u[0-9a-f]{4}/i.test(csv));
 ok("no CSV column-index numbers where a value should be", rows.every((r) => !/^\d$/.test(r["Product Area"])));
-ok("Notes carry the partner posture", rows.every((r) => /No partner assigned|Partner ID unresolved|Microsoft direct|partner: /.test(r.Notes)));
-const scores = rows.map((r) => Number((/^Score (\d+)/.exec(r.Notes) || [])[1]));
+ok("Notes carry the partner posture", rows.every((r) => /Open lane|MS direct|Held: /.test(r.Notes)));
+const scores = rows.map((r) => Number((/\((\d{1,3})\)$/.exec(r.Notes) || [])[1]));
 const perfectIdx = rows.map((r, i) => (/★/.test(r.Notes) ? i : -1)).filter((i) => i >= 0);
 const lastPerfect = perfectIdx.length ? Math.max(...perfectIdx) : -1;
 ok("★ perfect leads are all at the very top", perfectIdx.length > 0 && lastPerfect === perfectIdx.length - 1, `${perfectIdx.length} perfect, last at row ${lastPerfect}`);
@@ -60,7 +60,7 @@ const afterPerfect = scores.slice(perfectIdx.length);
 // wants a partner that needs to be flagged for top quality"), then
 // everyone else by score descending.
 const isPinned = (r: Record<string, string>) => /\u2605/.test(r.Notes);
-const isTopQuality = (r: Record<string, string>) => /TOP QUALITY/.test(r.Notes);
+const isTopQuality = (r: Record<string, string>) => /⚑ Wants partner/.test(r.Notes);
 const overrideIdx = rows.map((r, i) => (isPinned(r) || isTopQuality(r) ? i : -1)).filter((i) => i >= 0);
 ok("  ⚑ top-quality leads sit directly below the pinned ones",
    overrideIdx.length === 0 || Math.max(...overrideIdx) === overrideIdx.length - 1,
@@ -72,11 +72,11 @@ ok("below the overrides the file is in descending score order",
    afterOverrides.every((v, i) => i === 0 || v <= afterOverrides[i - 1]));
 // The score floor therefore applies to everyone the score alone put here.
 const scoreOnly = rows.filter((r) => !isPinned(r) && !isTopQuality(r))
-  .map((r) => Number((/^Score (\d+)/.exec(r.Notes) || [])[1]));
+  .map((r) => Number((/\((\d{1,3})\)$/.exec(r.Notes) || [])[1]));
 ok("no score-qualified lead is under the High line (60)",
    scoreOnly.every((v) => v >= 60), scoreOnly.length ? `min ${Math.min(...scoreOnly)}` : "none");
 ok("  and every row under 60 got there by an explicit override",
-   rows.every((r) => Number((/^Score (\d+)/.exec(r.Notes) || [])[1]) >= 60 || isPinned(r) || isTopQuality(r)));
+   rows.every((r) => Number((/\((\d{1,3})\)$/.exec(r.Notes) || [])[1]) >= 60 || isPinned(r) || isTopQuality(r)));
 const phones = rows.map((r) => r["Work Direct Phone"]).filter(Boolean);
 ok("every exported phone has enough digits to dial", phones.every((v) => (v.match(/\d/g) || []).length >= 7), phones.find((v) => (v.match(/\d/g) || []).length < 7));
 ok("no Excel scientific-notation phones survive (5.25549E+11)", phones.every((v) => !/[eE]\s*\+/.test(v)), phones.find((v) => /[eE]\s*\+/.test(v)));

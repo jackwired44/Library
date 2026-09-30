@@ -137,8 +137,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('unchecking restores every row', /TEMPLATE ONLY CO/.test(await tbody()) && /DECLINED CO/.test(await tbody()));
 
   console.log('\n== it reaches the CSV ==');
-  ok('the reason text says TOP QUALITY on the flagged lead',
-     /TOP QUALITY/i.test(await page.locator('.data-table tbody tr', { hasText: 'STATES IT CO' }).innerText()),
+  ok('the reason text flags the ask on the flagged lead',
+     /⚑ Wants partner/i.test(await page.locator('.data-table tbody tr', { hasText: 'STATES IT CO' }).innerText()),
      (await page.locator('.data-table tbody tr', { hasText: 'STATES IT CO' }).innerText()).replace(/\s+/g, ' ').slice(0, 200));
 
   ok('no page errors', errs.length === 0, errs.join(' | '));

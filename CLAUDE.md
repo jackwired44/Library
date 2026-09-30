@@ -4696,6 +4696,93 @@ sweep was confirmed to FAIL on the pre-fix engine (offset 32) before being
 kept.
 
 
+### CSP Scanner: the Notes line rewritten for a rep on a dial
+
+Per Jack, pasting a real row back — *"too much"* — then *"our rep is just
+calling the lead and talking they dont need super detailed specirics"*,
+*"we need it to be like 20 words max or something"*, and, for the leads
+that ask for one: *"just a breif stament of they want one, when it was
+noted and why they want one."*
+
+**Measured on the real 9,265-row file before changing anything.** The old
+line ran **median 150 characters, p90 315, max 411** — against 66 for the
+Main Scanner and 70 for Custom. Where it went:
+
+| clause | rows | % of all text |
+|---|---|---|
+| `next: <seller's own note>` | 44.9% | **29.8%** |
+| `Score N — High priority` | 100% | 16.3% |
+| `licenses:` | 63.1% | 12.4% |
+| `last touched Nd ago` | 80.3% | 10.3% |
+| billing (split over two clauses) | — | 13.5% |
+| partner lane (three clauses) | — | 13.8% |
+
+**After: median 16 words / 72 chars, p90 20 / 95, max 26 / 177, and zero
+rows over cap.**
+
+```
+$303k · M365 E7, M365 E5, Copilot · Open lane · SHI on record · 35d cold · (70)
+⚑ Wants partner (12 Jun): Open to partner support if needed. · $12k · monthly · Held: Executech · 26d cold · (51)
+```
+
+- **`CSP_NOTE_MAX_WORDS` 20, `CSP_NOTE_MAX_WORDS_ASK` 26.** A cap only
+  works with a stated shed order, so `cspNote` has one: billing goes
+  first, then licences, never the lane, the age or the score. Six words
+  was not enough to finish a thought, which is why an ask row gets 26 —
+  it is 5% of rows and the one you actually read.
+- **`partnerAskFrom` dates the ask to the entry it was written in**, not
+  to the row's `lastTouch`. An ask written in March on a row touched last
+  week is a six-month-old ask, and "5d" beside it would be a lie. 99% of
+  the 119 rows that state an ask can be dated this way. `allEntries` is
+  the new splitter; `latestEntry` is now just its first element.
+- **Gone from the line**: `Score N` (rides at the end as `(70)`), the band
+  word (every download is already split by band, and the Tier column says
+  it again), `TOP QUALITY`, and `next:` entirely.
+- **Shortened, deliberately**: `No partner assigned` → `Open lane`,
+  `Microsoft direct` → `MS direct`, `partner: Encore Business Solutions
+  Inc.` → `Held: Encore`, `older note: …` → `⚠ older: …`.
+- **`Held: Encore` beside `⚑ Wants partner` is not a contradiction** — it
+  means they have a partner and are still asking. That is the best lead
+  type on the list and it now reads as one fact.
+
+**Four real bugs found and fixed while building it:**
+1. **`nextStepFrom` swallowed whole entries.** Its `[^.·|]{8,180}` class
+   does not include the entry separator (` LDH - 18/Jun - `), so on Jack's
+   pasted row it ran through two later entries and ended on the CRM's own
+   **"Show less"** chrome. Now stops at a dated prefix and strips that
+   chrome. The field stays parsed (a Scanner-row use is still open) even
+   though it has left the note.
+2. **Filler stripping never fired.** The entry separator leaves a `"- "`
+   on the front of the clause and every filler pattern is anchored to `^`,
+   so *"During the conversation, the customer confirmed they are…"*
+   survived whole. Punctuation is now stripped first and the list runs to
+   a fixed point, since real clauses stack two or three openers.
+3. **A flagged lead whose ask could not be parsed lost its mark.** The
+   mark was tied to `partnerAsk` rather than to `wantsPartner`; 11 of 119
+   real asks sit in an entry with no readable date or clause. Because the
+   flag also overrides the score band, that put unmarked sub-60 leads into
+   the High file with nothing saying why — caught by `csp-download`'s
+   ordering checks reading `min 53`.
+4. **★ and ⚑ both rendered on a pinned lead.** ★ means all three signals,
+   ⚑ means the ask alone; `wants-partner` asserts the star replaces the
+   chip. `cspNote` now owns the mark entirely and the caller prepends
+   nothing.
+
+**New `csp-notes` suite (33 checks)** covering the caps, the entry-scoped
+date, the filler strip, both guards still refusing a template or negated
+ask, and the swallowed-entry bug. **31 suites / 1,201 checks green**; 19
+assertions across `csp`, `csp-download`, `csp-live`, `csv-gaps` and
+`wants-partner` were **re-pointed at what the note now says, never
+loosened** — e.g. the score check moved from `/^Score \d+/` to
+`/\(\d{1,3}\)$/`, and the hard-stop check kept its `bucket === "excluded"`
+half (the behaviour) while its prose half moved to `⚠ now:`.
+
+**Flagged, not fixed:** a handful of reasons are still CRM form fragments
+("Last Action STU presentation to CFO CoS…", "N: Customer wants…") — the
+filler list catches the common openers, not every one. 108 of 109 flagged
+rows carry a readable reason, so this is diminishing returns rather than a
+defect.
+
 ## Where this is going: three scanners → one leads database
 
 Per Jack, stated as direction rather than a build request: *"i am going to

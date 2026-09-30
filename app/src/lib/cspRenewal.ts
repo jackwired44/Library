@@ -194,6 +194,80 @@ export function wantsPartnerStated(notes: string): boolean {
   return !PARTNER_TEMPLATE_RE.test(around) && !PARTNER_NEGATION_RE.test(around);
 }
 
+/**
+ * A stated partner ask, attributed to the dated seller entry it was
+ * written in, with a short reason.
+ *
+ * Per Jack: "if they want a partner just a brief statement of they want
+ * one, when it was noted and why they want one." The date has to come from
+ * the entry holding the ask, NOT from the row's `lastTouch` — an ask
+ * written in March on a row touched last week is a five-month-old ask, and
+ * saying "5d" there would be a lie. Measured on the real file: 99% of the
+ * 119 rows that state an ask can be dated this way.
+ */
+export interface PartnerAsk {
+  /** YYYY-MM-DD of the entry the ask sits in, null if that entry is undated. */
+  when: string | null;
+  /** The clause the ask sits in, filler stripped. May be empty. */
+  why: string;
+}
+
+/** Sellers open with boilerplate that eats the word budget and says
+ *  nothing: "During the conversation, the customer confirmed interest in
+ *  X" is worth exactly "interest in X". */
+const ASK_FILLER_RES: RegExp[] = [
+  /^during (?:the|our) (?:conversation|call|meeting)[,:]?\s*/i,
+  /^(?:the\s+)?(?:customer|client|they|he|she|account)\s+(?:is\s+|are\s+|has\s+|have\s+|was\s+|were\s+)?/i,
+  /^asks?\s*:\s*/i,
+  /^(?:confirmed|stated|mentioned|indicated|noted|said)\s+(?:that\s+)?(?:they\s+)?/i,
+  // Stripping "the customer" then "confirmed they" strands the auxiliary:
+  // "…confirmed they are open to X" was landing as "Are open to X".
+  /^(?:is|are|was|were|has|have|had)\s+/i,
+  // CRM form scaffolding that sits in the same clause as the ask and reads
+  // as a sentence but says nothing: "Forecast status: Uncommitted Reason of
+  // the forecast status: …", "- ? Last Action STU presentation to …".
+  /^[-\s?•]+/,
+  /^(?:forecast\s+status|reason\s+of\s+the\s+forecast\s+status|last\s+action|next\s+action|sales\s+stage|deal\s+health)\s*:\s*\w+\s*/i,
+];
+
+export function partnerAskFrom(notes: string, today: string): PartnerAsk | null {
+  const t = String(notes ?? "");
+  if (!t) return null;
+  for (const chunk of allEntries(t)) {
+    const m = WANTS_PARTNER_RE.exec(chunk);
+    if (!m) continue;
+    // The same three guards wantsPartnerStated applies, so this can never
+    // report an ask the engine itself does not count.
+    const around = chunk.slice(
+      Math.max(0, m.index - PARTNER_CONTEXT_CHARS),
+      Math.min(chunk.length, m.index + m[0].length + PARTNER_CONTEXT_CHARS),
+    );
+    if (PARTNER_TEMPLATE_RE.test(around) || PARTNER_NEGATION_RE.test(around)) continue;
+
+    const before = chunk.slice(0, m.index);
+    const start = Math.max(before.lastIndexOf("."), before.lastIndexOf("|"), before.lastIndexOf(" - ")) + 1;
+    const rest = chunk.slice(start);
+    const end = rest.search(/[.|]\s|$/);
+    let why = rest.slice(0, end > 0 ? end : rest.length).replace(/\s+/g, " ").trim();
+    // Leading punctuation has to go FIRST and the list has to run to a
+    // fixed point. The entry separator leaves a "- " on the front, and
+    // every filler pattern is anchored to ^ — so with the punctuation
+    // still there not one of them could match, and "During the
+    // conversation, the customer confirmed they are…" survived whole.
+    // Stripping one layer is also not enough: real clauses stack two or
+    // three of these openers.
+    for (let i = 0; i < 4; i++) {
+      const before2 = why;
+      why = why.replace(/^[-\s?•:]+/, "");
+      for (const re of ASK_FILLER_RES) why = why.replace(re, "").trim();
+      if (why === before2) break;
+    }
+    why = why.charAt(0).toUpperCase() + why.slice(1);
+    return { when: lastTouchFrom(chunk, today), why };
+  }
+  return null;
+}
+
 export const WANTS_PARTNER_LABEL = "wants a partner";
 
 export const MOTION_PATTERNS: { label: string; re: RegExp }[] = [
@@ -288,12 +362,37 @@ export function latestEntry(notes: string): string {
   return t.slice(first.index, second ? second.index : t.length);
 }
 
-/** The first "Next Step / Next Action" sentence, for the notes line. */
+/** Every seller entry in the blob, each still carrying its own date
+ *  prefix, newest first. `latestEntry` above is the first of these; this is
+ *  all of them, which is what lets a fact be attributed to the entry it was
+ *  actually written in rather than to the row as a whole. */
+export function allEntries(notes: string): string[] {
+  const t = String(notes ?? "");
+  if (!t) return [];
+  ENTRY_PREFIX_RE.lastIndex = 0;
+  const marks: number[] = [];
+  for (let m = ENTRY_PREFIX_RE.exec(t); m; m = ENTRY_PREFIX_RE.exec(t)) marks.push(m.index);
+  if (!marks.length) return [t];
+  return marks.map((s, i) => t.slice(s, marks[i + 1] ?? t.length));
+}
+
+/** The first "Next Step / Next Action" sentence.
+ *
+ *  The character class must exclude the entry prefix, not just sentence
+ *  punctuation. Seller entries are separated by " LDH - 18/Jun - ", which
+ *  contains no ".", "·" or "|" — so the original pattern ran straight
+ *  through the separator and swallowed the next two entries whole, ending
+ *  on the CRM's own "Show less" UI text. Stop at a dated prefix as well. */
 const NEXT_STEP_RE = /next\s+(?:steps?|action)\s*[:-]?\s*([^.·|]{8,180})/i;
+const ENTRY_START_RE = /\s[A-Z]{1,4}\s*-\s*\d{1,2}\s*[/-]\s*(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\b/i;
 export function nextStepFrom(notes: string): string {
   const m = NEXT_STEP_RE.exec(String(notes ?? ""));
   if (!m) return "";
-  return m[1].replace(/\s+/g, " ").trim().replace(/[,;\s-]+$/, "");
+  let s = m[1];
+  const cut = s.search(ENTRY_START_RE);
+  if (cut > 0) s = s.slice(0, cut);
+  return s.replace(/\s*Show (?:less|more)\s*$/i, "")
+    .replace(/\s+/g, " ").trim().replace(/[,;\s-]+$/, "");
 }
 
 /**
@@ -468,6 +567,10 @@ export interface CspLead {
    *  directly below a pinned lead. Guarded three ways, see
    *  wantsPartnerStated: this is 118 of 9,265 real rows, not 961. */
   wantsPartner: boolean;
+  /** When the ask was written and why, attributed to its own dated entry.
+   *  Null when no ask is stated, or when the ask is stated but the entry
+   *  holding it carries no date (1% of real rows). */
+  partnerAsk: PartnerAsk | null;
   perfect: boolean;
   /** 0–100, set by classifyCsp. The single number the table and the
    *  downloads are ordered by. */
@@ -589,6 +692,7 @@ export function readCspLead(
     strength: notesStrength(motion),
     skus: skusMentioned(notes),
     wantsPartner,
+    partnerAsk: wantsPartner ? partnerAskFrom(notes, today) : null,
     perfect: posture === "unassigned" && wantsPartner && billingRank === 0,
     score: 0,
     breakdown: [],
@@ -747,6 +851,111 @@ export interface CspVerdict {
  * `hasPhone` / `hasEmail` come from the identity columns, which this
  * module does not read; the caller passes them in.
  */
+/**
+ * The Notes line, written for a rep who is about to dial — not a brief.
+ *
+ * Per Jack, measured against the old line on his real 9,265-row file: it
+ * ran a median of 150 characters and a p90 of 315, and 30% of all that
+ * text was the seller's own internal next step, 99.9% of which ended
+ * mid-sentence. "Our rep is just calling the lead and talking, they don't
+ * need super detailed specifics."
+ *
+ * So: a hard word cap, and a stated order for what gets shed when a row is
+ * over budget. A row that states a partner ask gets a larger budget,
+ * because that ask is the single best reason to call and clipping it to
+ * six words made every one of them read as an unfinished thought.
+ */
+export const CSP_NOTE_MAX_WORDS = 20;
+export const CSP_NOTE_MAX_WORDS_ASK = 26;
+const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const wordCount = (s: string) => s.split(/\s+/).filter(Boolean).length;
+/** "2026-06-12" -> "12 Jun". Parsed by field, never through Date, so it
+ *  cannot shift a day across a timezone. */
+export function shortAskDate(iso: string): string {
+  const mo = MONTH_ABBR[Number(iso.slice(5, 7)) - 1];
+  return mo ? `${Number(iso.slice(8, 10))} ${mo}` : "";
+}
+/** Held by a named partner reads better as one word than as a CRM string:
+ *  "Encore Business Solutions Inc." is "Encore". */
+const firstWord = (s: string) => (String(s).trim().split(/\s+/)[0] ?? "").replace(/[,.;:]+$/, "");
+
+export function cspNote(lead: CspLead, score: number, flags: string[] = [], pin = ""): string {
+  const value = lead.value != null && lead.value > 0 ? money(lead.value) : "";
+  // Three, not two: a CSP renewal call turns on what they are actually
+  // on, and capping at two dropped the Copilot in "E5 to E7, Copilot".
+  // The shed ladder still removes them whole when a row is tight.
+  const skus = lead.skus.slice(0, 3).join(", ");
+  // BILLING_META.short already carries its own separator; a comma keeps it
+  // reading as one fact rather than two.
+  const billing = lead.billing.replace(/\s*·\s*/g, ", ").toLowerCase().trim();
+  const lane = lead.posture === "named" && lead.partner
+    ? `Held: ${firstWord(lead.partner)}`
+    : POSTURE_META[lead.posture].short === "Open" ? "Open lane"
+      : POSTURE_META[lead.posture].short === "Direct" ? "MS direct"
+      : POSTURE_META[lead.posture].short;
+  const conflict = lead.partnerConflict ? `${firstWord(lead.partnerConflict)} on record` : "";
+  const age = lead.ageDays == null ? "" : lead.ageDays === 0 ? "touched today" : `${lead.ageDays}d cold`;
+  // "older note: no-show / no response" is six words for a caution. Where
+  // the flag sits still matters — an older entry is history, the latest one
+  // is a verdict — so that is kept and the rest is trimmed.
+  const warn = flags.length
+    ? `⚠ ${flags[0].replace(/^older note: /, "older: ").replace(/^latest note: /, "now: ")
+        .split(/\s+/).filter(Boolean).slice(0, 5).join(" ")}`
+    : "";
+  const rank = `(${score})`;
+
+  const ask = lead.wantsPartner ? lead.partnerAsk : null;
+  // The mark comes from the FLAG, never from whether the ask's own entry
+  // could be parsed. 11 of 119 real asks sit in an entry with no readable
+  // date or clause; tying the mark to the parse dropped their ⚑ entirely,
+  // and since the flag also overrides the score band that put unmarked
+  // sub-60 leads into the High file with nothing saying why.
+  if (!lead.wantsPartner) {
+    // Shed billing, then licences. Never the lane, the age or the rank —
+    // those are what decide whether to dial at all.
+    const shed: string[][] = [
+      [value, skus, billing, lane, conflict, warn, age, rank],
+      [value, skus, lane, conflict, warn, age, rank],
+      [value, lane, conflict, warn, age, rank],
+      [value, lane, age, rank],
+    ];
+    for (const parts of shed) {
+      const s = parts.filter(Boolean).join(" · ");
+      if (wordCount(pin + s) <= CSP_NOTE_MAX_WORDS) return s;
+    }
+    return shed[shed.length - 1].filter(Boolean).join(" · ");
+  }
+
+  // An ask row spends its words on the reason. The tail is deliberately
+  // shorter than a standard row's — licences and billing are scoring
+  // facts, and the reason they asked is the thing you open the call with.
+  // ★ means all three signals at once (asked, nobody assigned, annual
+  // upfront); ⚑ means the ask alone. A pinned lead shows the star and NOT
+  // the chip — the star already implies the ask, and showing both reads as
+  // two separate findings. The date and reason stay either way: a pinned
+  // lead is the one you most want them for.
+  const mark = lead.perfect ? "★" : "⚑";
+  const stem = `${mark} Wants partner${ask?.when ? ` (${shortAskDate(ask.when)})` : ""}`;
+  const tails = [
+    [value, billing, lane, conflict, warn, age, rank],
+    [value, lane, conflict, warn, age, rank],
+    [value, lane, warn, age, rank],
+    [value, lane, age, rank],
+  ].map((t) => t.filter(Boolean).join(" · "));
+  // Take the richest tail that leaves room for at least a short reason,
+  // else the shortest tail there is.
+  const tail = tails.find((t) => CSP_NOTE_MAX_WORDS_ASK - wordCount(`${pin}${stem} · ${t}`) >= 3)
+    ?? tails[tails.length - 1];
+  const spare = CSP_NOTE_MAX_WORDS_ASK - wordCount(`${pin}${stem} · ${tail}`);
+  const reason = (ask?.why ?? "").split(/\s+/).filter(Boolean);
+  // Below three words there is no room to say anything true, so say
+  // nothing rather than a fragment.
+  const why = spare >= 3 && reason.length
+    ? reason.slice(0, spare).join(" ") + (reason.length > spare ? "…" : "")
+    : "";
+  return `${stem}${why ? `: ${why}` : ""} · ${tail}`;
+}
+
 export function classifyCsp(lead: CspLead, rules: CspRules, reach: { hasPhone: boolean; hasEmail: boolean }): CspVerdict {
   const w = rules.weights;
   const total = w.billing + w.lane + w.recency + w.notes + w.value + w.contact || 1;
@@ -805,39 +1014,30 @@ export function classifyCsp(lead: CspLead, rules: CspRules, reach: { hasPhone: b
   }
   const score = Math.max(0, base - penalty);
 
-  const detail = [
-    lead.value != null && lead.value > 0 ? money(lead.value) : "",
-    lead.billing,
-    lead.posture === "named" ? `partner: ${lead.partner}` : POSTURE_META[lead.posture].label,
-    lead.partnerConflict ? `notes mention ${lead.partnerConflict}` : "",
-    lead.ageDays == null ? "" : lead.ageDays === 0 ? "touched today" : `last touched ${lead.ageDays}d ago`,
-    lead.skus.length ? `licenses: ${lead.skus.slice(0, 4).join(", ")}` : "",
-    ...flags,
-    lead.nextStep ? `next: ${lead.nextStep}` : "",
-  ].filter(Boolean).join(" \u00b7 ");
+  const detail = cspNote(lead, score, flags);
 
   if (lead.value == null && !lead.program && lead.ageDays == null && !lead.motion.length && !lead.deadReasons.length) {
     return { bucket: "unmatched", why: "No signal \u2014 no value, programme or dated note on this row", score, breakdown, factorPoints, penaltyPoints: penalty };
   }
-  const head = lead.perfect
-    ? `Score ${score} \u2605 wants a partner, none assigned, annual upfront`
-    : lead.wantsPartner
-      ? `Score ${score} \u2691 TOP QUALITY \u2014 states they want a partner`
-      : `Score ${score}`;
+  // The head used to restate the band ("Score 46 \u2691 TOP QUALITY \u2014 states
+  // they want a partner \u2014 High priority") on every row, in a download
+  // already split by band and beside a Tier column saying the same thing.
+  // The score now rides at the end of the note as "(46)" and the ask is a
+  // \u2691 on the front, so nothing is lost and three clauses go.
   if (rules.hardStopDead && lead.deadInLatest) {
-    return { bucket: "excluded", why: `${head} \u2014 Low priority, latest entry says ${lead.deadReasons.join(", ")} (hard stop) \u00b7 ${detail}`, score, breakdown, factorPoints, penaltyPoints: penalty };
+    return { bucket: "excluded", why: detail, score, breakdown, factorPoints, penaltyPoints: penalty };
   }
   // Per Jack: "if it states wants a partner that needs to be flagged for
   // top quality." So the flag OVERRIDES the score band the same way a
   // pinned lead does — a customer asking for a partner is the whole pitch,
   // and it should never sit in Medium because its deal value is unstated.
   if (lead.perfect || lead.wantsPartner || score >= rules.strongAt) {
-    return { bucket: "priority", why: `${head} \u2014 High priority \u00b7 ${detail}`, score, breakdown, factorPoints, penaltyPoints: penalty };
+    return { bucket: "priority", why: detail, score, breakdown, factorPoints, penaltyPoints: penalty };
   }
   if (score >= rules.reviewAt) {
-    return { bucket: "review", why: `${head} \u2014 Medium priority, under the ${rules.strongAt} line \u00b7 ${detail}`, score, breakdown, factorPoints, penaltyPoints: penalty };
+    return { bucket: "review", why: detail, score, breakdown, factorPoints, penaltyPoints: penalty };
   }
-  return { bucket: "excluded", why: `${head} \u2014 Low priority, under the ${rules.reviewAt} line \u00b7 ${detail}`, score, breakdown, factorPoints, penaltyPoints: penalty };
+  return { bucket: "excluded", why: detail, score, breakdown, factorPoints, penaltyPoints: penalty };
 }
 
 /** What goes in the download's Product Area column for a CSP row. Per
