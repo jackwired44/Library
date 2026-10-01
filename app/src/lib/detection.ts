@@ -1832,7 +1832,7 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
     personalEmail: !!scoreEmailDomain && isFreeEmailDomain(scoreEmailDomain),
     qualifyThreshold: overrides.qualifyThreshold,
   });
-  const priorityBand = priorityOf(tier, mainScore.score);
+  const priorityBand = priorityOf(tier);
 
   return {
     categories,
@@ -1900,16 +1900,21 @@ export const MAIN_FACTOR_META: { key: keyof MainWeights; label: string; hint: st
 ];
 
 export type Priority = "high" | "medium" | "low" | "dq";
-export const PRIORITY_ORDER: Priority[] = ["high", "medium", "low", "dq"];
+// Per Jack: "do high or low priority tagged with them." Two bands, not
+// three. `medium` stays in PRIORITY_META below but is absent here, so no
+// picker offers it and nothing new is ever stamped with it, while a row
+// already carrying it still renders — the same "retired, not deleted"
+// rule the two withdrawn dispositions follow.
+export const PRIORITY_ORDER: Priority[] = ["high", "low", "dq"];
 export const PRIORITY_META: Record<Priority, { label: string; short: string; color: string; bg: string; hint: string }> = {
   high:   { label: "High priority",   short: "High",   color: "#0E7A72", bg: "#E3F3F1", hint: "Cleared the promotion gate. These are the calls, and they are the only leads in the downloads." },
-  medium: { label: "Medium priority", short: "Medium", color: "#9A5B22", bg: "#FBF0E2", hint: "A real product or licensing mention that did not clear the gate, but scores well enough to be worth a look." },
-  low:    { label: "Low priority",    short: "Low",    color: "#5B6B72", bg: "#EEF1F2", hint: "A mention with little behind it \u2014 no count, no named product, often no way to reach them." },
+  // RETIRED — see PRIORITY_ORDER. Kept so a row stamped before the band
+  // was dropped still renders instead of showing a raw key.
+  medium: { label: "Medium priority", short: "Medium", color: "#9A5B22", bg: "#FBF0E2", hint: "A retired band. Nothing is stamped Medium any more; High means it cleared the promotion gate and Low means it did not." },
+  low:    { label: "Low priority",    short: "Low",    color: "#5B6B72", bg: "#EEF1F2", hint: "Matched a product or licensing pattern but did not clear the promotion gate. Still visible, still promotable by hand, never in a download." },
   dq:     { label: "Bad Leads",       short: "Bad",    color: "#B5443B", bg: "#FBEAE8", hint: "Auto-disqualified. Not a low score \u2014 a rule said no. Still visible and reversible, never downloaded." },
 };
 
-export interface MainScoreRules { highAt: number; mediumAt: number }
-export const DEFAULT_MAIN_SCORE_RULES: MainScoreRules = { highAt: 60, mediumAt: 30 };
 
 export interface MainScore {
   score: number;
@@ -2031,19 +2036,24 @@ export function scoreMainLead(
 }
 
 /**
- * The band. Auto-DQ always wins, then the gate decides High, then the score
- * splits what is left. Keeping `tier === "signal"` as the High test (rather
- * than `score >= highAt`) is what guarantees the downloads, the Lead Library
- * and History see exactly the same set they saw before scoring existed.
+ * The band. Auto-DQ always wins, then the promotion gate decides High, and
+ * everything else is Low. Keeping `tier === "signal"` as the High test
+ * guarantees the downloads, the Lead Library and History see exactly the
+ * set they saw before scoring existed.
+ *
+ * It used to split the remainder into Medium/Low on a score threshold of
+ * 30 that was never calibrated, because nothing called this engine. Once
+ * it was wired the split turned out to be meaningless: non-signal scores
+ * cluster hard (`intent` is 22 of 108 and binary on tier, and little else
+ * varies on a row that did not qualify), so the two real files landed
+ * 1,048/4/7,474 and 1,851/451/0 — a band that is empty on one file and
+ * holds everything on the other is not a band. Jack asked for "high or
+ * low" and that is what the data supports, so the score ranks WITHIN a
+ * band and no longer draws one.
  */
-export function priorityOf(
-  tier: Tier,
-  score: number | null | undefined,
-  rules: MainScoreRules = DEFAULT_MAIN_SCORE_RULES,
-): Priority {
+export function priorityOf(tier: Tier): Priority {
   if (tier === "dq") return "dq";
-  if (tier === "signal") return "high";
-  return (score ?? 0) >= rules.mediumAt ? "medium" : "low";
+  return tier === "signal" ? "high" : "low";
 }
 
 /** Rank for the table and the downloads: pinned first, then score, then

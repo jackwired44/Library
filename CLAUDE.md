@@ -5286,15 +5286,40 @@ entry or Library file loads fine and reads "—" rather than a fabricated 0.
 MANUAL ⭐ boolean. The band is `priorityBand` for that reason — the first
 pass named it `priority` and `...scan` silently overwrote the star.
 
+**The band set is High / Low, not High / Medium / Low.** Shipped as three
+on the first pass and corrected immediately, because wiring the engine
+exposed the split as meaningless: `DEFAULT_MAIN_SCORE_RULES.mediumAt` was
+30 and had never been calibrated against anything (nothing called the
+engine), and non-signal scores cluster hard — `intent` is 22 of 108 and
+binary on tier, and little else varies on a row that did not qualify.
+Bookleads split High 1,048 / Medium **4** / Low 7,474 while CSP split
+High 1,851 / Medium 451 / Low **0**. A band that is empty on one file and
+holds everything on the other is not a band.
+
+`priorityOf(tier)` now takes the tier alone — DQ wins, the promotion gate
+is High, everything else is Low — and `MainScoreRules`/
+`DEFAULT_MAIN_SCORE_RULES` are gone, since nothing read them once the
+threshold did. The score still ranks WITHIN a band; it no longer draws
+one. `medium` stays in `PRIORITY_META` but is absent from
+`PRIORITY_ORDER`, the same "retired, not deleted" rule the two withdrawn
+dispositions follow, so a row stamped before the change still renders.
+Measured after: Bookleads **High 1,048 / Low 7,478 / Bad 417**, CSP
+**High 1,851 / Low 451 / Bad 3,394** — coherent on both.
+
+**Loop-engineering re-check after wiring the score.** Per-row scoring
+costs nothing measurable: 13,106 rows scan in 3,392 ms against 3,414 ms
+before (noise), **+10 MB heap** (139 → 149) for the `mainScore` object on
+every row. The breakdown array exists for one hover tooltip; at the
+documented 6-file / 55k-row ceiling that is ~42 MB on ~1.1 GB, so it
+stays. No render loops (16 `useEffect`; the only one that sets state it
+depends on is Scanner's month-key normaliser, self-terminating by its own
+guard and commented as such) and no rules-of-hooks violations. Two
+earlier "findings" in this area were my audit script's own false
+positives — a regex spanning two adjacent effects, and a heuristic that
+did not track component boundaries. Worth knowing before trusting a
+similar script again.
+
 **Known and NOT fixed, needs Jack's call:**
-- **The Medium/Low line is degenerate.** `DEFAULT_MAIN_SCORE_RULES.mediumAt`
-  is 30 and was never calibrated (nothing called the engine). Mention-row
-  scores cluster hard — Bookleads min 4 / median 24 / max 45, CSP median
-  42 — because `intent` (22 of 108) is binary on tier and little else
-  varies. Result: Bookleads splits High 1,048 / Medium 4 / Low 7,474;
-  CSP splits High 1,851 / Medium 451 / **Low 0**. Either tune the
-  threshold, collapse to the High/Low Jack actually asked for, or give
-  the score more range on non-signal rows.
 - **832 of the 1,048 remaining Bookleads Strong Signals still have no
   quotable sentence**, qualifying off Microsoft campaign names like
   `Opportunity Generated US~US~FY25~CMP~Modernize Accounting/ERP Systems
