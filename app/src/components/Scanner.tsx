@@ -8,6 +8,7 @@ import {
   exportRowsForBucket,
   getFullName,
   PERSONAL_PROSPECT_LABEL,
+  PRIORITY_META,
   scanParsedFiles,
   sortByDynamicsSeatCount,
   m365SubViewOf,
@@ -1646,6 +1647,7 @@ export default function Scanner({
               <th>Detected</th>
               <th>Matched snippet</th>
               <th>Tier</th>
+              <th>Priority</th>
               <th>Product line</th>
               <th>Status</th>
               <th></th>
@@ -1653,7 +1655,7 @@ export default function Scanner({
           </thead>
           <tbody>
             {pageItems.length === 0 ? (
-              <tr><td colSpan={9} className="cell-empty">No rows match this filter.</td></tr>
+              <tr><td colSpan={10} className="cell-empty">No rows match this filter.</td></tr>
             ) : (
               pageItems.map((r) => {
                 const f = r.row.__f;
@@ -1745,6 +1747,24 @@ export default function Scanner({
                     </td>
                     <td style={{ padding: "10px 11px" }}>
                       <button onClick={() => toggleTier(r.id)} style={{ border: "none", borderRadius: 20, padding: "4px 10px", fontWeight: 700, fontSize: 11.5, whiteSpace: "nowrap", color: tierColor, background: tierBg }}>{tierLabel}</button>
+                    </td>
+                    {/* The band and the 0-100 score, built from the Strong
+                        Signal indicators the scan already computed. Display
+                        and ranking only - priorityOf keeps High == cleared
+                        the promotion gate, so nothing here changes which
+                        leads reach the downloads. A row restored from an
+                        older History entry has no score yet and reads "-"
+                        rather than a fabricated 0. */}
+                    <td style={{ padding: "10px 11px", whiteSpace: "nowrap" }}>
+                      {r.priorityBand ? (
+                        <span
+                          title={`${PRIORITY_META[r.priorityBand].hint}${r.mainScore ? "\n\n" + r.mainScore.breakdown.join("\n") : ""}`}
+                          style={{ display: "inline-flex", alignItems: "center", gap: 5, borderRadius: 20, padding: "4px 9px", fontWeight: 700, fontSize: 11.5, color: PRIORITY_META[r.priorityBand].color, background: PRIORITY_META[r.priorityBand].bg }}
+                        >
+                          {PRIORITY_META[r.priorityBand].short}
+                          {r.mainScore && <span style={{ fontVariantNumeric: "tabular-nums", opacity: 0.75 }}>{r.mainScore.score}</span>}
+                        </span>
+                      ) : <span style={{ color: "var(--muted)" }}>—</span>}
                     </td>
                     <td style={{ padding: "10px 11px" }}>
                       <select value={r.category} onChange={(e) => reassignRow(r.id, e.target.value as CategoryKey)} style={{ background: meta.bg, color: meta.color, fontWeight: 600, border: "1px solid var(--border)", borderRadius: 7, padding: "6px 8px" }}>

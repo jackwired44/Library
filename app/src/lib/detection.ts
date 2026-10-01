@@ -745,6 +745,48 @@ const AZURE_BILLING_RE =
 // into a larger project: an Azure tie-in, custom app/solution development,
 // or (Azure) Document Intelligence specifically.
 const FABRIC_PROJECT_RE = new RegExp(`\\bazure\\b|${DOCUMENT_INTELLIGENCE_RE.source}|${APP_BUILD_RE.source}`, "i");
+/**
+ * Microsoft's own PROPENSITY SCORECARD, which is a model's guess, not
+ * anything a customer said.
+ *
+ * Per Jack, looking at real Strong Signal rows: "these are bad leads not
+ * strong signals." Measured on his 13,106-row export, 2,912 of 3,408
+ * Strong Signal rows (85%) qualified off text in this shape, and 482 of
+ * those carried a verdict that explicitly says the lead is COLD —
+ * "D365 Sales Pro: Nurture (Low Fit)", "Very Low Prioritization Index".
+ * We were calling a lead hot on the strength of a scorecard saying it is
+ * not.
+ *
+ * The model's own ladder is Act Now > Evaluate > Nurture > Educate. Only
+ * the top rung is treated as a real buying signal; the rest qualifies the
+ * row but can never make it High priority, and the cold rungs do not
+ * qualify it at all.
+ */
+const PROPENSITY_SCORECARD_RE =
+  /\bprioritization\s+index\b|\b(?:act\s+now|evaluate|nurture|educate)\b\s*\(|\((?:high|medium|low|very\s+low|unknown)\s+fit\)?/i;
+/**
+ * The scorecard lists MANY products in ONE blob, each with its own
+ * verdict:
+ *
+ *   … - M365: Evaluate (Medium Fit; Low Prioritization Index)
+ *       - D365 BC: Act Now (High Fit; Very Low Prioritization Index)
+ *       - D365 F&O: Unknown (Unknown Fit; Unknown Prioritization Index)
+ *
+ * so "is there an Act Now anywhere near this match" is almost always yes.
+ * Measured: that read qualified 634 rows off a verdict belonging to a
+ * DIFFERENT product than the one that matched. The only verdict that
+ * counts is the one written directly after the product that matched —
+ * which is what this reads.
+ *
+ * Returns null when the match is not a scorecard entry at all.
+ */
+function propensityVerdictAfter(text: string, matchEnd: number): { hot: boolean } | null {
+  const m =
+    /^[\w\s/&.+-]{0,25}:\s*(act\s+now|evaluate|nurture|educate|unknown)\s*\(\s*(high|medium|low|very\s+low|unknown)\s+fit/i
+      .exec(text.slice(matchEnd, matchEnd + 90));
+  if (!m) return null;
+  return { hot: /act\s+now/i.test(m[1]) && /^high$/i.test(m[2].trim()) };
+}
 const DYNAMICS_SPECIFIC_INSTANCE_RE =
   /\b(business\s*central|finance\s*(?:and|&)\s*operations|customer\s*engagement|customer\s*insights|contact\s*center|supply\s*chain(?:\s*management)?|dynamics\s*crm|dynamics\s*ax|dynamics\s*nav|dynamics\s*gp|dynamics\s*365\s*sales|dynamics\s*365\s*field\s*service|dynamics\s*365\s*project\s*operations|dynamics\s*365\s*customer\s*service|dynamics\s*365\s*marketing|dynamics\s*365\s*human\s*resources)\b/i;
 // Dynamics 365 leads rank in three blocks (see CLAUDE.md "Dynamics 365
@@ -820,7 +862,15 @@ const SERIAL_RE = /\b(?:serial|order|invoice|case|ticket|ref(?:erence)?)\s*#?\s*
 const EMAIL_RE = /\b[\w.+-]+@[\w-]+\.[a-z]{2,}\b/i;
 const PHONE_RE = /(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/;
 function hasForbiddenContent(s: string) {
-  return DATE_RE.test(s) || BILLING_BANT_RE.test(s) || SERIAL_RE.test(s) || EMAIL_RE.test(s) || PHONE_RE.test(s);
+  return DATE_RE.test(s) || BILLING_BANT_RE.test(s) || SERIAL_RE.test(s) || EMAIL_RE.test(s) || PHONE_RE.test(s)
+    // Microsoft's propensity scorecard is not a sentence the lead said, and
+    // quoting it produced the fragments Jack flagged — "Unknown
+    // Prioritization Index) - D365 Sales Pro: Evaluate (Medium Fit." opens
+    // mid-parenthetical, never closes the bracket it opens, and
+    // normalizeSentence puts a full stop on the end so it reads as a
+    // finished statement. Where the notes are nothing but scorecard, the
+    // honest derived summary is shown instead.
+    || PROPENSITY_SCORECARD_RE.test(s);
 }
 /**
  * What a category is ABOUT, for the "why did this match" line. These are
@@ -874,6 +924,10 @@ const SIGNAL_WINDOW = 70;
 // Wider view used only by the qualification GATES (Power BI / Azure /
 // Fabric / Migration), never for the displayed snippet.
 const GATE_WINDOW = 260;
+/** How much real note text a row needs before a bare CRM product code is
+ *  allowed to call itself Strong Signal. Short enough to admit a genuine
+ *  one-line note, long enough to exclude "F1", "Direct" and an empty cell. */
+const MIN_SUPPORTING_NOTE_CHARS = 25;
 function collapseAbbreviations(text: string) {
   return text.replace(/\b(?:[A-Z]\.){2,}/g, (match, offset: number, full: string) => {
     const letters = match.replace(/\./g, "");
@@ -959,12 +1013,51 @@ function scoreSentence(s: string) {
   return score;
 }
 const SUMMARY_MAX_LEN = 130;
-function summarizeNotes(raw: unknown, categories: string[], maxLen = SUMMARY_MAX_LEN, facts = ""): string {
+/** Significant words of a piece of text, for comparing two of them. */
+function significantWords(s: string): Set<string> {
+  return new Set(
+    cleanText(s).toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter((w) => w.length > 3),
+  );
+}
+function sharedWordCount(s: string, words: Set<string>): number {
+  if (!words.size) return 0;
+  let n = 0;
+  for (const w of significantWords(s)) if (words.has(w)) n++;
+  return n;
+}
+/**
+ * `anchor` is the snippet of the hit that actually QUALIFIED the row.
+ *
+ * Without it this function ranked every sentence in the note by a generic
+ * heuristic and showed the winner, with no connection to why the lead
+ * qualified at all. Measured on real files, the displayed snippet shared
+ * NOT ONE significant word with the qualifying hit on 34% of Strong Signal
+ * rows (CSP export) and 9% (SMC export) — which is why a row that
+ * qualified on real intent buried in a 4,000-character note could display
+ * "Microsoft Fabric." or "Service - Copilot Studio - 2 users." and read
+ * like a junk lead. Per Jack: "still main scanner strong signals bad
+ * leads."
+ *
+ * Now the quote must come from a sentence that actually relates to the
+ * evidence. Where the note has no such sentence — the hit came from
+ * another column, typically Product Area — nothing is quoted and the
+ * clearly-labelled derived summary is shown instead.
+ */
+function summarizeNotes(raw: unknown, categories: string[], maxLen = SUMMARY_MAX_LEN, facts = "", anchor = ""): string {
   const text = cleanText(raw);
   if (!text) return fallbackSummary(categories, facts);
   const clean = splitIntoUnits(text).map((s) => s.trim()).filter((s) => s && !hasForbiddenContent(s));
   if (clean.length === 0) return fallbackSummary(categories, facts);
-  const ranked = clean.map((s) => ({ s, score: scoreSentence(s) })).sort((a, b) => b.score - a.score);
+  const anchorWords = anchor ? significantWords(anchor) : new Set<string>();
+  let pool = clean;
+  if (anchorWords.size) {
+    const related = clean.filter((s) => sharedWordCount(s, anchorWords) > 0);
+    if (related.length === 0) return fallbackSummary(categories, facts);
+    pool = related;
+  }
+  const ranked = pool
+    .map((s) => ({ s, score: scoreSentence(s) + 2 * sharedWordCount(s, anchorWords) }))
+    .sort((a, b) => b.score - a.score);
   const fitting = ranked.find((c) => normalizeSentence(c.s).length <= maxLen);
   const chosen = (fitting || ranked[0]).s;
 
@@ -1170,10 +1263,23 @@ export function scanRowPlatform(
         continue;
       }
 
+      // Microsoft's propensity scorecard, if that is all this window is.
+      // Only the model's top rung ("Act Now"/"High Fit") is treated as a
+      // real buying signal; "Evaluate (Medium Fit)" is a guess and
+      // "Nurture (Low Fit)" is the model saying this is NOT a lead. The
+      // hit is kept either way so the row stays visible and reviewable —
+      // it just can no longer promote itself to Strong Signal.
+      // A match inside the scorecard can only trigger on ITS OWN verdict
+      // being the model's top rung. A match in scorecard context with no
+      // verdict attached to it cannot trigger either — we have no reading
+      // for that product, and borrowing a neighbour's is the bug above.
+      const paVerdict = propensityVerdictAfter(combined, m.index + m[0].length);
+      const scorecardOnly =
+        (paVerdict !== null || PROPENSITY_SCORECARD_RE.test(win)) && !(paVerdict?.hot ?? false);
       hits.push({
         category: cat.label,
         snippet: win,
-        hasTrigger:
+        hasTrigger: !scorecardOnly && (
           // Power BI/Azure/Fabric/Migration hits already cleared the
           // strict gate above — by definition that's a real opportunity,
           // not just a mention.
@@ -1212,7 +1318,7 @@ export function scanRowPlatform(
               DYNAMICS_MULTI_MODULE_RE.test(win) ||
               (DYNAMICS_SPECIFIC_INSTANCE_RE.test(win) && (LICENSE_COUNT_RE.test(win) || DYNAMICS_ESTIMATED_COUNT_RE.test(win))) ||
               hasBareTrailingCount(combined.slice(m.index + m[0].length, m.index + m[0].length + 80)) ||
-              hasBareLeadingCount(combined.slice(Math.max(0, m.index - 80), m.index)))),
+              hasBareLeadingCount(combined.slice(Math.max(0, m.index - 80), m.index))))),
         // Same seat/user/license number extraction the licensing engine
         // uses, reused here so a Dynamics lead's real count (not just
         // "a count was mentioned") survives into the result for ranking.
@@ -1239,6 +1345,20 @@ export function scanRowPlatform(
   }
   if (productAreaValue) {
     const paText = String(productAreaValue);
+    // A Product Area value is a CRM PRODUCT CODE, not the lead saying
+    // anything. This path deliberately treated a hit here as automatic
+    // Strong Signal, which is how a row whose Product Area read "Dynamics
+    // 365" and whose notes were EMPTY came out Strong Signal — per Jack,
+    // "these are bad leads not strong signals". Power BI / Azure / Fabric
+    // / Migration were already gated below; Dynamics 365 and Tenant
+    // Support were not, and that asymmetry is the bug.
+    //
+    // The row still matches its category and stays fully visible — it
+    // just lands in Needs Review rather than promoting itself off a
+    // product code with nothing behind it. (isCrmMetadataOnly only fires
+    // on non-empty metadata, so the empty case has to be caught here.)
+    const paComments = cleanText(commentsValue);
+    const paSupported = paComments.length >= MIN_SUPPORTING_NOTE_CHARS && !isCrmMetadataOnly(paComments);
     for (const cat of PLATFORM_CATALOGUE) {
       if (!cat.pattern.test(paText)) continue;
       // A Product Area column tagged "Power BI"/"Azure"/"Microsoft Fabric"
@@ -1257,7 +1377,7 @@ export function scanRowPlatform(
       hits.push({
         category: cat.label,
         snippet: cleanText(paText),
-        hasTrigger: true,
+        hasTrigger: paSupported,
         fromProductArea: true,
         moduleTier: cat.label === "Dynamics 365" ? (DYNAMICS_ERP_RE.test(paText) ? 0 : DYNAMICS_CRM_RE.test(paText) ? 1 : 2) : undefined,
         isGoogleToMicrosoft:
@@ -1275,7 +1395,12 @@ export function scanRowPlatform(
   const categories = [...new Set(hits.map((h) => h.category))];
   const tier: "signal" | "mention" = hits.some((h) => h.hasTrigger) ? "signal" : "mention";
   const bestHit = hits.find((h) => h.fromProductArea) || hits.find((h) => h.hasTrigger) || hits[0];
-  const notesSummary = commentsValue ? summarizeNotes(commentsValue, categories, SUMMARY_MAX_LEN, "") : summarizeFromSnippets(hits.map((h) => h.snippet), categories, "");
+  // Anchored to the hit that actually qualified the row, so the quote shown
+  // is evidence for the verdict rather than whichever sentence a generic
+  // ranker happened to like. See summarizeNotes.
+  const notesSummary = commentsValue
+    ? summarizeNotes(commentsValue, categories, SUMMARY_MAX_LEN, "", bestHit.snippet)
+    : summarizeFromSnippets(hits.map((h) => h.snippet), categories, "");
   const isGoogleToMicrosoft = hits.some((h) => h.isGoogleToMicrosoft);
   const isGoogleWorkspaceMigration = hits.some((h) => h.isGoogleWorkspaceMigration);
   const isPartnerSeeking = hits.some((h) => h.isPartnerSeeking);
@@ -1531,6 +1656,14 @@ export interface ScanResult {
   autoCategory: CategoryKey;
   category: CategoryKey; // mutable — manual reassignment changes this
   tier: Tier;
+  /** The 0–100 score, built from the Strong Signal indicators this scan
+   *  already computed. Ranking and display only — it never decides tier. */
+  mainScore: MainScore;
+  /** High / Medium / Low / Bad Leads. High == cleared the promotion gate,
+   *  so this tags leads without redrawing any line. See priorityOf.
+   *  NOT to be confused with ResultRow.priority, which is the MANUAL star
+   *  a person sets by hand — different concept, hence the distinct name. */
+  priorityBand: Priority;
   dqReasons: string[];
   licensing: LicensingResult | null;
   platform: { snippet: string } | null;
@@ -1629,8 +1762,29 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
     notesSummary = scrubbed || fallbackSummary([], licensingFacts);
   }
 
+
   const combinedForDQ = columns.map((c) => String(row[c] ?? "")).join("   ");
   let dqReasons = getDQReasons(combinedForDQ, resolved, licensing, overrides.qualifyThreshold);
+  // Per Jack, with his own example: "Service - Copilot Studio - 2 users …
+  // these are bad leads not strong signals."
+  //
+  // The licensing engine already disqualifies a CONFIRMED sub-threshold
+  // seat count, but a DYNAMICS count was only ever a ranking key — so
+  // "Dynamics 365 Business Central - 3 users" sailed through as Strong
+  // Signal. Same floor, same reason, stated the same way.
+  //
+  // This was flagged and left unfixed before because Conrey Electric is
+  // one of the twelve leads Jack personally re-promoted and it is a
+  // 10-seat Business Central deal. The threshold is 10 and the test is
+  // strictly "under", so Conrey is spared exactly — the two calls never
+  // actually conflicted.
+  const lowSeatReason = `Low seat count (under ${overrides.qualifyThreshold})`;
+  if (
+    platform && platform.dynamicsSeatCount != null && platform.dynamicsSeatCount > 0 &&
+    platform.dynamicsSeatCount < overrides.qualifyThreshold && !dqReasons.includes(lowSeatReason)
+  ) {
+    dqReasons.push(lowSeatReason);
+  }
   // Personal-email carve-out: if the ONLY DQ reason is a free/personal
   // email domain AND the row already cleared Strong Signal on its own
   // content, don't DQ it — tag it PERSONAL_PROSPECT_LABEL and let it
@@ -1644,11 +1798,49 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
   }
   if (dqReasons.length > 0) tier = "dq";
 
+  // Per Jack: "Score main scanner leads now using all the strong signal
+  // indicators and rules we have set and lets start doing that."
+  //
+  // The engine below has existed and been documented for a while with no
+  // callers. This is the call. It reads only indicators the scan already
+  // computed, so the score is a VIEW of the existing rules rather than a
+  // second, competing opinion — and `priorityOf` keeps High == cleared the
+  // promotion gate, so the three downloads, Lead Library filing and
+  // History all still see exactly the set they saw before.
+  const hotKind: MainScoreInput["hotKind"] =
+    DOCUMENT_INTELLIGENCE_RE.test(combinedForDQ) ? "docIntelligence"
+      : APP_BUILD_RE.test(combinedForDQ) ? "appBuild"
+      : ONGOING_PARTNER_RE.test(combinedForDQ) || PARTNER_ENGAGEMENT_RE.test(combinedForDQ) ? "partner"
+      : SECURITY_DESIGN_RE.test(combinedForDQ) ? "security"
+      : "none";
+  const scoreEmailDomain = getEmailDomain(resolved.email);
+  const mainScore = scoreMainLead({
+    tier,
+    isGoogleWorkspaceMigration: platform ? platform.isGoogleWorkspaceMigration : false,
+    isPartnerSeeking: platform ? platform.isPartnerSeeking : false,
+    isGoogleToMicrosoft: platform ? platform.isGoogleToMicrosoft : false,
+    isBusinessCentral: platform ? platform.isBusinessCentral : false,
+    isSalesCrm: platform ? platform.isSalesCrm : false,
+    dynamicsModuleTier: platform ? platform.dynamicsModuleTier : 2,
+    dynamicsSeatCount: platform ? platform.dynamicsSeatCount : null,
+    licensingCount: licensing ? licensing.count ?? null : null,
+    hasNamedSku: !!licensing && licensing.hits.length > 0,
+    hotKind,
+    hasPhone: !!String(resolved.workPhone || resolved.mobilePhone || "").trim(),
+    hasEmail: !!String(resolved.email || "").trim(),
+    hasCompany: !!String(resolved.company || "").trim(),
+    personalEmail: !!scoreEmailDomain && isFreeEmailDomain(scoreEmailDomain),
+    qualifyThreshold: overrides.qualifyThreshold,
+  });
+  const priorityBand = priorityOf(tier, mainScore.score);
+
   return {
     categories,
     autoCategory,
     category: autoCategory,
     tier,
+    mainScore,
+    priorityBand,
     dqReasons,
     licensing,
     platform: platform ? { snippet: platform.snippet } : null,
@@ -2042,6 +2234,11 @@ export interface ResultRow {
   autoCategory: CategoryKey;
   categories: CategoryKey[];
   tier: Tier;
+  /** Score and band — see ScanResult. Optional so a row restored from an
+   *  older History entry or Lead Library file still loads; such a row
+   *  simply has no score until it is re-scanned. */
+  mainScore?: MainScore;
+  priorityBand?: Priority;
   dqReasons: string[];
   licensing: LicensingResult | null;
   platform: { snippet: string } | null;

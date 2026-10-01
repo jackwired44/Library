@@ -5194,6 +5194,117 @@ duplicate returning, every carried field, the engine's verdict still
 flowing through on an unedited batch, a hand-promoted tier beating the
 engine's own `mention`, and the unkeyable-row accounting.
 
+### Main Scanner: qualification cleanup + the score is now wired (app/ only)
+
+Per Jack across one thread: "we need to recheck strong signal
+qualification rules for matched snippets in the main scanner they look way
+off" → "Service - Copilot Studio - 2 users. Microsoft Fabric. these are bad
+leads not strong signals" → "still main scanner strong signals bad leads" →
+"we need to clean up how the leads are qualfiied and do high or low
+priority tagged with them" → "Score main scanner leads now using all the
+strong signal indicatiors and rules we have set and lets start doing that."
+
+**Both of his literal examples already classified correctly in isolation**
+— `Service - Copilot Studio - 2 users` was a Bad Lead on the low-seat rule
+and bare `Microsoft Fabric` produced no row at all. The rules were right;
+what was shown was wrong, and two other rules were genuinely missing.
+
+**1. The snippet showed evidence for a different conclusion.**
+`notesSummary` was picked by a generic sentence-ranker over the whole note
+and never saw the hit that qualified the row — they were computed
+independently. Measured: the displayed snippet shared **not one
+significant word** with the qualifying hit on **626 of 1,867 (34%)** Strong
+Signal rows of the real CSP file and **311 of 3,407 (9%)** of the SMC
+export. That is why a row qualifying on real intent buried in a
+4,000-character note could display `Microsoft Fabric.` and read like
+junk. `summarizeNotes` now takes an `anchor` (the winning hit's snippet),
+quotes only a sentence sharing vocabulary with it, and where the note has
+no such sentence says so via the existing labelled derived summary rather
+than quoting something unrelated. After: **3 of 220** quoting rows
+disjoint (SMC), **36 of 1,846** (CSP).
+
+**2. The propensity scorecard was qualifying leads, and a neighbour's
+verdict at that.** Microsoft's scorecard lists many products in one blob,
+each with its own verdict — `M365: Evaluate (Medium Fit; Low
+Prioritization Index) - D365 BC: Act Now (High Fit; …) - D365 F&O:
+Unknown (…)`. A window-scoped "is there an Act Now nearby" test is
+almost always true: **634 rows qualified off a verdict belonging to a
+different product than the one that matched.** `propensityVerdictAfter`
+now reads the verdict written directly after the matched product. Only
+the model's top rung (`Act Now` + `High Fit`) counts as a buying signal;
+`Evaluate (Medium Fit)` is a guess and `Nurture (Low Fit)` is the model
+saying this is not a lead. A match in scorecard context with **no**
+verdict of its own cannot trigger either — borrowing a neighbour's is the
+bug. The hit is kept either way, so nothing becomes invisible; it just
+can no longer promote itself. Scorecard text is also now in
+`hasForbiddenContent`, so it is never quoted: scorecard-shaped snippets
+went **2,912 → 0**.
+
+**3. A Dynamics seat count now respects the same floor as licensing.**
+The low-seat Auto-DQ only ever fired from the LICENSING engine; a Dynamics
+count was a ranking key only, so `Dynamics 365 Business Central - 3 users`
+was Strong Signal. This was flagged and left unfixed before because
+**Conrey Electric** — one of the twelve leads Jack personally re-promoted
+— is a 10-seat Business Central deal. The threshold is 10 and the test is
+strictly "under", so **Conrey is spared exactly**; the two calls never
+actually conflicted. The `qualification` suite pins 9 → dq, 10 → signal,
+12 → signal.
+
+**4. A bare CRM product code is no longer automatic Strong Signal.** The
+Product Area path set `hasTrigger: true` unconditionally, and while Power
+BI / Azure / Fabric / Migration were gated there, **Dynamics 365 and
+Tenant Support were not** — so Product Area `Dynamics 365` with *empty*
+notes came out Strong Signal. (`isCrmMetadataOnly` only fires on non-empty
+metadata, so the empty case had to be caught here.) Now needs
+`MIN_SUPPORTING_NOTE_CHARS` (25) of real note text; otherwise the row
+still matches its category and stays visible, at Needs Review.
+
+**Measured, both real files:**
+
+| | Strong Signal before | after |
+|---|---|---|
+| `4e91c37e-Bookleads.csv` (13,106 rows) | 3,408 | **1,048** |
+| `961c0c2c-BookCSPs_9-4.csv` (9,265 rows) | 1,872 | **1,851** |
+
+That shape is the point: the SMC export is mostly model output and loses
+69%; human-written seller prose barely moves (−1%). Low-seat DQ now
+catches 54 and 360 rows respectively.
+
+**5. The score is wired.** `scoreMainLead`/`priorityOf`/`PRIORITY_META`
+have existed and been documented for several sessions with **no callers**.
+`scanRowUnified` now calls them and every `ScanResult`/`ResultRow` carries
+`mainScore` (0–100 plus a per-factor breakdown) and `priorityBand`. It
+reads **only indicators the scan already computed**, so it is a view of
+the existing rules rather than a second opinion, and `priorityOf` keeps
+High == cleared the promotion gate — the three CSV downloads, Lead Library
+filing and History all still see exactly the set they saw before. Scanner
+shows a **Priority** column (band chip + score, full breakdown on hover).
+Both are optional on `ResultRow` so a row restored from an older History
+entry or Library file loads fine and reads "—" rather than a fabricated 0.
+
+**Naming trap worth not re-learning:** `ResultRow.priority` is already the
+MANUAL ⭐ boolean. The band is `priorityBand` for that reason — the first
+pass named it `priority` and `...scan` silently overwrote the star.
+
+**Known and NOT fixed, needs Jack's call:**
+- **The Medium/Low line is degenerate.** `DEFAULT_MAIN_SCORE_RULES.mediumAt`
+  is 30 and was never calibrated (nothing called the engine). Mention-row
+  scores cluster hard — Bookleads min 4 / median 24 / max 45, CSP median
+  42 — because `intent` (22 of 108) is binary on tier and little else
+  varies. Result: Bookleads splits High 1,048 / Medium 4 / Low 7,474;
+  CSP splits High 1,851 / Medium 451 / **Low 0**. Either tune the
+  threshold, collapse to the High/Low Jack actually asked for, or give
+  the score more range on non-signal rows.
+- **832 of the 1,048 remaining Bookleads Strong Signals still have no
+  quotable sentence**, qualifying off Microsoft campaign names like
+  `Opportunity Generated US~US~FY25~CMP~Modernize Accounting/ERP Systems
+  with D365 Bus Central`. That is a Microsoft-generated opportunity for a
+  D365 BC campaign — arguably a real signal, definitely not a customer
+  statement. Judgement call, left alone.
+- **Not measured on Jack's own Main file.** `Book82626.csv` was not in
+  this session's uploads, so the effect on the file he actually runs
+  through the Main Scanner is unknown. Re-run when he next uploads it.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool
