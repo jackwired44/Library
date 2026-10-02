@@ -227,13 +227,38 @@ function extractCountNear(haystack: string, masked: string, matchIndex: number, 
   const end = Math.min(haystack.length, matchIndex + matchLength + WINDOW);
   const win = haystack.slice(start, end);
   const searchable = masked.slice(start, end);
+  // NEAREST WINS, and that is a correctness fix, not a preference.
+  //
+  // This used to be `searchable.match(re)`, which is non-global and so
+  // returns only the LEFTMOST count in the window. With two counts inside
+  // one window the verdict therefore depended on SENTENCE ORDER — the same
+  // two facts, written the other way round, qualified differently:
+  //
+  //   "Copilot Studio - 2 users. ...Copilot to 40 users."  -> 2  -> Low
+  //   "...Copilot to 40 users. Copilot Studio - 2 users."  -> 40 -> High
+  //
+  // Jack hit the second one and reported it as "(50) High on a 2-user
+  // row". Order-dependence is indefensible either way, so the count is now
+  // the one written NEAREST to this product — the same rule
+  // countWrittenBeside already uses for the chip, so the number that
+  // qualifies a row and the number shown beside it can no longer disagree.
+  // Ties go to the larger number, preserving the old Math.max behaviour
+  // for the genuinely ambiguous case.
+  const skuFrom = matchIndex - start;
+  const skuTo = skuFrom + matchLength;
   let best: number | null = null;
+  let bestDist = Infinity;
   for (const re of COUNT_PATTERNS) {
-    const m = searchable.match(re);
-    if (m) {
+    const g = new RegExp(re.source, re.flags.includes("g") ? re.flags : re.flags + "g");
+    for (let m = g.exec(searchable); m; m = g.exec(searchable)) {
+      if (m[0].length === 0) { g.lastIndex++; continue; }
       const num = parseInt(m[1] && /^\d+$/.test(m[1]) ? m[1] : m[2], 10);
-      if (!Number.isNaN(num)) {
-        if (best === null || num > best) best = num;
+      if (Number.isNaN(num)) continue;
+      const to = m.index + m[0].length;
+      const dist = m.index >= skuTo ? m.index - skuTo : to <= skuFrom ? skuFrom - to : 0;
+      if (dist < bestDist || (dist === bestDist && best !== null && num > best)) {
+        best = num;
+        bestDist = dist;
       }
     }
   }
@@ -1820,6 +1845,44 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
   } else {
     const scrubbed = summarizeFromSnippets([licensing!.snippet], []);
     notesSummary = scrubbed || fallbackSummary([], licensingFacts);
+  }
+
+  // THE SNIPPET MUST SHOW THE EVIDENCE THAT QUALIFIED THE ROW.
+  //
+  // Per Jack, three times: "the matched snippets are not good." The
+  // platform and licensing engines pick their text independently, so a row
+  // that cleared the bar on a real 40-seat count could still quote a
+  // different sentence about the same product — "Service - Copilot Studio
+  // - 2 users." — and read as a High lead justified by a 2-seat deal.
+  //
+  // So when a CONFIRMED qualifying count is what carried the row, and the
+  // chosen summary does not contain that number, re-quote from the
+  // licensing engine's own winning window instead. Only swaps when the
+  // replacement actually shows the count, so a row with no quotable
+  // sentence keeps its honest derived summary rather than trading one
+  // wrong quote for another.
+  if (licensing && licensing.status === "qualified" && licensing.count != null) {
+    const countRe = new RegExp(`\\b${licensing.count}\\b`);
+    if (!countRe.test(notesSummary)) {
+      // Quote the sentence that actually carries the number, out of the
+      // licensing engine's own winning window. If no clean sentence there
+      // states it — the count sits in a fragment, or in a sentence carrying
+      // an email/phone/date we never quote — fall back to the labelled
+      // derived summary, which states the seat count as a fact. Either way
+      // the number the reader sees is the number that qualified the row.
+      // Search the WHOLE note before the winning window: the window is
+      // only +/-65 chars, so it routinely cuts the very sentence that
+      // states the count in half, and a half sentence is not quotable.
+      const findUnit = (text: string) =>
+        splitIntoUnits(text)
+          .map((s) => cleanText(s))
+          .find((s) => s && countRe.test(s) && !hasForbiddenContent(s));
+      const quoted =
+        findUnit(cleanText(resolved.comments)) || findUnit(licensing.snippet);
+      notesSummary = quoted
+        ? normalizeSentence(quoted)
+        : fallbackSummary(platform ? platform.categories : [], licensingFacts);
+    }
   }
 
 

@@ -70,5 +70,38 @@ scan(REAL.map(([note]) => ({ note }))).forEach((row, i) => {
      `count=${row?.licensing?.count} tier=${row?.tier}`);
 });
 
+// THE COUNT MUST NOT DEPEND ON SENTENCE ORDER.
+//
+// extractCountNear used a non-global `.match()`, so it saw only the
+// LEFTMOST count in its +/-65 window. Two counts in one window therefore
+// gave opposite verdicts depending purely on which sentence came first:
+//
+//   "Copilot Studio - 2 users. ...Copilot to 40 users."  -> 2  -> Needs Review
+//   "...Copilot to 40 users. Copilot Studio - 2 users."  -> 40 -> Strong Signal
+//
+// Jack hit the second and reported it as "(50) High" on a 2-user row.
+// The count is now the one written NEAREST its own product, so both
+// orderings agree. If someone reverts that, these two fail as a pair.
+console.log("\n== the count is order-independent ==");
+const A = "Service - Copilot Studio - 2 users. Expanding Microsoft 365 Copilot to 40 users.";
+const B = "Expanding Microsoft 365 Copilot to 40 users. Service - Copilot Studio - 2 users.";
+const [rowA, rowB] = scan([{ note: A }, { note: B }]);
+ok("small count written first  -> 40", rowA?.licensing?.count === 40, `got ${rowA?.licensing?.count}`);
+ok("large count written first  -> 40", rowB?.licensing?.count === 40, `got ${rowB?.licensing?.count}`);
+ok("both orderings agree on the tier", !!rowA && rowA.tier === rowB?.tier, `${rowA?.tier} vs ${rowB?.tier}`);
+
+// AND THE SNIPPET MUST SHOW THE NUMBER THAT QUALIFIED THE ROW.
+//
+// Per Jack, three times: "the matched snippets are not good." A row that
+// cleared the bar on 40 seats was still quoting "Service - Copilot Studio
+// - 2 users." as its reason to call -- evidence for the opposite verdict.
+console.log("\n== the snippet shows the qualifying count, never a smaller one ==");
+[["order A", rowA], ["order B", rowB]].forEach(([label, r]: [any, any]) => {
+  const snip = String(r?.notesSummary ?? "");
+  ok(`${label}: snippet does not quote the 2-user sentence`,
+     !/\b2\s*users?\b/i.test(snip), snip.slice(0, 90));
+  ok(`${label}: snippet states the qualifying 40`, /\b40\b/.test(snip), snip.slice(0, 90));
+});
+
 console.log(`\n${pass}/${pass + fail} checks passed`);
 if (fail) process.exit(1);
