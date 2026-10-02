@@ -151,7 +151,7 @@ console.log(`\n${cases.length-bad}/${cases.length} behaved`);
  * this tier (one clusters at 24, the other at 36), so no threshold splits
  * both. If someone reintroduces a score cutoff here, these fail.
  * ---------------------------------------------------------------- */
-const BANDS = 11;
+const BANDS = 13;
 let bandBad = 0;
 function BAND_RUN() {
   console.log("\n-- priority band: high / medium / low --");
@@ -172,7 +172,14 @@ function BAND_RUN() {
   // Jack's own example, the reason this pass exists: "Service - Copilot
   // Studio - 2 users. this is low anything like this is low."
   b("sub-threshold count is Low", "Service - Copilot Studio - 2 users.", "low");
-  b("sub-threshold Dynamics is Low", "Service - Dynamics 365 Business Central - 2 users.", "low");
+  // THE SEAT FLOOR IS LICENSING-ONLY. Per Jack, on his own row — "(30) ▼
+  // Sales & Distributions-Dynamics ERP-5 Users. THIS IS STRONG NOT NEEDS
+  // REVIEW" — a Dynamics seat count never pulls the tier down, because an
+  // ERP/CRM implementation is a project and its value is not
+  // seat-proportional. These two are his literal examples, and they are
+  // the pair that proves the rule splits on PRODUCT, not on the number.
+  b("Jack's row: small Dynamics ERP is High", "Sales & Distributions-Dynamics ERP-5 Users.", "high");
+  b("small Dynamics BC is High too", "Service - Dynamics 365 Business Central - 2 users.", "high");
   // ...and small is LOW, never Bad. A rule saying no is Bad; a small
   // number is just small. This pair is the whole distinction.
   b("small is not an auto-DQ", "Service - Microsoft 365 Business Standard - 3 users.", "low");
@@ -188,11 +195,16 @@ function BAND_RUN() {
   // View tab. Specific enough to read, so Medium.
   b("bare ERP is a named module", "We have an ERP system in place today.", "medium");
 
-  // The floor is strictly "under", so the threshold itself still clears.
   // Conrey Electric is a 10-seat Business Central deal Jack personally
-  // re-promoted; it must not land in Low.
-  b("at the threshold still clears", "Dynamics 365 Business Central for 10 users, bringing in a partner.", "high");
-  b("above the threshold clears", "Dynamics 365 Business Central for 12 users, bringing in a partner.", "high");
+  // re-promoted. It was never the threshold that protected it — the floor
+  // should not have reached Dynamics at all. Both still clear.
+  b("Conrey's 10-seat BC clears", "Dynamics 365 Business Central for 10 users, bringing in a partner.", "high");
+  b("a larger BC deal clears", "Dynamics 365 Business Central for 12 users, bringing in a partner.", "high");
+  // ...and the licensing floor is untouched, which is what keeps Jack's
+  // OTHER ruling ("Copilot Studio - 2 users … anything like this is low")
+  // working. If someone deletes the licensing half of subThreshold, this
+  // row comes back as Strong Signal.
+  b("small licensing count is still Low", "Service - Microsoft 365 E3 - 2 users.", "low");
 }
 
 const total = 28 + cases.length + ADVERSARIAL + BANDS;

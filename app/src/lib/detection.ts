@@ -1825,34 +1825,36 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
 
   const combinedForDQ = columns.map((c) => String(row[c] ?? "")).join("   ");
   let dqReasons = getDQReasons(combinedForDQ, resolved);
-  // Per Jack, with his own example: "Service - Copilot Studio - 2 users …
-  // these are bad leads not strong signals."
+  // THE SEAT FLOOR IS A LICENSING RULE ONLY. IT DOES NOT APPLY TO DYNAMICS.
   //
-  // The licensing engine already disqualifies a CONFIRMED sub-threshold
-  // seat count, but a DYNAMICS count was only ever a ranking key — so
-  // "Dynamics 365 Business Central - 3 users" sailed through as Strong
-  // Signal. Same floor, same reason, stated the same way.
+  // Per Jack, two rulings that look contradictory and are not:
+  //   "Service - Copilot Studio - 2 users. this is low anything like this
+  //    is low"                                              -> Low
+  //   "(30) ▼ Sales & Distributions-Dynamics ERP-5 Users.
+  //    THIS IS STRONG NOT NEEDS REVIEW"                     -> Strong Signal
   //
-  // This was flagged and left unfixed before because Conrey Electric is
-  // one of the twelve leads Jack personally re-promoted and it is a
-  // 10-seat Business Central deal. The threshold is 10 and the test is
-  // strictly "under", so Conrey is spared exactly — the two calls never
-  // actually conflicted.
-  // A CONFIRMED sub-threshold seat count demotes the row to Low, on either
-  // engine. Dropping the Auto-DQ alone was not enough and briefly made
-  // things worse: the platform engine qualifies "Service - Copilot Studio -
-  // 2 users" on its own gate (LICENSE_COUNT_RE sees a real "N users"
-  // phrase), so without the DQ it came out Strong Signal. The count has to
-  // actually pull the tier down.
+  // The difference is what is being sold, not how big the number is. A
+  // licensing deal IS the seats — three seats of Business Standard is a
+  // tiny deal and always will be. An ERP or CRM implementation is a
+  // PROJECT, and its value is not seat-proportional: a five-user Business
+  // Central rollout is a real engagement. So a confirmed sub-threshold
+  // count from the LICENSING engine still pulls the tier down, and a
+  // Dynamics seat count never does — it stays what it always was, a
+  // ranking key for the module-tier sort.
   //
-  // Applied uniformly rather than only to bare rows — per Jack, "anything
-  // like this is low." A two-seat deal is small whatever else the row says;
-  // whether it is still worth working is a company-size and industry
-  // question that deliberately does NOT get decided here.
-  const subThreshold =
-    (licensing && licensing.status === "dq") ||
-    (platform && platform.dynamicsSeatCount != null && platform.dynamicsSeatCount > 0 &&
-      platform.dynamicsSeatCount < overrides.qualifyThreshold);
+  // This settles the question CLAUDE.md had carried open for several
+  // sessions ("whether Dynamics should share the seat floor is his product
+  // decision"). It is also why Conrey Electric — a 10-seat Business
+  // Central deal Jack personally re-promoted — was always safe: it was
+  // never the threshold that protected it, it is that the rule should not
+  // have reached Dynamics at all.
+  //
+  // Dropping this for licensing too would NOT work, and that is worth
+  // keeping: the platform engine qualifies "Copilot Studio - 2 users" on
+  // its own gate (LICENSE_COUNT_RE sees a real "N users" phrase), so with
+  // no demotion it comes out Strong Signal. The count has to actually pull
+  // the tier down for the licensing case.
+  const subThreshold = !!(licensing && licensing.status === "dq");
   if (tier === "signal" && subThreshold) tier = "mention";
   // Personal-email carve-out: if the ONLY DQ reason is a free/personal
   // email domain AND the row already cleared Strong Signal on its own
