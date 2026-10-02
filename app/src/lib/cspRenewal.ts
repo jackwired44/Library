@@ -262,6 +262,89 @@ export interface RenewalWhen {
   /** Verbatim from the notes — "August", "12/18/26", "Q3 2026", "within 6-9 months". */
   when: string;
   kind: RenewalKind;
+  /** Resolved calendar day, when the wording can be pinned to one. */
+  at: string | null;
+  /** Days from today: negative means it already passed. */
+  daysOut: number | null;
+  /** True when `at` rests on the bare-month assumption below. Surfaced so a
+   *  guess is never presented as a confirmed contract date. */
+  assumed: boolean;
+}
+
+/**
+ * Resolve the verbatim wording to a day, anchored on WHEN IT WAS WRITTEN.
+ *
+ * 248 of the 412 real contract dates are a bare month with no year, so the
+ * anchor is the whole ballgame: a seller writing in September who says
+ * "February" means the coming February. That is an assumption, it is
+ * marked as one (`assumed`), and the note says so rather than printing it
+ * as a confirmed date.
+ */
+const RENEWAL_MONTHS = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
+const monthIndex = (w: string): number => RENEWAL_MONTHS.indexOf(w.slice(0, 3).toLowerCase());
+const asDay = (d: Date): string => d.toISOString().slice(0, 10);
+export function resolveRenewalWhen(when: string, anchorIso: string): { at: string | null; assumed: boolean } {
+  const w = String(when || "").trim();
+  const lo = w.toLowerCase();
+  const A = new Date(`${anchorIso}T00:00:00Z`);
+  if (Number.isNaN(A.getTime())) return { at: null, assumed: false };
+  let m: RegExpExecArray | null;
+  if ((m = /^([a-z]+)\w*\s+(\d{1,2}),?\s+(\d{4})$/i.exec(w)) && monthIndex(m[1]) >= 0)
+    return { at: asDay(new Date(Date.UTC(+m[3], monthIndex(m[1]), +m[2]))), assumed: false };
+  if ((m = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/.exec(w))) {
+    const y = +m[3] < 100 ? 2000 + +m[3] : +m[3];
+    return { at: asDay(new Date(Date.UTC(y, +m[1] - 1, +m[2]))), assumed: false };
+  }
+  if ((m = /^([a-z]+)\w*\s+(?:cy\s*)?(\d{4})$/i.exec(w)) && monthIndex(m[1]) >= 0)
+    return { at: asDay(new Date(Date.UTC(+m[2], monthIndex(m[1]), 1))), assumed: false };
+  if ((m = /^q([1-4])\s*(?:cy|fy)?\s*(\d{2,4})$/i.exec(w))) {
+    const y = +m[2] < 100 ? 2000 + +m[2] : +m[2];
+    return { at: asDay(new Date(Date.UTC(y, (+m[1] - 1) * 3, 1))), assumed: false };
+  }
+  if ((m = /^(?:within|next)\s+(\d+)\s*(?:[\u2013\u2014-]\s*\d+\s*)?(month|week|quarter)s?$/i.exec(lo))) {
+    const mult = m[2].startsWith("week") ? 7 : m[2].startsWith("quarter") ? 91 : 30;
+    const d = new Date(A); d.setUTCDate(d.getUTCDate() + +m[1] * mult);
+    return { at: asDay(d), assumed: true };
+  }
+  if ((m = /^end\s+of\s+(?:the\s+)?(year|month|quarter|[a-z]+)$/i.exec(lo))) {
+    const period = m[1];
+    if (period === "year") return { at: `${A.getUTCFullYear()}-12-31`, assumed: false };
+    if (period === "month") return { at: asDay(new Date(Date.UTC(A.getUTCFullYear(), A.getUTCMonth() + 1, 0))), assumed: false };
+    if (period === "quarter") {
+      const q = Math.floor(A.getUTCMonth() / 3);
+      return { at: asDay(new Date(Date.UTC(A.getUTCFullYear(), q * 3 + 3, 0))), assumed: false };
+    }
+    const mi = monthIndex(period);
+    if (mi >= 0) {
+      const y = mi < A.getUTCMonth() ? A.getUTCFullYear() + 1 : A.getUTCFullYear();
+      return { at: asDay(new Date(Date.UTC(y, mi + 1, 0))), assumed: true };
+    }
+  }
+  // A bare month: the next occurrence on or after the entry's own date.
+  if (/^[a-z]+$/i.test(lo) && monthIndex(lo) >= 0) {
+    const mi = monthIndex(lo);
+    const y = mi < A.getUTCMonth() ? A.getUTCFullYear() + 1 : A.getUTCFullYear();
+    return { at: asDay(new Date(Date.UTC(y, mi, 1))), assumed: true };
+  }
+  return { at: null, assumed: false };
+}
+
+/** Renewal proximity, as a BONUS on top of the weighted score rather than a
+ *  seventh weight. A new weight would grow the denominator and quietly drop
+ *  the score of the ~95% of rows that stated no renewal at all; a bonus can
+ *  only ever lift a lead. Per Jack: "build that in to scoring metrics for
+ *  the highest scoring thats indicating a clear shot at sliding in for the
+ *  renewal." A date already PASSED scores nothing — they just re-signed,
+ *  which is the worst moment to call, not the best. */
+export const RENEWAL_BONUS_MAX = 18;
+export const RENEWAL_SOON_DAYS = 90;
+export function renewalBonus(r: RenewalWhen | null): number {
+  if (!r || r.daysOut == null || r.daysOut < 0) return 0;
+  const near = r.daysOut <= 30 ? 1 : r.daysOut <= 60 ? 0.85 : r.daysOut <= 90 ? 0.7
+    : r.daysOut <= 180 ? 0.4 : r.daysOut <= 365 ? 0.2 : 0.05;
+  // A seller's forecast close is a guess about their own pipeline, not the
+  // customer's contract, so it earns part marks.
+  return Math.round(RENEWAL_BONUS_MAX * near * (r.kind === "renewal" ? 1 : 0.5));
 }
 
 /** The customer's own contract date. */
@@ -300,15 +383,30 @@ function whenAfter(notes: string, label: RegExp): string | null {
   return null;
 }
 
-export function renewalFrom(notes: string): RenewalWhen | null {
+export function renewalFrom(notes: string, today?: string): RenewalWhen | null {
   const t = String(notes ?? "");
   if (!t) return null;
   // The contract date wins; the forecast is the fallback, never a
   // substitute presented as the same thing.
   const own = whenAfter(t, RENEWAL_LABEL_RE);
-  if (own) return { when: own, kind: "renewal" };
-  const fc = whenAfter(t, FORECAST_LABEL_RE);
-  return fc ? { when: fc, kind: "forecast" } : null;
+  const when = own ?? whenAfter(t, FORECAST_LABEL_RE);
+  if (!when) return null;
+  const kind: RenewalKind = own ? "renewal" : "forecast";
+  const now = today ?? new Date().toISOString().slice(0, 10);
+  // Anchored on the ENTRY the date was written in, not on today: a bare
+  // "February" written last March means a different February.
+  let anchor = now;
+  for (const chunk of allEntries(t)) {
+    if (!chunk.toLowerCase().includes(when.toLowerCase().slice(0, 12))) continue;
+    const d = lastTouchFrom(chunk, now);
+    if (d) anchor = d;
+    break;
+  }
+  const { at, assumed } = resolveRenewalWhen(when, anchor);
+  const daysOut = at
+    ? Math.round((Date.parse(`${at}T00:00:00Z`) - Date.parse(`${now}T00:00:00Z`)) / 86400000)
+    : null;
+  return { when, kind, at, daysOut, assumed };
 }
 
 export function partnerAskFrom(notes: string, today: string): PartnerAsk | null {
@@ -774,7 +872,7 @@ export function readCspLead(
     deadInLatest: DEAD_PATTERNS.some((p) => p.re.test(latestEntry(notes))),
     motion,
     nextStep: nextStepFrom(notes),
-    renewal: renewalFrom(notes),
+    renewal: renewalFrom(notes, today),
     strength: notesStrength(motion),
     skus: skusMentioned(notes),
     wantsPartner,
@@ -984,8 +1082,21 @@ export function cspNote(lead: CspLead, score: number, flags: string[] = [], pin 
   // the money and never gets shed — a renewal in August IS the reason to
   // dial. "renews" is their contract; "close" is the seller's forecast,
   // worded differently so the two can never be read as the same promise.
+  // A renewal inside the window carries a clock, because "renews February"
+  // and "renews February, 41 days out" are different calls. A date already
+  // PASSED is marked as such rather than read as urgency — they just
+  // re-signed. The bare-month assumption shows as "~" so a guess is never
+  // presented as a confirmed contract date.
   const renewal = lead.renewal
-    ? `${lead.renewal.kind === "renewal" ? "renews" : "close"} ${lead.renewal.when}`
+    ? (() => {
+        const r = lead.renewal!;
+        const head = r.kind === "renewal" ? "renews" : "close";
+        const tilde = r.assumed ? "~" : "";
+        if (r.daysOut == null) return `${head} ${tilde}${r.when}`;
+        if (r.daysOut < 0) return `renewed ${tilde}${r.when}`;
+        if (r.daysOut <= RENEWAL_SOON_DAYS) return `\u23F0 ${head} ${tilde}${r.when} ${r.daysOut}d`;
+        return `${head} ${tilde}${r.when}`;
+      })()
     : "";
   const age = lead.ageDays == null ? "" : lead.ageDays === 0 ? "touched today" : `${lead.ageDays}d cold`;
   // "older note: no-show / no response" is six words for a caution. Where
@@ -1105,7 +1216,14 @@ export function classifyCsp(lead: CspLead, rules: CspRules, reach: { hasPhone: b
     breakdown.push(`untouched ${lead.ageDays}d, past ${rules.staleDays} \u2212${rules.stalePenalty}`);
     flags.push(`untouched ${lead.ageDays} days`);
   }
-  const score = Math.max(0, base - penalty);
+  // Renewal proximity rides on top rather than inside the weighted sum —
+  // see renewalBonus. Capped at 100 so the band thresholds keep meaning
+  // what they say.
+  const renewalPts = renewalBonus(lead.renewal);
+  if (renewalPts > 0) {
+    breakdown.push(`${lead.renewal!.kind === "renewal" ? "renews" : "forecast close"} ${lead.renewal!.when} in ${lead.renewal!.daysOut}d +${renewalPts}`);
+  }
+  const score = Math.min(100, Math.max(0, base - penalty + renewalPts));
 
   const detail = cspNote(lead, score, flags);
 
@@ -1124,7 +1242,17 @@ export function classifyCsp(lead: CspLead, rules: CspRules, reach: { hasPhone: b
   // top quality." So the flag OVERRIDES the score band the same way a
   // pinned lead does — a customer asking for a partner is the whole pitch,
   // and it should never sit in Medium because its deal value is unstated.
-  if (lead.perfect || lead.wantsPartner || score >= rules.strongAt) {
+  // A renewal inside the window is its own route into High priority, the
+  // same way a stated partner ask already is. Per Jack, "Renewals are
+  // important" and a renewal date is "our clearest way of when to
+  // approach" — a contract coming up in six weeks should not sit in Medium
+  // because the deal value happens to be unstated. Only a CONTRACT date
+  // does this; a seller's forecast close is their guess, not an event at
+  // the customer, so it lifts the score but never the band.
+  const renewalSoon =
+    lead.renewal?.kind === "renewal" && lead.renewal.daysOut != null &&
+    lead.renewal.daysOut >= 0 && lead.renewal.daysOut <= RENEWAL_SOON_DAYS;
+  if (lead.perfect || lead.wantsPartner || renewalSoon || score >= rules.strongAt) {
     return { bucket: "priority", why: detail, score, breakdown, factorPoints, penaltyPoints: penalty };
   }
   if (score >= rules.reviewAt) {

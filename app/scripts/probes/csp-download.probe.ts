@@ -61,6 +61,11 @@ const afterPerfect = scores.slice(perfectIdx.length);
 // everyone else by score descending.
 const isPinned = (r: Record<string, string>) => /\u2605/.test(r.Notes);
 const isTopQuality = (r: Record<string, string>) => /⚑ Wants partner/.test(r.Notes);
+// A THIRD route into High, added when renewals became a scoring factor: a
+// customer contract renewing inside 90 days. Unlike ★ and ⚑ it does NOT
+// sort to the top — it ranks by score with everyone else — so it widens the
+// score-floor checks below but not the contiguity one above.
+const isRenewalSoon = (r: Record<string, string>) => /⏰ renews /.test(r.Notes);
 const overrideIdx = rows.map((r, i) => (isPinned(r) || isTopQuality(r) ? i : -1)).filter((i) => i >= 0);
 ok("  ⚑ top-quality leads sit directly below the pinned ones",
    overrideIdx.length === 0 || Math.max(...overrideIdx) === overrideIdx.length - 1,
@@ -71,12 +76,12 @@ const afterOverrides = scores.slice(overrideIdx.length);
 ok("below the overrides the file is in descending score order",
    afterOverrides.every((v, i) => i === 0 || v <= afterOverrides[i - 1]));
 // The score floor therefore applies to everyone the score alone put here.
-const scoreOnly = rows.filter((r) => !isPinned(r) && !isTopQuality(r))
+const scoreOnly = rows.filter((r) => !isPinned(r) && !isTopQuality(r) && !isRenewalSoon(r))
   .map((r) => Number((/\((\d{1,3})\)$/.exec(r.Notes) || [])[1]));
 ok("no score-qualified lead is under the High line (60)",
    scoreOnly.every((v) => v >= 60), scoreOnly.length ? `min ${Math.min(...scoreOnly)}` : "none");
 ok("  and every row under 60 got there by an explicit override",
-   rows.every((r) => Number((/\((\d{1,3})\)$/.exec(r.Notes) || [])[1]) >= 60 || isPinned(r) || isTopQuality(r)));
+   rows.every((r) => Number((/\((\d{1,3})\)$/.exec(r.Notes) || [])[1]) >= 60 || isPinned(r) || isTopQuality(r) || isRenewalSoon(r)));
 const phones = rows.map((r) => r["Work Direct Phone"]).filter(Boolean);
 ok("every exported phone has enough digits to dial", phones.every((v) => (v.match(/\d/g) || []).length >= 7), phones.find((v) => (v.match(/\d/g) || []).length < 7));
 ok("no Excel scientific-notation phones survive (5.25549E+11)", phones.every((v) => !/[eE]\s*\+/.test(v)), phones.find((v) => /[eE]\s*\+/.test(v)));

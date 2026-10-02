@@ -4829,15 +4829,71 @@ zero rows over cap.
 
 `csp-notes` grew 33 → 51 checks. **31 suites / 1,219 checks.**
 
-**Flagged, NOT built — both are real product decisions:**
-- **A renewal 30 days out is a far hotter lead than one 11 months out, and
-  the score does not know that.** Recency scores the last *touch*, not the
-  renewal. Making the renewal a scoring factor changes what High priority
-  means, so it needs Jack's call.
-- **No "renewing in the next 90 days" filter.** That is arguably the single
-  most valuable filter this scanner could have, and the data is now there
-  for it — but the dates are verbatim strings ("end of August", "Q3 2026"),
-  not parsed instants, so filtering needs a normalisation pass first.
+### CSP Scanner: the renewal is now a scoring factor and a route into High
+
+Per Jack: *"build that in to scoring metrics for the highest scoring thats
+indicating a clear shot at sliding in for the renewa"*, after *"Renewals
+are important"* and *"if there is ever a renewal date listed or noted for
+csp uploads thats major info we need that to be flagged its our clearest
+way of when to approach."*
+
+- **`resolveRenewalWhen`** turns the verbatim wording into a day, anchored
+  on **the entry it was written in**, not on today. That anchor is the
+  whole ballgame: **478 of the 1,226 dates read are a bare month with no
+  year**, and a seller writing in September who says "February" means the
+  coming February. Where the day rests on that assumption the note marks
+  it `~` (`renews ~November 32d`) — a guess is never presented as a
+  confirmed contract date.
+- **Proximity is a BONUS (`renewalBonus`, max 18), not a seventh weight.**
+  A new weight would grow the denominator and quietly drop the score of
+  the ~87% of rows stating no renewal at all; a bonus can only ever lift a
+  lead. Nearer scores higher, and a seller's **forecast close earns half
+  marks** — it is a guess about their own pipeline, not an event at the
+  customer.
+- **A date already PASSED scores nothing** and reads `renewed March 2026`.
+  They just re-signed; that is the worst moment to call, not the best.
+  **660 of the 1,226** are in this state, so getting it wrong would have
+  manufactured urgency on half the dates in the file.
+- **A CONTRACT renewal inside 90 days is its own route into High
+  priority**, the same way a stated partner ask already is — a contract
+  coming up in six weeks should not sit in Medium because the deal value
+  happens to be unstated. A forecast close never does this.
+- **The note carries a clock**: `⏰ renews November 15, 2026 46d`.
+  "renews February" and "renews February, 41 days out" are different
+  calls.
+
+On the real 9,265-row file: **High priority 2,152 → 2,220**, 54 contract
+renewals inside 90 days, 660 passed and correctly scoring zero. Verified
+directly that the hard case still holds — *"Not available — ECD DATES file
+not found in June"* yields no date, rather than inventing one out of a
+missing-file error.
+
+**Three assertions re-pointed, none loosened.** Two in `csp-download`
+recognise the new override in the score-floor checks — but deliberately
+NOT in the contiguity check, because unlike ★ and ⚑ a renewal-soon lead
+does **not** sort to the top, it ranks by score with everyone else. One in
+`csp-notes` expects the `~` on "end of August", which carries no year.
+
+**Flagged, NOT changed:** whether a near renewal should also sort toward
+the top of the High file (a third tier in `compareCspLeads`) rather than
+only qualifying and taking the bonus. The bonus lifts it; the ordering is
+a separate call.
+
+**Correction: the "wants a partner over-fires" note below is STALE.** It
+records 881 rows firing with 729 already partnered. Measured now on the
+same file: **119 fire, 88 already partnered, and ZERO read as the
+seller's own action** — the rule was tightened since that note was
+written. More importantly the "already partnered" share is not a defect
+at all: this file's own rule is that *held-and-still-asking is the best
+lead type on the list*. The real matched context is customer language
+("They are open to a partner being involved strictly for licensing/
+billing", "Look for a partner who can provide the support in D365"). Do
+not "fix" this rule off the stale figure.
+
+**Still open, unchanged:**
+- **No "renewing in the next 90 days" FILTER.** The dates are now resolved
+  (`RenewalWhen.at`/`daysOut`), so the data finally supports one — this is
+  now a UI task in `Scanner2.tsx` rather than a parsing problem.
 
 ## Where this is going: three scanners → one leads database
 

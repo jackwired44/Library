@@ -126,7 +126,10 @@ console.log("\n== renewals: their contract date, and the seller's guess, kept ap
 const REN = mk("MA - 3/Sep - Customer renewal is up end of August, wants to review licensing.");
 ok("a customer renewal date is read", REN.renewal?.kind === "renewal", JSON.stringify(REN.renewal));
 ok("  verbatim from the notes", /end of august/i.test(REN.renewal?.when ?? ""), REN.renewal?.when);
-ok("  and the note says \"renews\"", /renews end of August/i.test(noteOf(REN)), noteOf(REN));
+// "end of August" carries no year, so it rests on the next-occurrence
+// assumption and the note marks it with "~" rather than presenting a guess
+// as a confirmed contract date.
+ok("  and the note says \"renews\"", /renews ~end of August/i.test(noteOf(REN)), noteOf(REN));
 
 const FC = mk("MA - 3/Sep - Estimated Close Date: September 30, 2026. Reviewing options.");
 ok("a seller forecast is read as a forecast, not a renewal", FC.renewal?.kind === "forecast", JSON.stringify(FC.renewal));
