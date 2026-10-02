@@ -5545,33 +5545,52 @@ rather than trusting memory of it.
   tests (pointed at whichever build is currently under test) before calling
   it done — "it compiles" is not the bar, "it matches the legacy behavior"
   is.
-- **DO NOT PUBLISH TO THE LIVE ARTIFACT.** Standing instruction from Jack,
-  2026-09-23: "we do not need to update to the live artifacts going forward
-  for now i will make this live eventually." Build, test and COMMIT as
-  normal; leave the deployed Artifact alone. He promotes it himself when he
-  is ready. The last version he published is **V40**; everything after that
-  lives in the repo only. Do not republish without him asking in that turn,
-  and do not treat an old instruction below as permission.
+- **DO NOT PUBLISH ARTIFACTS AT ALL. THE REPO IS THE ONLY DELIVERY.**
+  Standing instruction from Jack, hardened 2026-10-02 after a publish
+  attempt was declined: *"PUSH HERE ONLY THIS CLAUDE SESSION ONLY / STOP
+  PUSHING TO EXTERNAL ARTIFICATS THIS IS ALL I WANT TO BUILD AND EDIT."*
+  This supersedes the earlier, narrower 2026-09-23 rule ("we do not need to
+  update to the live artifacts going forward for now i will make this live
+  eventually"), which only covered the LIVE artifact and let a *new* one
+  look like a legitimate workaround. It is not one.
+  - **"Push" from Jack means `git push`**, never a republish. When he says
+    push, build, run the suites, commit and push the branch — that is the
+    whole deliverable, and it is done when the branch is on origin.
+  - Do not publish to the live artifact, do not publish a preview/second
+    artifact as a way to let him "try it," and do not offer either as an
+    option. The last version he published himself is **V40**; everything
+    after that lives in the repo only, and he promotes it himself if and
+    when he wants to.
+  - **A request to use/see the platform is not permission to publish.**
+    "i need to use the platform," "not live here," "make it cleaner" and
+    similar are reports about the build, not publish instructions. Answer
+    them in the repo (fix the code, rebuild, push) and hand him the local
+    bundle path — `wired-cio-lead-scanner-app.html` at the repo root, a
+    self-contained single file he can open directly.
+  - Only lift this if Jack says, in that turn and in his own words, to
+    publish. An older instruction anywhere in this file is never
+    permission.
 - When Jack says **"CRM"** on its own, that means: pull up the platform —
-  rebuild if there are uncommitted changes, and hand him the existing link.
-  Treat it the same as "open the platform"/"drop the platform link," just
-  shorter. **Publishing is NOT part of this any more** — see the rule
-  directly above. If he does ask for a publish:
-  **Every republish must pass the FULL capabilities object, every time** —
-  `capabilities` is a full-set declaration; whatever isn't restated is
-  silently revoked. This app currently needs both `downloads: true` (CSV
-  exports — Scanner's Final Downloads, Library's per-file downloads,
-  History's per-entry downloads, the audit trail export — all route
-  through `saveViaClaudeDownloads` in `lib/csv.ts`, which is a total no-op
-  without this capability) and `mcp: {servers: [{server: "Apollo.io",
-  tools: ["apollo_people_match", "apollo_people_bulk_match",
-  "apollo_organizations_enrich"]}]}` (Contacts' "Enrich via Apollo"/Profile
-  Agent, and Scanner's upload-time company enrichment). **Bug that already happened once**: a republish
-  that only passed `{mcp: {...}}}` (adding/confirming the Apollo grant)
-  silently dropped `downloads`, breaking every CSV download in the
-  deployed Artifact with no error shown anywhere — Jack had to report it
-  as "download function broke." Before every publish call, restate BOTH
-  capabilities together; don't add one without carrying the other forward.
+  rebuild if there are uncommitted changes, and point him at the repo-root
+  bundle. Treat it the same as "open the platform," just shorter.
+  **Publishing is NOT part of this** — see the rule directly above.
+- **Reference only, NOT permission — if Jack ever does reverse the rule
+  above:** every republish must pass the FULL capabilities object, every
+  time. `capabilities` is a full-set declaration; whatever isn't restated
+  is silently revoked. This app needs both `downloads: true` (CSV exports —
+  Scanner's Final Downloads, Library's per-file downloads, History's
+  per-entry downloads, the audit trail export — all route through
+  `saveViaClaudeDownloads` in `lib/csv.ts`, a total no-op without it) and
+  `mcp: {servers: [{server: "Apollo.io", tools: ["apollo_people_match",
+  "apollo_people_bulk_match", "apollo_organizations_enrich",
+  "apollo_organizations_bulk_enrich"]}]}` (Contacts' "Enrich via Apollo"/
+  Profile Agent, and Scanner's upload-time company enrichment) — **four**
+  tools; the live V40 declaration carries `apollo_organizations_bulk_enrich`
+  as well, which an earlier copy of this note omitted. **Bug that already
+  happened once**: a republish that only passed `{mcp: {...}}` silently
+  dropped `downloads`, breaking every CSV download in the deployed Artifact
+  with no error shown anywhere — Jack had to report it as "download
+  function broke."
 - **Before implementing any change/add-on/feedback that edits the platform,
   rewrite the request as a short solution-design proposal and get Jack's
   explicit approve/tweak/disapprove first** — per his own standing
