@@ -5319,13 +5319,89 @@ positives — a regex spanning two adjacent effects, and a heuristic that
 did not track component boundaries. Worth knowing before trusting a
 similar script again.
 
+### Main Scanner: campaign codes, and a small count is Low not Bad
+
+**Correction to the note this replaces.** It said 832 Bookleads Strong
+Signals were qualifying off Microsoft campaign names. Measured properly,
+the campaign class is **99 of those 832 (12%)** plus **93 on the CSP
+file**; the rest are legitimate per-product `Act Now / High Fit` hits and
+65 rows carrying a real licensing fact. Do not repeat the 832 figure.
+
+**Campaign identifiers no longer qualify a lead, positionally.**
+
+```
+Opportunity Generated US~US~FY25~CMP~Modernize Accounting/ERP Systems
+with D365 Bus Central - VDS~SRAIM521867_22  US ALLIANCE PAPER
+```
+
+"Modernize Accounting/ERP Systems with D365 Bus Central" is the name of a
+marketing play Microsoft ran, and it matched Dynamics on "D365 Bus
+Central" and "ERP". **The measurement is why this had to be positional
+rather than a row-level rule, and it nearly went the other way**:
+`"Opportunity Generated"` appears on **11,770 of 13,106 rows (90%)** of
+the real SMC export — it is a CRM row-type label — and 3,490 of those
+carry no campaign code at all. One reads `Opportunity Generated …
+Budget: $1000 Authority: Richard Folkedahl Need: Copilot`, which is real
+BANT content. A row-level rule would have suppressed most of the file.
+
+`insideCampaignCode` (`lib/detection.ts`) instead asks whether THIS match
+sits inside the campaign span — from the `~CMP~` marker to the `VDS~SR…`
+source code that closes it, or a sentence end, whichever comes first. A
+product named anywhere else in the same row still counts. Verified 6/6 on
+the boundary: the campaign name alone stops qualifying; the same lead with
+a real ask written after the code still qualifies; a BANT row with no
+tilde code is untouched; a sentence end closes the span.
+
+Strong Signal: Bookleads **1,048 → 933**, CSP **1,851 → 1,775**.
+
+**A sub-threshold seat count is Low, not a Bad Lead.** Per Jack, on his own
+example: *"Service - Copilot Studio - 2 users. this is low anything like
+this is low, the only reason it could be worth engaging still if the
+company is large enough and a right industry but dont filter that here."*
+This reverses the Auto-DQ shipped a few hours earlier in the same session —
+a rule saying no (not interested, a competitor, a personal address) is a
+Bad Lead; a small number is just small.
+
+**Dropping the DQ alone made it worse and that is the lesson**: the
+platform engine qualifies that row on its own gate (`LICENSE_COUNT_RE`
+sees a real "N users" phrase), so without the DQ it came out **Strong
+Signal**. The count has to actually pull the tier down, so a confirmed
+sub-threshold count from EITHER engine now forces `tier = "mention"`.
+Applied uniformly — "anything like this is low" — and the company-size /
+industry question that might still make it workable is deliberately NOT
+decided here. `getDQReasons` lost its `licensing`/`qualifyThreshold`
+params with the rule.
+
+**The matched snippet leads with the score and a band mark.** Per Jack:
+"put a score and then priority symbol being high or low".
+`formatMatchedSnippet` produces `(72) ▲ We are looking for a partner to
+migrate 240 users…`; ▲ High, ▼ Low, ✕ Bad Leads (▸ for the retired
+medium). Deliberately not ★ or ⚑, which already mean the top-priority pin
+and a partner ask. **This is also the CSV Notes column**, so an export
+carries the same read — which is the point, and matches what the CSP note
+already does with its trailing `(70)`.
+
+`stripSnippetPrefix` is the inverse and exists because `snippet-truth`
+asserts the snippet is VERBATIM from the row: that guarantee still has to
+hold underneath the head, so those assertions strip first rather than
+being loosened.
+
+Jack's own cases now read: `Service - Copilot Studio - 2 users` →
+**Low ▼ (18)**, `Microsoft 365 E3 - 2 users` → Low ▼, `Business Central -
+3 users` → Low ▼, bare `Dynamics 365` product code → Low ▼, real intent →
+**Strong Signal ▲ (66)**, CRM-metadata-only → Bad Lead ✕, bare `Microsoft
+Fabric` → no row.
+
+31 suites / 1,220 checks. **Nine assertions were re-pointed, none
+loosened**, and each is worth knowing: six in `seat-count` kept their
+`count === 2` half (the actual subject — phone digits must never become
+the seat count) and changed only `tier === "dq"` → `"mention"`; one in
+`sku-truth` gained a second check that the count is still read; one in
+`qualification` (9 seats → mention, with 10 still signal so the floor is
+provably unchanged); and `snippet-truth` strips the head before comparing
+rather than accepting a prefix.
+
 **Known and NOT fixed, needs Jack's call:**
-- **832 of the 1,048 remaining Bookleads Strong Signals still have no
-  quotable sentence**, qualifying off Microsoft campaign names like
-  `Opportunity Generated US~US~FY25~CMP~Modernize Accounting/ERP Systems
-  with D365 Bus Central`. That is a Microsoft-generated opportunity for a
-  D365 BC campaign — arguably a real signal, definitely not a customer
-  statement. Judgement call, left alone.
 - **Not measured on Jack's own Main file.** `Book82626.csv` was not in
   this session's uploads, so the effect on the file he actually runs
   through the Main Scanner is unknown. Re-run when he next uploads it.

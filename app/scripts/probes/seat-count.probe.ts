@@ -1,7 +1,12 @@
 // A seat count must come from the notes, never from a phone number.
 //
-// Per Jack: "Service - Copilot Studio - 2 users. bad lead for main
-// scanner." That row did land in Bad Leads. Testing it surfaced why its
+// Per Jack, originally: "Service - Copilot Studio - 2 users. bad lead for
+// main scanner." He has since refined that — "this is low anything like
+// this is low, the only reason it could be worth engaging still if the
+// company is large enough and a right industry but dont filter that here"
+// — so a sub-threshold count now demotes to Low (`mention`) rather than
+// disqualifying. The COUNT assertions below are the real subject of this
+// file and are unchanged. Testing it surfaced why its
 // neighbours did not: scanRowLicensing joins EVERY column into one string,
 // so Phone and Email sit inside the +/-65 char window the count is read
 // from, and bestCount takes Math.max over everything it finds. On one
@@ -32,7 +37,7 @@ const NOTE = "Service-Microsoft 365 Business Standard-2 users";
 const PHONES = ["312-555-0100", "312-555-0199", "312-555-7777", "212-555-0042", "(312) 555 0100 x9812", ""];
 scan(PHONES.map((phone) => ({ note: NOTE, phone }))).forEach((row, i) => {
   ok(`phone ${PHONES[i] || "(none)"} still reads 2 seats`,
-     !!row && row.licensing?.count === 2 && row.tier === "dq",
+     !!row && row.licensing?.count === 2 && row.tier === "mention",
      `count=${row?.licensing?.count} tier=${row?.tier}`);
 });
 
@@ -45,14 +50,14 @@ scan(EMAILS.map((email) => ({ note: NOTE, email, phone: "" }))).forEach((row, i)
 
 console.log("\n== real counts still extract, and still decide the tier ==");
 const REAL: [string, number, string][] = [
-  ["Service - Copilot Studio - 2 users", 2, "dq"],
+  ["Service - Copilot Studio - 2 users", 2, "mention"],
   ["Service - Copilot Studio - 40 users", 40, "signal"],
   ["Service-Microsoft 365 Business Standard-50 users", 50, "signal"],
-  ["Service - M365 Copilot - 2 users", 2, "dq"],
+  ["Service - M365 Copilot - 2 users", 2, "mention"],
   ["Looking at E3 licensing for 40 users", 40, "signal"],
   ["Entra ID Plan 2, 300 seats", 300, "signal"],
   ["Microsoft 365 E5 x 25", 25, "signal"],
-  ["Renewing 9 Business Premium licenses", 9, "dq"],
+  ["Renewing 9 Business Premium licenses", 9, "mention"],
   ["Teams Phone for 12 people", 12, "signal"],
   // The case from CLAUDE.md's own notes: a number separated from its unit
   // by a product name must still read as the count, not as the SKU digits.

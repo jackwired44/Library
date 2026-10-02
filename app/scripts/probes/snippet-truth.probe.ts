@@ -17,7 +17,7 @@
 // extracted. It never speaks in the lead's voice about intent the lead
 // never expressed.
 import { parseCSVText } from "../../src/lib/csv";
-import { scanParsedFiles, isDerivedSummary } from "../../src/lib/detection";
+import { scanParsedFiles, isDerivedSummary , stripSnippetPrefix } from "../../src/lib/detection";
 
 let pass = 0, fail = 0;
 const ok = (n: string, c: boolean, d = "") => { c ? (pass++, console.log("  PASS " + n)) : (fail++, console.log(`  FAIL ${n}${d ? " — " + d : ""}`)); };
@@ -54,7 +54,7 @@ const REAL = [
 ];
 scan(REAL).forEach((row, i) => {
   ok(`quoted unchanged: "${REAL[i].slice(0, 42)}…"`,
-     !!row && String(row.notesSummary).replace(/\.$/, "") === REAL[i].replace(/\.$/, ""),
+     !!row && String(stripSnippetPrefix(row.notesSummary)).replace(/\.$/, "") === REAL[i].replace(/\.$/, ""),
      row ? row.notesSummary : "(no row)");
 });
 
@@ -103,7 +103,7 @@ scan(CORPUS).forEach((row, i) => {
   if (!row) return;
   const s: string = row.notesSummary;
   if (isDerivedSummary(s)) { derived++; return; }
-  const body = s.replace(/[.\u2026]+$/, "");
+  const body = stripSnippetPrefix(s).replace(/[.\u2026]+$/, "");
   ok(`[${i}] snippet appears in the row: "${body.slice(0, 40)}\u2026"`,
      norm(CORPUS[i]).includes(norm(body)), `${s}  <<< NOT IN >>>  ${CORPUS[i]}`);
   verbatim++;

@@ -780,6 +780,38 @@ const PROPENSITY_SCORECARD_RE =
  *
  * Returns null when the match is not a scorecard entry at all.
  */
+/**
+ * Microsoft's own CAMPAIGN IDENTIFIER, e.g.
+ *
+ *   Opportunity Generated US~US~FY25~CMP~Modernize Accounting/ERP Systems
+ *   with D365 Bus Central - VDS~SRAIM521867_22  US ALLIANCE PAPER
+ *
+ * "Modernize Accounting/ERP Systems with D365 Bus Central" is the name of a
+ * marketing play Microsoft ran. It is not a customer asking for Business
+ * Central, and it matched Dynamics on "D365 Bus Central" and "ERP".
+ *
+ * This has to be POSITIONAL, not a row-level test, and the measurement is
+ * the reason: "Opportunity Generated" appears on 11,770 of 13,106 rows in
+ * the real SMC export — it is a CRM row-type label, and one such row reads
+ * "Opportunity Generated … Budget: $1000 Authority: Richard Folkedahl
+ * Need: Copilot", which is real BANT content. Disqualifying the row would
+ * have suppressed 90% of the file. Only a product named INSIDE the campaign
+ * string is discounted; the same product named anywhere else in the row
+ * still counts.
+ *
+ * The span runs from the `~CMP~` marker to the `VDS~SR…` source code that
+ * closes it (or to the end of the sentence, whichever comes first).
+ */
+function insideCampaignCode(text: string, matchIndex: number): boolean {
+  const before = text.slice(Math.max(0, matchIndex - CAMPAIGN_REACH), matchIndex);
+  const cmp = before.lastIndexOf("~CMP~");
+  if (cmp < 0) return false;
+  const since = before.slice(cmp);
+  // Passing the source code, or a sentence end, means the campaign string
+  // already closed and this match is ordinary row text.
+  return !/VDS~SR/i.test(since) && !/[.!?]\s/.test(since);
+}
+
 function propensityVerdictAfter(text: string, matchEnd: number): { hot: boolean } | null {
   const m =
     /^[\w\s/&.+-]{0,25}:\s*(act\s+now|evaluate|nurture|educate|unknown)\s*\(\s*(high|medium|low|very\s+low|unknown)\s+fit/i
@@ -928,6 +960,8 @@ const GATE_WINDOW = 260;
  *  allowed to call itself Strong Signal. Short enough to admit a genuine
  *  one-line note, long enough to exclude "F1", "Direct" and an empty cell. */
 const MIN_SUPPORTING_NOTE_CHARS = 25;
+/** How far back to look for an unclosed `~CMP~` campaign marker. */
+const CAMPAIGN_REACH = 160;
 function collapseAbbreviations(text: string) {
   return text.replace(/\b(?:[A-Z]\.){2,}/g, (match, offset: number, full: string) => {
     const letters = match.replace(/\./g, "");
@@ -1276,10 +1310,13 @@ export function scanRowPlatform(
       const paVerdict = propensityVerdictAfter(combined, m.index + m[0].length);
       const scorecardOnly =
         (paVerdict !== null || PROPENSITY_SCORECARD_RE.test(win)) && !(paVerdict?.hot ?? false);
+      // A product named inside a Microsoft campaign identifier is the
+      // campaign's own wording, not the customer's — see insideCampaignCode.
+      const campaignOnly = insideCampaignCode(combined, m.index);
       hits.push({
         category: cat.label,
         snippet: win,
-        hasTrigger: !scorecardOnly && (
+        hasTrigger: !scorecardOnly && !campaignOnly && (
           // Power BI/Azure/Fabric/Migration hits already cleared the
           // strict gate above — by definition that's a real opportunity,
           // not just a mention.
@@ -1632,10 +1669,17 @@ export function isCompetitorName(companyName: string | undefined | null): boolea
   return v.length > 0 && COMPETITOR_NAME_RE.test(v);
 }
 
-function getDQReasons(combinedText: string, resolved: ResolvedFields, licensing: LicensingResult | null, qualifyThreshold: number): string[] {
+function getDQReasons(combinedText: string, resolved: ResolvedFields): string[] {
   const reasons: string[] = [];
   for (const rule of DQ_RULES) if (rule.pattern.test(combinedText)) reasons.push(rule.label);
-  if (licensing && licensing.status === "dq") reasons.push(`Low seat count (under ${qualifyThreshold})`);
+  // A sub-threshold seat count is NOT a disqualification. Per Jack, on his
+  // own example ("Service - Copilot Studio - 2 users"): "this is low
+  // anything like this is low, the only reason it could be worth engaging
+  // still if the company is large enough and a right industry but dont
+  // filter that here." A rule saying no (not interested, a competitor, a
+  // personal address) is a Bad Lead; a small number is just small. It lands
+  // at Low priority instead — visible, workable, and still out of the three
+  // Strong Signal downloads, which only ever carry the top band.
   if (!resolved.company || !String(resolved.company).trim()) reasons.push("Missing company name");
   if (resolved.email && PLACEHOLDER_EMAIL_RE.test(String(resolved.email).trim())) reasons.push("Placeholder/invalid email");
   const emailDomain = getEmailDomain(resolved.email);
@@ -1764,7 +1808,7 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
 
 
   const combinedForDQ = columns.map((c) => String(row[c] ?? "")).join("   ");
-  let dqReasons = getDQReasons(combinedForDQ, resolved, licensing, overrides.qualifyThreshold);
+  let dqReasons = getDQReasons(combinedForDQ, resolved);
   // Per Jack, with his own example: "Service - Copilot Studio - 2 users …
   // these are bad leads not strong signals."
   //
@@ -1778,13 +1822,22 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
   // 10-seat Business Central deal. The threshold is 10 and the test is
   // strictly "under", so Conrey is spared exactly — the two calls never
   // actually conflicted.
-  const lowSeatReason = `Low seat count (under ${overrides.qualifyThreshold})`;
-  if (
-    platform && platform.dynamicsSeatCount != null && platform.dynamicsSeatCount > 0 &&
-    platform.dynamicsSeatCount < overrides.qualifyThreshold && !dqReasons.includes(lowSeatReason)
-  ) {
-    dqReasons.push(lowSeatReason);
-  }
+  // A CONFIRMED sub-threshold seat count demotes the row to Low, on either
+  // engine. Dropping the Auto-DQ alone was not enough and briefly made
+  // things worse: the platform engine qualifies "Service - Copilot Studio -
+  // 2 users" on its own gate (LICENSE_COUNT_RE sees a real "N users"
+  // phrase), so without the DQ it came out Strong Signal. The count has to
+  // actually pull the tier down.
+  //
+  // Applied uniformly rather than only to bare rows — per Jack, "anything
+  // like this is low." A two-seat deal is small whatever else the row says;
+  // whether it is still worth working is a company-size and industry
+  // question that deliberately does NOT get decided here.
+  const subThreshold =
+    (licensing && licensing.status === "dq") ||
+    (platform && platform.dynamicsSeatCount != null && platform.dynamicsSeatCount > 0 &&
+      platform.dynamicsSeatCount < overrides.qualifyThreshold);
+  if (tier === "signal" && subThreshold) tier = "mention";
   // Personal-email carve-out: if the ONLY DQ reason is a free/personal
   // email domain AND the row already cleared Strong Signal on its own
   // content, don't DQ it — tag it PERSONAL_PROSPECT_LABEL and let it
@@ -1833,6 +1886,7 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
     qualifyThreshold: overrides.qualifyThreshold,
   });
   const priorityBand = priorityOf(tier);
+  notesSummary = formatMatchedSnippet(notesSummary, mainScore.score, priorityBand);
 
   return {
     categories,
@@ -1906,6 +1960,27 @@ export type Priority = "high" | "medium" | "low" | "dq";
 // already carrying it still renders — the same "retired, not deleted"
 // rule the two withdrawn dispositions follow.
 export const PRIORITY_ORDER: Priority[] = ["high", "low", "dq"];
+/** The mark that leads every matched snippet, per Jack: "put a score and
+ *  then priority symbol being high or low". Deliberately not ★ or ⚑, which
+ *  already mean the top-priority pin and a partner ask elsewhere. */
+export const PRIORITY_SYMBOL: Record<Priority, string> = {
+  high: "\u25B2", medium: "\u25B8", low: "\u25BC", dq: "\u2715",
+};
+/** "(72) ▲ We are looking for a partner to migrate 240 users…" — the score
+ *  first, then the band mark, then whatever the row actually said. This is
+ *  also the CSV Notes column, so an export carries the same read. */
+export function formatMatchedSnippet(summary: string, score: number | null | undefined, band: Priority): string {
+  const body = String(summary || "").trim();
+  const head = `(${score ?? 0}) ${PRIORITY_SYMBOL[band]}`;
+  return body ? `${head} ${body}` : head;
+}
+/** The inverse of formatMatchedSnippet: the row's own words, with the
+ *  score/band head removed. Anything asserting the snippet is VERBATIM has
+ *  to compare against this, not the displayed string — the head is metadata
+ *  the engine adds, and that guarantee still has to hold underneath it. */
+export function stripSnippetPrefix(snippet: string): string {
+  return String(snippet || "").replace(/^\(\d{1,3}\)\s*[\u25B2\u25B8\u25BC\u2715]\s*/, "");
+}
 export const PRIORITY_META: Record<Priority, { label: string; short: string; color: string; bg: string; hint: string }> = {
   high:   { label: "High priority",   short: "High",   color: "#0E7A72", bg: "#E3F3F1", hint: "Cleared the promotion gate. These are the calls, and they are the only leads in the downloads." },
   // RETIRED — see PRIORITY_ORDER. Kept so a row stamped before the band

@@ -85,7 +85,10 @@ const cases:[string,string,string[]][]=[
  
  ["version number","We need support on upgrade from our current version which is 15.",["none","mention"]],
  ["ticket id","Support Ticket ID: 4521",["none"]],
- ["9 seats under new min","Microsoft 365 Business Premium for 9 users.",["dq"]],
+ // Per Jack, "this is low anything like this is low": a sub-threshold count
+ // demotes to Low priority, it is not a Bad Lead. The floor itself is
+ // unchanged — 10 still qualifies, 9 still does not.
+ ["9 seats under new min","Microsoft 365 Business Premium for 9 users.",["mention"]],
  ["10 seats at new min","Microsoft 365 Business Premium for 10 users.",["signal"]],
  ["12 seats over new min","Microsoft 365 Business Premium for 12 users.",["signal"]],
 ];

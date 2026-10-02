@@ -62,7 +62,11 @@ ok("skus still carries the catalogue label for the rules",
 ok("the threshold still reads the stated count", r?.licensing?.count === 40, String(r?.licensing?.count));
 ok("status still qualified", r?.licensing?.status === "qualified", String(r?.licensing?.status));
 const low = scan(["Renewing 3 Microsoft 365 E3 licenses next month."])[0];
-ok("a sub-threshold count is still a Bad Lead", low?.tier === "dq", String(low?.tier));
+// Per Jack: "this is low anything like this is low" — a small stated count
+// demotes to Low priority now, it is not a Bad Lead. The count still has to
+// be READ correctly, which is what this file is really guarding.
+ok("a sub-threshold count demotes to Low, not Bad Leads", low?.tier === "mention", String(low?.tier));
+ok("  and the count itself is still read", low?.licensing?.count === 3, String(low?.licensing?.count));
 
 // ---------------------------------------------------------------------
 // A product name is never a seat count.
