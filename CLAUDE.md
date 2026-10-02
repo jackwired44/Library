@@ -5352,15 +5352,77 @@ Bookleads split High 1,048 / Medium **4** / Low 7,474 while CSP split
 High 1,851 / Medium 451 / Low **0**. A band that is empty on one file and
 holds everything on the other is not a band.
 
-`priorityOf(tier)` now takes the tier alone — DQ wins, the promotion gate
-is High, everything else is Low — and `MainScoreRules`/
-`DEFAULT_MAIN_SCORE_RULES` are gone, since nothing read them once the
-threshold did. The score still ranks WITHIN a band; it no longer draws
-one. `medium` stays in `PRIORITY_META` but is absent from
-`PRIORITY_ORDER`, the same "retired, not deleted" rule the two withdrawn
-dispositions follow, so a row stamped before the change still renders.
-Measured after: Bookleads **High 1,048 / Low 7,478 / Bad 417**, CSP
-**High 1,851 / Low 451 / Bad 3,394** — coherent on both.
+`priorityOf(tier)` took the tier alone — DQ wins, the promotion gate is
+High, everything else is Low — and `MainScoreRules`/
+`DEFAULT_MAIN_SCORE_RULES` were deleted, since nothing read them once the
+threshold did.
+
+**Superseded — Medium is back, drawn categorically. See the section
+directly below.** The finding above still holds and is the reason the new
+split does NOT use a score, so do not "simplify" it back into a cutoff.
+
+### Medium restored, as a categorical split (app/ only)
+
+Per Jack, twice in one session: *"we need the priority set up here high
+medium and low."* Three bands, but the earlier measurement above is
+exactly why a score threshold was not the way to get there.
+
+**Re-measured at the Needs Review tier, and it is worse than "clusters
+hard" — the two real files occupy DISJOINT ranges.** Bookleads mention
+rows: p10 18, p50 **24**, max 48, with 6,807 of 7,621 sitting in the
+20-29 bucket. CSP mention rows: p10 **36**, p50 36, max 59, with *nothing
+below 30 at all*. So `>=25` gives CSP Medium 633 / Low **0**, and `>=40`
+gives Bookleads Medium 43 / Low 7,578. There is no cutoff that works on
+both, and there will not be while the score leans on `hasNamedSku` —
+which is 9% of one file and 89% of the other.
+
+**So the split is categorical, from two things the row actually says**,
+both of which Jack has ruled on directly:
+- **Low** — a CONFIRMED seat count under the qualify threshold (real, but
+  small: his own "Service - Copilot Studio - 2 users … anything like this
+  is low"), OR only a generic category pattern matched: no licensing SKU
+  hit and no identified Dynamics module.
+- **Medium** — names a specific product, with nothing ruling it out.
+- **High and Bad are untouched.** High is still exactly `tier ===
+  "signal"`, so the three CSV downloads, Lead Library filing and History
+  see precisely the set they saw before scoring existed. Asserted, not
+  assumed: `High == signal`, `Bad == dq`, `Medium + Low == mention` all
+  verified on both real files.
+
+Measured: Bookleads **High 933 / Medium 691 / Low 6,930 / Bad 389**; CSP
+**High 1,775 / Medium 477 / Low 156 / Bad 3,288**. Both bands populated
+and meaningful on both files — the bar the first attempt failed.
+
+`priorityOf` now takes `Tier | PriorityInput` (`{tier, subThreshold,
+namesSpecificProduct}`). **A bare `Tier` still returns Low for a mention
+row** — byte-identical to the two-band behaviour — so every existing
+caller and suite is unchanged. `PRIORITY_ORDER` is back to four values and
+`PRIORITY_META.medium` is no longer marked retired.
+
+**Note: bare "ERP" counts as SPECIFIC, not generic** — it is module tier 0,
+the same rung as Business Central, and it drives the Business Central / ERP
+View tab. Pinned in the suite so it is not mistaken for an oversight.
+
+**Two snippet leaks fixed in the same pass**, both found by reading the
+Medium samples rather than by reading code — a band reading "worth a look"
+on a row quoting contact metadata is how they surfaced:
+- `EMAIL_FRAGMENT_RE` — the sentence splitter breaks on the dot, so
+  `Pothiyel@tsworks.com` reached the redaction check as the unit
+  `"Pothiyel@tsworks."`, which `EMAIL_RE` can no longer match because its
+  TLD went to the next unit. The truncated address was being quoted as a
+  lead's matched snippet.
+- `CONTACT_FIELD_RE` — one real row's reason to call read `"Com Main
+  Phone Number: +1 (480) (314)(3070) First Name: Fernando Last Name:
+  Lopez Job Title: VP of IT Phone: …"`. `PHONE_RE` misses that number
+  because the export mangles it into two bracketed groups. Guarding on
+  the FIELD LABELS kills the whole class regardless of how the digits are
+  formatted, rather than chasing one broken phone format.
+- Band counts are byte-identical before and after both fixes, confirming
+  these changed what is SHOWN and not what qualifies.
+
+`qualification` grew 59 → 70 checks (11 band cases, including the two
+invariants and Conrey Electric's 10-seat Business Central deal still
+clearing at the threshold). **31 suites / 1,231 checks.**
 
 **Loop-engineering re-check after wiring the score.** Per-row scoring
 costs nothing measurable: 13,106 rows scan in 3,392 ms against 3,414 ms

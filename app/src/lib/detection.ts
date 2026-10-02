@@ -892,9 +892,25 @@ const SERIAL_RE = /\b(?:serial|order|invoice|case|ticket|ref(?:erence)?)\s*#?\s*
 // CLAUDE.md — so a candidate summary sentence carrying either is dropped
 // here rather than shown a second time in the Matched snippet/Notes text.
 const EMAIL_RE = /\b[\w.+-]+@[\w-]+\.[a-z]{2,}\b/i;
+// A sentence splitter breaks on the dot, so "Pothiyel@tsworks.com" arrives
+// here as the unit "Pothiyel@tsworks." — which EMAIL_RE cannot match any
+// more, because its TLD went to the next unit. The truncated form was being
+// quoted as a lead's matched snippet. Anything with word characters either
+// side of an @ is an address fragment, whole or not.
+const EMAIL_FRAGMENT_RE = /\b[\w.+-]+@[\w-]{2,}/i;
 const PHONE_RE = /(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/;
+// A CRM contact-field dump is not a sentence the lead said. One real row
+// quoted "Com Main Phone Number: +1 (480) (314)(3070) First Name: Fernando
+// Last Name: Lopez Job Title: VP of IT Phone: …" as its reason to call.
+// PHONE_RE misses that number because the export mangles it into two
+// bracketed groups, so the phone guard never fired — but the labels give
+// the block away regardless of how the digits are formatted, and catch the
+// whole class rather than one broken phone format.
+const CONTACT_FIELD_RE =
+  /\b(?:first|last|full)\s*name\s*:|\bjob\s*title\s*:|\b(?:main\s*)?phone(?:\s*number)?\s*:|\bmobile\s*:|\be-?mail\s*:/i;
 function hasForbiddenContent(s: string) {
-  return DATE_RE.test(s) || BILLING_BANT_RE.test(s) || SERIAL_RE.test(s) || EMAIL_RE.test(s) || PHONE_RE.test(s)
+  return DATE_RE.test(s) || BILLING_BANT_RE.test(s) || SERIAL_RE.test(s) || EMAIL_RE.test(s)
+    || EMAIL_FRAGMENT_RE.test(s) || PHONE_RE.test(s) || CONTACT_FIELD_RE.test(s)
     // Microsoft's propensity scorecard is not a sentence the lead said, and
     // quoting it produced the fragments Jack flagged — "Unknown
     // Prioritization Index) - D365 Sales Pro: Evaluate (Medium Fit." opens
@@ -1885,7 +1901,18 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
     personalEmail: !!scoreEmailDomain && isFreeEmailDomain(scoreEmailDomain),
     qualifyThreshold: overrides.qualifyThreshold,
   });
-  const priorityBand = priorityOf(tier);
+  // Needs Review splits here. `subThreshold` is the same confirmed count
+  // that pulled the tier down two blocks up — a real deal that is simply
+  // small. `namesSpecificProduct` is a licensing SKU hit or an identified
+  // Dynamics module (tier 2 is "everything else", i.e. Dynamics matched but
+  // no module was named). Small, or generic, is Low; specific is Medium.
+  const priorityBand = priorityOf({
+    tier,
+    subThreshold: !!subThreshold,
+    namesSpecificProduct:
+      (!!licensing && licensing.hits.length > 0) ||
+      (!!platform && platform.dynamicsModuleTier != null && platform.dynamicsModuleTier < 2),
+  });
   notesSummary = formatMatchedSnippet(notesSummary, mainScore.score, priorityBand);
 
   return {
@@ -1954,12 +1981,15 @@ export const MAIN_FACTOR_META: { key: keyof MainWeights; label: string; hint: st
 ];
 
 export type Priority = "high" | "medium" | "low" | "dq";
-// Per Jack: "do high or low priority tagged with them." Two bands, not
-// three. `medium` stays in PRIORITY_META below but is absent here, so no
-// picker offers it and nothing new is ever stamped with it, while a row
-// already carrying it still renders — the same "retired, not deleted"
-// rule the two withdrawn dispositions follow.
-export const PRIORITY_ORDER: Priority[] = ["high", "low", "dq"];
+// Per Jack: "we need the priority set up here high medium and low."
+//
+// Medium was briefly dropped because the FIRST attempt at it split the
+// non-signal rows on an uncalibrated score threshold, and non-signal
+// scores cluster far too hard for that to mean anything (1,048/4/7,474 on
+// one real file, 1,851/451/0 on the other). The band is back, but drawn
+// CATEGORICALLY rather than on a score cutoff — see priorityOf. The score
+// still only ranks within a band; it never draws one.
+export const PRIORITY_ORDER: Priority[] = ["high", "medium", "low", "dq"];
 /** The mark that leads every matched snippet, per Jack: "put a score and
  *  then priority symbol being high or low". Deliberately not ★ or ⚑, which
  *  already mean the top-priority pin and a partner ask elsewhere. */
@@ -1983,10 +2013,8 @@ export function stripSnippetPrefix(snippet: string): string {
 }
 export const PRIORITY_META: Record<Priority, { label: string; short: string; color: string; bg: string; hint: string }> = {
   high:   { label: "High priority",   short: "High",   color: "#0E7A72", bg: "#E3F3F1", hint: "Cleared the promotion gate. These are the calls, and they are the only leads in the downloads." },
-  // RETIRED — see PRIORITY_ORDER. Kept so a row stamped before the band
-  // was dropped still renders instead of showing a raw key.
-  medium: { label: "Medium priority", short: "Medium", color: "#9A5B22", bg: "#FBF0E2", hint: "A retired band. Nothing is stamped Medium any more; High means it cleared the promotion gate and Low means it did not." },
-  low:    { label: "Low priority",    short: "Low",    color: "#5B6B72", bg: "#EEF1F2", hint: "Matched a product or licensing pattern but did not clear the promotion gate. Still visible, still promotable by hand, never in a download." },
+  medium: { label: "Medium priority", short: "Medium", color: "#9A5B22", bg: "#FBF0E2", hint: "Did not clear the gate, but the row says something real — a named product with language behind it, and no count ruling it out. Worth a read before you drop it." },
+  low:    { label: "Low priority",    short: "Low",    color: "#5B6B72", bg: "#EEF1F2", hint: "A confirmed seat count under the threshold, or a bare product code with nothing written behind it. Real but small, or unevidenced. Still visible and still promotable by hand." },
   dq:     { label: "Bad Leads",       short: "Bad",    color: "#B5443B", bg: "#FBEAE8", hint: "Auto-disqualified. Not a low score \u2014 a rule said no. Still visible and reversible, never downloaded." },
 };
 
@@ -2110,25 +2138,60 @@ export function scoreMainLead(
   return { score, breakdown, factorPoints, pinned };
 }
 
+/** What `priorityOf` needs beyond the tier to split Needs Review in two. */
+export interface PriorityInput {
+  tier: Tier;
+  /** A CONFIRMED seat/user/licence count below the qualify threshold, from
+   *  either engine. Per Jack, on his own example — "Service - Copilot
+   *  Studio - 2 users … this is low anything like this is low, the only
+   *  reason it could be worth engaging still if the company is large
+   *  enough and a right industry but dont filter that here." A real deal,
+   *  just small: Low, not Bad. */
+  subThreshold?: boolean;
+  /** The row names a SPECIFIC Microsoft product — a licensing SKU hit, or a
+   *  Dynamics module identified as ERP/Business Central or Sales/CRM —
+   *  rather than only tripping a generic category pattern. Absent on a bare
+   *  Tier, which therefore reads as Low: the conservative default, and
+   *  byte-identical to the two-band behaviour every existing caller had. */
+  namesSpecificProduct?: boolean;
+}
+
 /**
  * The band. Auto-DQ always wins, then the promotion gate decides High, and
- * everything else is Low. Keeping `tier === "signal"` as the High test
- * guarantees the downloads, the Lead Library and History see exactly the
- * set they saw before scoring existed.
+ * Needs Review splits into Medium and Low. Keeping `tier === "signal"` as
+ * the High test guarantees the downloads, the Lead Library and History see
+ * exactly the set they saw before scoring existed — this function has never
+ * moved a lead into or out of a file, and still doesn't.
  *
- * It used to split the remainder into Medium/Low on a score threshold of
- * 30 that was never calibrated, because nothing called this engine. Once
- * it was wired the split turned out to be meaningless: non-signal scores
- * cluster hard (`intent` is 22 of 108 and binary on tier, and little else
- * varies on a row that did not qualify), so the two real files landed
- * 1,048/4/7,474 and 1,851/451/0 — a band that is empty on one file and
- * holds everything on the other is not a band. Jack asked for "high or
- * low" and that is what the data supports, so the score ranks WITHIN a
- * band and no longer draws one.
+ * THE MEDIUM/LOW SPLIT IS CATEGORICAL, NOT A SCORE CUTOFF, and that is the
+ * whole point. The first attempt used an uncalibrated score threshold of 30
+ * and was removed, because non-signal scores cluster hard (`intent` is 22 of
+ * 108 and binary on tier, and little else varies on a row that did not
+ * qualify): the two real files landed 1,048/4/7,474 and 1,851/451/0. A band
+ * that is empty on one file and holds everything on the other is not a band.
+ *
+ * Measured on both real files, the two occupy DISJOINT score ranges at this
+ * tier — Bookleads clusters at 24 (max 48), CSP at 36 — so `>=25` empties
+ * Low on one file and `>=40` is wrong on the other. There is no cutoff that
+ * works for both, and there never will be while the score leans on
+ * `hasNamedSku`, which is 9% of one file and 89% of the other.
+ *
+ * So the split is drawn from two things the row actually says, both of which
+ * Jack has ruled on directly. A confirmed count under the threshold is Low:
+ * real, but small. Matching only a generic category pattern — no SKU, no
+ * identified Dynamics module — is Low: unevidenced. Naming a specific
+ * product with nothing ruling it out is Medium: worth a read. That splits
+ * 691/6,930 and 477/156 on the two files, populated and meaningful on both.
+ *
+ * Takes a bare Tier as well, so existing callers and suites are unchanged:
+ * without `namesSpecificProduct` a mention row reads Low, which is exactly
+ * what the two-band version returned.
  */
-export function priorityOf(tier: Tier): Priority {
-  if (tier === "dq") return "dq";
-  return tier === "signal" ? "high" : "low";
+export function priorityOf(input: Tier | PriorityInput): Priority {
+  const it: PriorityInput = typeof input === "string" ? { tier: input } : input;
+  if (it.tier === "dq") return "dq";
+  if (it.tier === "signal") return "high";
+  return it.subThreshold || !it.namesSpecificProduct ? "low" : "medium";
 }
 
 /** Rank for the table and the downloads: pinned first, then score, then

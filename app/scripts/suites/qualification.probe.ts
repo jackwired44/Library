@@ -137,10 +137,70 @@ console.log("\n-- precision: these must NOT over-qualify --");
 cases.forEach(([n,c,want])=>{const got=t(c);const okc=want.includes(got);if(!okc)bad++;
  console.log(`${okc?"ok  ":"BAD "} ${n.padEnd(22)} got=${got.padEnd(8)} allowed=${want.join("/")}`);});
 console.log(`\n${cases.length-bad}/${cases.length} behaved`);
-const total = 28 + cases.length + ADVERSARIAL;
+/* ---------------------------------------------------------------- *
+ * The priority band. Per Jack: "we need the priority set up here high
+ * medium and low."
+ *
+ * The band must never decide what gets DOWNLOADED — High is exactly the
+ * promotion gate, so the three CSVs, Lead Library filing and History see
+ * the same set they saw before scoring existed. That invariant is the
+ * first two checks and is the one that must never be loosened.
+ *
+ * Medium/Low is drawn CATEGORICALLY, not on a score cutoff. A cutoff was
+ * tried and removed: the two real files occupy disjoint score ranges at
+ * this tier (one clusters at 24, the other at 36), so no threshold splits
+ * both. If someone reintroduces a score cutoff here, these fail.
+ * ---------------------------------------------------------------- */
+const BANDS = 11;
+let bandBad = 0;
+function BAND_RUN() {
+  console.log("\n-- priority band: high / medium / low --");
+  const b = (n: string, c: string, want: string) => {
+    const r = scanOne(c) as Record<string, unknown> | null;
+    const got = r ? String(r.priorityBand) : "none";
+    const okb = got === want;
+    if (!okb) bandBad++;
+    console.log(`${okb ? "ok  " : "BAD "} ${n.padEnd(34)} got=${got.padEnd(7)} want=${want}`);
+  };
+
+  // The invariant: band tracks tier exactly at both ends.
+  b("cleared the gate is High", "We are moving 240 users from Google Workspace to Microsoft 365 and need a partner.", "high");
+  // Needs a real product signal, or there is no row at all to band — a
+  // zero-signal note never reaches scanRowUnified's return (Non Relevant).
+  b("auto-DQ is Bad, not Low", "We run Microsoft 365 E3 for 200 users. Not interested, please unsubscribe.", "dq");
+
+  // Jack's own example, the reason this pass exists: "Service - Copilot
+  // Studio - 2 users. this is low anything like this is low."
+  b("sub-threshold count is Low", "Service - Copilot Studio - 2 users.", "low");
+  b("sub-threshold Dynamics is Low", "Service - Dynamics 365 Business Central - 2 users.", "low");
+  // ...and small is LOW, never Bad. A rule saying no is Bad; a small
+  // number is just small. This pair is the whole distinction.
+  b("small is not an auto-DQ", "Service - Microsoft 365 Business Standard - 3 users.", "low");
+
+  // Medium: names a specific product, nothing ruling it out.
+  b("named SKU, no count, is Medium", "They are running Microsoft 365 E3 across the business.", "medium");
+  b("named Dynamics module is Medium", "We use Dynamics 365 Business Central for finance.", "medium");
+
+  // Low: matched a generic category pattern only — no SKU, no module.
+  b("generic tenant match only is Low", "We could use some help desk support for the office.", "low");
+  // Bare "ERP" is deliberately NOT generic: it is module tier 0, the same
+  // rung as Business Central, and it drives the Business Central / ERP
+  // View tab. Specific enough to read, so Medium.
+  b("bare ERP is a named module", "We have an ERP system in place today.", "medium");
+
+  // The floor is strictly "under", so the threshold itself still clears.
+  // Conrey Electric is a 10-seat Business Central deal Jack personally
+  // re-promoted; it must not land in Low.
+  b("at the threshold still clears", "Dynamics 365 Business Central for 10 users, bringing in a partner.", "high");
+  b("above the threshold clears", "Dynamics 365 Business Central for 12 users, bringing in a partner.", "high");
+}
+
+const total = 28 + cases.length + ADVERSARIAL + BANDS;
 ADV_RUN();
-console.log(`\n${total - miss - bad - advBad}/${total} passed`);
-process.exit(miss || bad || advBad ? 1 : 0);
+BAND_RUN();
+console.log(`\n${BANDS - bandBad}/${BANDS} band cases behaved`);
+console.log(`\n${total - miss - bad - advBad - bandBad}/${total} passed`);
+process.exit(miss || bad || advBad || bandBad ? 1 : 0);
 
 
 /* ---------------------------------------------------------------- *
