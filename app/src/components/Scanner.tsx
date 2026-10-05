@@ -359,6 +359,12 @@ export default function Scanner({
   // which end of the seat-count secondary key comes first within each
   // block. Defaults to Jack's standing rule (greatest to least).
   const [dynamicsSortDesc, setDynamicsSortDesc] = useState(true);
+  // Per Jack: "i want to start ranking these." The Main Scanner now ranks by
+  // score the way CSP and Custom already do. "scan" keeps the pre-existing
+  // order, which is what preserves the documented Dynamics rule (module tier
+  // first, then seat count) — that ordering is a locked invariant, so it
+  // stays reachable rather than being silently replaced.
+  const [sortBy, setSortBy] = useState<"score-desc" | "score-asc" | "scan">("score-desc");
   // A separate tab within the M365/Azure category view for Google->
   // Microsoft migration leads specifically — see CLAUDE.md "Google ->
   // Microsoft view." Purely a view-level split; doesn't touch category,
@@ -654,14 +660,27 @@ export default function Scanner({
     // license count (direction togglable below), regardless of which tier
     // tab is active. Module-tier grouping (ERP block, then Sales/CRM, then
     // the rest) never flips.
-    const ranked = categoryFilter === "dynamics365" ? sortByDynamicsSeatCount(list, dynamicsSortDesc) : list;
+    let ranked = categoryFilter === "dynamics365" ? sortByDynamicsSeatCount(list, dynamicsSortDesc) : list;
+    // Rank by score, same as the CSP and Custom tabs. A row with NO score —
+    // restored from a History entry recorded before scoring existed — sinks
+    // in BOTH directions rather than being read as a 0, the same "a missing
+    // value doesn't become zero" rule the Dynamics seat sort already
+    // follows. Array#sort is stable, so whatever ordering came out of the
+    // block above survives inside each score.
+    if (sortBy !== "scan") {
+      ranked = [...ranked].sort((a, b) => {
+        const sa = a.mainScore?.score, sb = b.mainScore?.score;
+        if (sa == null || sb == null) return sa == null ? (sb == null ? 0 : 1) : -1;
+        return sortBy === "score-desc" ? sb - sa : sa - sb;
+      });
+    }
     // Top priority above everything, per Jack: a Google Workspace ->
     // Microsoft 365 lead is the first row you see whatever else is on.
-    // Stable, so the Dynamics seat ranking below it is untouched (and in
-    // practice they never overlap - a Google lead is always M365/Azure).
+    // Stable, so the ranking below it is untouched (and in practice they
+    // never overlap - a Google lead is always M365/Azure).
     return sortTopPriorityFirst(ranked);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [results, tierFilter, categoryFilter, duplicatesOnly, priorityOnly, search, dynamicsSortDesc, m365SubView, dynamicsSubView]);
+  }, [results, tierFilter, categoryFilter, duplicatesOnly, priorityOnly, search, dynamicsSortDesc, sortBy, m365SubView, dynamicsSubView]);
 
   // Every count badge is computed with EVERY OTHER active filter applied,
   // but not its own — so the number on a button is exactly how many rows
@@ -1477,7 +1496,18 @@ export default function Scanner({
                   {CATEGORY_META[k].label} ({categoryCounts[k] || 0})
                 </button>
               ))}
-              {categoryFilter === "dynamics365" && (
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+                title={"How the table is ranked. Score is the 0-100 lead score shown in the Priority column.\n\nTop priority leads (Google → Microsoft, a confirmed partner ask) always sit above everything regardless of this setting.\n\nScan order keeps the Dynamics module/seat-count ranking."}
+                className="field"
+                style={{ fontWeight: 600, color: "var(--muted)" }}
+              >
+                <option value="score-desc">Score: high to low</option>
+                <option value="score-asc">Score: low to high</option>
+                <option value="scan">Scan order</option>
+              </select>
+              {categoryFilter === "dynamics365" && sortBy === "scan" && (
                 <select
                   value={dynamicsSortDesc ? "desc" : "asc"}
                   onChange={(e) => setDynamicsSortDesc(e.target.value === "desc")}
@@ -1756,14 +1786,31 @@ export default function Scanner({
                         older History entry has no score yet and reads "-"
                         rather than a fabricated 0. */}
                     <td style={{ padding: "10px 11px", whiteSpace: "nowrap" }}>
+                      {/* Per Jack: "put the score now how it is big like for
+                          csp." Same shape the CSP and Custom tabs use — the
+                          number large and coloured, the band as a small chip
+                          under it — so a score reads the same way whichever
+                          scanner you are on, and the number is what the eye
+                          lands on. The breakdown stays on the number's own
+                          tooltip, exactly as CSP has it. */}
                       {r.priorityBand ? (
-                        <span
-                          title={`${PRIORITY_META[r.priorityBand].hint}${r.mainScore ? "\n\n" + r.mainScore.breakdown.join("\n") : ""}`}
-                          style={{ display: "inline-flex", alignItems: "center", gap: 5, borderRadius: 20, padding: "4px 9px", fontWeight: 700, fontSize: 11.5, color: PRIORITY_META[r.priorityBand].color, background: PRIORITY_META[r.priorityBand].bg }}
-                        >
-                          {PRIORITY_META[r.priorityBand].short}
-                          {r.mainScore && <span style={{ fontVariantNumeric: "tabular-nums", opacity: 0.75 }}>{r.mainScore.score}</span>}
-                        </span>
+                        <>
+                          <div
+                            aria-label="Score"
+                            title={r.mainScore
+                              ? r.mainScore.breakdown.join("\n")
+                              : "Not scored — this row was restored from an older upload, before scoring existed"}
+                            style={{ fontWeight: 700, fontSize: 15, lineHeight: 1.1, fontVariantNumeric: "tabular-nums", color: PRIORITY_META[r.priorityBand].color }}
+                          >
+                            {r.mainScore ? r.mainScore.score : "—"}
+                          </div>
+                          <div
+                            title={PRIORITY_META[r.priorityBand].hint}
+                            style={{ display: "inline-block", marginTop: 4, padding: "1px 6px", borderRadius: 999, fontSize: 10, fontWeight: 700, letterSpacing: 0.3, textTransform: "uppercase", color: PRIORITY_META[r.priorityBand].color, background: PRIORITY_META[r.priorityBand].bg }}
+                          >
+                            {PRIORITY_META[r.priorityBand].short}
+                          </div>
+                        </>
                       ) : <span style={{ color: "var(--muted)" }}>—</span>}
                     </td>
                     <td style={{ padding: "10px 11px" }}>
