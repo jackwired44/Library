@@ -392,6 +392,17 @@ export default function App() {
           <span className="topbar-sub">Wired CIO</span>
         </div>
         <div className="topbar-spacer" />
+        {/* Which build is this? An old copy of the HTML looks identical to
+            a new one, which once cost an entire session to work out. The
+            commit and build time are baked in at compile time by
+            vite.config.ts, so the page can answer it itself. */}
+        <span
+          className="topbar-sub"
+          title="Build this page was compiled from — commit and time (UTC)"
+          style={{ fontFamily: "var(--font-mono, monospace)", fontSize: 11, opacity: 0.75, marginRight: 10, whiteSpace: "nowrap" }}
+        >
+          build {__BUILD_ID__}
+        </span>
         <button onClick={() => { setUnlocked(false); setUnlockedState(false); }} className="icon-btn" title="Lock this page again">
           🔒 Lock
         </button>
