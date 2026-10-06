@@ -28,3 +28,10 @@ app/*.csv
 app/_run-*.cjs
 app/_run-*.cjs
 app/scripts/suites/*.csv
+
+# Generated lead exports. These hold real prospect names, emails and phone
+# numbers — sensitive by default per CLAUDE.md's Access & ownership rules —
+# and are regenerable from the source CSVs via
+# `npx tsx app/scripts/strong-signal-list.ts <files...>`.
+carly-strong-signals.csv
+*-strong-signals.csv
