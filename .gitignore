@@ -35,3 +35,5 @@ app/scripts/suites/*.csv
 # `npx tsx app/scripts/strong-signal-list.ts <files...>`.
 carly-strong-signals.csv
 *-strong-signals.csv
+gap-leads-*.csv
+not-in-jack-or-carly.csv
