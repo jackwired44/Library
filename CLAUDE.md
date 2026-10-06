@@ -5710,6 +5710,94 @@ at any horizon is 102. If Jack wants a bigger standing call list, the
 horizon is the one number to move, and it is `RENEWAL_SOON_DAYS` — shared
 with the High-priority route, so moving it moves both.
 
+### CSP Scanner: the Notes line rewritten around the four facts a rep needs
+
+Per Jack: *"LETS CLEAN up the notes for csp so it makes more sense flow
+wise"*, then, naming what the line must carry: *"i want the notes to have
+the date they renewal is for if they go direct or through a partner size of
+the opp and what it is about like which licneses or azure."*
+
+**Six flow defects, all measured on the real 9,265-row export before
+anything was changed:**
+
+| | rows |
+|---|---|
+| `Open lane · SHI on record` — two clauses stating the opposite | **279** |
+| `annual new, monthly` — self-contradictory on its face | **189** |
+| Four different renewal grammars (`renews`/`renewed`/`close`/`close passed`, half with a clock) | 411 |
+| A **lowercase month** — `close ~may` | 81 |
+| Ask quote opening on a CRM form label, not a reason | **18 of 109** |
+| Money and billing one fact, split by two clauses | most |
+
+**The line now answers Jack's four, in his order, and they are never shed:**
+
+```
+⏰ Renews ~December (56d) · $504k on Copilot · no partner yet · annual renewal, paid upfront · 36d cold · (95)
+$303k on M365 E7, M365 E5, Copilot · no partner yet (SHI in notes) · annual new, paid upfront · 41d cold · (70)
+⚑ Wants partner (12 Jun): Open to partner… · Renewed August 1, 2026 · $12k on Business Premium, Business Standard · via partner: Executech · (48)
+```
+
+- **The renewal LEADS when there is one** — it is the reason to dial now.
+  Money leads the other 1,686. Confirmed with Jack before building.
+- **One renewal grammar, the verb carrying the tense**: `Renews 15 Nov
+  (26d)` / `Renews Feb 2027` / `Renewed 1 Aug` / `Forecast close 2 Dec
+  (57d)` / `Forecast close 21 Mar, passed`. Days move into parentheses
+  because a bare trailing number read as one more loose figure in a line
+  that already has three. "Renews" is their contract and "Forecast close"
+  is the seller's guess — still impossible to read as the same promise.
+- **Size and subject are ONE clause** — `$504k on Copilot, M365 E5`. Split
+  across two they read as a number and then an unrelated list, and the
+  separator bought nothing.
+- **The lane answers "direct or through a partner" in words** — `via
+  partner: CDW` / `direct with Microsoft` / `no partner yet`. The named
+  reseller folds INTO it as `no partner yet (SHI in notes)`: the record
+  says nobody and the notes say SHI, which is one fact with a caveat, not
+  two facts that disagree. **"Open lane" is still the FILTER's label** — a
+  column header can be jargon, a sentence cannot.
+- **Billing reads as English** — `annual new, paid monthly`. Attaching
+  "paid" to the payment rather than the term is the whole fix.
+  `BILLING_META` gained a `note` field so the filter dropdown and the
+  Documentation table keep their own wording.
+- **Months are capitalised anywhere in the phrase** (`~end of february` →
+  `~end of February`), and ONLY real month names: a blanket
+  capitalise-the-first-word turned `end of September` into a proper noun
+  that is not one. Everything else keeps the seller's verbatim casing.
+- **The ask-quote filler list grew** for `Context:`, `1st Comment:`,
+  `Engagement type:`, `Last Action` (the colonless form), and a bare
+  `Need` that is the BANT **field label** rather than the verb — the same
+  trap the partner-ask verb list already documents.
+
+**The word cap now counts words, not tokens — confirmed with Jack.** The
+clause separator is punctuation, so counting it spent **6 of a 20-word
+budget on `·` alone**, making "20 words max" mean about 14. `noteWordCount`
+is exported so the suite measures what the engine measures instead of
+keeping a second definition that could drift.
+
+**Shed order follows the four**: billing goes first, then how cold the
+record is, then the caution flag as a last resort. The renewal, the deal
+and the lane are never dropped.
+
+**Measured after: median 14 words / 87 chars, p90 19 / 120, max 26, zero
+rows over cap.** Coverage of Jack's four is complete — 411/411 renewal
+dates, 2,141/2,141 deal sizes, 1,376/1,376 product lists, 2,175/2,175
+lanes — and every defect above is at **zero**.
+
+**Verification.** 32 suites / **1,318 checks** (was 1,290). `csp-notes`
+grew 51 → 72 with the four, every defect, and all four renewal grammars;
+`csp-renewal-live` 28 → 32; `docs` 41 → 44 against a new, derived
+Documentation section. **Seventeen assertions across four suites were
+re-pointed, none loosened** — all seventeen were locator breaks from the
+two approved changes, and the one that could have hidden a regression (a
+score-floor check reading `min 41`) came back green once its
+`/⏰ renews /` detector was corrected to `/⏰ Renews /`, confirming it was
+the detector and not the band. Fail-first evidence here is the real-file
+before/after (279 / 189 / 81 / 18 → 0 each), not a fixture.
+
+**Flagged, not changed:** 1,686 of 2,175 High rows state no renewal date at
+all and simply carry no renewal clause. A "no renewal date on file" filler
+would cost words on 77% of rows to say nothing, so absent stays absent —
+flag if Jack wants it stated explicitly.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

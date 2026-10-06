@@ -69,6 +69,17 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  PASS', n)) : (fail++,
      /forecast for their own pipeline/i.test(csp) && /renewed/.test(csp), '');
   ok('CSP: states the renewal bonus from the live constant', /bonus of up to 18 points/i.test(csp.replace(/\s+/g, ' ')), '');
   ok('CSP: says the export is eight columns, not nine', /8-column Apollo shape/.test(csp), (csp.match(/\d+-column Apollo shape/) || [''])[0]);
+  ok('CSP: documents the Notes line and what each clause answers',
+     // Case-insensitive: the <H> subheading is CSS-uppercased, so innerText
+     // reads "THE NOTES LINE".
+     /the notes line/i.test(csp) && /When their renewal is/.test(csp)
+     && /size of the opportunity and what it is about/.test(csp)
+     && /direct, through a partner, or have nobody/.test(csp), '');
+  ok('CSP: states the caps from the live constants, and that \u00b7 is not a word',
+     /capped at 20 words \(26 where/.test(csp.replace(/\s+/g, ' '))
+     && /counts words, not the/.test(csp.replace(/\s+/g, ' ')), '');
+  ok('CSP: names the three clauses that are never shed',
+     /renewal, the deal and the lane are never shed/i.test(csp.replace(/\s+/g, ' ')), '');
   ok('CSP: says Product Area carries the priority', /Product Area carries the priority/.test(csp));
   ok('CSP: says there is no product line here', /no product line/i.test(csp));
   ok('CSP: documents which date it filters on', /createdon/.test(csp) && /forecast, not a receipt/.test(csp));

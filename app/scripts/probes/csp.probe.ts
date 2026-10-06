@@ -136,7 +136,7 @@ const open40 = mk({ msp_licensingprogramname: "CSP | Annual Renewal Upfront Bill
 ok("\u25c6 open lane + a contract renewal inside the window is pinned", open40.lead.openRenewal, open40.v.why);
 ok("  and is High priority", open40.v.bucket === "priority", open40.v.why);
 ok("  the note carries the \u25c6 mark, so it survives the download", open40.v.why.startsWith("\u25c6 "), open40.v.why);
-ok("  and still says the date and the lane", /\u23f0 renews /.test(open40.v.why) && /Open lane/.test(open40.v.why), open40.v.why);
+ok("  and still says the date and the lane", /\u23f0 Renews /.test(open40.v.why) && /no partner yet/.test(open40.v.why), open40.v.why);
 ok("  breakdown leads with the pin and says why", open40.v.breakdown[0].startsWith("\u25c6") && /no partner is on the record/.test(open40.v.breakdown[0]), open40.v.breakdown[0]);
 ok("  it outranks the \u2605 perfect lead \u2014 Jack's \"highest priority lead here\"", compareCspLeads(open40.lead, perfect.lead) < 0);
 ok("  and outranks a higher-scoring unpinned lead", compareCspLeads(open40.lead, strong.lead) < 0);
@@ -262,7 +262,7 @@ const acme = rows.find(({ e }) => /ACME/.test(e["Company Name"]));
 ok("the perfect lead is Strong Signal", acme?.r.bucket === "priority", acme?.r.snippet);
 ok("  flagged perfect on the row", !!acme?.r.csp?.perfect);
 ok("  Product Area carries the effective PRIORITY, not a product line", toApolloRow(acme!.r, CSP_BUCKET_META[acme!.r.bucket].label)["Product Area"] === "High priority");
-ok("  and the partner posture is in Notes instead", /Open lane/.test(acme?.e.Notes ?? ""), acme?.e.Notes);
+ok("  and the partner posture is in Notes instead", /no partner yet/.test(acme?.e.Notes ?? ""), acme?.e.Notes);
 ok("  with no override passed it still says something true (partner label)", acme?.e["Product Area"] === "Open — no partner assigned", acme?.e["Product Area"]);
 ok("  contact + phone + email carry through", acme?.e["First Name"] === "Dana" && acme?.e["Last Name"] === "Reyes" && acme?.e.Email === "dana@acme.com" && acme?.e["Work Direct Phone"] === "312-555-0147");
 ok("  Notes carry the score, at the end", /\(\d{1,3}\)$/.test(acme?.e.Notes ?? ""), acme?.e.Notes);
@@ -273,7 +273,7 @@ ok("  but no Dynamics / M365 product line is assigned", !("productLine" in skuRo
 ok("  receivedOn is the last seller touch, so the date filter works", acme?.r.receivedOn === plus(-5), String(acme?.r.receivedOn));
 
 const heldRow = rows.find(({ e }) => /HELD CO/.test(e["Company Name"]));
-ok("the held deal's Notes name the partner", /Held: CDW/.test(heldRow?.e.Notes ?? ""), heldRow?.e.Notes);
+ok("the held deal's Notes name the partner", /via partner: CDW/.test(heldRow?.e.Notes ?? ""), heldRow?.e.Notes);
 ok("a manual Low override maps to the Low priority bucket", CURATION_TO_BUCKET.reject === "excluded" && CSP_BUCKET_META.excluded.label === "Low priority");
 ok("perfect outranks the bigger held deal", compareCspLeads(acme?.r.csp, heldRow?.r.csp) < 0);
 
@@ -283,7 +283,7 @@ ok("  and is Low priority after the penalty (monthly, no phone, no-show now)", g
 
 const np = rows.find(({ e }) => /NOTES PHONE/.test(e["Company Name"]));
 ok("a phone labelled in the notes fills an empty phone column", np?.e["Work Direct Phone"] === "+1 786 953 5229", np?.e["Work Direct Phone"]);
-ok("  Microsoft direct is named in its Notes", /MS direct/.test(np?.e.Notes ?? ""), np?.e.Notes);
+ok("  Microsoft direct is named in its Notes", /direct with Microsoft/.test(np?.e.Notes ?? ""), np?.e.Notes);
 
 {
   // A subset file saved out of Excel that LOST the company column — this is

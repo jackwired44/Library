@@ -228,6 +228,20 @@ const ASK_FILLER_RES: RegExp[] = [
   // the forecast status: …", "- ? Last Action STU presentation to …".
   /^[-\s?•]+/,
   /^(?:forecast\s+status|reason\s+of\s+the\s+forecast\s+status|last\s+action|next\s+action|sales\s+stage|deal\s+health)\s*:\s*\w+\s*/i,
+  // More of the same class, from reading the 18 of 109 real ask rows whose
+  // quoted reason opened on a form label rather than on anything a customer
+  // said: "Context: Company: RCS (small logistics company)…", "1st Comment:
+  // Engagement type: Meeting Tenant ID: ea516e5d…". These are headers, and
+  // a header is never the reason they want a partner.
+  /^(?:\d+(?:st|nd|rd|th)\s+comment|context|overview(?:\/summary)?|summary|engagement\s+type|tenant\s+id|buying-?channel\s+preference|clm\/partner|account\s+summary|opportunity\s+summary)\s*:?\s*/i,
+  // "Last Action STU presentation to CFO CoS" — the label with no colon
+  // after it, which the pattern above cannot catch.
+  /^last\s+action\s+/i,
+  // "Need" is a BANT FIELD LABEL in these exports, not the verb — the same
+  // trap the partner-ask verb list already documents. Stripped only when a
+  // second label follows it ("Need CSP Licensing Need for license
+  // review…"), so a real sentence ("Need a partner call") is left alone.
+  /^need\s+(?=[A-Z][\w/]*\s+(?:need|partner|licensing|review)\b)/i,
 ];
 
 /**
@@ -691,12 +705,19 @@ export function labelledPhoneFrom(notes: string): string {
  */
 export type BillingQuality = 0 | 1 | 2 | 3 | 4;
 
-export const BILLING_META: { rank: BillingQuality; label: string; short: string; re: RegExp }[] = [
-  { rank: 0, label: "Annual, new, paid upfront", short: "Annual new · upfront", re: /annual\s+new\s+upfront/i },
-  { rank: 1, label: "Annual renewal, paid upfront", short: "Annual renewal · upfront", re: /annual\s+renewal\s+upfront/i },
-  { rank: 2, label: "Annual, new, billed monthly", short: "Annual new · monthly", re: /annual\s+new\s+monthly/i },
-  { rank: 3, label: "Annual renewal, billed monthly", short: "Annual renewal · monthly", re: /annual\s+renewal\s+monthly/i },
-  { rank: 4, label: "Month to month", short: "Monthly", re: /monthly/i },
+/**
+ * `short` is the filter dropdown's wording; `note` is the sentence form the
+ * Notes line uses. They are separate on purpose: lowercasing the short form
+ * produced "annual new, monthly", which contradicts itself on its face —
+ * 189 real rows read that way. "paid monthly" is what fixes it, because it
+ * attaches to the PAYMENT rather than to the term.
+ */
+export const BILLING_META: { rank: BillingQuality; label: string; short: string; note: string; re: RegExp }[] = [
+  { rank: 0, label: "Annual, new, paid upfront", short: "Annual new · upfront", note: "annual new, paid upfront", re: /annual\s+new\s+upfront/i },
+  { rank: 1, label: "Annual renewal, paid upfront", short: "Annual renewal · upfront", note: "annual renewal, paid upfront", re: /annual\s+renewal\s+upfront/i },
+  { rank: 2, label: "Annual, new, billed monthly", short: "Annual new · monthly", note: "annual new, paid monthly", re: /annual\s+new\s+monthly/i },
+  { rank: 3, label: "Annual renewal, billed monthly", short: "Annual renewal · monthly", note: "annual renewal, paid monthly", re: /annual\s+renewal\s+monthly/i },
+  { rank: 4, label: "Month to month", short: "Monthly", note: "month-to-month", re: /monthly/i },
 ];
 
 /** Rank a licensing programme string. An unrecognised programme ranks
@@ -1100,7 +1121,11 @@ export interface CspVerdict {
 export const CSP_NOTE_MAX_WORDS = 20;
 export const CSP_NOTE_MAX_WORDS_ASK = 26;
 const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const wordCount = (s: string) => s.split(/\s+/).filter(Boolean).length;
+/** Words, NOT tokens. The clause separator is punctuation, so counting it
+ *  spent 6 of a 20-word budget on "·" alone and made the cap mean ~14 real
+ *  words — not what "20 words max" was asked for. Confirmed with Jack. */
+export const noteWordCount = (s: string) => s.split(/\s+/).filter((w) => w && w !== "·").length;
+const wordCount = noteWordCount;
 /** "2026-06-12" -> "12 Jun". Parsed by field, never through Date, so it
  *  cannot shift a day across a timezone. */
 export function shortAskDate(iso: string): string {
@@ -1118,45 +1143,79 @@ const firstWord = (s: string) => (String(s).trim().split(/\s+/)[0] ?? "").replac
  *  is not written there is invisible the moment the file leaves the app. */
 export const OPEN_RENEWAL_MARK = "◆";
 
+/** A month written lowercase in the seller's own notes ("close ~may") reads
+ *  as a typo once it is lifted into a clause of its own. 81 real rows do
+ *  this. Only a LEADING month word is touched — the rest of the phrase is
+ *  the seller's verbatim wording and stays exactly as written. */
+function capitaliseMonth(when: string): string {
+  // Only a real month name, and anywhere in the phrase rather than just at
+  // the front — "end of february" is the same defect one word later. A
+  // blanket "capitalise the first word" is wrong in the other direction: it
+  // turned "end of September" into "End of September", a proper noun that
+  // is not one. Everything that is not a month keeps the seller's own
+  // casing, because the phrase is quoted from their note.
+  return when.replace(
+    /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)([a-z]*)\b/gi,
+    (_m, a: string, b: string) => a[0].toUpperCase() + a.slice(1).toLowerCase() + b.toLowerCase(),
+  );
+}
+
+/**
+ * The Notes line. Per Jack it carries four things: **when their renewal
+ * is**, **the size of the opportunity and what it is about** (which
+ * licences, or Azure), and **whether they go direct or through a partner**.
+ * Billing shape, the caution flag, how cold the record is and the score
+ * ride behind those four and are what gets shed when a row runs long.
+ */
 export function cspNote(lead: CspLead, score: number, flags: string[] = [], pin = ""): string {
   const value = lead.value != null && lead.value > 0 ? money(lead.value) : "";
-  // Three, not two: a CSP renewal call turns on what they are actually
-  // on, and capping at two dropped the Copilot in "E5 to E7, Copilot".
-  // The shed ladder still removes them whole when a row is tight.
+  // Three, not two: a CSP renewal call turns on what they are actually on,
+  // and capping at two dropped the Copilot in "E5 to E7, Copilot".
   const skus = lead.skus.slice(0, 3).join(", ");
-  // BILLING_META.short already carries its own separator; a comma keeps it
-  // reading as one fact rather than two.
-  const billing = lead.billing.replace(/\s*·\s*/g, ", ").toLowerCase().trim();
+  // Size of the opp and what it is about are ONE fact, so they are one
+  // clause: "$504k on Copilot, M365 E5". Split across two they read as a
+  // number and then an unrelated list, and the separator bought nothing.
+  const deal = value && skus ? `${value} on ${skus}` : value || skus;
+  const billing = BILLING_META.find((b) => b.rank === lead.billingRank)?.note ?? "";
+  // "Do they go direct or through a partner" is the question Jack asked
+  // this clause to answer, so it answers it in words. "Open lane" stays the
+  // FILTER's label — a column header can be jargon, a sentence cannot.
+  // The named reseller folds in here rather than trailing as its own
+  // clause: "Open lane · SHI on record" read as a flat contradiction on 279
+  // real rows, when what it means is "the record says nobody, the notes say
+  // SHI" — one fact with a caveat, not two facts that disagree.
+  const conflict = lead.partnerConflict ? ` (${firstWord(lead.partnerConflict)} in notes)` : "";
   const lane = lead.posture === "named" && lead.partner
-    ? `Held: ${firstWord(lead.partner)}`
-    : POSTURE_META[lead.posture].short === "Open" ? "Open lane"
-      : POSTURE_META[lead.posture].short === "Direct" ? "MS direct"
-      : POSTURE_META[lead.posture].short;
-  const conflict = lead.partnerConflict ? `${firstWord(lead.partnerConflict)} on record` : "";
-  // Renewals are the whole play on this list, so this sits directly after
-  // the money and never gets shed — a renewal in August IS the reason to
-  // dial. "renews" is their contract; "close" is the seller's forecast,
-  // worded differently so the two can never be read as the same promise.
-  // A renewal inside the window carries a clock, because "renews February"
-  // and "renews February, 41 days out" are different calls. A date already
-  // PASSED is marked as such rather than read as urgency — they just
-  // re-signed. The bare-month assumption shows as "~" so a guess is never
-  // presented as a confirmed contract date.
+    ? `via partner: ${firstWord(lead.partner)}`
+    : lead.posture === "microsoft" ? `direct with Microsoft${conflict}`
+      : `no partner yet${conflict}`;
+  // Renewals are the whole play on this list, so this LEADS the line when
+  // there is one and is never shed — a renewal in August IS the reason to
+  // dial. ONE grammar, with the verb carrying the tense: four shapes
+  // ("renews" / "renewed" / "close" / "close passed", half of them with a
+  // clock) did not read as a column. "Renews" is their contract, "Forecast
+  // close" is the seller's guess, worded so the two can never be read as
+  // the same promise. A date inside the window carries its days in
+  // parentheses, because "Renews Feb" and "Renews Feb (41d)" are different
+  // calls and a bare trailing number read as one more loose figure. The
+  // bare-month assumption shows as "~" so a guess is never presented as a
+  // confirmed contract date.
   const renewal = lead.renewal
     ? (() => {
         const r = lead.renewal!;
-        const head = r.kind === "renewal" ? "renews" : "close";
-        const tilde = r.assumed ? "~" : "";
-        if (r.daysOut == null) return `${head} ${tilde}${r.when}`;
-        // A date that already went by, worded by KIND. "renewed" asserts
+        const when = `${r.assumed ? "~" : ""}${capitaliseMonth(r.when)}`;
+        const contract = r.kind === "renewal";
+        if (r.daysOut == null) return contract ? `Renews ${when}` : `Forecast close ${when}`;
+        // A date that already went by, worded by KIND. "Renewed" asserts
         // the customer re-signed; saying that of a seller's forecast close
         // states a contract event nobody wrote down. Measured on the real
         // 9,265-row file: 814 of the 1,226 dates are forecasts, so this
-        // branch was the one place the two could be read as the same
-        // promise — the distinction every other branch keeps.
-        if (r.daysOut < 0) return r.kind === "renewal" ? `renewed ${tilde}${r.when}` : `close passed ${tilde}${r.when}`;
-        if (r.daysOut <= RENEWAL_SOON_DAYS) return `\u23F0 ${head} ${tilde}${r.when} ${r.daysOut}d`;
-        return `${head} ${tilde}${r.when}`;
+        // branch was the one place the two could be read as one promise.
+        if (r.daysOut < 0) return contract ? `Renewed ${when}` : `Forecast close ${when}, passed`;
+        if (r.daysOut <= RENEWAL_SOON_DAYS) {
+          return `\u23F0 ${contract ? "Renews" : "Forecast close"} ${when} (${r.daysOut}d)`;
+        }
+        return contract ? `Renews ${when}` : `Forecast close ${when}`;
       })()
     : "";
   const age = lead.ageDays == null ? "" : lead.ageDays === 0 ? "touched today" : `${lead.ageDays}d cold`;
@@ -1176,13 +1235,14 @@ export function cspNote(lead: CspLead, score: number, flags: string[] = [], pin 
   // and since the flag also overrides the score band that put unmarked
   // sub-60 leads into the High file with nothing saying why.
   if (!lead.wantsPartner) {
-    // Shed billing, then licences. Never the lane, the age or the rank —
-    // those are what decide whether to dial at all.
+    // The shed order follows Jack's four. Renewal, the deal (size + what it
+    // is about) and the lane are never dropped; billing goes first, then
+    // how cold the record is, then the caution flag as a last resort.
     const shed: string[][] = [
-      [value, renewal, skus, billing, lane, conflict, warn, age, rank],
-      [value, renewal, skus, lane, conflict, warn, age, rank],
-      [value, renewal, lane, conflict, warn, age, rank],
-      [value, renewal, lane, age, rank],
+      [renewal, deal, lane, billing, warn, age, rank],
+      [renewal, deal, lane, warn, age, rank],
+      [renewal, deal, lane, warn, rank],
+      [renewal, deal, lane, rank],
     ];
     for (const parts of shed) {
       const s = parts.filter(Boolean).join(" · ");
@@ -1201,11 +1261,13 @@ export function cspNote(lead: CspLead, score: number, flags: string[] = [], pin 
   // lead is the one you most want them for.
   const mark = lead.perfect ? "★" : "⚑";
   const stem = `${mark} Wants partner${ask?.when ? ` (${shortAskDate(ask.when)})` : ""}`;
+  // Same four, same shed order — an ask row just spends its first words on
+  // the reason, so its tail starts shorter.
   const tails = [
-    [value, renewal, billing, lane, conflict, warn, age, rank],
-    [value, renewal, lane, conflict, warn, age, rank],
-    [value, renewal, lane, warn, age, rank],
-    [value, renewal, lane, age, rank],
+    [renewal, deal, lane, billing, warn, age, rank],
+    [renewal, deal, lane, warn, age, rank],
+    [renewal, deal, lane, warn, rank],
+    [renewal, deal, lane, rank],
   ].map((t) => t.filter(Boolean).join(" · "));
   // Take the richest tail that leaves room for at least a short reason,
   // else the shortest tail there is.

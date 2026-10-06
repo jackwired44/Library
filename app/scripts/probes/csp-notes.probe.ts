@@ -17,14 +17,17 @@
 import {
   cspNote, partnerAskFrom, nextStepFrom, allEntries, shortAskDate,
   readCspLead, classifyCsp, DEFAULT_CSP_RULES, guessCspColumns,
-  CSP_NOTE_MAX_WORDS, CSP_NOTE_MAX_WORDS_ASK, type CspLead,
+  CSP_NOTE_MAX_WORDS, CSP_NOTE_MAX_WORDS_ASK, noteWordCount, type CspLead,
 } from "../../src/lib/cspRenewal";
 
 let pass = 0, fail = 0;
 const ok = (n: string, c: boolean, d = "") => {
   c ? (pass++, console.log("  PASS " + n)) : (fail++, console.log(`  FAIL ${n}${d ? " — " + d : ""}`));
 };
-const words = (s: string) => s.split(/\s+/).filter(Boolean).length;
+// The engine's own counter, imported rather than re-implemented: the cap
+// does not count the · separator (punctuation is not a word), and a
+// second local definition of that would silently drift from the rule.
+const words = noteWordCount;
 const TODAY = "2026-09-30";
 
 // A row in the real export's shape.
@@ -40,6 +43,13 @@ const mk = (notes: string, over: Record<string, string> = {}): CspLead => {
 };
 const noteOf = (lead: CspLead) =>
   classifyCsp(lead, DEFAULT_CSP_RULES, { hasPhone: true, hasEmail: true }).why;
+// Dates relative to this probe's fixed TODAY, so the grammar cases below
+// land on a known side of the window however long the file sits here.
+const MONS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const shift = (n: number) => { const d = new Date(`${TODAY}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d; };
+const plus = (n: number) => shift(n).toISOString().slice(0, 10);
+const mdy = (k: string) => { const [y, m, d] = k.split("-"); return `${Number(m)}/${Number(d)}/${y}`; };
+const dMon = (k: string) => { const [, m, d] = k.split("-"); return `${Number(d)}/${MONS[Number(m) - 1]}`; };
 
 console.log("\n== the seller's internal next step is gone from the line ==");
 // The exact row Jack pasted back: `next:` ran through two later dated
@@ -109,7 +119,7 @@ const HELD = mk("RZ - 12/Jun - Customer is unhappy with their current reseller a
                 { msp_partneraccountidname: "Encore Business Solutions Inc." });
 const heldNote = noteOf(HELD);
 ok("a named partner reads as one word, not a CRM string",
-   /Held: Encore/.test(heldNote) && !/Business Solutions/.test(heldNote), heldNote);
+   /via partner: Encore/.test(heldNote) && !/Business Solutions/.test(heldNote), heldNote);
 ok("  and the ask is still shown beside it", /⚑ Wants partner/.test(heldNote), heldNote);
 
 console.log("\n== supporting helpers ==");
@@ -175,6 +185,84 @@ const dan = noteOf(DENSE_ASK);
 ok("an ask row with a renewal fits too", words(dan) <= CSP_NOTE_MAX_WORDS_ASK, `${words(dan)}w: ${dan}`);
 ok("  keeping both the ask and the renewal",
    /Wants partner/.test(dan) && /renews January 2027/i.test(dan), dan);
+
+console.log("\n== Jack's four: the renewal date, the size, what it is about, the lane ==");
+// "i want the notes to have the date they renewal is for if they go direct
+// or through a partner size of the opp and what it is about like which
+// licneses or azure" — these four lead the line and are never shed.
+const FOUR = mk("MA - 3/Sep - Renewal date: 15 Nov 2026. Looking at M365 E5 and Copilot across the business.", {
+  msp_licensingprogramname: "CSP | Annual New Upfront Billing", estimatedvalue: "90000", msp_partneraccountidname: "NULL",
+});
+const fn = noteOf(FOUR);
+ok("the renewal date leads the line", /^(\u25c6 )?\u23f0? ?Renews /.test(fn), fn);
+ok("  the size of the opp and what it is about read as ONE clause", /\$90k on M365 E5/.test(fn), fn);
+ok("  and the lane says direct / partner / neither in words",
+   /no partner yet|direct with Microsoft|via partner: /.test(fn), fn);
+
+const HELD2 = mk("TH - 3/Sep - Renewal date: 15 Nov 2026. Reviewing M365 E5.", {
+  msp_licensingprogramname: "CSP | Annual New Upfront Billing", estimatedvalue: "90000", msp_partneraccountidname: "CDW Logistics LLC",
+});
+ok("a held row names the partner they go through", /via partner: CDW/.test(noteOf(HELD2)), noteOf(HELD2));
+const MSD = mk("GD - 3/Sep - Reviewing M365 E5.", {
+  msp_licensingprogramname: "CSP | Annual New Upfront Billing", estimatedvalue: "90000", msp_partneraccountidname: "Microsoft",
+});
+ok("a Microsoft-direct row says so in words", /direct with Microsoft/.test(noteOf(MSD)), noteOf(MSD));
+
+console.log("\n== the flow defects that prompted the rewrite ==");
+// 279 real rows read "Open lane \u00b7 SHI on record" — two clauses stating the
+// opposite. One clause with the caveat inside it is one fact.
+const CONFLICT = mk("MA - 3/Sep - SHI is handling their licensing today. Reviewing M365 E5.", {
+  msp_licensingprogramname: "CSP | Annual New Upfront Billing", estimatedvalue: "90000", msp_partneraccountidname: "NULL",
+});
+const cf = noteOf(CONFLICT);
+ok("the record-says-nobody / notes-name-someone case is ONE clause",
+   /no partner yet \(SHI in notes\)/.test(cf), cf);
+ok("  and never reads as two clauses contradicting each other",
+   !/(no partner yet|direct with Microsoft) \u00b7 \w+ in notes/.test(cf), cf);
+
+// 189 real rows read "annual new, monthly", which contradicts itself.
+for (const [prog, want] of [
+  ["CSP | Annual New Monthly Billing", "annual new, paid monthly"],
+  ["CSP | Annual New Upfront Billing", "annual new, paid upfront"],
+  ["CSP | Monthly New", "month-to-month"],
+] as [string, string][]) {
+  const n = noteOf(mk("MA - 3/Sep - Reviewing M365 E5.", { msp_licensingprogramname: prog, estimatedvalue: "9000", msp_partneraccountidname: "NULL" }));
+  ok(`billing reads as English: "${want}"`, n.includes(want), n);
+}
+ok("no note can say 'annual ..., monthly'",
+   ![ "CSP | Annual New Monthly Billing", "CSP | Annual Renewal Monthly Billing" ]
+     .some((prog) => /annual \w+, monthly/.test(noteOf(mk("MA - 3/Sep - Reviewing M365 E5.", { msp_licensingprogramname: prog, estimatedvalue: "9000", msp_partneraccountidname: "NULL" })))));
+
+// One renewal grammar, the verb carrying the tense.
+const grammar: [string, string, RegExp][] = [
+  ["an upcoming contract renewal", `MA - ${dMon(plus(-3))} - Renewal date: ${mdy(plus(40))}.`, /\u23f0 Renews .*\(\d+d\)/],
+  ["a passed contract renewal", `MA - ${dMon(plus(-3))} - Renewal date: ${mdy(plus(-40))}.`, /Renewed /],
+  ["an upcoming forecast close", `MA - ${dMon(plus(-3))} - Estimated Close Date: ${mdy(plus(40))}.`, /\u23f0 Forecast close .*\(\d+d\)/],
+  ["a passed forecast close", `MA - ${dMon(plus(-3))} - Estimated Close Date: ${mdy(plus(-40))}.`, /Forecast close .*, passed/],
+];
+for (const [label, txt, want] of grammar) {
+  const n = noteOf(mk(txt, { msp_licensingprogramname: "CSP | Annual New Upfront Billing", estimatedvalue: "9000", msp_partneraccountidname: "NULL" }));
+  ok(`${label} has its own verb`, want.test(n), n);
+}
+const lowerMonth = noteOf(mk("MA - 3/Sep - Renewal expires end of may.", { estimatedvalue: "9000", msp_partneraccountidname: "NULL" }));
+ok("a month the seller typed lowercase is capitalised", /May/.test(lowerMonth) && !/ may/.test(lowerMonth), lowerMonth);
+const notAMonth = noteOf(mk("MA - 3/Sep - Renewal expires end of the quarter.", { estimatedvalue: "9000", msp_partneraccountidname: "NULL" }));
+ok("  but a word that is NOT a month keeps its own casing", /end of the quarter/.test(notAMonth), notAMonth);
+
+// 18 of 109 real ask quotes opened on a CRM form label, not on a reason.
+for (const junk of [
+  "Context: Company: RCS (small logistics company) wants a partner to handle licensing",
+  "1st Comment: Engagement type: Meeting. Customer is looking for a partner to handle licensing",
+  "Last Action STU presentation to CFO. Customer is looking for a partner to handle licensing",
+]) {
+  const n = noteOf(mk(`MA - ${dMon(plus(-3))} - ${junk}.`, { msp_partneraccountidname: "NULL", estimatedvalue: "9000" }));
+  ok(`an ask quote never opens on "${junk.slice(0, 18)}…"`,
+     !/: (Context|1st Comment|Last Action|Engagement type)\b/.test(n), n);
+}
+
+// The separator is punctuation, so the cap counts words, not tokens.
+ok("the word cap does not count the \u00b7 separator",
+   noteWordCount("a \u00b7 b \u00b7 c") === 3, String(noteWordCount("a \u00b7 b \u00b7 c")));
 
 console.log(`\n${pass}/${pass + fail} checks passed`);
 if (fail) process.exit(1);

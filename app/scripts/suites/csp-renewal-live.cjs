@@ -78,14 +78,22 @@ const notesOf = async page => (await page.locator('tbody tr').allInnerTexts());
   let rows = await notesOf(page);
   const find = c => rows.find(t => t.includes(c)) || '';
   ok('an open-lane renewal carries the ◆ pin mark', /◆/.test(find('OPEN SOON')), find('OPEN SOON').slice(0, 160));
-  ok('  with the clock, the days out and the lane', /⏰ renews /.test(find('OPEN SOON')) && /Open lane/.test(find('OPEN SOON')), find('OPEN SOON').slice(0, 160));
+  ok('  with the clock, the days out and the lane', /⏰ Renews .*\(\d+d\)/.test(find('OPEN SOON')) && /no partner yet/.test(find('OPEN SOON')), find('OPEN SOON').slice(0, 160));
   ok('Microsoft direct pins too — nobody is on that record', /◆/.test(find('DIRECT CORP')), find('DIRECT CORP').slice(0, 160));
   ok('a renewal HELD by a named partner does NOT pin', !/◆/.test(find('HELD CO')), find('HELD CO').slice(0, 160));
-  ok('  but still shows the date', /renews /.test(find('HELD CO')), find('HELD CO').slice(0, 160));
+  ok('  but still shows the date', /Renews /.test(find('HELD CO')), find('HELD CO').slice(0, 160));
   ok('a seller forecast close does NOT pin', !/◆/.test(find('FORECAST')), find('FORECAST').slice(0, 160));
-  ok('  and is worded "close", never "renews"', /close /.test(find('FORECAST')) && !/renews/.test(find('FORECAST')), find('FORECAST').slice(0, 160));
+  ok('  and is worded "forecast close", never "renews"', /Forecast close /.test(find('FORECAST')) && !/Renews/.test(find('FORECAST')), find('FORECAST').slice(0, 160));
+  ok("the note answers Jack's four: when it renews, the size, what it is about, and the lane",
+     /⏰ Renews .*\(\d+d\)/.test(find('OPEN SOON'))
+     && /\$90k on /.test(find('OPEN SOON'))
+     && /M365 E5/.test(find('OPEN SOON'))
+     && /no partner yet/.test(find('OPEN SOON')), find('OPEN SOON').slice(0, 200));
+  ok('  a held row names the partner it goes through', /via partner: CDW/.test(find('HELD CO')), find('HELD CO').slice(0, 160));
+  ok('  a Microsoft-direct row says so in words', /direct with Microsoft/.test(find('DIRECT CORP')), find('DIRECT CORP').slice(0, 160));
+  ok('  billing never contradicts itself', !/annual \w+, monthly/.test(body), (body.match(/annual \w+, monthly/) || [''])[0]);
   ok('a renewal already passed does NOT pin', !/◆/.test(find('RESIGNED')), find('RESIGNED').slice(0, 160));
-  ok('  and reads "renewed", not as urgency', /renewed /.test(find('RESIGNED')), find('RESIGNED').slice(0, 160));
+  ok('  and reads "Renewed", not as urgency', /Renewed /.test(find('RESIGNED')), find('RESIGNED').slice(0, 160));
   ok('no literal \\u escapes leak onto the screen', !/\\u[0-9a-f]{4}/i.test(body), (body.match(/\\u[0-9a-f]{4}/i) || [''])[0]);
 
   console.log('\n== ranking ==');

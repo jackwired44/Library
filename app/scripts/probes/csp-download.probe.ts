@@ -48,7 +48,12 @@ ok("every Notes line carries its score, at the end", rows.every((r) => /\(\d{1,3
 ok("no literal 'undefined' / 'null' / 'NULL' anywhere", !/\bundefined\b|\bnull\b|\bNULL\b/.test(csv));
 ok("no literal \\u escapes leaked into the file", !/\\u[0-9a-f]{4}/i.test(csv));
 ok("no CSV column-index numbers where a value should be", rows.every((r) => !/^\d$/.test(r["Product Area"])));
-ok("Notes carry the partner posture", rows.every((r) => /Open lane|MS direct|Held: /.test(r.Notes)));
+// Per Jack the note must say whether they go direct or through a partner,
+// in words rather than in lane jargon. "Open lane" is still the FILTER's
+// label; a column header can be jargon, a sentence cannot.
+ok("Notes say whether they go direct or through a partner",
+   rows.every((r) => /no partner yet|direct with Microsoft|via partner: /.test(r.Notes)),
+   rows.find((r) => !/no partner yet|direct with Microsoft|via partner: /.test(r.Notes))?.Notes);
 const scores = rows.map((r) => Number((/\((\d{1,3})\)$/.exec(r.Notes) || [])[1]));
 // THREE kinds of lead reach High regardless of score, and all three pin to
 // the top in a stated order, so the download is four ordered groups:
@@ -69,7 +74,9 @@ const isTopQuality = (r: Record<string, string>) => /⚑ Wants partner/.test(r.N
 // A FOURTH route into High: a contract renewing inside 90 days in ANY
 // lane. Held by a partner it does not pin, it just ranks by score — so it
 // widens the score-floor checks below but not the order check above.
-const isRenewalSoon = (r: Record<string, string>) => /⏰ renews /.test(r.Notes);
+// Only a CONTRACT renewal routes into High on its own — a forecast close
+// carries the same clock but never qualifies, so this must not match it.
+const isRenewalSoon = (r: Record<string, string>) => /⏰ Renews /.test(r.Notes);
 const isOverride = (r: Record<string, string>) => isOpenRenewal(r) || isPinned(r) || isTopQuality(r);
 const pinRank = (r: Record<string, string>) =>
   isOpenRenewal(r) ? 0 : isPinned(r) ? 1 : isTopQuality(r) ? 2 : 3;
@@ -79,7 +86,7 @@ ok("the file is in pin order: ◆ renewal+open lane, then ★, then ⚑, then th
    `◆${counts[0]} ★${counts[1]} ⚑${counts[2]} rest${counts[3]}`);
 ok("  and the ◆ renewals lead the file, soonest first",
    (() => {
-     const d = rows.filter(isOpenRenewal).map((r) => Number((/ (\d{1,3})d /.exec(r.Notes) || [])[1]));
+     const d = rows.filter(isOpenRenewal).map((r) => Number((/\((\d{1,3})d\)/.exec(r.Notes) || [])[1]));
      return d.every((v, i) => i === 0 || Number.isNaN(v) || v >= d[i - 1]);
    })(), rows.filter(isOpenRenewal)[0]?.Notes.slice(0, 60) ?? "none");
 const overrideIdx = rows.map((r, i) => (isOverride(r) ? i : -1)).filter((i) => i >= 0);

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { EXPORT_LABELS, TOP_PRIORITY_META, TOP_PRIORITY_ORDER } from "../lib/detection";
 import { SCANNER2_EXPORT_LABELS, CSP_EXPORT_LABELS } from "../lib/scanner2";
-import { BILLING_META, POSTURE_META, DEFAULT_CSP_RULES, DEFAULT_CSP_WEIGHTS, WEIGHT_META, DEAD_PATTERNS, MOTION_PATTERNS, MOTION_WEIGHT, CSP_COLUMN_HINTS, WANTS_PARTNER_LABEL, OPEN_RENEWAL_MARK, RENEWAL_SOON_DAYS, RENEWAL_BONUS_MAX } from "../lib/cspRenewal";
+import { BILLING_META, POSTURE_META, DEFAULT_CSP_RULES, DEFAULT_CSP_WEIGHTS, WEIGHT_META, DEAD_PATTERNS, MOTION_PATTERNS, MOTION_WEIGHT, CSP_COLUMN_HINTS, WANTS_PARTNER_LABEL, OPEN_RENEWAL_MARK, RENEWAL_SOON_DAYS, RENEWAL_BONUS_MAX, CSP_NOTE_MAX_WORDS, CSP_NOTE_MAX_WORDS_ASK } from "../lib/cspRenewal";
 import { SMC_PRODUCTS, DEFAULT_SMC_SCORE_RULES, DEFAULT_SMC_WEIGHTS, SMC_FACTOR_META, SMC_PARTNER_META, RUNS_MAX } from "../lib/smcLead";
 
 /**
@@ -245,13 +245,33 @@ export default function Documentation() {
             override any lead to High / Medium / Low by hand, and the override wins over all of this.
           </p>
 
+          <H>The Notes line</H>
+          <p style={{ margin: 0 }}>
+            One line a rep can read on a dial, capped at {CSP_NOTE_MAX_WORDS} words ({CSP_NOTE_MAX_WORDS_ASK} where the
+            customer has asked for a partner, or where the {OPEN_RENEWAL_MARK} pin is on). It carries four things, in
+            this order:
+          </p>
+          <Table
+            head={["Reads", "What it answers"]}
+            rows={[
+              ["⏰ Renews ~Dec (56d)", "When their renewal is. ⏰ and the day count appear inside the window; “Forecast close” is the seller’s guess, never worded as a contract."],
+              ["$504k on Copilot, M365 E5", "The size of the opportunity and what it is about — one fact, so one clause."],
+              ["no partner yet (SHI in notes) / via partner: CDW / direct with Microsoft", "Whether they go direct, through a partner, or have nobody on the record yet."],
+              ["annual new, paid upfront · 45d cold · (82)", "Billing shape, how cold the record is, the score. These ride behind the four above and are what gets shed when a row runs long."],
+            ]}
+          />
+          <p style={{ margin: "8px 0 0", color: "var(--muted)" }}>
+            The renewal, the deal and the lane are <b>never</b> shed. The word cap counts words, not the
+            &ldquo;&middot;&rdquo; separators between clauses.
+          </p>
+
           <H>What comes out</H>
           <p style={{ margin: 0 }}>
             High priority and Medium priority download separately, best pin then best score first, in the{" "}
             {CSP_EXPORT_LABELS.length}-column Apollo shape.
-            <b> Product Area carries the priority</b>, so you can split sequences on it in Apollo. Partner, deal value,
-            billing, renewal, last touch and licenses named all fold into Notes. Downloads follow whatever filters
-            are set. Low priority is never downloaded.
+            <b> Product Area carries the priority</b>, so you can split sequences on it in Apollo. Everything in the
+            Notes line above travels with it. Downloads follow whatever filters are set. Low priority is never
+            downloaded.
           </p>
         </>
       ), "Scores a CSP opportunity 0–100 on partner lane, billing intent, recency, notes, value and reachability")}
