@@ -1,0 +1,23 @@
+import { readFileSync } from "node:fs";
+import { parseCSVText } from "../../src/lib/csv";
+import { scanParsedFiles } from "../../src/lib/detection";
+const parsed = process.argv.slice(2).map((f) => parseCSVText(f.split("/").pop()!, readFileSync(f, "utf8")));
+const hi = scanParsedFiles(parsed).results.filter((r) => r.tier === "signal");
+console.log(`Strong Signal ${hi.length}`);
+console.log(`\n--- raw notes, exactly as the CSV carries them ---`);
+hi.slice(0, 4).forEach((r) => console.log("   " + r.notesSummary));
+console.log(`\n--- rows where the row named what they run today ---`);
+const inc = hi.filter((r) => / On .+ today\./.test(r.notesSummary));
+console.log(`   ${inc.length} of ${hi.length}`);
+inc.slice(0, 5).forEach((r) => console.log("   " + r.notesSummary));
+console.log(`\n--- rows where the row stated pain ---`);
+const pain = hi.filter((r) => /Flagged "/.test(r.notesSummary));
+console.log(`   ${pain.length} of ${hi.length}`);
+pain.slice(0, 5).forEach((r) => console.log("   " + r.notesSummary));
+console.log(`\n--- every distinct question asked ---`);
+const qs = new Map<string, number>();
+for (const r of hi) { const m = /Ask .+$/.exec(r.notesSummary); if (m) qs.set(m[0], (qs.get(m[0]) ?? 0) + 1); }
+[...qs].sort((a, b) => b[1] - a[1]).forEach(([q, n]) => console.log(`   ${String(n).padStart(4)}  ${q}`));
+const noAsk = hi.filter((r) => !/Ask /.test(r.notesSummary));
+console.log(`\nrows with NO question: ${noAsk.length}`);
+noAsk.slice(0, 3).forEach((r) => console.log("   " + r.notesSummary));

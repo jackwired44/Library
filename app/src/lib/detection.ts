@@ -1978,6 +1978,22 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
       (!!licensing && licensing.hits.length > 0) ||
       (!!platform && platform.dynamicsModuleTier != null && platform.dynamicsModuleTier < 2),
   });
+  // The Notes line is a CALL BRIEF, not a quote — per Jack, "this is how
+  // main scanner notes should come from now on" and "this helps the reps
+  // including myself when calling these contacts". Everything before "Ask"
+  // is still taken from the row; see buildCallBrief. Falls back to the
+  // quoted summary only if the row gave nothing to state, which cannot
+  // happen on a scored row (it named a product to get here) but keeps the
+  // function total rather than relying on that.
+  notesSummary = buildCallBrief(
+    autoCategory,
+    licensing,
+    platform,
+    cleanText(resolved.comments) || combinedForDQ,
+    resolved.productArea || "",
+    resolved.company || "",
+    resolved.email || "",
+  ) || notesSummary;
   notesSummary = formatMatchedSnippet(notesSummary, mainScore.score, priorityBand);
 
   return {
@@ -2061,6 +2077,416 @@ export const PRIORITY_ORDER: Priority[] = ["high", "medium", "low", "dq"];
 export const PRIORITY_SYMBOL: Record<Priority, string> = {
   high: "\u25B2", medium: "\u25B8", low: "\u25BC", dq: "\u2715",
 };
+/* ------------------------------------------------- the Main call brief */
+
+/**
+ * Per Jack, naming what a rep needs while the phone is ringing:
+ * *"highlevel what its about and a high level or two pain point questions
+ * or how its handled today or would like it to be"*, then, per product
+ * line: M365 — *"indicate who handles it do they go direct or do they have
+ * a partner and if theres any pain"*; Dynamics — *"be about dynamics and
+ * what platform theyre on today and the pain theyre epxerincing"*. Then:
+ * *"pose two high level very short questions"* and *"dont make assumptions
+ * just use the data"*.
+ *
+ * So the line is: **what the row says · what else the row says · two short
+ * questions**, and the honesty rule that makes it safe is positional —
+ *
+ *   - everything before "Ask" is taken from the row: a stated seat count,
+ *     and a product named in the row's OWN wording (`LicensingHit.matched`
+ *     / the Dynamics phrase the row wrote), never a catalogue label;
+ *   - everything after "Ask" is visibly a question we are posing, so it
+ *     can never be read back as something the lead said.
+ *
+ * Measured on 555 Strong Signal rows across four of Jack's real Main files:
+ * only 6% name the platform they run today, 6% carry pain language and 14%
+ * mention a partner (noisily). So the ask is what a rep gets ~90% of the
+ * time, which is why it carries the line rather than decorating it.
+ */
+
+/** Platforms a lead might be running TODAY — the thing you are replacing.
+ *  Only ever quoted when the row names one; never inferred. */
+const INCUMBENT_PLATFORM_RE =
+  /\b(QuickBooks|Sage(?:\s*(?:50|100|200|300|X3|Intacct))?|NetSuite|SAP(?:\s*B1|\s*Business\s*One)?|Salesforce|HubSpot|Great\s*Plains|Epicor|Infor|Acumatica|Odoo|Xero|Peachtree|Syspro|Macola|JD\s*Edwards|Zoho|Pipedrive|FreshBooks|Deltek|Viewpoint|Foundation|Striven)\b/i;
+/** Pain, in the lead's own words. Quoted, never summarised into a verdict. */
+const PAIN_RE =
+  // `manual\s+[\w-]+` rather than `\w+`: the row wrote "manual
+  // double-entry" and the un-hyphenated class quoted it as "manual double".
+  /\b(outgrow\w*|manual\s+[\w-]+|double[- ]entry|duplicate\s+entry|disconnect\w*|siloed?|no\s+visibility|lack\s+of\s+visibility|workaround\w*|end\s+of\s+life|unsupported|clunky|cumbersome|bottleneck|error[- ]prone|outdated|no\s+longer\s+supported)\b/i;
+/** The product phrase a Dynamics row actually wrote, longest form first so
+ *  "Dynamics 365 Business Central" beats a bare "Business Central". */
+const DYNAMICS_PRODUCT_RE = new RegExp(
+  [
+    // Modules that name themselves unambiguously, with or without the
+    // "Dynamics 365" prefix the row may or may not have written.
+    String.raw`(?:dynamics\s*365\s*|d365\s*)?(?:business\s*central|finance\s*(?:and|&)\s*operations|supply\s*chain(?:\s*management)?|customer\s*engagement|customer\s*insights)`,
+    // Words that are ALSO ordinary CRM form labels, so they only count as a
+    // product when the row actually prefixed them: a bare "Sales" matched
+    // "Sales Stage: Qualify" and rendered "15 seats on Sales".
+    String.raw`(?:dynamics\s*365\s*|d365\s*)(?:customer\s*service|field\s*service|project\s*operations|human\s*resources|marketing|sales)`,
+    String.raw`dynamics\s*(?:ax|nav|gp)`,
+    String.raw`dynamics\s*crm`,
+    String.raw`dynamics\s*365`,
+    String.raw`d365`,
+  ].map((p) => `\\b(?:${p})\\b`).join("|"),
+  "gi",
+);
+/** The longest phrasing the row used, searched across BOTH the hit's own
+ *  ±70 window and the whole row. The window alone clipped
+ *  "Dynamics 365 Business Central" down to "Dynamics 365" and the note then
+ *  dropped the module Jack specifically asked it to name. Same
+ *  longest-form-wins rule the SKU chips already follow. */
+function longestDynamicsProduct(...texts: string[]): string {
+  let best = "";
+  for (const t of texts) {
+    if (!t) continue;
+    DYNAMICS_PRODUCT_RE.lastIndex = 0;
+    for (let m = DYNAMICS_PRODUCT_RE.exec(t); m; m = DYNAMICS_PRODUCT_RE.exec(t)) {
+      if (m[0].trim().length > best.length) best = m[0].trim();
+    }
+  }
+  return best;
+}
+
+/** A seat count the row states, for rows where NO licensing SKU matched and
+ *  so the licensing engine never read one — "Looking to move from Google
+ *  Workspace to Microsoft 365 for 120 users" names no catalogue SKU, and
+ *  the 120 was being dropped despite Jack's "if theres a user count do
+ *  attach that and keep it in the notes".
+ *
+ *  The haystack is the hit's own matched context (which for the broad
+ *  tenant/migration patterns is the whole row) rather than an offset into
+ *  the comments: those two strings are not the same text, so anchoring one
+ *  into the other silently returned nothing.
+ *
+ *  It still goes through maskAll + extractCountNear exactly as the
+ *  licensing engine does, so a product's own digits can never be read as a
+ *  headcount ("Microsoft 365" never becomes 365 seats) and a bare number
+ *  without "users"/"seats"/"licenses" beside it is not a count at all —
+ *  which is also what keeps a phone number or a ticket id out.
+ *
+ *  The clause it feeds says "120 seats stated." and deliberately does NOT
+ *  name a product: the row stated a count and named no SKU, so joining the
+ *  two would assert something the row never wrote. Same rule the licensing
+ *  path already follows when no single SKU carried the count.
+ */
+function seatsStatedInRow(platform: PlatformResult | null, fullText: string): number | null {
+  const text = platform?.hits[0]?.snippet || fullText;
+  if (!text) return null;
+  const { count } = extractCountNear(text, maskAll(text), 0, text.length);
+  return count != null && count > 0 ? count : null;
+}
+
+/** How near a word has to sit to a match before it is about the same thing.
+ *  The engine's own ±70 convention, not a whole-row scan: a platform named
+ *  in a signature block is not what they run. */
+const BRIEF_WINDOW = 160;
+function nearestIn(text: string, around: string, re: RegExp): string {
+  if (!text) return "";
+  const at = around ? text.toLowerCase().indexOf(around.slice(0, 40).toLowerCase()) : -1;
+  const slice = at < 0 ? text : text.slice(Math.max(0, at - BRIEF_WINDOW), at + around.length + BRIEF_WINDOW);
+  return re.exec(slice)?.[0]?.trim() ?? "";
+}
+
+/** Conjunctions are IN REVERSAL_RE because they gate a truncation, but
+ *  quoting one says nothing: the first pass rendered `Row reverses: "but"`.
+ *  So the brief quotes the CLAUSE the reversal lives in — the words after
+ *  the conjunction — which is what actually tells a rep what happened:
+ *  "decided to stay on QuickBooks for now", "the project is cancelled". */
+/** REVERSAL_RE minus the bare conjunctions: the verbs that actually say a
+ *  deal died. Searched for DIRECTLY, because looking for any reversal and
+ *  then testing whether it was substantive found the first "but" in the
+ *  window and stopped — which silently missed real ones ("...staying on
+ *  SAP", "...staying on CrowdStrike") whenever a "but" happened to sit
+ *  earlier in the same window. */
+const SUBSTANTIVE_REVERSAL_RE =
+  /\b(declin(?:e|ed|es|ing)|cancel(?:led|ed|s|ling)?|not\s+(?:to\s+)?(?:proceed|move|moving|go|going|interested|looking|pursu\w*|happening)|no\s+longer|won'?t|will\s+not|decided\s+(?:against|not)|passed\s+on|put\s+on\s+hold|on\s+hold|pushed\s+(?:back|out)|went\s+with|chose\s+\w+\s+instead|stay(?:ing)?\s+(?:on|with)|renew(?:ed|ing)\s+with|opted\s+(?:not|out)|backed\s+out|fell\s+through|dead|lost)\b/i;
+function reversalClause(text: string): string {
+  // Search the whole row, not just the anchor window: a verdict is often
+  // written in a later sentence than the product it reverses.
+  const hit = SUBSTANTIVE_REVERSAL_RE.exec(text)?.[0];
+  if (!hit) return "";
+  const sentence = splitSentences(text).find((x) => SUBSTANTIVE_REVERSAL_RE.test(x)) || "";
+  if (!sentence) return "";
+  // Quote the clause the verdict lives in, not the whole sentence: the
+  // half before "but" is usually the evaluation they have now abandoned.
+  const parts = sentence.split(/,?\s*\b(?:but|however|although|though|unfortunately|instead)\b\s*/i)
+    .map((x) => x.trim()).filter(Boolean);
+  const chosen = parts.find((x) => SUBSTANTIVE_REVERSAL_RE.test(x)) || sentence;
+  const clean = chosen.replace(/[.;]+$/, "").trim();
+  if (clean.length <= 70) return clean;
+  // Cutting from the FRONT of an over-long clause quotes the evaluating
+  // half and drops the verdict - precisely the lie the original truncation
+  // guard existed to stop. Cut from the verdict instead.
+  const m = SUBSTANTIVE_REVERSAL_RE.exec(clean);
+  const from = m ? clean.slice(m.index).trim() : clean;
+  return from.length > 70 ? `${from.slice(0, 70).trim()}\u2026` : from;
+}
+
+/**
+ * The ask, by AREA. Per Jack, naming the three and the tie-break:
+ *   Licensing → "how they manage it today, direct or through a partner"
+ *   Dynamics  → "ever looked at the platform, what they run today, where
+ *                it falls short"
+ *   Azure     → "how it is managed today, internal IT or an external partner"
+ * plus "licensing stores with m365 so thats there", "dynamics is its own",
+ * and the default: "if its general it or m365/azure go with the azure".
+ *
+ * The area follows WHERE THEY ARE GOING, not what they already run — in
+ * Jack's own target line the lead "Runs O365 and M365" and the ask is still
+ * the Azure one, because Azure is what the opportunity is about. So within
+ * M365 / Azure: an Azure-flavoured direction takes the Azure ask; otherwise
+ * a named licensing SKU makes it a licensing conversation; otherwise it is
+ * general IT, which Jack's rule also sends to the Azure ask.
+ *
+ * Every ask ends with the pain probe — "and where the pain is" — EXCEPT
+ * where the row already stated its pain, since asking for something the row
+ * has already told us wastes one of only two questions. Same reason the
+ * Dynamics ask drops "what they run today" once an incumbent is known.
+ */
+function briefQuestions(
+  area: "dynamics" | "licensing" | "azure",
+  knowsIncumbent: boolean,
+  knowsPain: boolean,
+): string {
+  const pain = knowsPain ? "" : ", and where the pain is";
+  if (area === "dynamics") {
+    // "where it falls short" IS this area's pain probe, so it never also
+    // appends one — two "and where …" clauses in one sentence read as a
+    // template, not a question a person would ask.
+    return knowsIncumbent
+      ? `Ask if they have looked at Dynamics before and what is forcing the change now${pain}.`
+      : "Ask if they have looked at Dynamics before, what they run today, and where it falls short.";
+  }
+  if (area === "licensing") {
+    return `Ask how they manage licensing today, in-house or through a partner${pain}.`;
+  }
+  return `Ask how Azure is managed today, internal IT or an external partner${pain}.`;
+}
+
+/* --- WHO HANDLES IT / WHERE THEY ARE GOING -------------------------- *
+ * Per Jack, on the M365 line: "indicate who handles it do they go direct
+ * or do they have a partner", and on the shape generally: "Microsoft is
+ * already pitching them an Azure Virtual Desktop workload."
+ *
+ * Both come out of the Product Area column (`msp_primaryproductcodename`),
+ * which the real files fill on 655 of 742 Strong Signal rows. Measured, it
+ * carries THREE different kinds of value and they mean different things:
+ *
+ *   460  a Microsoft product   (M365, Dynamics 365, Azure, Power BI,
+ *                               Security, Intune, Exchange Online …)
+ *                              → what the opportunity is about
+ *    66  Microsoft itself      ("Microsoft Corporation", "Direct")
+ *                              → they go direct
+ *   129  another company       (Sentinel Technologies, Netwize, CDW,
+ *                               Insight, Ingram Micro, Crayon …)
+ *                              → a partner sits on the record
+ *
+ * The third reading is corroborated rather than assumed: 64 of those 129
+ * rows ALSO use partner/reseller/CSP wording in their own Comments, against
+ * 52 of 460 on the product-valued rows — 50% against 11%.
+ */
+const PRODUCT_AREA_MICROSOFT_RE =
+  /^(?:(?:microsoft|msft|ms)\s*(?:corp(?:oration)?|services|direct)?|direct)$/i;
+/** Product Area values that name a Microsoft product line rather than a
+ *  company. Anchored, so a reseller whose name merely CONTAINS one of these
+ *  words ("MCIT Business Solutions") is not misread as a product. */
+const PRODUCT_AREA_PRODUCT_RE =
+  /^(?:m365|o365|office|microsoft\s*365|dynamics|d365|azure|power\s*(?:bi|apps|automate|platform)|security|intune|exchange|teams|windows|surface|copilot|ai\s+business|cloud\s+and\s+ai|sharepoint|viva|defender|entra|fabric|business\s+(?:premium|standard|basic)|modern\s+work|biz\s+apps|growth)\b/i;
+/** For the "is the direction just what we already said they run?" test.
+ *  M365 / O365 / Office 365 / Microsoft 365 are one product family written
+ *  four ways, so they fold to one token — otherwise a row running
+ *  "Microsoft 365 Business Standard" reads "Microsoft is already pitching
+ *  them M365", which restates the clause before it. */
+const normaliseName = (s: string) =>
+  s.toLowerCase()
+    .replace(/\b(?:microsoft|ms)\s*365\b|\bm365\b|\boffice\s*365\b|\bo365\b/g, " m365 ")
+    .replace(/[^a-z0-9]+/g, "");
+
+/**
+ * The direction clause, or "" when the column says nothing usable.
+ * `company`/`email` are passed only to catch the column holding the
+ * CUSTOMER'S OWN name — real on this data: a Datadog contact on a
+ * @datadoghq.com address carries Product Area "Datadog", which is not a
+ * partner and must not be reported as one.
+ */
+function directionClause(productArea: string, company: string, email: string, runs: string): string {
+  // A trailing period on the column value ("MTKWeb Solutions Inc.") would
+  // otherwise land next to the clause's own, printing "Inc..".
+  const pa = String(productArea || "").replace(/\s+/g, " ").trim().replace(/\.+$/, "");
+  if (!pa || pa.length > 60) return "";
+  // A bare account number says nothing a rep can use.
+  if (!/[a-z]/i.test(pa)) return "";
+  if (PRODUCT_AREA_MICROSOFT_RE.test(pa)) return "Goes direct with Microsoft.";
+  if (PRODUCT_AREA_PRODUCT_RE.test(pa)) {
+    // Naming the direction when it is already what we just said they run
+    // is noise, not information.
+    const a = normaliseName(pa);
+    const b = normaliseName(runs);
+    if (a && b && (b.includes(a) || a.includes(b))) return "";
+    return `Microsoft is already pitching them ${pa}.`;
+  }
+  // A company name — but first rule out the customer's own.
+  const own = [company, (email.split("@")[1] || "").split(".")[0]].map(normaliseName).filter(Boolean);
+  const paKey = normaliseName(pa);
+  if (own.some((o) => o && (o.includes(paKey) || paKey.includes(o)))) return "";
+  return `Partner on record: ${pa}.`;
+}
+
+/**
+ * Build the Main Scanner's Notes line. Returns "" when the row gives
+ * nothing to state, so the caller keeps whatever it had.
+ */
+export function buildCallBrief(
+  category: CategoryKey,
+  licensing: LicensingResult | null,
+  platform: PlatformResult | null,
+  fullText: string,
+  productArea = "",
+  company = "",
+  email = "",
+): string {
+  const dynamics = category === "dynamics365";
+
+  // WHAT IT IS ABOUT — the row's own wording for the product, and a count
+  // it actually stated. A Dynamics row reads its product from the DYNAMICS
+  // hit, never from the licensing engine: on a real Business Central lead
+  // whose long note also mentions Power BI, taking the licensing hit
+  // rendered "5 seats on Power BI Premium" on a Business Central call.
+  const dynHit = platform?.hits.find((h) => h.category === "Dynamics 365");
+  const hits = licensing?.hits ?? [];
+  // A count only ever gets attached to the product that STATED it. The
+  // row-level licensing count is the best number anywhere in the row, which
+  // is not the same thing: "400 seats on Visio / SharePoint" pinned a 400
+  // to two products, neither of which wrote it. Same defect class Jack
+  // already called out as "Business Basic · 818".
+  const counted = hits.filter((h) => h.count != null && h.count > 0)
+    .sort((a, b) => (b.count ?? 0) - (a.count ?? 0))[0];
+  const seats = dynamics ? (platform?.dynamicsSeatCount ?? null) : (counted?.count ?? null);
+  const platformSeats = dynamics || seats != null ? null : seatsStatedInRow(platform, fullText);
+
+  // WHAT THEY RUN — per Jack's target line, "Runs O365 and M365." The
+  // licensing SKUs the row named, in its own wording, each carrying only
+  // the count IT stated ("if theres a user count do attach that and keep
+  // it in the notes"). Capped at three: past that it is a licence
+  // inventory, the same thing the SKU chips were condensed for.
+  const runsList = hits.map((h) => h.matched).filter(Boolean).slice(0, RUNS_NAMED_MAX);
+  const runsProduct = runsList.join(" and ");
+  const withSeats = (name: string) => {
+    const h = hits.find((x) => x.matched === name && x.count != null && x.count > 0);
+    return h ? `${name} (${h.count} seats)` : name;
+  };
+  const runs = runsList.length
+    ? `Runs ${runsList.map(withSeats).join(runsList.length === 2 ? " and " : ", ")}.`
+    : "";
+
+  const product = dynamics
+    ? longestDynamicsProduct(dynHit?.snippet ?? "", fullText) || "Dynamics 365"
+    : runsProduct;
+  // The Dynamics clause is about the Dynamics product in play, not an
+  // installed base — a Dynamics lead is usually evaluating it, not running
+  // it. Per Jack: "if dynamics be about dynamics and what platform theyre
+  // on today anf the pain theyre epxerincing".
+  const what = dynamics
+    ? (seats != null && seats > 0
+        ? `${seats} seats on ${product}.`
+        // The row stated a count but no single product carried it, so the
+        // two are reported as the separate facts they are rather than
+        // joined into a claim the row never made.
+        : licensing?.count
+          ? `${product}. ${licensing.count} seats stated.`
+          : `${product}, no seat count stated.`)
+    : runs
+      || (licensing?.count ? `${licensing.count} seats stated.` : "")
+      // Per Jack, "if theres a user count do attach that and keep it in the
+      // notes" — and a row can state one with no SKU to hang it on at all.
+      // "Looking to move from Google Workspace to Microsoft 365 for 120
+      // users" has no catalogue SKU, so the licensing engine never ran and
+      // the 120 was being dropped. Read it off the hit that DID qualify the
+      // row, with the same masked window the licensing engine uses so a
+      // product's own digits can never be mistaken for a headcount.
+      || (platformSeats != null ? `${platformSeats} seats stated.` : "");
+  // Arithmetic on a number the row stated — not a judgement about the
+  // customer. Only above a threshold, so it means something when it shows.
+  const size = seats != null && seats >= LARGE_ESTATE_SEATS ? " Large estate." : "";
+
+  // WHERE THEY ARE GOING / WHO HANDLES IT — see directionClause.
+  const direction = directionClause(productArea, company, email, runsProduct || product);
+  // A row can qualify on a platform gate alone — an Azure migration, a
+  // Google→Microsoft move — naming no SKU and carrying no usable Product
+  // Area. 19 of 742 real Strong Signal rows land here. Rather than open on
+  // the ask with nothing in front of it, name the thing that matched and
+  // say plainly that the row carries no product detail.
+  const matchedArea = platform?.hits[0]?.category ?? "";
+  const stated = what || direction
+    ? what
+    : matchedArea ? `${matchedArea}, no products or seat count named in the row.` : "";
+
+  // WHAT ELSE THE ROW SAYS — quoted, windowed to the match, dropped when
+  // absent. Never inferred: ~94% of real rows say none of this.
+  const anchor = dynHit?.snippet || licensing?.snippet || "";
+  const incumbent = dynamics ? nearestIn(fullText, anchor, INCUMBENT_PLATFORM_RE) : "";
+  const pain = nearestIn(fullText, anchor, PAIN_RE);
+
+  // A LEAD THAT SAID NO STILL READS AS A LIVE DEAL WITHOUT THIS.
+  //
+  // Caught by snippet-truth, and it is the worst thing this change could
+  // have shipped: "We looked at Dynamics 365 Business Central, but decided
+  // to stay on QuickBooks for now" produced "On QuickBooks today. Ask what
+  // is forcing the change" — nothing is forcing a change, they just
+  // declined. "Azure migration was scoped, but the project is cancelled"
+  // scored 62 High and asked who owns the Azure bill.
+  //
+  // The old quoting path had REVERSAL_RE and refused to quote across one; a
+  // written brief has to carry it instead, because it is no longer limited
+  // to one sentence. The forward-looking questions are wrong on these rows,
+  // so the reversal replaces them with the only two worth asking.
+  const reversal = reversalClause(fullText);
+  const known = [
+    incumbent ? `On ${incumbent} today.` : "",
+    pain ? `Flagged "${pain.toLowerCase()}".` : "",
+  ].filter(Boolean).join(" ");
+  if (reversal) {
+    return sentenceCase([
+      stated ? `${stated}${size}` : "",
+      direction,
+      known,
+      `Row reverses: "${reversal.toLowerCase()}".`,
+      "Ask what changed and what would reopen it.",
+    ].filter(Boolean).join(" "));
+  }
+
+  // The ask follows the DIRECTION, not the installed base — see
+  // briefQuestions. Azure wins when the opportunity itself is Azure, which
+  // the row says either through the Product Area column or through the hit
+  // that qualified it.
+  const azureDirection =
+    /\bazure\b/i.test(productArea) ||
+    (platform?.hits ?? []).some((h) => h.category === "Azure" || h.category === "Microsoft Fabric");
+  const area: "dynamics" | "licensing" | "azure" =
+    dynamics ? "dynamics" : azureDirection ? "azure" : hits.length > 0 ? "licensing" : "azure";
+
+  return sentenceCase([
+    stated ? `${stated}${size}` : "",
+    direction,
+    known,
+    briefQuestions(area, !!incumbent, !!pain),
+  ].filter(Boolean).join(" "));
+}
+/** The brief opens with the row's OWN wording for the product, which is
+ *  often lowercase in a CRM note ("customer engagement, no seat count
+ *  stated."). Capitalising the first letter is sentence casing, not a
+ *  rewrite: every other character, including the quoted wording itself,
+ *  is left exactly as the row wrote it. */
+const sentenceCase = (s: string) => s.replace(/^[a-z]/, (c) => c.toUpperCase());
+/** At most this many named SKUs in the "Runs …" clause. Past three it is a
+ *  licence inventory rather than a reason to call — the same judgement
+ *  SKU_CHIPS_SHOWN already makes for the Detected column. */
+const RUNS_NAMED_MAX = 3;
+/** A stated seat count at or above this reads as a large estate. Purely a
+ *  band on a number the row gave; nothing is inferred about the company. */
+export const LARGE_ESTATE_SEATS = 500;
+
 /** "(72) ▲ We are looking for a partner to migrate 240 users…" — the score
  *  first, then the band mark, then whatever the row actually said. This is
  *  also the CSV Notes column, so an export carries the same read. */

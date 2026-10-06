@@ -5798,6 +5798,142 @@ all and simply carry no renewal clause. A "no renewal date on file" filler
 would cost words on 77% of rows to say nothing, so absent stays absent —
 flag if Jack wants it stated explicitly.
 
+### Main Scanner: the Notes line is a CALL BRIEF, not a quote
+
+Per Jack, over one thread: *"this is how main scanner notes should come
+from now on highlevel what its about and a high level or two pain point
+questions or how its handled today or would like it to be"*, scoped
+*"this is the notes output just for the main scanner"* and *"so this helps
+the reps including myself when calling these contacts"* — then the target
+line verbatim:
+
+> **Runs O365 and M365. Microsoft is already pitching them an Azure Virtual
+> Desktop workload. Ask how Azure is managed today, internal IT or an
+> external partner, and where the pain is.**
+
+Three clauses: what they run, where they are going / who handles it, then
+the ask. **Main Scanner only** — `smcLead.ts` and `cspRenewal.ts` are
+untouched and the `isolation` suite still passes 26/26.
+
+**The measurement that forced the design.** Across 1,674 rows of Jack's
+five real Main files (742 Strong Signal), only **14 rows name the platform
+they run today** and **8 carry pain language**. A brief that leads with
+pain would be inventing it on 99% of rows — the exact defect class already
+fixed twice here (`isDerivedSummary`, `REVERSAL_RE`). So facts are stated
+where the row gives them and **asked for where it does not**, and
+everything after "Ask" is visibly a question we pose, never something the
+lead said.
+
+**Clause 1 — what they run.** `Runs Microsoft 365 Copilot (442 seats) and
+Microsoft 365 E5 (442 seats).` The SKUs in the row's own wording, capped at
+three (past that it is a licence inventory — the judgement `SKU_CHIPS_SHOWN`
+already makes). A count rides **only on the SKU that stated it**, never the
+row's best number. A Dynamics row keeps its own shape — `25 seats on
+Dynamics 365 Business Central.` — because a Dynamics lead is evaluating it,
+not running it.
+
+**Clause 2 — direction, out of the Product Area column.** This is where
+*"indicate who handles it do they go direct or do they have a partner"*
+comes from. `msp_primaryproductcodename` is filled on 655 of 742 Strong
+Signal rows and, measured, holds **three different kinds of value**:
+
+| Product Area holds | rows | the clause |
+|---|---|---|
+| a Microsoft product (M365, Azure, Power BI, Intune…) | 460 | `Microsoft is already pitching them Azure.` |
+| Microsoft itself ("Microsoft Corporation", "Direct") | 66 | `Goes direct with Microsoft.` |
+| another company (Sentinel Technologies, Netwize, CDW…) | 129 | `Partner on record: Netwize.` |
+| blank | 87 | — |
+
+The third reading is **corroborated, not assumed**: 64 of those 129 rows
+also use partner/reseller/CSP wording in their own Comments, against 52 of
+460 on the product-valued rows — 50% against 11%.
+
+Four guards, each written against a real row in the data: a bare account
+number ("4518215") says nothing and is dropped; **the customer's own name is
+never reported as their partner** (a Datadog contact on a @datadoghq.com
+address carries Product Area "Datadog"); "Microsoft direct" is direct, not a
+partner; and a direction that merely restates the clause before it is
+dropped (M365 / O365 / Office 365 / Microsoft 365 fold to one token for that
+test, or a row running "Microsoft 365 Business Standard" reads "pitching
+them M365").
+
+**Clause 3 — the ask, by area.** Per Jack: Licensing → *"how they manage it
+today, direct or through a partner"*; Dynamics → *"ever looked at the
+platform, what they run today, where it falls short"*; Azure → *"how it is
+managed today, internal IT or an external partner"*; plus *"licensing stores
+with m365 so thats there"*, *"dynamics is its own"* and *"if its general it
+or m365/azure go with the azure"*.
+
+**The area follows where they are GOING, not what they run** — in Jack's own
+target line the lead runs O365 and M365 and the ask is still the Azure one.
+So an Azure-flavoured direction takes the Azure ask; otherwise a named SKU
+makes it licensing; otherwise general IT, which Jack's rule also sends to
+Azure. Real split: 299 Dynamics / 280 licensing / 151 Azure / 12 reversal,
+**0 rows with no ask**.
+
+Every ask closes on *"and where the pain is"* (440 rows) **except** where the
+row already stated its pain — asking for what we were just told wastes one
+of only two questions, the same reason the Dynamics ask drops "what they run
+today" once an incumbent is known. The Dynamics no-incumbent ask never
+appends it either: "where it falls short" **is** that area's pain probe, and
+two "and where …" clauses in one sentence read as a template.
+
+**A lead that said no must not read as a live deal.** `SUBSTANTIVE_REVERSAL_RE`
+replaces the forward-looking ask with `Row reverses: "staying on sap". Ask
+what changed and what would reopen it.` It searches the **whole row** (a
+verdict is usually written in a later sentence than the product it
+reverses), quotes the clause the verdict lives in rather than the evaluation
+it replaced, and cuts an over-long clause **from the verdict**, not the
+front — front-truncation quoted the evaluating half and dropped the verdict,
+precisely the lie the original truncation guard existed to stop. It also
+requires a substantive verb, so a complaint carrying a bare "but" ("…but the
+current setup is far from meeting their requirements") is not reported as a
+dead deal.
+
+**Four defects found by reading the real output, not the code:**
+- A **product name was being clipped**: `DYNAMICS_PRODUCT_RE` run only over
+  the hit's ±70 window turned "Dynamics 365 Business Central" into
+  "Dynamics 365". `longestDynamicsProduct` now searches the window **and**
+  the whole row, longest form wins — the same rule the SKU chips follow.
+- A **bare "Sales" is a CRM form label**, not a product: "Sales Stage:
+  Qualify" rendered "15 seats on Sales". Generic module words now require a
+  Dynamics/D365 prefix; unambiguous modules (Business Central, F&O, Supply
+  Chain) still match bare.
+- A **stated count was dropped on rows naming no SKU**: "Looking to move
+  from Google Workspace to Microsoft 365 for 120 users" has no catalogue
+  SKU, so the licensing engine never ran and the 120 vanished, against
+  Jack's *"if theres a user count do attach that and keep it in the notes"*.
+  `seatsStatedInRow` reads it off the hit's own matched context through the
+  same `maskAll`/`extractCountNear` path, so "Microsoft 365" can never
+  become 365 seats and a bare number without "users"/"seats"/"licenses"
+  beside it is not a count — which is also what keeps a **phone number, a
+  ticket id and an opportunity reference** out (all three asserted). It
+  renders `120 seats stated.` and deliberately does **not** name a product:
+  the row stated a count and named no SKU, so joining them would assert
+  something the row never wrote.
+- A **pain phrase was quoted mid-word**: `manual\s+\w+` rendered "manual
+  double-entry" as `Flagged "manual double"`.
+
+**Classification is provably untouched.** The brief writes `notesSummary`
+and nothing else; the diff inside `scanRowUnified` is that one assignment.
+Verified rather than asserted: tier, category, priority band, score and DQ
+reasons fingerprinted across all **1,674 real rows against HEAD — byte
+identical**. Length: median 156 chars, p90 198, max 262.
+
+**Flagged, NOT changed.** `countWrittenBeside` is nearest-wins, so on "Visio
+for the design team, SharePoint 300 users" the 300 attaches to SharePoint
+and the clause reads `Runs Visio and SharePoint (300 seats).` That is the
+known, already-documented limitation of per-product count pinning, not new
+here.
+
+32 suites / **1,358 checks** (`snippet-truth` 53 → 70). The traceability
+assertion was **re-pointed, not loosened**: the brief is constructed prose,
+so a whole-string substring test was the wrong question. `factsTraceable`
+now walks every clause the brief can emit and checks that each **product
+name and seat count attributed to the row** appears in it, while the
+scaffolding and the engine's own category labels are excluded as visibly
+ours. Verified live in a browser against the production build.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool
