@@ -338,6 +338,17 @@ export function resolveRenewalWhen(when: string, anchorIso: string): { at: strin
  *  which is the worst moment to call, not the best. */
 export const RENEWAL_BONUS_MAX = 18;
 export const RENEWAL_SOON_DAYS = 90;
+
+/** The customer's own contract coming up inside the window — not a seller's
+ *  forecast close (that is a guess about their pipeline, not an event at the
+ *  customer) and not a date already gone by (they just re-signed). One
+ *  definition, because three things now turn on it: the ⏰ clock in the
+ *  note, the route into High priority regardless of score, and the
+ *  open-lane pin below. */
+export function renewalSoon(r: RenewalWhen | null | undefined): boolean {
+  return r?.kind === "renewal" && r.daysOut != null && r.daysOut >= 0 && r.daysOut <= RENEWAL_SOON_DAYS;
+}
+
 export function renewalBonus(r: RenewalWhen | null): number {
   if (!r || r.daysOut == null || r.daysOut < 0) return 0;
   const near = r.daysOut <= 30 ? 1 : r.daysOut <= 60 ? 0.85 : r.daysOut <= 90 ? 0.7
@@ -755,6 +766,19 @@ export interface CspLead {
    *  holding it carries no date (1% of real rows). */
   partnerAsk: PartnerAsk | null;
   perfect: boolean;
+  /** Per Jack: "a company with a known upcoming renewal date no partner is
+   *  the highest priority lead here." Their contract is up inside
+   *  RENEWAL_SOON_DAYS and nobody holds the record — the renewal says WHEN
+   *  to call and the open lane says there is a seat to take. Ranks above
+   *  every other pin, including `perfect`. Measured on the real 9,265-row
+   *  export: 26 rows, and ZERO of them are also `perfect` — these are a
+   *  different set of leads, not a re-ordering of the same seven.
+   *  "No partner" is POSTURE_META[...].open, so it covers Microsoft direct
+   *  and an unresolvable MPN ID as well as a blank column: in all three
+   *  cases no reseller is on the record. A row whose notes name a reseller
+   *  anyway still pins — the note prints "CDW on record" beside it, so the
+   *  doubt is visible rather than silently deciding the lead. */
+  openRenewal: boolean;
   /** 0–100, set by classifyCsp. The single number the table and the
    *  downloads are ordered by. */
   score: number;
@@ -768,7 +792,11 @@ export interface CspLead {
 }
 
 /**
- * Rank order for CSP leads: score first, then the tie-breaks in the order
+ * Rank order for CSP leads. Three pins come first, in this order — an
+ * upcoming renewal in an open lane (soonest first), then `perfect`, then a
+ * stated partner ask — and only below them does the score decide.
+ *
+ * Then: score first, then the tie-breaks in the order
  * of the factors Jack named — billing intent, then notes strength, then
  * value, then recency. A row missing a value or a date is never treated
  * as zero: it sinks below every row that states one, in the order it
@@ -785,6 +813,17 @@ export interface CspLead {
  */
 export function compareCspLeads(a: CspLead | undefined, b: CspLead | undefined): number {
   if (!a || !b) return a ? -1 : b ? 1 : 0;
+  // Per Jack, the top of the list: an upcoming contract renewal with nobody
+  // on the record. Above even `perfect`, because it is the one signal that
+  // says WHEN to call — and on the real export the two sets do not overlap
+  // at all, so nothing that was pinned before is demoted by this.
+  if (a.openRenewal !== b.openRenewal) return a.openRenewal ? -1 : 1;
+  // Within the pin, soonest first: a contract up in 19 days outranks one up
+  // in 87 regardless of deal size. Both have a date by definition of the
+  // flag, so there is no missing-value case to sink here.
+  if (a.openRenewal && b.openRenewal && a.renewal!.daysOut !== b.renewal!.daysOut) {
+    return (a.renewal!.daysOut ?? 0) - (b.renewal!.daysOut ?? 0);
+  }
   if (a.perfect !== b.perfect) return a.perfect ? -1 : 1;
   // Top quality next, per Jack: stating they want a partner outranks a
   // higher score that does not say it.
@@ -856,6 +895,7 @@ export function readCspLead(
   ).map((p) => p.label);
   const wantsPartner = motion.includes(WANTS_PARTNER_LABEL);
   const billingRank = billingQuality(program);
+  const renewal = renewalFrom(notes, today);
   return {
     program,
     isRenewal: /renewal/i.test(program),
@@ -872,12 +912,13 @@ export function readCspLead(
     deadInLatest: DEAD_PATTERNS.some((p) => p.re.test(latestEntry(notes))),
     motion,
     nextStep: nextStepFrom(notes),
-    renewal: renewalFrom(notes, today),
+    renewal,
     strength: notesStrength(motion),
     skus: skusMentioned(notes),
     wantsPartner,
     partnerAsk: wantsPartner ? partnerAskFrom(notes, today) : null,
     perfect: posture === "unassigned" && wantsPartner && billingRank === 0,
+    openRenewal: POSTURE_META[posture].open && renewalSoon(renewal),
     score: 0,
     breakdown: [],
     factorPoints: { lane: 0, billing: 0, recency: 0, notes: 0, value: 0, contact: 0 },
@@ -1048,6 +1089,13 @@ export interface CspVerdict {
  * over budget. A row that states a partner ask gets a larger budget,
  * because that ask is the single best reason to call and clipping it to
  * six words made every one of them read as an unfinished thought.
+ *
+ * The ◆ open-lane renewal pin shares that larger budget rather than getting
+ * a third number: it is the same argument and the same shape of exception
+ * — 26 rows out of 7,709, and the ones Jack most wants read. Without it the
+ * ◆ costs a word and the shed ladder takes the licence list with it, which
+ * on a renewal call is the conversation ("renews in 56 days, you're on E7,
+ * E5 and Copilot" is the whole opening).
  */
 export const CSP_NOTE_MAX_WORDS = 20;
 export const CSP_NOTE_MAX_WORDS_ASK = 26;
@@ -1062,6 +1110,13 @@ export function shortAskDate(iso: string): string {
 /** Held by a named partner reads better as one word than as a CRM string:
  *  "Encore Business Solutions Inc." is "Encore". */
 const firstWord = (s: string) => (String(s).trim().split(/\s+/)[0] ?? "").replace(/[,.;:]+$/, "");
+
+/** The mark for an open-lane upcoming renewal, the top pin. Its own glyph
+ *  rather than reusing ⏰ (which rides on ANY renewal inside the window,
+ *  held lane included) or ★ (the partner-ask pin, which it outranks). The
+ *  Notes column is the only free-text field the CSV carries, so a pin that
+ *  is not written there is invisible the moment the file leaves the app. */
+export const OPEN_RENEWAL_MARK = "◆";
 
 export function cspNote(lead: CspLead, score: number, flags: string[] = [], pin = ""): string {
   const value = lead.value != null && lead.value > 0 ? money(lead.value) : "";
@@ -1093,7 +1148,13 @@ export function cspNote(lead: CspLead, score: number, flags: string[] = [], pin 
         const head = r.kind === "renewal" ? "renews" : "close";
         const tilde = r.assumed ? "~" : "";
         if (r.daysOut == null) return `${head} ${tilde}${r.when}`;
-        if (r.daysOut < 0) return `renewed ${tilde}${r.when}`;
+        // A date that already went by, worded by KIND. "renewed" asserts
+        // the customer re-signed; saying that of a seller's forecast close
+        // states a contract event nobody wrote down. Measured on the real
+        // 9,265-row file: 814 of the 1,226 dates are forecasts, so this
+        // branch was the one place the two could be read as the same
+        // promise — the distinction every other branch keeps.
+        if (r.daysOut < 0) return r.kind === "renewal" ? `renewed ${tilde}${r.when}` : `close passed ${tilde}${r.when}`;
         if (r.daysOut <= RENEWAL_SOON_DAYS) return `\u23F0 ${head} ${tilde}${r.when} ${r.daysOut}d`;
         return `${head} ${tilde}${r.when}`;
       })()
@@ -1125,9 +1186,9 @@ export function cspNote(lead: CspLead, score: number, flags: string[] = [], pin 
     ];
     for (const parts of shed) {
       const s = parts.filter(Boolean).join(" · ");
-      if (wordCount(pin + s) <= CSP_NOTE_MAX_WORDS) return s;
+      if (wordCount(pin + s) <= (lead.openRenewal ? CSP_NOTE_MAX_WORDS_ASK : CSP_NOTE_MAX_WORDS)) return pin + s;
     }
-    return shed[shed.length - 1].filter(Boolean).join(" · ");
+    return pin + shed[shed.length - 1].filter(Boolean).join(" · ");
   }
 
   // An ask row spends its words on the reason. The tail is deliberately
@@ -1157,7 +1218,7 @@ export function cspNote(lead: CspLead, score: number, flags: string[] = [], pin 
   const why = spare >= 3 && reason.length
     ? reason.slice(0, spare).join(" ") + (reason.length > spare ? "…" : "")
     : "";
-  return `${stem}${why ? `: ${why}` : ""} · ${tail}`;
+  return `${pin}${stem}${why ? `: ${why}` : ""} · ${tail}`;
 }
 
 export function classifyCsp(lead: CspLead, rules: CspRules, reach: { hasPhone: boolean; hasEmail: boolean }): CspVerdict {
@@ -1194,6 +1255,10 @@ export function classifyCsp(lead: CspLead, rules: CspRules, reach: { hasPhone: b
   const breakdown = parts.map((p) => `${p.label} +${p.pts}`);
   if (lead.perfect) breakdown.unshift("\u2605 asking for a partner, none assigned, annual upfront \u2014 pinned to the top");
   else if (lead.wantsPartner) breakdown.unshift("\u2691 the customer states they want a partner \u2014 top quality, forced to High priority");
+  // Unshifted last so it lands first, matching where it ranks.
+  if (lead.openRenewal) {
+    breakdown.unshift(`${OPEN_RENEWAL_MARK} renews in ${lead.renewal!.daysOut}d and no partner is on the record \u2014 the top of the list`);
+  }
 
   // Penalties. Every lead is scored first and THEN marked down, so a big,
   // open, annual-upfront deal with a no-show four entries ago still lands
@@ -1225,7 +1290,7 @@ export function classifyCsp(lead: CspLead, rules: CspRules, reach: { hasPhone: b
   }
   const score = Math.min(100, Math.max(0, base - penalty + renewalPts));
 
-  const detail = cspNote(lead, score, flags);
+  const detail = cspNote(lead, score, flags, lead.openRenewal ? `${OPEN_RENEWAL_MARK} ` : "");
 
   if (lead.value == null && !lead.program && lead.ageDays == null && !lead.motion.length && !lead.deadReasons.length) {
     return { bucket: "unmatched", why: "No signal \u2014 no value, programme or dated note on this row", score, breakdown, factorPoints, penaltyPoints: penalty };
@@ -1248,11 +1313,10 @@ export function classifyCsp(lead: CspLead, rules: CspRules, reach: { hasPhone: b
   // approach" — a contract coming up in six weeks should not sit in Medium
   // because the deal value happens to be unstated. Only a CONTRACT date
   // does this; a seller's forecast close is their guess, not an event at
-  // the customer, so it lifts the score but never the band.
-  const renewalSoon =
-    lead.renewal?.kind === "renewal" && lead.renewal.daysOut != null &&
-    lead.renewal.daysOut >= 0 && lead.renewal.daysOut <= RENEWAL_SOON_DAYS;
-  if (lead.perfect || lead.wantsPartner || renewalSoon || score >= rules.strongAt) {
+  // the customer, so it lifts the score but never the band. Shares its one
+  // definition with the ◆ pin via renewalSoon, so the route into High and
+  // the top of the list can never disagree about what "upcoming" means.
+  if (lead.perfect || lead.wantsPartner || renewalSoon(lead.renewal) || score >= rules.strongAt) {
     return { bucket: "priority", why: detail, score, breakdown, factorPoints, penaltyPoints: penalty };
   }
   if (score >= rules.reviewAt) {

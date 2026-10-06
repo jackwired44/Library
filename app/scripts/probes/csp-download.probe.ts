@@ -50,38 +50,49 @@ ok("no literal \\u escapes leaked into the file", !/\\u[0-9a-f]{4}/i.test(csv));
 ok("no CSV column-index numbers where a value should be", rows.every((r) => !/^\d$/.test(r["Product Area"])));
 ok("Notes carry the partner posture", rows.every((r) => /Open lane|MS direct|Held: /.test(r.Notes)));
 const scores = rows.map((r) => Number((/\((\d{1,3})\)$/.exec(r.Notes) || [])[1]));
-const perfectIdx = rows.map((r, i) => (/★/.test(r.Notes) ? i : -1)).filter((i) => i >= 0);
-const lastPerfect = perfectIdx.length ? Math.max(...perfectIdx) : -1;
-ok("★ perfect leads are all at the very top", perfectIdx.length > 0 && lastPerfect === perfectIdx.length - 1, `${perfectIdx.length} perfect, last at row ${lastPerfect}`);
-const afterPerfect = scores.slice(perfectIdx.length);
-// TWO kinds of lead reach High regardless of score, so the download has
-// three ordered groups, not two: pinned ★ first, then ⚑ TOP QUALITY
-// (the customer states they want a partner — per Jack, "if it states
-// wants a partner that needs to be flagged for top quality"), then
-// everyone else by score descending.
+// THREE kinds of lead reach High regardless of score, and all three pin to
+// the top in a stated order, so the download is four ordered groups:
+//   ◆ an upcoming contract renewal with no partner on the record — per
+//     Jack, "a company with a known upcoming renewal date no partner is
+//     the highest priority lead here";
+//   ★ the perfect lead (asking for a partner, none assigned, annual
+//     upfront);
+//   ⚑ the customer states they want a partner — per Jack, "if it states
+//     wants a partner that needs to be flagged for top quality";
+//   then everyone else by score descending.
+// Checked as a monotonic rank down the file rather than three separate
+// index windows: that holds even where a lead carries two marks at once,
+// which the index form could not express.
+const isOpenRenewal = (r: Record<string, string>) => /\u25C6/.test(r.Notes);
 const isPinned = (r: Record<string, string>) => /\u2605/.test(r.Notes);
 const isTopQuality = (r: Record<string, string>) => /⚑ Wants partner/.test(r.Notes);
-// A THIRD route into High, added when renewals became a scoring factor: a
-// customer contract renewing inside 90 days. Unlike ★ and ⚑ it does NOT
-// sort to the top — it ranks by score with everyone else — so it widens the
-// score-floor checks below but not the contiguity one above.
+// A FOURTH route into High: a contract renewing inside 90 days in ANY
+// lane. Held by a partner it does not pin, it just ranks by score — so it
+// widens the score-floor checks below but not the order check above.
 const isRenewalSoon = (r: Record<string, string>) => /⏰ renews /.test(r.Notes);
-const overrideIdx = rows.map((r, i) => (isPinned(r) || isTopQuality(r) ? i : -1)).filter((i) => i >= 0);
-ok("  ⚑ top-quality leads sit directly below the pinned ones",
-   overrideIdx.length === 0 || Math.max(...overrideIdx) === overrideIdx.length - 1,
-   `${overrideIdx.length} overrides, last at row ${Math.max(...overrideIdx, -1)}`);
-ok("  and no pinned lead sits below a top-quality one",
-   rows.every((r, i) => !isPinned(r) || i < perfectIdx.length));
+const isOverride = (r: Record<string, string>) => isOpenRenewal(r) || isPinned(r) || isTopQuality(r);
+const pinRank = (r: Record<string, string>) =>
+  isOpenRenewal(r) ? 0 : isPinned(r) ? 1 : isTopQuality(r) ? 2 : 3;
+const counts = [0, 1, 2, 3].map((k) => rows.filter((r) => pinRank(r) === k).length);
+ok("the file is in pin order: ◆ renewal+open lane, then ★, then ⚑, then the rest",
+   rows.every((r, i) => i === 0 || pinRank(rows[i - 1]) <= pinRank(r)),
+   `◆${counts[0]} ★${counts[1]} ⚑${counts[2]} rest${counts[3]}`);
+ok("  and the ◆ renewals lead the file, soonest first",
+   (() => {
+     const d = rows.filter(isOpenRenewal).map((r) => Number((/ (\d{1,3})d /.exec(r.Notes) || [])[1]));
+     return d.every((v, i) => i === 0 || Number.isNaN(v) || v >= d[i - 1]);
+   })(), rows.filter(isOpenRenewal)[0]?.Notes.slice(0, 60) ?? "none");
+const overrideIdx = rows.map((r, i) => (isOverride(r) ? i : -1)).filter((i) => i >= 0);
 const afterOverrides = scores.slice(overrideIdx.length);
 ok("below the overrides the file is in descending score order",
    afterOverrides.every((v, i) => i === 0 || v <= afterOverrides[i - 1]));
 // The score floor therefore applies to everyone the score alone put here.
-const scoreOnly = rows.filter((r) => !isPinned(r) && !isTopQuality(r) && !isRenewalSoon(r))
+const scoreOnly = rows.filter((r) => !isOverride(r) && !isRenewalSoon(r))
   .map((r) => Number((/\((\d{1,3})\)$/.exec(r.Notes) || [])[1]));
 ok("no score-qualified lead is under the High line (60)",
    scoreOnly.every((v) => v >= 60), scoreOnly.length ? `min ${Math.min(...scoreOnly)}` : "none");
 ok("  and every row under 60 got there by an explicit override",
-   rows.every((r) => Number((/\((\d{1,3})\)$/.exec(r.Notes) || [])[1]) >= 60 || isPinned(r) || isTopQuality(r) || isRenewalSoon(r)));
+   rows.every((r) => Number((/\((\d{1,3})\)$/.exec(r.Notes) || [])[1]) >= 60 || isOverride(r) || isRenewalSoon(r)));
 const phones = rows.map((r) => r["Work Direct Phone"]).filter(Boolean);
 ok("every exported phone has enough digits to dial", phones.every((v) => (v.match(/\d/g) || []).length >= 7), phones.find((v) => (v.match(/\d/g) || []).length < 7));
 ok("no Excel scientific-notation phones survive (5.25549E+11)", phones.every((v) => !/[eE]\s*\+/.test(v)), phones.find((v) => /[eE]\s*\+/.test(v)));

@@ -53,6 +53,22 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  PASS', n)) : (fail++,
   ok('CSP: lists the six weighted factors', /Partner lane/.test(csp) && /Billing intent/.test(csp) && /Reachable/.test(csp));
   ok('CSP: explains the dead-language penalties by position', /newest seller entry/.test(csp) && /−35/.test(csp) && /−10/.test(csp));
   ok('CSP: explains the pinned lead', /asking for a partner, none assigned, and annual\s+new upfront/i.test(csp.replace(/\s+/g, ' ')), '');
+  ok('CSP: explains the \u25c6 renewal pin and where it ranks',
+     /\u25c6 renewal, open lane/.test(csp) && /no partner is on the record/.test(csp)
+     && /Top of the table and of every download/.test(csp), '');
+  // Matched on each row's "where it ranks" phrase, not on the badge text:
+  // the \u2691 chip is also named further up the page, so an indexOf on the
+  // badge alone finds that earlier mention instead of the table row.
+  ok('CSP: states the pin order, renewals above the perfect lead',
+     csp.indexOf('Top of the table and of every download') < csp.indexOf('Directly below the renewals')
+     && csp.indexOf('Directly below the renewals') < csp.indexOf('Directly below those')
+     && csp.includes('Top of the table and of every download'), '');
+  ok('CSP: says the export has no renewal column, so dates come from the notes',
+     /no renewal column/i.test(csp) && /read out of the seller notes/i.test(csp), '');
+  ok('CSP: keeps a contract renewal apart from a seller forecast close',
+     /forecast for their own pipeline/i.test(csp) && /renewed/.test(csp), '');
+  ok('CSP: states the renewal bonus from the live constant', /bonus of up to 18 points/i.test(csp.replace(/\s+/g, ' ')), '');
+  ok('CSP: says the export is eight columns, not nine', /8-column Apollo shape/.test(csp), (csp.match(/\d+-column Apollo shape/) || [''])[0]);
   ok('CSP: says Product Area carries the priority', /Product Area carries the priority/.test(csp));
   ok('CSP: says there is no product line here', /no product line/i.test(csp));
   ok('CSP: documents which date it filters on', /createdon/.test(csp) && /forecast, not a receipt/.test(csp));

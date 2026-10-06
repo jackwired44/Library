@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { EXPORT_LABELS, TOP_PRIORITY_META, TOP_PRIORITY_ORDER } from "../lib/detection";
 import { SCANNER2_EXPORT_LABELS, CSP_EXPORT_LABELS } from "../lib/scanner2";
-import { BILLING_META, POSTURE_META, DEFAULT_CSP_RULES, DEFAULT_CSP_WEIGHTS, WEIGHT_META, DEAD_PATTERNS, MOTION_PATTERNS, MOTION_WEIGHT, CSP_COLUMN_HINTS, WANTS_PARTNER_LABEL } from "../lib/cspRenewal";
+import { BILLING_META, POSTURE_META, DEFAULT_CSP_RULES, DEFAULT_CSP_WEIGHTS, WEIGHT_META, DEAD_PATTERNS, MOTION_PATTERNS, MOTION_WEIGHT, CSP_COLUMN_HINTS, WANTS_PARTNER_LABEL, OPEN_RENEWAL_MARK, RENEWAL_SOON_DAYS, RENEWAL_BONUS_MAX } from "../lib/cspRenewal";
 import { SMC_PRODUCTS, DEFAULT_SMC_SCORE_RULES, DEFAULT_SMC_WEIGHTS, SMC_FACTOR_META, SMC_PARTNER_META, RUNS_MAX } from "../lib/smcLead";
 
 /**
@@ -194,21 +194,63 @@ export default function Documentation() {
             is binned outright: every lead is scored on its merits and then marked down.
           </p>
 
+          <H>&#9200; Renewals</H>
+          <p style={{ margin: 0 }}>
+            This export carries <b>no renewal column</b> &mdash; thirteen columns, not one of them a usable date &mdash;
+            so every date here is read out of the seller notes. Two kinds are kept apart, because they are different
+            facts: a <b>renewal</b> is the customer&rsquo;s own contract ending, a <b>close</b> is the seller&rsquo;s
+            forecast for their own pipeline. The note words them differently so a rep never opens with
+            &ldquo;your agreement renews in August&rdquo; off somebody&rsquo;s guess.
+          </p>
+          <p style={{ margin: "8px 0 0" }}>
+            A date is anchored to the dated entry it was <i>written in</i>, not to today &mdash; a seller writing in
+            September who says &ldquo;February&rdquo; means the coming February. Where that assumption is doing the work
+            the note marks it <Code>~</Code>, so a guess is never shown as a confirmed contract date. A date that already
+            went by reads <Code>renewed</Code> and scores nothing: they just re-signed, which is the worst moment to
+            call, not the best.
+          </p>
+          <p style={{ margin: "8px 0 0" }}>
+            Proximity is a <b>bonus of up to {RENEWAL_BONUS_MAX} points on top of the score</b>, not a seventh weight
+            &mdash; a weight would grow the denominator and quietly drop the score of every row that states no renewal at
+            all, where a bonus can only ever lift a lead. A seller&rsquo;s forecast close earns half marks.
+          </p>
+
           <H>Bands</H>
           <p style={{ margin: 0 }}>
             High at <b>{DEFAULT_CSP_RULES.strongAt}+</b>, Medium at <b>{DEFAULT_CSP_RULES.reviewAt}+</b>, Low below that.
-            Untouched for more than {DEFAULT_CSP_RULES.staleDays} days costs {DEFAULT_CSP_RULES.stalePenalty} points. One
-            Two things reach High regardless of score: a lead whose notes state it <b>wants a partner</b> (top quality,
-            see above), and above even that the pinned lead &mdash; <b>asking for a partner, none assigned, and annual
-            new upfront billing</b>, all three at once. You can override any lead to High / Medium / Low by hand, and the
-            override wins.
+            Untouched for more than {DEFAULT_CSP_RULES.staleDays} days costs {DEFAULT_CSP_RULES.stalePenalty} points.
+            Three things reach High regardless of score, and they are also the three pins &mdash; in rank order:
+          </p>
+          <Table
+            head={["Pin", "What it means", "Where it ranks"]}
+            rows={[
+              [`${OPEN_RENEWAL_MARK} renewal, open lane`,
+               `Their contract is up inside ${RENEWAL_SOON_DAYS} days and no partner is on the record. The renewal says when to call, the open lane says there is a seat to take.`,
+               "Top of the table and of every download, soonest renewal first"],
+              ["★ the perfect lead",
+               "Asking for a partner, none assigned, and annual new upfront billing — all three at once.",
+               "Directly below the renewals"],
+              ["⚑ wants a partner",
+               "The notes state the customer wants one. That is the whole pitch; it should never sit in Medium because the deal value went unstated.",
+               "Directly below those"],
+            ]}
+          />
+          <p style={{ margin: "8px 0 0", color: "var(--muted)" }}>
+            A seller&rsquo;s forecast close never reaches High on its own and never pins &mdash; it lifts the score and
+            nothing more. The renewal pin has its own one-click filter (<b>{OPEN_RENEWAL_MARK} Renewal + no partner</b>),
+            and its mark is written into the Notes column, so it survives the download into Apollo. &ldquo;No
+            partner&rdquo; covers a blank column, Microsoft direct, and an unresolvable MPN ID: in all three nobody is on
+            the record. Where the column says nobody but the notes name a reseller, the lead still pins and the note
+            prints <Code>CDW on record</Code> beside it &mdash; the doubt is shown, not used to decide the lead. You can
+            override any lead to High / Medium / Low by hand, and the override wins over all of this.
           </p>
 
           <H>What comes out</H>
           <p style={{ margin: 0 }}>
-            High priority and Medium priority download separately, best score first, in the nine-column Apollo shape.
+            High priority and Medium priority download separately, best pin then best score first, in the{" "}
+            {CSP_EXPORT_LABELS.length}-column Apollo shape.
             <b> Product Area carries the priority</b>, so you can split sequences on it in Apollo. Partner, deal value,
-            billing, last touch, licenses named and the next step all fold into Notes. Downloads follow whatever filters
+            billing, renewal, last touch and licenses named all fold into Notes. Downloads follow whatever filters
             are set. Low priority is never downloaded.
           </p>
         </>

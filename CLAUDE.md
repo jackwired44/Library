@@ -4895,6 +4895,94 @@ not "fix" this rule off the stale figure.
   (`RenewalWhen.at`/`daysOut`), so the data finally supports one — this is
   now a UI task in `Scanner2.tsx` rather than a parsing problem.
 
+## Roadmapped, NOT built: a fourth "3-in-1" beta scanner
+
+Per Jack: *"can we build a test scanner as a fourth tab and build all three
+into it slowly design it properly first and map everything based on each
+scanner currently and then make it into a drop down selection so a template
+can be applied when a csv is uploaded so it then becomes one holistic
+scanner (start as a fourth tab beta 3 in 1 scanner) leave the others"* —
+then, before any code was written: *"roadmap that"*. **Nothing below is
+built.** It is the design, done against the real code, so the next pass does
+not re-derive it.
+
+**The load-bearing finding: the template system already exists.** `RuleSet2`
+(`lib/scanner2.ts`) is already a persisted template — it carries the scanner
+kind, the field mapping, notes columns, dedupe columns, campaign columns,
+per-engine rule knobs (`smcRules`/`cspRules`/`cspColumns`) and excluded
+columns. And `scan2` already dispatches per row on
+`mode: "keywords" | "smc" | "csp"`. Custom and CSP are therefore already ONE
+scanner wearing two templates. A fourth tab is **one more mode plus a
+template picker**, not a rewrite.
+
+**The second finding: Main has a per-row entry point.**
+`scanRowUnified(row, columns, resolved, overrides) => ScanResult | null`
+(`lib/detection.ts`) is pure and has exactly the shape `scan2`'s loop needs,
+same as the smc and csp branches. Main folds in **without editing
+`detection.ts` at all**, which is what keeps the isolation guarantee intact.
+
+### Current-state map (read off the code, 2026-10-06)
+
+| | Main | Custom (SMC) | CSP |
+|---|---|---|---|
+| Engine | `detection.ts` 2,958 ln | `smcLead.ts` 1,208 ln | `cspRenewal.ts` 1,273 ln |
+| Component | `Scanner.tsx` | `Scanner2.tsx` kind `smc` | `Scanner2.tsx` kind `csp` |
+| Reads | free-text Comments + Product Area | propensity blob + campaign code | partner lane, billing programme, forecast comments |
+| Verdict | tier `signal`/`mention`/`dq` | bucket `priority`/`review`/`excluded`/`unmatched` | same buckets, relabelled High/Medium/Low priority |
+| Score | `mainScore` 0-100 + `priorityBand` | `smcScore` 0-100 + bands | `csp.score` 0-100, cuts at 60 / 25 |
+| Product line | Dynamics 365 / M365 Azure | same two | **none** - all licensing renewals |
+| Export | 10 columns | 10 columns | **8** (no Title, no Employees) |
+| Dedupe | name+company, batch-scoped, hard-removed | `dedupeColumns` from template | same, `csp:`-prefixed `leadKey` |
+| Persists leads | **yes** - History + Lead Library | **no** - run record only | **no** - run record only |
+
+### The build, when it happens
+
+1. `ScannerKind` widens to `"smc" | "csp" | "beta"`; the beta tab gets its
+   OWN rule-set/run namespace, so it cannot disturb the other three.
+2. `RuleSet2.mode` gains `"main"`; `scan2` gains a `mode === "main"` branch
+   calling `scanRowUnified` and mapping `ScanResult.tier` onto `Bucket2`
+   (signal->priority, mention->review, dq->excluded, null->unmatched) and
+   `category` onto `ProductLine`.
+3. A **template dropdown** on the upload screen: Main / Custom September /
+   CSP / Auto-detect, where auto-detect reads the column fingerprint
+   (`profileColumns` already profiles) - `msp_licensingprogramname` -> CSP,
+   propensity blob -> SMC, otherwise Main.
+4. `Scanner2`'s `isCsp` becomes effective-mode-derived rather than
+   prop-derived. For the existing two tabs that evaluates identically,
+   because their rule sets only ever carry their own mode.
+5. `exportLabelsFor` becomes mode-aware so a CSP template still exports 8
+   columns from inside the beta tab.
+6. **The three existing tabs are not touched** - same files, same routes,
+   same engines.
+
+### Two decisions deferred, flagged not guessed
+
+- **Persistence.** Main writes every row to History and can file into the
+  Lead Library; Custom and CSP persist zero leads. Default taken for the
+  beta tab was **ephemeral** (it cannot disturb existing data while in
+  beta), but Jack has not ruled.
+- **Verdict vocabulary.** Main says Strong Signal / Needs Review / Bad
+  Leads; CSP says High / Medium / Low priority. Default taken was **stays
+  per-template** (honest, but the one tab reads inconsistently). Collapsing
+  to one shared set renames things Jack already knows.
+
+### The guardrail this will trip, deliberately
+
+`scripts/suites/isolation.cjs` pins two assertions that a fourth scanner
+necessarily moves, and its own header comment says it exists "so a fourth
+scanner cannot quietly couple to the other three":
+
+```
+/import \{ EXPORT_LABELS, CATEGORY_META, type ExportRow \} from "\.\/detection";/
+/mode: "keywords" \| "smc" \| "csp"/
+```
+
+Both must be **updated deliberately and kept strict** - widened to name the
+new import and the new mode explicitly - never loosened to a wildcard, and
+never routed around. `detection.ts` importing nothing at all is the
+assertion that must survive untouched; it is what makes Main unbreakable
+from the composer.
+
 ## Where this is going: three scanners → one leads database
 
 Per Jack, stated as direction rather than a build request: *"i am going to
@@ -5523,6 +5611,104 @@ rather than accepting a prefix.
 - **Not measured on Jack's own Main file.** `Book82626.csv` was not in
   this session's uploads, so the effect on the file he actually runs
   through the Main Scanner is unknown. Re-run when he next uploads it.
+
+### CSP Scanner: the renewal is now in the note, filterable, and the top pin
+
+Per Jack across one thread: *"i want a section to indicate or info if there
+is a renewal date in the lead upload for csp scanner//that is most
+important"*, then *"add renewal info straight into notes"*, then *"i need to
+be able to filter through it also"*, then *"i want to be able to filter by
+the words renewal date or renew etc so i can pair those with companies known
+not to have partners also"*, and finally the product rule: **"a company with
+a known upcoming renewal date no partner is the highest priority lead
+here."**
+
+**◆ is a third pin, and it ranks above ★.** `CspLead.openRenewal`
+(`lib/cspRenewal.ts`) is true when the customer's own contract renews inside
+`RENEWAL_SOON_DAYS` (90) **and** no partner is on the record. The download
+and the table now read: **◆ open-lane renewals (soonest first) → ★ perfect →
+⚑ wants a partner → everyone else by score.**
+
+**Measured on the real 9,265-row export before the rule was written** — the
+horizon and the posture set came from the file, not a guess:
+
+| | rows |
+|---|---|
+| ◆ pins (open lane, contract renewal ≤ 90d) | **26** |
+| …of those also `perfect` | **0** |
+| ★ perfect | 7 |
+| ⚑ wants a partner | 109 |
+| upcoming contract renewals in ANY lane | 212 (110 held) |
+
+The zero overlap is why ranking ◆ above ★ was safe to decide here rather
+than ask: these are a different 26 leads, not a re-ordering of the same
+seven. On the real High file they now occupy rows 0–25, ★ rows 26–32, ⚑ from
+33 — confirmed by reading the written CSV back, not by trusting the sort.
+
+- **"No partner" is `POSTURE_META[...].open`** — a blank column, Microsoft
+  direct, and an unresolvable MPN ID. In all three nobody real is on the
+  record, which is the whole question. Strictly `unassigned` would have been
+  22 instead of 26 and would have dropped the Microsoft-direct leads, which
+  are the cleanest lane there is.
+- **A row whose column says open but whose notes name a reseller still
+  pins** — 11 of the 22 unassigned ones are like this. The note already
+  prints `CDW on record` beside it, so the doubt is *shown* rather than used
+  to silently decide the lead. Same rule `partnerConflict` has always
+  followed.
+- **A seller's forecast close never pins**, and neither does a date already
+  passed. Both were already worded apart in the note; `renewalSoon()` is now
+  the single exported definition of "upcoming", shared by the ⏰ clock, the
+  route into High priority, and this pin — so the three can never drift.
+- **◆ shares the ask row's larger word budget** (`CSP_NOTE_MAX_WORDS_ASK`,
+  26) rather than getting a third number. Without that the mark costs a word
+  and the shed ladder takes the licence list with it — measured: the $504k
+  and $370k renewals both lost their SKUs, which on a renewal call is the
+  conversation. Still **0 of 7,709 notes over cap**, longest 26 words.
+- **The mark is written into the Notes column**, the only free-text field
+  the eight-column CSV carries, so the pin survives the download into
+  Apollo. ◆ rather than reusing ⏰ (which rides on any renewal in the window,
+  held lane included) or ★ (which it outranks).
+
+**Filtering, per the "pair those with companies known not to have partners"
+ask:** the Renewal dropdown gained **◆ Renewal + no partner** as one click,
+reading `lead.openRenewal` rather than re-deriving the rule, so the filter
+and the ranking cannot disagree. The coverage strip gained a ◆ count and —
+in the populated branch, not just the empty one — the provenance line *"read
+out of the seller notes, not a column"*. The filter also reaches the
+downloads, because `strongFor` runs through `rowsExcept("bucket")`.
+
+**Two gaps in my own earlier renewal work, found and fixed here:** the
+collapsed Filters summary listed neither `renewalFilter` nor `maxScore`, so
+either could narrow the table with nothing on screen saying so; and the
+populated coverage strip never said where the dates came from. `RENEWAL_FILTER_CHIP`
+is a map rather than prose at the call site, so a new option cannot ship
+without a label.
+
+**Documentation.** The CSP section had **no renewal content at all** despite
+renewals being the stated point of this scanner, and its Bands paragraph
+carried a stray `One` mid-sentence plus a stale "nine-column" (it is eight).
+Added a derived ⏰ Renewals subsection and a three-row pin table built from
+`OPEN_RENEWAL_MARK`/`RENEWAL_SOON_DAYS`/`RENEWAL_BONUS_MAX`/
+`CSP_EXPORT_LABELS`, per this file's own rule that prose restating a
+constant is a bug.
+
+**Verification.** **32 suites / 1,290 checks** (was 31 / 1,239).
+`csp-renewal-live` is new (28 checks, a real browser: the coverage strip,
+the ◆ mark on three pinning rows, three non-pinning rows that each fail for
+a *different* reason — held lane, forecast close, already passed — the
+filter's live counts, the collapsed-summary chip, and the ◆ block leading
+the downloaded CSV). `csp` grew 176 → 193 with the engine boundaries
+including `compareCspLeads(openRenewal, perfect) < 0`, and `docs` 35 → 41,
+reading the rendered pin table out of the DOM so the documented order and
+the shipped order are checked against each other. `csp-download`'s three
+index-window order checks were **re-pointed, not loosened**, onto a
+monotonic pin rank — which is stronger, since it also holds for a row
+carrying two marks, a case the index form could not express.
+
+**Flagged, not changed:** the ◆ set is 26 rows at ≤ 90 days; the same rule
+at any horizon is 102. If Jack wants a bigger standing call list, the
+horizon is the one number to move, and it is `RENEWAL_SOON_DAYS` — shared
+with the High-priority route, so moving it moves both.
 
 ## Roadmap — long-term direction, not a build queue
 

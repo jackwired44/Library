@@ -12,7 +12,7 @@ import {
   partnerPostureOf, SMC_PARTNER_META, type SmcPartnerPosture,
 } from "../lib/scanner2";
 import type { LeadList } from "../lib/leadLists";
-import { POSTURE_META, DEFAULT_CSP_RULES, resolveCspRules, CSP_COLUMN_HINTS, cspPartnerLabel, compareCspLeads, BILLING_META, WEIGHT_META, type CspRules, type PartnerPosture, type BillingQuality } from "../lib/cspRenewal";
+import { POSTURE_META, OPEN_RENEWAL_MARK, DEFAULT_CSP_RULES, resolveCspRules, CSP_COLUMN_HINTS, cspPartnerLabel, compareCspLeads, BILLING_META, WEIGHT_META, type CspRules, type PartnerPosture, type BillingQuality } from "../lib/cspRenewal";
 import {
   SMC_PRODUCTS, SMC_STAGES, salesGaps, resolveSmcRules, DEFAULT_SMC_RULES,
   DEFAULT_SMC_SCORE_RULES, DEFAULT_SMC_WEIGHTS, SMC_FACTOR_META, compareSmcScores,
@@ -20,6 +20,19 @@ import {
 } from "../lib/smcLead";
 
 const PAGE = 25;
+
+/** What a renewal filter reads as in the collapsed Filters summary. One map
+ *  rather than prose at the call site, so a new option cannot ship without
+ *  a label and silently narrow the table with nothing saying so. */
+const RENEWAL_FILTER_CHIP: Record<string, string> = {
+  pin: "◆ renewal + no partner",
+  "30": "renews ≤ 30d",
+  "60": "renews ≤ 60d",
+  "90": "renews ≤ 90d",
+  any: "states a date",
+  passed: "renewal passed",
+  none: "no date stated",
+};
 
 /** YYYY-MM-DD for `n` days ago in the viewer's own calendar. */
 function daysAgoKey(n: number): string {
@@ -887,6 +900,12 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
   // Top quality, per Jack: the customer states they want a partner. Its own
   // toggle because it is the list he would pull first.
   const [wantsPartnerOnly, setWantsPartnerOnly] = useState(false);
+  /** Renewal window, CSP only. "any" = states a date at all; 30/60/90 = a
+   *  CONTRACT renewal that many days out or fewer and not already past; a
+   *  seller forecast close is deliberately not a renewal window, it is a
+   *  guess about their own pipeline. "passed" = the date already went by,
+   *  which is the worst moment to call, not the best. */
+  const [renewalFilter, setRenewalFilter] = useState<"all" | "pin" | "any" | "30" | "60" | "90" | "passed" | "none">("all");
   // Custom tab: who holds the account, per the blob. Stated on ~3% of
   // rows, so "any" has to stay the default — filtering to a posture is
   // an explicit choice, never something the view does on its own.
@@ -935,7 +954,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
   // so a set saved before scoring existed loads on the defaults.
   const smcScoreRules = useMemo(() => ({ ...DEFAULT_SMC_SCORE_RULES, ...(active?.smcScoreRules ?? {}) }), [active]);
   const smcWeights = useMemo(() => ({ ...DEFAULT_SMC_WEIGHTS, ...(active?.smcWeights ?? {}) }), [active]);
-  useEffect(() => { setPage(1); }, [bucketFilter, curationFilter, search, productFilter, gapsOnly, callableOnly, lineFilter, sortBy, fromDate, toDate, postureFilter, billingFilter, minScore, maxScore, minValue, phoneOnly, wantsPartnerOnly, smcPostureFilter]);
+  useEffect(() => { setPage(1); }, [bucketFilter, curationFilter, search, productFilter, gapsOnly, callableOnly, lineFilter, sortBy, fromDate, toDate, postureFilter, billingFilter, minScore, maxScore, minValue, phoneOnly, wantsPartnerOnly, smcPostureFilter, renewalFilter]);
 
   // A storage failure must never block the scan or wipe the screen. The
   // change is applied for this session either way; the banner says it
@@ -1233,6 +1252,23 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
       callable: (r: Row2) => !callableOnly || !!(r.lead.phone || r.lead.mobilePhone || r.lead.email),
       phone: (r: Row2) => !phoneOnly || !!(r.lead.phone || r.lead.mobilePhone),
       wantsPartner: (r: Row2) => !wantsPartnerOnly || !!r.csp?.wantsPartner,
+      renewal: (r: Row2) => {
+        if (renewalFilter === "all") return true;
+        // The pin itself, as one click — per Jack, pairing a renewal with a
+        // company known not to have a partner is the list he wants. Reads
+        // the lead's own flag rather than re-deriving the rule here, so the
+        // filter and the ranking can never disagree.
+        if (renewalFilter === "pin") return !!r.csp?.openRenewal;
+        const rn = r.csp?.renewal ?? null;
+        if (renewalFilter === "none") return !rn;
+        if (!rn) return false;
+        if (renewalFilter === "any") return true;
+        const d = rn.daysOut;
+        if (d == null) return false;
+        if (renewalFilter === "passed") return d < 0;
+        // A window is about a real contract ending, not a forecast.
+        return rn.kind === "renewal" && d >= 0 && d <= Number(renewalFilter);
+      },
       smcPosture: (r: Row2) => smcPostureFilter === "all" || (!!r.smc && partnerPostureOf(r.smc) === smcPostureFilter),
       // Date range is inclusive of both days. A row with no stated date is
       // excluded once a range is set — it cannot be shown to fall inside it.
@@ -1245,7 +1281,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
       },
       search: (r: Row2) => searchHits === null || searchHits.has(r.id),
     };
-  }, [bucketFilter, curationFilter, searchHits, curation, productFilter, gapsOnly, callableOnly, smcRules, fromDate, toDate, postureFilter, billingFilter, minScore, maxScore, minValue, lineFilter, effBucket, isCsp, phoneOnly, wantsPartnerOnly, smcPostureFilter]);
+  }, [bucketFilter, curationFilter, searchHits, curation, productFilter, gapsOnly, callableOnly, smcRules, fromDate, toDate, postureFilter, billingFilter, minScore, maxScore, minValue, lineFilter, effBucket, isCsp, phoneOnly, wantsPartnerOnly, smcPostureFilter, renewalFilter]);
 
   type FilterKey = keyof typeof tests;
 
@@ -1290,6 +1326,40 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
     return out;
   }, [rowsExcept]);
   const billingAllCount = useMemo(() => rowsExcept("billing").length, [rowsExcept]);
+
+  /**
+   * Renewal coverage for THIS upload, faceted like every other count.
+   * Per Jack: "i want a section to indicate or info if there is a renewal
+   * date in the lead upload for csp scanner // that is most important."
+   * The export carries no renewal column — every one of these is read out
+   * of the seller notes — so how many rows actually state one is a real
+   * question about the file, not a constant.
+   *
+   * A forecast close is counted apart from a contract renewal on purpose:
+   * one is the customer's agreement ending, the other is a seller's guess
+   * about their own pipeline, and opening a call on the wrong one is a
+   * different conversation.
+   */
+  const renewalCounts = useMemo(() => {
+    const out = { any: 0, renewal: 0, forecast: 0, assumed: 0, passed: 0, none: 0, d30: 0, d60: 0, d90: 0, pin: 0 };
+    for (const r of rowsExcept("renewal")) {
+      if (r.csp?.openRenewal) out.pin++;
+      const rn = r.csp?.renewal ?? null;
+      if (!rn) { out.none++; continue; }
+      out.any++;
+      if (rn.kind === "renewal") out.renewal++; else out.forecast++;
+      if (rn.assumed) out.assumed++;
+      const d = rn.daysOut;
+      if (d == null) continue;
+      if (d < 0) { out.passed++; continue; }
+      if (rn.kind !== "renewal") continue;
+      if (d <= 30) out.d30++;
+      if (d <= 60) out.d60++;
+      if (d <= 90) out.d90++;
+    }
+    return out;
+  }, [rowsExcept]);
+  const renewalAllCount = useMemo(() => rowsExcept("renewal").length, [rowsExcept]);
 
   const postureCounts = useMemo(() => {
     const out: Record<PartnerPosture | "open", number> = { open: 0, unassigned: 0, unresolved: 0, microsoft: 0, named: 0 };
@@ -1732,6 +1802,83 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
             )}
           </div>
 
+          {/* Renewal coverage. Per Jack this is the most important thing on a
+              CSP upload: "i want a section to indicate or info if there is a
+              renewal date in the lead upload." The export has no renewal
+              column — every date here was read out of the seller notes — so
+              the honest number is per-upload and belongs on screen rather
+              than buried in each row's note. */}
+          {isCsp && (
+            <div className="scan-note" aria-label="Renewal coverage">
+              <strong>⏰ Renewal dates</strong>{" · "}
+              {renewalCounts.any === 0 ? (
+                <span>
+                  nothing in this upload states a renewal or close date. The CSP export carries no
+                  renewal column, so every date is read out of the seller notes — this file simply
+                  does not have them.
+                </span>
+              ) : (
+                <>
+                  <strong>{renewalCounts.any.toLocaleString()}</strong> of{" "}
+                  {renewalAllCount.toLocaleString()} rows state one
+                  {" · "}
+                  <strong>{renewalCounts.renewal.toLocaleString()}</strong>{" "}
+                  <span title="The customer's agreement ending — the date worth opening a call on.">
+                    contract renewal{renewalCounts.renewal === 1 ? "" : "s"}
+                  </span>
+                  {" · "}
+                  <strong>{renewalCounts.forecast.toLocaleString()}</strong>{" "}
+                  <span title="A seller's forecast close date. That is a guess about their own pipeline, not an event at the customer — never counted as a renewal window.">
+                    forecast close{renewalCounts.forecast === 1 ? "" : "s"}
+                  </span>
+                  {renewalCounts.d90 > 0 && (
+                    <>
+                      {" · "}
+                      <strong style={{ color: "#0E7A72" }}>{renewalCounts.d90.toLocaleString()}</strong>{" "}
+                      <span title="Contract renewals landing within 90 days and not already passed. A renewal this close is its own route into High priority.">
+                        renewing ≤ 90 days
+                      </span>
+                      {renewalCounts.d30 > 0 && <> (<strong>{renewalCounts.d30.toLocaleString()}</strong> within 30)</>}
+                    </>
+                  )}
+                  {renewalCounts.pin > 0 && (
+                    <>
+                      {" · "}
+                      <strong style={{ color: "#0E7A72" }}>{renewalCounts.pin.toLocaleString()}</strong>{" "}
+                      <span title="An upcoming contract renewal with no partner on the record — the renewal says when to call, the open lane says there is a seat to take. Pinned to the top of the table and of every download. Filter on it with Renewal: ◆ Renewal + no partner.">
+                        {OPEN_RENEWAL_MARK} with no partner
+                      </span>
+                    </>
+                  )}
+                  {renewalCounts.passed > 0 && (
+                    <>
+                      {" · "}
+                      <strong>{renewalCounts.passed.toLocaleString()}</strong>{" "}
+                      <span title="The date already went by, so they have just re-signed. Scores nothing — this is the worst moment to call, not the best.">
+                        already passed
+                      </span>
+                    </>
+                  )}
+                  {renewalCounts.assumed > 0 && (
+                    <>
+                      {" · "}
+                      <strong>{renewalCounts.assumed.toLocaleString()}</strong>{" "}
+                      <span title="A bare month with no year, resolved against the entry it was written in. Marked ~ in the note so a guess is never shown as a confirmed contract date.">
+                        ~ assumed year
+                      </span>
+                    </>
+                  )}
+                  {/* Provenance, stated in both branches rather than only the
+                      empty one: a reader who sees real numbers here is the
+                      one who most needs to know where they came from. */}
+                  <span style={{ color: "var(--muted)" }}>
+                    {" · "}read out of the seller notes, not a column
+                  </span>
+                </>
+              )}
+            </div>
+          )}
+
           <div className="dl-strip">
             <span className="dl-title">Final downloads</span>
             {strongDownloads.map((d) => (
@@ -1955,9 +2102,11 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
                       bucketFilter !== "all" ? bMeta[bucketFilter].label : "",
                       fromDate || toDate ? `${fromDate || "\u2026"} to ${toDate || "\u2026"}` : "",
                       minScore ? `score \u2265 ${minScore}` : "",
+                      maxScore < 100 ? `score \u2264 ${maxScore}` : "",
                       minValue ? `value \u2265 $${minValue.toLocaleString()}` : "",
                       postureFilter !== "all" ? `partner: ${postureFilter}` : "",
                       billingFilter !== "all" ? `billing: ${BILLING_META[billingFilter].short}` : "",
+                      renewalFilter !== "all" ? RENEWAL_FILTER_CHIP[renewalFilter] : "",
                       callableOnly ? "callable" : "",
                       phoneOnly ? "has phone" : "",
                       wantsPartnerOnly ? "wants a partner" : "",
@@ -2051,6 +2200,16 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
                 {(["unassigned", "unresolved", "microsoft", "named"] as PartnerPosture[]).map((w) => (
                   <option key={w} value={w}>{POSTURE_META[w].label} ({postureCounts[w]})</option>
                 ))}
+              </select>
+              <select className="field" aria-label="Renewal" style={{ width: 196 }} value={renewalFilter} onChange={(e) => setRenewalFilter(e.target.value as typeof renewalFilter)} title="Read out of the seller notes — this export carries no renewal column. A window counts only a real contract renewal, never a seller forecast close, and never a date that already passed.">
+                <option value="all">Renewal: any ({renewalAllCount})</option>
+                <option value="pin">◆ Renewal + no partner ({renewalCounts.pin})</option>
+                <option value="30">Renews ≤ 30 days ({renewalCounts.d30})</option>
+                <option value="60">Renews ≤ 60 days ({renewalCounts.d60})</option>
+                <option value="90">Renews ≤ 90 days ({renewalCounts.d90})</option>
+                <option value="any">States any date ({renewalCounts.any})</option>
+                <option value="passed">Already passed ({renewalCounts.passed})</option>
+                <option value="none">No date stated ({renewalCounts.none})</option>
               </select>
               <select className="field" aria-label="Billing" style={{ width: 160 }} value={billingFilter} onChange={(e) => setBillingFilter(e.target.value === "all" ? "all" : Number(e.target.value) as BillingQuality)} title="How they want to be billed">
                 <option value="all">Billing: any ({billingAllCount})</option>
@@ -2280,8 +2439,17 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
                                   : "A stated BANT need on an Act Now whitespace account \u2014 top quality, forced to High priority regardless of score";
                                 const flagText = isCsp ? "\u2691 wants a partner" : "\u2691 stated need";
                                 const starTitle = isCsp
-                                  ? "Asking for a partner, none assigned, annual upfront \u2014 the strongest lead on this list"
+                                  ? "Asking for a partner, none assigned, annual upfront \u2014 ranked directly below the \u25c6 renewals"
                                   : "Stated need, Act Now, High prioritization index, not owned \u2014 the strongest lead on this list";
+                                // The top pin, CSP only: their contract is up
+                                // inside 90 days and no partner is on the
+                                // record. Sits in the same slot as the star
+                                // because that is where the pins live, and
+                                // ranks above it.
+                                const openRenewal = isCsp && !!r.csp?.openRenewal;
+                                const openRenewalTitle = r.csp?.renewal
+                                  ? `Renews in ${r.csp.renewal.daysOut}d and no partner is on the record \u2014 the top of the list`
+                                  : "";
                                 return (
                                   <>
                                     <div
@@ -2289,6 +2457,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
                                       title={sc?.breakdown.length ? sc.breakdown.join("\n") : "Not scored \u2014 a stale campaign or an unsupported product is a verdict, not a score"}
                                       style={{ fontWeight: 700, fontSize: 15, lineHeight: 1.1, color: (sc?.score ?? 0) >= hi ? "#0E7A72" : (sc?.score ?? 0) >= mid ? "#8A6D1F" : "var(--muted)" }}
                                     >
+                                      {openRenewal && <span title={openRenewalTitle} style={{ marginRight: 3 }}>{"\u25c6"}</span>}
                                       {sc?.perfect && <span title={starTitle} style={{ marginRight: 3 }}>{"\u2605"}</span>}
                                       {sc?.score ?? dash}
                                     </div>

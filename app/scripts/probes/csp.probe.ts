@@ -14,7 +14,7 @@ import {
   guessCspColumns, lastTouchFrom, daysBetween, classifyCsp, readCspLead, resolveCspRules,
   posturize, billingQuality, resellerNamedInNotes, labelledPhoneFrom, nextStepFrom,
   compareCspLeads, cspPartnerLabel, DEFAULT_CSP_RULES, DEFAULT_CSP_WEIGHTS, latestEntry, isDialable,
-  companyFromNotes, companyDomainFromEmail, wantsPartnerStated, WANTS_PARTNER_LABEL,
+  companyFromNotes, companyDomainFromEmail, wantsPartnerStated, WANTS_PARTNER_LABEL, RENEWAL_SOON_DAYS,
 } from "../../src/lib/cspRenewal";
 let pass = 0, fail = 0;
 const ok = (n: string, c: boolean, d = "") => { c ? (pass++, console.log("  PASS", n)) : (fail++, console.log("  FAIL", n, d)); };
@@ -124,6 +124,46 @@ const strong = mk({ msp_licensingprogramname: "CSP | Annual New Upfront Billing"
 ok("open lane + annual upfront + fresh + moving is Strong", strong.v.bucket === "priority", strong.v.why);
 ok("  but NOT perfect without the partner ask", !strong.lead.perfect);
 ok("  perfect sorts above it even on a lower score", compareCspLeads(perfect.lead, strong.lead) < 0);
+
+console.log("\n=== \u25c6 upcoming renewal + no partner (the top pin) ===");
+// Per Jack: "a company with a known upcoming renewal date no partner is the
+// highest priority lead here." Each boundary of that sentence is asserted:
+// upcoming (not passed, not beyond the window), renewal (not a forecast
+// close), and no partner (any of the three open postures).
+const renewNote = (when: string) => `${fresh}Renewal date: ${when}. Next Steps: confirm licence count.`;
+const soon = mdy(plus(40));
+const open40 = mk({ msp_licensingprogramname: "CSP | Annual Renewal Upfront Billing", estimatedvalue: "80000", msp_partneraccountidname: "NULL" }, renewNote(soon));
+ok("\u25c6 open lane + a contract renewal inside the window is pinned", open40.lead.openRenewal, open40.v.why);
+ok("  and is High priority", open40.v.bucket === "priority", open40.v.why);
+ok("  the note carries the \u25c6 mark, so it survives the download", open40.v.why.startsWith("\u25c6 "), open40.v.why);
+ok("  and still says the date and the lane", /\u23f0 renews /.test(open40.v.why) && /Open lane/.test(open40.v.why), open40.v.why);
+ok("  breakdown leads with the pin and says why", open40.v.breakdown[0].startsWith("\u25c6") && /no partner is on the record/.test(open40.v.breakdown[0]), open40.v.breakdown[0]);
+ok("  it outranks the \u2605 perfect lead \u2014 Jack's \"highest priority lead here\"", compareCspLeads(open40.lead, perfect.lead) < 0);
+ok("  and outranks a higher-scoring unpinned lead", compareCspLeads(open40.lead, strong.lead) < 0);
+
+const heldRenew = mk({ msp_licensingprogramname: "CSP | Annual Renewal Upfront Billing", estimatedvalue: "80000", msp_partneraccountidname: "CDW Logistics LLC" }, renewNote(soon));
+ok("the same renewal HELD by a named partner is not pinned", !heldRenew.lead.openRenewal, heldRenew.v.why);
+ok("  but still reaches High on the renewal alone", heldRenew.v.bucket === "priority", heldRenew.v.why);
+ok("  and the pinned one sorts above it", compareCspLeads(open40.lead, heldRenew.lead) < 0);
+
+const msDirect = mk({ msp_licensingprogramname: "CSP | Annual Renewal Upfront Billing", estimatedvalue: "80000", msp_partneraccountidname: "Microsoft" }, renewNote(soon));
+ok("Microsoft direct counts as no partner on the record", msDirect.lead.openRenewal, msDirect.v.why);
+const unresolved = mk({ msp_licensingprogramname: "CSP | Annual Renewal Upfront Billing", estimatedvalue: "80000", msp_partneraccountidname: "Partner with non-existing MPN ID 4518310" }, renewNote(soon));
+ok("  so does an unresolvable MPN ID \u2014 nobody real is on that record", unresolved.lead.openRenewal, unresolved.v.why);
+
+const forecast = mk({ msp_licensingprogramname: "CSP | Annual Renewal Upfront Billing", estimatedvalue: "80000", msp_partneraccountidname: "NULL" },
+  `${fresh}Estimated Close Date: ${soon}. Next Steps: confirm licence count.`);
+ok("a seller's FORECAST close in an open lane does NOT pin", !forecast.lead.openRenewal, forecast.v.why);
+ok("  and the note words it as a close, never a renewal", /close /.test(forecast.v.why) && !/renews/.test(forecast.v.why), forecast.v.why);
+
+const passed = mk({ msp_licensingprogramname: "CSP | Annual Renewal Upfront Billing", estimatedvalue: "80000", msp_partneraccountidname: "NULL" }, renewNote(mdy(plus(-40))));
+ok("a renewal that already went by does NOT pin \u2014 they just re-signed", !passed.lead.openRenewal, passed.v.why);
+const faraway = mk({ msp_licensingprogramname: "CSP | Annual Renewal Upfront Billing", estimatedvalue: "80000", msp_partneraccountidname: "NULL" }, renewNote(mdy(plus(200))));
+ok(`a renewal beyond ${RENEWAL_SOON_DAYS} days does NOT pin`, !faraway.lead.openRenewal, faraway.v.why);
+
+const open10 = mk({ msp_licensingprogramname: "CSP | Monthly Billing", estimatedvalue: "900", msp_partneraccountidname: "NULL" }, renewNote(mdy(plus(10))));
+ok("within the pin, the soonest renewal leads \u2014 even on a far lower score",
+   compareCspLeads(open10.lead, open40.lead) < 0, `${open10.v.score} (10d) vs ${open40.v.score} (40d)`);
 
 const held = mk({ msp_licensingprogramname: "CSP | Annual New Upfront Billing", estimatedvalue: "120000", msp_partneraccountidname: "CDW Logistics LLC" }, `${fresh}Quote sent, meeting set for next week. Next Steps: review pricing.`);
 ok("a held deal scores lower than the same deal with an open lane", held.v.score < strong.v.score, `${held.v.score} vs ${strong.v.score}`);
