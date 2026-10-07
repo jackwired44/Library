@@ -2226,8 +2226,10 @@ function reversalClause(text: string): string {
 /**
  * The ask, by AREA. Per Jack, naming the three and the tie-break:
  *   Licensing → "how they manage it today, direct or through a partner"
- *   Dynamics  → "ever looked at the platform, what they run today, where
- *                it falls short"
+ *   Dynamics  → "ever looked at the platform, what they run today," and
+ *                — per Jack correcting the first wording, "not where it
+ *                falls short but what the high level pain points are" —
+ *                the pain points
  *   Azure     → "how it is managed today, internal IT or an external partner"
  * plus "licensing stores with m365 so thats there", "dynamics is its own",
  * and the default: "if its general it or m365/azure go with the azure".
@@ -2251,12 +2253,23 @@ function briefQuestions(
 ): string {
   const pain = knowsPain ? "" : ", and where the pain is";
   if (area === "dynamics") {
-    // "where it falls short" IS this area's pain probe, so it never also
-    // appends one — two "and where …" clauses in one sentence read as a
-    // template, not a question a person would ask.
-    return knowsIncumbent
-      ? `Ask if they have looked at Dynamics before and what is forcing the change now${pain}.`
-      : "Ask if they have looked at Dynamics before, what they run today, and where it falls short.";
+    // Dynamics asks for the pain in Jack's own words rather than the
+    // terser "where the pain is" the other two areas use — he corrected
+    // the first wording directly. It is still dropped when the row has
+    // already stated its pain, same rule as everywhere else: asking for
+    // what we were just told wastes one of only two questions.
+    if (knowsIncumbent) {
+      // The row already named what they run, so that half becomes the
+      // forcing question instead.
+      return knowsPain
+        ? "Ask if they have looked at Dynamics before and what is forcing the change now."
+        : "Ask if they have looked at Dynamics before, what is forcing the change now, and what the high level pain points are.";
+    }
+    // Two clauses take "and", three take a comma list — dropping the pain
+    // clause without this left "…Dynamics before, what they run today."
+    return knowsPain
+      ? "Ask if they have looked at Dynamics before and what they run today."
+      : "Ask if they have looked at Dynamics before, what they run today, and what the high level pain points are.";
   }
   if (area === "licensing") {
     return `Ask how they manage licensing today, in-house or through a partner${pain}.`;

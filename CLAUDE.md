@@ -5864,6 +5864,14 @@ managed today, internal IT or an external partner"*; plus *"licensing stores
 with m365 so thats there"*, *"dynamics is its own"* and *"if its general it
 or m365/azure go with the azure"*.
 
+**The Dynamics ask names the pain in Jack's own words.** He corrected the
+first wording directly — *"not where it falls short but what the high level
+pain points are"* — so that area now ends `…and what the high level pain
+points are`, where licensing and Azure keep the terser `…and where the pain
+is`. Two clauses take "and", three take a comma list: without that rule,
+dropping the pain clause on a row that already stated its pain left
+`"…Dynamics before, what they run today."`
+
 **The area follows where they are GOING, not what they run** — in Jack's own
 target line the lead runs O365 and M365 and the ask is still the Azure one.
 So an Azure-flavoured direction takes the Azure ask; otherwise a named SKU
@@ -5926,7 +5934,7 @@ and the clause reads `Runs Visio and SharePoint (300 seats).` That is the
 known, already-documented limitation of per-product count pinning, not new
 here.
 
-32 suites / **1,358 checks** (`snippet-truth` 53 → 70). The traceability
+32 suites / **1,366 checks** (`snippet-truth` 53 → 78). The traceability
 assertion was **re-pointed, not loosened**: the brief is constructed prose,
 so a whole-string substring test was the wrong question. `factsTraceable`
 now walks every clause the brief can emit and checks that each **product

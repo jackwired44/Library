@@ -241,7 +241,7 @@ if (lp) {
 console.log("\n== the call brief: what it is about, then two questions ==");
 // Per Jack, the three areas and the tie-break: "Licensing \u2192 how they manage
 // it today, direct or through a partner", "Dynamics \u2192 ever looked at the
-// platform, what they run today, where it falls short", "Azure \u2192 how it is
+// platform, what they run today, the high level pain points", "Azure \u2192 how it is
 // managed today, internal IT or an external partner", plus "licensing
 // stores with m365 so thats there", "dynamics is its own" and "if its
 // general it or m365/azure go with the azure".
@@ -359,6 +359,34 @@ const [jack] = scanPA([{ note: "They run Office 365 E3 and Microsoft 365 Copilot
 ok("an Azure direction takes the Azure ask even when M365 SKUs are named",
    !!jack && /Runs /.test(jack.notesSummary) && /Ask how Azure is managed today/.test(jack.notesSummary),
    jack ? jack.notesSummary : "(no row)");
+
+console.log("\n== the Dynamics ask asks for pain points, not “falls short” ==");
+// Per Jack, correcting the first wording: "not where it falls short but
+// what the high level pain points are".
+const DYN_ASK: [string, string, RegExp][] = [
+  ["no incumbent, no pain stated",
+   "Looking at Dynamics 365 Business Central for 40 users.",
+   /Ask if they have looked at Dynamics before, what they run today, and what the high level pain points are\./],
+  ["an incumbent swaps in the forcing question, pain still asked",
+   "We looked at Dynamics 365 Business Central for 40 users. We are on Sage 100 today and continue to move forward.",
+   /Ask if they have looked at Dynamics before, what is forcing the change now, and what the high level pain points are\./],
+  // Two clauses take "and", three take a comma list — without that rule
+  // dropping the pain clause left "…Dynamics before, what they run today."
+  ["a row that already stated its pain is not asked for it again",
+   "Looking at Dynamics 365 Business Central for 40 users. The current setup is end of life.",
+   /Ask if they have looked at Dynamics before and what they run today\./],
+  ["incumbent AND pain known leaves two real questions",
+   "Dynamics 365 Business Central for 40 users. On QuickBooks today and the manual double-entry is a bottleneck, and we continue to move forward.",
+   /Ask if they have looked at Dynamics before and what is forcing the change now\./],
+];
+scan(DYN_ASK.map((d) => d[1])).forEach((row, i) => {
+  const [label, , want] = DYN_ASK[i];
+  ok(label, !!row && want.test(row.notesSummary), row ? row.notesSummary : "(no row)");
+});
+scan(DYN_ASK.map((d) => d[1])).forEach((row, i) => {
+  ok(`  [${i}] never says “where it falls short”`,
+     !!row && !/falls short/i.test(row.notesSummary), row ? row.notesSummary : "(no row)");
+});
 
 console.log("\n== the pain probe ==");
 // Per Jack the ask ends "and where the pain is" — except where the row
