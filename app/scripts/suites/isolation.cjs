@@ -22,8 +22,13 @@ for (const [name, file] of Object.entries(ENGINES)) {
   ok(`${name} imports no other engine`, bad.length === 0, bad.join(', '));
 }
 const s2 = read('src/lib/scanner2.ts');
-ok('scanner2 is the only composer, and takes only the shared column shape from detection',
-   /import \{ EXPORT_LABELS, CATEGORY_META, type ExportRow \} from "\.\/detection";/.test(s2));
+// Widened DELIBERATELY and kept strict, never to a wildcard: isBlockedCompany
+// is the one definition of the cross-scanner company blocklist, and the
+// alternative was a second copy in this file that could drift from it.
+// detection.ts still imports nothing, which is the assertion that actually
+// makes Main unbreakable from the composer — see the check directly below.
+ok('scanner2 is the only composer, and takes only the shared column shape + the blocklist from detection',
+   /import \{ EXPORT_LABELS, CATEGORY_META, isBlockedCompany, type ExportRow \} from "\.\/detection";/.test(s2));
 ok('detection.ts (Main Scanner) imports nothing at all — it cannot be broken from here', imports(read('src/lib/detection.ts')).length === 0);
 
 console.log('\n=== rule vocabularies do not overlap ===');

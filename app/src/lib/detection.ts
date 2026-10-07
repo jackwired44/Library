@@ -3176,10 +3176,57 @@ export interface NoSignalRow {
 // The mapping + scan pass — runs once per upload/reload, feeds both the
 // Scanner/History entry (every row, every tier) and the Library save (just
 // the Strong Signal rows).
+/* ------------------------------------------------- blocked companies */
+/**
+ * Companies that are never a lead, on ANY scanner.
+ *
+ * Per Jack: *"for any scanner if there ever is a company called contess
+ * remove it instantly"*, and — confirmed before building — the match is
+ * **exactly "Contess"** and the row is **dropped outright**, not shown as
+ * a Bad Lead.
+ *
+ * Exact, not a prefix, and that is the whole safety of it: **Contessa** is
+ * a real US frozen-food business and a prefix match would silently delete
+ * it with nothing on screen to say so. Confirmed with Jack rather than
+ * guessed — nothing in any of his uploaded files matches either spelling,
+ * so the data could not settle it.
+ *
+ * Normalisation is case- and punctuation-insensitive so "contess",
+ * "Contess.", "CONTESS  " and "Contess, Inc" all read the same — the
+ * trailing legal suffix is stripped for the same reason, since a CRM
+ * export writes the same company a dozen ways. Everything else about the
+ * name has to match exactly.
+ *
+ * This lives here and imports nothing, so the `isolation` suite's hard
+ * rule — this file imports nothing at all — still holds. The composer
+ * reads this one definition rather than keeping a second copy that could
+ * drift, the same consolidation the free-email domain list already went
+ * through.
+ */
+export const BLOCKED_COMPANIES: readonly string[] = ["contess"];
+
+/** Lowercase, drop a trailing legal suffix, strip punctuation, collapse
+ *  whitespace. "Contess, Inc." and "CONTESS" both become "contess". */
+function normalizeBlockedName(name: string): string {
+  return String(name || "")
+    .toLowerCase()
+    .replace(/[.,]/g, " ")
+    .replace(/\b(inc|llc|l\.?l\.?c|ltd|limited|corp|corporation|co|company|plc|gmbh|sa|sas|bv|pty)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+/** True when this company name is on the blocklist. Exact match after
+ *  normalisation — "Contessa" is NOT blocked. */
+export function isBlockedCompany(name: string | null | undefined): boolean {
+  const key = normalizeBlockedName(name ?? "");
+  return key.length > 0 && BLOCKED_COMPANIES.includes(key);
+}
+
 export function scanParsedFiles(
   parsedFiles: ParsedFile[],
   overrides: RuleOverrides = DEFAULT_RULE_OVERRIDES
-): { results: ResultRow[]; rowsScanned: number; duplicatesRemoved: number; noSignalRows: NoSignalRow[]; duplicateRows: DuplicateRow[] } {
+): { results: ResultRow[]; rowsScanned: number; duplicatesRemoved: number; blockedRemoved: number; noSignalRows: NoSignalRow[]; duplicateRows: DuplicateRow[] } {
   let rowsScanned = 0;
   const results: ResultRow[] = [];
   const noSignalRows: NoSignalRow[] = [];
@@ -3246,7 +3293,23 @@ export function scanParsedFiles(
         groupSize: r.duplicateGroupSize || 2,
       };
     });
-  return { results: deduped, rowsScanned, duplicatesRemoved, noSignalRows, duplicateRows };
+  // A blocked company is dropped outright — before the Scanner table,
+  // History, the Lead Library or any download can see it. Applied AFTER
+  // dedupe so the duplicate count still means what it says, and to
+  // noSignalRows too: a blocked company has no business showing up in the
+  // Non Relevant tab either.
+  const keptRows = deduped.filter((r) => !isBlockedCompany(r.row.__f.company));
+  const keptNoSignal = noSignalRows.filter((r) => !isBlockedCompany(r.company));
+  const blockedRemoved =
+    (deduped.length - keptRows.length) + (noSignalRows.length - keptNoSignal.length);
+  return {
+    results: keptRows,
+    rowsScanned,
+    duplicatesRemoved,
+    blockedRemoved,
+    noSignalRows: keptNoSignal,
+    duplicateRows,
+  };
 }
 
 // Dynamics 365 ranking, top to bottom: Business Central/ERP leads first,

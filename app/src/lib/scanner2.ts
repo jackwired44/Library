@@ -27,7 +27,7 @@ import {
 // Main Scanner's, because that is what Apollo imports. Single-sourced from
 // detection.ts rather than restated, so the two cannot drift apart. This is
 // the one thing the two scanners deliberately share beyond the CSV helpers.
-import { EXPORT_LABELS, CATEGORY_META, type ExportRow } from "./detection";
+import { EXPORT_LABELS, CATEGORY_META, isBlockedCompany, type ExportRow } from "./detection";
 export type { ExportRow };
 
 /**
@@ -244,6 +244,10 @@ export interface Scan2Result {
   dateSource: { kind: "column"; column: string } | { kind: "notes" } | { kind: "none" };
   rowsRead: number;
   duplicatesMerged: number;
+  /** Rows dropped outright because the company is on the blocklist — see
+   *  BLOCKED_COMPANIES in detection.ts. Counted so the removal is never
+   *  silent and the rowsRead invariant still balances. */
+  blockedRemoved: number;
   duplicateRows: DuplicateRow2[];
   columns: string[];
 }
@@ -1146,7 +1150,22 @@ export function scan2(
     ? { kind: "column", column: receivedCols.find((c) => kept.some((r) => receivedFromColumns(r.row, [c]))) ?? receivedCols[0] }
     : kept.some((r) => r.receivedOn) ? { kind: "notes" } : { kind: "none" };
 
-  return { rows: kept, dateSource, rowsRead, duplicatesMerged: duplicateRows.length, duplicateRows, columns };
+  // Per Jack, on every scanner: a blocked company is removed outright
+  // rather than shown as a low-priority lead. Dropped AFTER dedupe and
+  // after backfillContacts, so neither the duplicate count nor a donor
+  // contact changes meaning because of it.
+  const unblocked = kept.filter((r) => !isBlockedCompany(r.lead.company));
+  const blockedRemoved = kept.length - unblocked.length;
+
+  return {
+    rows: unblocked,
+    dateSource,
+    rowsRead,
+    duplicatesMerged: duplicateRows.length,
+    blockedRemoved,
+    duplicateRows,
+    columns,
+  };
 }
 
 /** The person a row actually exports, resolved the same way toApolloRow
@@ -1328,7 +1347,7 @@ function accountFallback(raw: Record<string, unknown>): string {
 /** The invariant the UI shows. Kept here so it is tested at the engine
  *  level rather than asserted in a component. */
 export function reconciles(r: Scan2Result): boolean {
-  return r.rowsRead === r.rows.length + r.duplicatesMerged;
+  return r.rowsRead === r.rows.length + r.duplicatesMerged + (r.blockedRemoved ?? 0);
 }
 
 export function bucketCounts(rows: Row2[]): Record<Bucket2, number> {
