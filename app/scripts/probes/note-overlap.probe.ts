@@ -98,3 +98,23 @@ for (const g of diffNotes) {
 }
 console.log(`\nof ${diffNotes.length} differing-note people, ${subset} are a pure SUBSET (longest contains the rest)`);
 console.log(`so ${diffNotes.length - subset} carry genuinely DIFFERENT information in each note`);
+
+// Jack asked whether the notes could instead be MERGED into one field.
+// Measure what that actually costs, against the caps he already set: the
+// CSP note is capped at 30 words because "our rep is just calling the lead
+// and talking they dont need super detailed specifics".
+const single = seen.map((s) => s.notes.length).filter(Boolean).sort((a,b)=>a-b);
+const joined = diffNotes.map((g) => [...new Set(g.map((x)=>x.notes.trim()).filter(Boolean))].join(" | "));
+const jl = joined.map((j) => j.length).sort((a,b)=>a-b);
+const pct = (a: number[], q: number) => a.length ? a[Math.floor(a.length*q)] : 0;
+console.log(`\n=== what a CONCATENATED note would cost ===`);
+console.log(`  one note today        median ${pct(single,0.5)} chars, p90 ${pct(single,0.9)}, max ${single[single.length-1]}`);
+console.log(`  concatenated          median ${pct(jl,0.5)} chars, p90 ${pct(jl,0.9)}, max ${jl[jl.length-1]}`);
+console.log(`  over 200 chars        ${jl.filter((n)=>n>200).length} of ${jl.length}`);
+console.log(`  over 300 chars        ${jl.filter((n)=>n>300).length} of ${jl.length}`);
+// How much of a concatenated note is the SAME closing question repeated?
+const repeatedAsk = joined.filter((j) => (j.match(/Ask (?:if|how) /g) || []).length > 1).length;
+console.log(`  repeat the same "Ask ..." scaffolding twice or more   ${repeatedAsk} of ${jl.length}`);
+console.log(`\n=== a real concatenated note ===`);
+const worst = joined.filter((j)=>j.length>250)[0];
+if (worst) console.log("  " + worst.slice(0, 520));
