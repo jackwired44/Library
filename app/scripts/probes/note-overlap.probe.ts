@@ -35,7 +35,7 @@ import { parseCSVText } from "../../src/lib/csv";
 import { scanParsedFiles } from "../../src/lib/detection";
 import { scan2, profileColumns, emptyRuleSet, guessFieldMapping, guessNotesColumns } from "../../src/lib/scanner2";
 import { leadInputsFromResults, leadInputsFromRows2 } from "../../src/lib/leadFiling";
-import { leadKeyOf, type LeadInput } from "../../src/lib/leadStore";
+import { leadKeyOf, combineNotes, NOTE_COMBINED_MAX, type LeadInput } from "../../src/lib/leadStore";
 
 const DIR = "/root/.claude/uploads/dd1348d8-8ff6-501c-af5d-361f8a90722b";
 const MAIN = ["bb31c527-Book8-26-26.csv","c1009a37-Book8-21-26.csv","d119ae44-Book9-4-26.csv","dc5b3192-Book9-30.csv","39b8008d-Book8-10-26.csv"];
@@ -118,3 +118,30 @@ console.log(`  repeat the same "Ask ..." scaffolding twice or more   ${repeatedA
 console.log(`\n=== a real concatenated note ===`);
 const worst = joined.filter((j)=>j.length>250)[0];
 if (worst) console.log("  " + worst.slice(0, 520));
+
+// What the SHIPPED combine actually produces, replaying each person's
+// uploads in order through combineNotes.
+const DAY = ["2026-08-21","2026-08-26","2026-09-04","2026-09-30","2026-08-10","2026-10-07"];
+const fileDay = (f: string) => {
+  if (f.includes("8-21")) return DAY[0];
+  if (f.includes("8-26")) return DAY[1];
+  if (f.includes("9-4") || f.includes("CSPs_9-4")) return DAY[2];
+  if (f.includes("9-30")) return DAY[3];
+  if (f.includes("8-10")) return DAY[4];
+  return DAY[5];
+};
+const combinedLens: number[] = [];
+let shownOne = "";
+for (const g of multi) {
+  const ordered = [...g].sort((a,b) => fileDay(a.file) < fileDay(b.file) ? -1 : 1);
+  let acc = "";
+  for (const s of ordered) acc = combineNotes(acc, s.notes, `${fileDay(s.file)}T12:00:00.000Z`);
+  combinedLens.push(acc.length);
+  if (!shownOne && g.length >= 3) shownOne = acc;
+}
+combinedLens.sort((a,b)=>a-b);
+console.log(`\n=== what the SHIPPED combine produces, over ${multi.length} repeat people ===`);
+console.log(`  median ${pct(combinedLens,0.5)} chars, p90 ${pct(combinedLens,0.9)}, max ${combinedLens[combinedLens.length-1]}`);
+console.log(`  over the ${NOTE_COMBINED_MAX}-char cap   ${combinedLens.filter((n)=>n>NOTE_COMBINED_MAX).length}`);
+console.log(`\n=== a real 3-upload lead, as stored ===`);
+console.log(shownOne.split("\n").map((l)=>"  " + l).join("\n"));

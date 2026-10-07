@@ -145,6 +145,42 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('the count does NOT grow on a re-upload', /5 leads scanned/.test(t), t.slice(0, 200));
   ok('  and the lead records it has been seen twice', /×2/.test(t), t.slice(0, 400));
 
+  console.log('\n== notes COMBINE across uploads, never overwrite ==');
+  // Per Jack: "i just want to combine the notes not override with just the
+  // new one." Re-upload the same person with genuinely different wording
+  // and both readings must survive.
+  const SECOND = [MAIN_HEAD.join(',')].concat([
+    ['MAIN ALPHA CO','Ada Brant','IT Director','ada@mainalpha.com','312-555-0101',
+     'Follow up: renewal is December and they want a quote for Business Central for 40 users.'],
+  ].map(r => r.map(q).join(','))).join('\n');
+  const SECOND_FILE = path.join(os.tmpdir(), 'all-leads-main-2.csv');
+  fs.writeFileSync(SECOND_FILE, SECOND);
+  await nav('Main Scanner');
+  await page.locator('button:has-text("Start over")').first().click(); await sleep(800);
+  await page.setInputFiles('input[type=file]', SECOND_FILE);
+  await page.waitForFunction(() => !!document.querySelector('.data-table tbody tr'), null, { timeout: 120000 });
+  await sleep(1500);
+  await nav('All leads');
+  const search2 = page.locator('main input.field').first();
+  await search2.fill('MAIN ALPHA'); await sleep(700);
+  const cell = await page.locator('.data-table tbody tr').first().innerText();
+  ok('the row still shows ONE lead, not two', /1 of 5 shown/.test(await allLeadsText()), (await allLeadsText()).slice(0, 160));
+  ok('  and flags that earlier notes are held behind it', /earlier/.test(cell), cell.replace(/\s+/g, ' ').slice(0, 300));
+  // The full timeline lives in the cell's title attribute.
+  const full = await page.locator('.data-table tbody tr td').nth(5).getAttribute('title');
+  // The stored note is the scanner's rendered brief, not the raw comment,
+  // so the evidence that both survived is the two DIFFERENT seat counts:
+  // 40 from the follow-up upload, 240 from the original.
+  ok('the NEW note is in the combined text', /40 seats/.test(full || ''), (full || '').slice(0, 300));
+  ok('  and the ORIGINAL note was not overwritten \u2014 both counts present',
+     /240/.test(full || ''), (full || '').slice(0, 400));
+  ok('  as two separate dated lines, not one run-on',
+     (full || '').split('\n').length === 2, String((full || '').split('\n').length));
+  ok('  with the generated ask printed only once across the whole timeline',
+     ((full || '').match(/Ask if they have looked/g) || []).length === 1, (full || '').slice(0, 400));
+  ok('  both are dated', ((full || '').match(/\d{4}-\d{2}-\d{2}/g) || []).length >= 2, (full || '').slice(0, 300));
+  await search2.fill(''); await sleep(500);
+
   console.log('\n== it survives a reload ==');
   await page.reload(); await sleep(2000);
   await nav('All leads');

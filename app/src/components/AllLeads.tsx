@@ -8,11 +8,15 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   LEAD_SOURCE_META, hasActiveSequence, hasFinishedSequence, neverContacted,
-  outcomeSummary, sequenceNamesIn, type LeadSource, type StoredLead,
+  newestNote, noteSegments, outcomeSummary, sequenceNamesIn,
+  type LeadSource, type StoredLead,
 } from "../lib/leadStore";
 import { SYNC_STALE_DAYS, syncAgeDays } from "../lib/apolloSync";
 
 const PAGE = 25;
+
+/** How many dated notes a lead has accumulated across uploads. */
+const segCount = (notes: string) => noteSegments(notes).length;
 
 /** Apollo-state filter. Kept as one control rather than several toggles so
  *  the states stay mutually exclusive and a count can be shown per option
@@ -223,7 +227,7 @@ export default function AllLeads({ leads }: { leads: StoredLead[] }) {
           <thead>
             <tr>
               <th>Company</th><th>Contact</th><th>Scanner</th><th>Tier</th>
-              <th>Product line</th><th>Apollo</th><th>Calls</th><th>Seen</th>
+              <th>Product line</th><th>Notes</th><th>Apollo</th><th>Calls</th><th>Seen</th>
             </tr>
           </thead>
           <tbody>
@@ -240,6 +244,20 @@ export default function AllLeads({ leads }: { leads: StoredLead[] }) {
                   <td style={{ whiteSpace: "nowrap" }}>{LEAD_SOURCE_META[l.source].short}</td>
                   <td style={{ whiteSpace: "nowrap" }}>{l.tier || "—"}</td>
                   <td>{l.productArea || "—"}</td>
+                  {/* The newest note reads on the row; the whole dated
+                      timeline is on hover, so combining notes across
+                      uploads does not turn every row into a paragraph. */}
+                  <td
+                    title={l.notes}
+                    style={{ maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  >
+                    {newestNote(l.notes) || "—"}
+                    {segCount(l.notes) > 1 && (
+                      <span style={{ color: "var(--muted)", fontSize: 11 }}>
+                        {" "}+{segCount(l.notes) - 1} earlier
+                      </span>
+                    )}
+                  </td>
                   <td>
                     {!a ? <span style={{ color: "var(--muted)" }}>&mdash;</span>
                       : a.sequences.length === 0 ? <span style={{ color: "var(--muted)" }}>No sequence</span>

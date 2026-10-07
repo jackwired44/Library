@@ -136,6 +136,113 @@ function fillBlank(existing: string, incoming: string): string {
   return String(existing || "").trim() ? existing : incoming;
 }
 
+/* ---------------------------------------------------------------- notes */
+
+/**
+ * Combining notes across uploads, per Jack: "i just want to combine the
+ * notes not override with just the new one."
+ *
+ * Measured on his real files: of 648 people seen in more than one upload,
+ * 635 carry DIFFERENT notes and only ONE is a pure subset of another. So
+ * overwriting destroyed real intelligence 634 times out of 635 — the same
+ * person arrives from the Main scanner with a seat count and from the CSP
+ * scanner with a renewal date and billing term, and those are two reasons
+ * to call, not two versions of one fact.
+ *
+ * Naive concatenation measured badly though: median 275 chars against 99
+ * today, p90 417, one case at 50,010, and 80 notes printing the same
+ * closing question twice. The CSP note is capped at 30 words precisely
+ * because "our rep is just calling the lead and talking they dont need
+ * super detailed specifics". So the combine is deliberate about three
+ * things rather than a join:
+ *
+ *   1. The generated "Ask ..." / "and where the pain is" tail is
+ *      scaffolding, not information about the lead, and it is identical
+ *      across scans of the same product area. It is kept on the NEWEST
+ *      note only and stripped from the older ones.
+ *   2. A note already present is not added again, so re-uploading the
+ *      same file is a no-op rather than unbounded growth. A note wholly
+ *      contained in one already there is likewise skipped.
+ *   3. A hard character cap, oldest segments dropped first, so one
+ *      pathological row cannot grow without limit.
+ */
+const NOTE_SEP = "\n";
+/** The generated question a brief ends on. Everything from "Ask " to the
+ *  end, which is exactly how buildCallBrief and the CSP note compose it. */
+const ASK_TAIL_RE = /\s*(?:Ask (?:if|how|what|who)\b.*)$/is;
+/** A date marker this function wrote, so an existing combined note can be
+ *  split back into its segments. */
+const SEGMENT_RE = /^(\d{4}-\d{2}-\d{2}) · /;
+export const NOTE_COMBINED_MAX = 600;
+
+function stripAsk(s: string): string {
+  return s.replace(ASK_TAIL_RE, "").trim();
+}
+
+/** The body of a note, for deciding whether we already hold it. */
+function noteBody(s: string): string {
+  return stripAsk(String(s || "").replace(SEGMENT_RE, "")).toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+/** Split a stored combined note back into its dated segments, newest
+ *  first. A note written before combining existed has no date marker and
+ *  comes back as one undated segment, which is correct — we genuinely do
+ *  not know when it was written. */
+export function noteSegments(combined: string): { date: string; text: string }[] {
+  const lines = String(combined || "").split(NOTE_SEP).map((l) => l.trim()).filter(Boolean);
+  return lines.map((l) => {
+    const m = l.match(SEGMENT_RE);
+    return m ? { date: m[1], text: l.slice(m[0].length) } : { date: "", text: l };
+  });
+}
+
+/**
+ * Add `incoming` to `prevCombined`, newest first. Returns the combined
+ * note, unchanged when there is nothing new to add.
+ *
+ * `when` is an ISO timestamp; only its date is kept, because two uploads
+ * on the same day are the same sitting as far as a rep is concerned.
+ */
+export function combineNotes(prevCombined: string, incoming: string, when: string): string {
+  const fresh = String(incoming || "").trim();
+  const prev = String(prevCombined || "").trim();
+  if (!fresh) return prev;
+  // A lead's FIRST note is dated too. Returning it bare left the oldest
+  // line of every timeline undated, which reads as "we don't know when
+  // this was written" when in fact we do.
+  if (!prev) return `${when.slice(0, 10)} · ${fresh}`;
+
+  const segs = noteSegments(prev);
+  const freshBody = noteBody(fresh);
+  // Already hold it, or hold something that contains it.
+  if (segs.some((s) => { const b = noteBody(s.text); return b === freshBody || b.includes(freshBody); })) {
+    return prev;
+  }
+
+  const day = when.slice(0, 10);
+  // The newest keeps its ask; everything older loses the scaffolding, and
+  // an older segment that becomes empty once stripped is dropped.
+  const older = segs
+    .map((s) => {
+      const body = stripAsk(s.text);
+      if (!body) return null;
+      return s.date ? `${s.date} · ${body}` : body;
+    })
+    .filter((x): x is string => x !== null);
+
+  const out = [`${day} · ${fresh}`, ...older];
+  // Cap by dropping the OLDEST first — the newest note is the one a rep
+  // reads, so it must never be the part that gets cut.
+  while (out.length > 1 && out.join(NOTE_SEP).length > NOTE_COMBINED_MAX) out.pop();
+  return out.join(NOTE_SEP);
+}
+
+/** The single line to show in a table: the newest note, without its date
+ *  marker. The full combined text goes on hover / in the detail view. */
+export function newestNote(combined: string): string {
+  return noteSegments(combined)[0]?.text || "";
+}
+
 /**
  * Merge freshly scanned leads into what is already stored.
  *
@@ -143,11 +250,17 @@ function fillBlank(existing: string, incoming: string): string {
  * changed, so the caller decides when to persist and nothing here reaches
  * for IndexedDB mid-merge.
  *
- * Re-scanning the same person UPDATES their scan-derived fields (tier,
- * score, notes, product area) rather than fill-blanking them: a re-upload
- * is a fresh read of that lead by the current rules, and the newer verdict
- * is the right one. Contact details still fill-blank, because a sparser
+ * Re-scanning the same person UPDATES their scan-derived verdict (tier,
+ * score, product area) rather than fill-blanking it: a re-upload is a
+ * fresh read of that lead by the current rules, and the newer verdict is
+ * the right one. Contact details still fill-blank, because a sparser
  * export dropping someone's phone number is not evidence they lost it.
+ *
+ * NOTES ARE THE EXCEPTION — they COMBINE rather than replace. Per Jack: "i
+ * just want to combine the notes not override with just the new one." See
+ * combineNotes for the measurement behind that and how the combine avoids
+ * becoming a wall of text.
+ *
  * `apollo` is never touched here — only a sync writes that.
  */
 export function mergeLeads(
@@ -177,7 +290,7 @@ export function mergeLeads(
         mobilePhone: inc.mobilePhone,
         productArea: inc.productArea,
         tier: inc.tier,
-        notes: inc.notes,
+        notes: combineNotes("", inc.notes, now),
         score: inc.score,
         firstSeenAt: now,
         lastSeenAt: now,
@@ -202,7 +315,8 @@ export function mergeLeads(
       source: inc.source,
       productArea: inc.productArea || prev.productArea,
       tier: inc.tier || prev.tier,
-      notes: inc.notes || prev.notes,
+      // The one scan-derived field that accumulates rather than replaces.
+      notes: combineNotes(prev.notes, inc.notes, now),
       score: inc.score ?? prev.score,
       lastSeenAt: now,
       sourceFiles: inc.sourceFile && !prev.sourceFiles.includes(inc.sourceFile)

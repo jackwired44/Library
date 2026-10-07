@@ -14,6 +14,7 @@
 import {
   leadKeyOf, normCompany, mergeLeads, neverContacted, hasActiveSequence,
   hasFinishedSequence, sequenceNamesIn, outcomeSummary, buildLeadIndex,
+  combineNotes, noteSegments, newestNote, NOTE_COMBINED_MAX,
   type LeadInput, type StoredLead,
 } from "../../src/lib/leadStore";
 import {
@@ -75,9 +76,12 @@ const second = mergeLeads(first.leads, [
 ], "2026-02-01T00:00:00.000Z");
 const ada = second.leads.find((l) => l.email === "a@x.com")!;
 ok("a re-upload merges rather than duplicating", second.leads.length === 2 && second.added === 0 && second.updated === 1);
-ok("  the NEWER scan verdict wins (tier, score, notes)",
-   ada.tier === "Bad Lead" && ada.score === 12 && ada.notes === "second read",
-   `${ada.tier}/${ada.score}/${ada.notes}`);
+ok("  the NEWER scan verdict wins (tier, score)",
+   ada.tier === "Bad Lead" && ada.score === 12, `${ada.tier}/${ada.score}`);
+// NOTES are the exception and must NOT follow the verdict. Per Jack: "i
+// just want to combine the notes not override with just the new one."
+ok("  but the notes COMBINE \u2014 both readings survive",
+   /second read/.test(ada.notes) && /first read/.test(ada.notes), ada.notes);
 ok("  a newly supplied contact detail is filled in", ada.phone === "312-555-0100");
 ok("  timesSeen increments", ada.timesSeen === 2, `${ada.timesSeen}`);
 ok("  both source files are remembered",
@@ -91,6 +95,8 @@ const sparse = mergeLeads(second.leads, [
 const ada2 = sparse.leads.find((l) => l.email === "a@x.com")!;
 ok("a sparser later upload never blanks a filled contact field", ada2.phone === "312-555-0100");
 ok("  nor blanks the tier when the new row states none", ada2.tier === "Bad Lead", ada2.tier);
+ok("  and a blank incoming note leaves the combined note untouched",
+   ada2.notes === ada.notes, ada2.notes);
 
 const crossScanner = mergeLeads(second.leads, [
   lead({ source: "csp", email: "a@x.com", contact: "Ada Brant", company: "X Co", tier: "High priority" }),
@@ -99,6 +105,62 @@ ok("the same person seen by a different scanner stays ONE lead",
    crossScanner.leads.length === 2 && crossScanner.added === 0);
 ok("  and carries the scanner that last saw them",
    crossScanner.leads.find((l) => l.email === "a@x.com")!.source === "csp");
+
+console.log("\n=== combining notes across uploads ===");
+// Per Jack: "i just want to combine the notes not override with just the
+// new one." Measured on his real files: 635 of 648 repeat people carry
+// DIFFERENT notes and only ONE is a subset, so overwriting lost real
+// information 634 times out of 635.
+const A = "10 seats on Dynamics 365 Business Central. Ask if they have looked at Dynamics before, what they run today, and what the high level pain points are.";
+const B = "$15k on Copilot, Dynamics 365 \u00b7 direct with Microsoft \u00b7 annual new, paid upfront \u00b7 (74)";
+
+const one = combineNotes("", A, "2026-08-26T12:00:00.000Z");
+ok("a lead's FIRST note is dated", /^2026-08-26 \u00b7 /.test(one), one.slice(0, 40));
+const two = combineNotes(one, B, "2026-09-04T12:00:00.000Z");
+const segs2 = noteSegments(two);
+ok("a second, different note is ADDED, not substituted", segs2.length === 2, String(segs2.length));
+ok("  newest first", segs2[0].date === "2026-09-04" && segs2[1].date === "2026-08-26");
+ok("  the newest note reads on its own", newestNote(two) === B, newestNote(two));
+ok("  and the older note's information survives",
+   /10 seats on Dynamics 365 Business Central/.test(two), two);
+
+// The 80-case defect naive concatenation produced.
+ok("the generated \"Ask ...\" tail is kept ONCE, on the newest note only",
+   (two.match(/Ask if they have looked/g) || []).length === 0, two);
+const askNewest = combineNotes(one, "Runs M365 E3. Ask how they manage licensing today, in-house or through a partner, and where the pain is.", "2026-09-04T12:00:00.000Z");
+ok("  the newest note KEEPS its own ask", /Ask how they manage licensing/.test(askNewest));
+ok("  while the older one loses its scaffolding", !/Ask if they have looked/.test(askNewest), askNewest);
+
+// Re-uploading the same file must be a no-op, or the note grows forever.
+ok("re-adding the SAME note changes nothing",
+   combineNotes(two, B, "2026-10-07T12:00:00.000Z") === two);
+ok("  even once its ask has been stripped from an older segment",
+   combineNotes(askNewest, A, "2026-10-07T12:00:00.000Z") === askNewest);
+ok("  a note wholly contained in one already held is skipped",
+   combineNotes(two, "10 seats on Dynamics 365 Business Central.", "2026-10-07T12:00:00.000Z") === two);
+ok("an empty incoming note leaves the combined note alone",
+   combineNotes(two, "", "2026-10-07T12:00:00.000Z") === two);
+ok("  and an empty prior note with a real incoming one still dates it",
+   /^2026-10-07 \u00b7 hello$/.test(combineNotes("", "hello", "2026-10-07T12:00:00.000Z")));
+
+// One real row measured at 50,010 characters once concatenated.
+let grown = "";
+for (let i = 0; i < 40; i++) {
+  grown = combineNotes(grown, `Distinct note number ${i} with enough text to matter for the cap being tested here.`, `2026-01-${String((i % 28) + 1).padStart(2, "0")}T12:00:00.000Z`);
+}
+ok("the cap holds against unbounded growth", grown.length <= NOTE_COMBINED_MAX, String(grown.length));
+ok("  and it drops the OLDEST, never the newest a rep reads",
+   /Distinct note number 39/.test(grown) && !/Distinct note number 0 /.test(grown), grown.slice(0, 120));
+
+// Through mergeLeads, which is how it actually runs.
+const n1 = mergeLeads([], [lead({ email: "n@x.com", contact: "Nora Vale", company: "N Co", notes: A })], "2026-08-26T12:00:00.000Z");
+const n2 = mergeLeads(n1.leads, [lead({ email: "n@x.com", contact: "Nora Vale", company: "N Co", notes: B })], "2026-09-04T12:00:00.000Z");
+const nora = n2.leads.find((l) => l.email === "n@x.com")!;
+ok("mergeLeads combines rather than overwriting", noteSegments(nora.notes).length === 2, nora.notes);
+ok("  while the TIER still takes the newest verdict", n2.updated === 1);
+ok("  and a note from a DIFFERENT scanner is kept alongside",
+   mergeLeads(n2.leads, [lead({ source: "csp", email: "n@x.com", contact: "Nora Vale", company: "N Co", notes: "⏰ Renews Dec 2026 (56d) · no partner yet" })], "2026-10-07T12:00:00.000Z")
+     .leads.find((l) => l.email === "n@x.com")!.notes.split("\n").length === 3);
 
 console.log("\n=== sequence and outcome cells ===");
 const seqs = parseSequenceCell("Jack Main Sequence:active:3; Carly Outbound Emails:finished");
