@@ -97,6 +97,42 @@ const csv=[HEAD,...rows].join('\n');
  const lib = await page.locator('main').innerText();
  ok('new folder persisted to the Lead Library', /Azure Push Q4/.test(lib), lib.slice(0,300));
 
+ // --- "Load into Scanner" must carry the SCAN STATS, not just the rows ---
+ // Jack caught this on a real seven-file upload: the Rows scanned tile read
+ // 2,216 while Strong Signal 959 + Needs review 711 + Bad leads 546 summed
+ // to exactly 2,216. That identity can only hold if nothing was dropped,
+ // and the true figure was 5,599 — understated by 3,383, because this path
+ // left lastScanStats null and the tile fell back to results.length.
+ // Files live inside a collapsed folder, so expand it first; the control
+ // on each file row is labelled just "Load".
+ const folder = page.locator('main button', { hasText: /Azure Push Q4/ }).first();
+ if (await folder.count()) { await folder.click(); await sleep(900); }
+ const loadBtn = page.locator('main button', { hasText: /^Load$/ }).first();
+ if (await loadBtn.count()) {
+   await loadBtn.click(); await sleep(1800);
+   const main = (await page.locator('main').innerText()).replace(/\s+/g,' ');
+   // The KPI labels are CSS-uppercased, so innerText reads them in caps —
+   // match case-insensitively or every one of these comes back null.
+   const tile = /Rows\s+scanned\s+(\d[\d,]*)/i.exec(main);
+   const signal = /Strong\s+Signal\s+(\d[\d,]*)/i.exec(main);
+   const review = /Needs\s+review\s+(\d[\d,]*)/i.exec(main);
+   const bad = /Bad\s+leads\s+(\d[\d,]*)/i.exec(main);
+   const n = (m) => m ? Number(m[1].replace(/,/g,'')) : null;
+   ok('Load into Scanner reports a Rows scanned figure', n(tile) !== null, main.slice(0,200));
+   // The file filed above holds only the Strong Signal rows, so every row
+   // loaded back clears detection and the sum legitimately equals the
+   // total. What must NOT happen is the tile reading BELOW the rows it is
+   // showing, which is what the fallback produced.
+   ok('  and it is never less than the rows on screen',
+      n(tile) >= (n(signal)||0) + (n(review)||0) + (n(bad)||0),
+      `tile ${n(tile)} vs ${n(signal)}+${n(review)}+${n(bad)}`);
+   // The condensed accounting line reads "N read · N processed · ...".
+   ok('  and the accounting line is shown rather than the narrow fallback',
+      /\d[\d,]*\s+read\s*\u00b7/i.test(main), main.slice(0,400));
+ } else {
+   ok('a Load control is present on a filed Lead library file', false, 'button not found');
+ }
+
  ok('no page errors', errs.length===0, errs.slice(0,2).join(' | '));
  console.log(`\n${pass}/${pass+fail} passed`);
  await b.close(); process.exit(fail?1:0);

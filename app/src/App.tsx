@@ -313,6 +313,24 @@ export default function App() {
     // This path bypasses Scanner's own handleFiles, so the dropped rows
     // have to be handed over explicitly or the audit tabs come up empty.
     setLoadedDropped({ noSignalRows, duplicateRows });
+    // ...and so do the scan stats. Without this, Scanner's lastScanStats
+    // stayed null on this path and its "Rows scanned" tile fell back to
+    // results.length — the POST-filter count. Jack caught it: the tile read
+    // 2,216 against Strong Signal 959 / Needs review 711 / Bad leads 546,
+    // which sum to exactly 2,216. That identity is the tell: it can only
+    // hold if nothing was dropped, and on a real five-file Main batch
+    // 4,165 rows read collapse to 1,728 processed, so the tile was
+    // understating the upload by more than half.
+    //
+    // Same defect the History path already had fixed (see CLAUDE.md "Rows
+    // scanned undercounted when a batch was reopened/combined from
+    // History"); that fix covered loadHistoryIntoScanner and missed this
+    // sibling.
+    setLoadedScanStats({
+      rowsScanned: parsedFiles.reduce((n, pf) => n + pf.data.length, 0),
+      duplicatesRemoved,
+      largestDuplicateGroup: scanned.reduce((m, r) => Math.max(m, r.duplicateGroupSize ?? 0), 0),
+    });
     setView("scanner");
     recordHistory(parsedFiles, scanned, tag, duplicatesRemoved, { noSignalRows, duplicateRows });
     return scanned;
