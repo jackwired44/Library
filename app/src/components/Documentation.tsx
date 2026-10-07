@@ -167,9 +167,23 @@ export default function Documentation() {
           <p style={{ margin: 0 }}>
             If the notes say the customer wants a partner, the lead is <b>forced to High priority regardless of its
             score</b> &mdash; that is the whole pitch, and it should never sit in Medium because its deal value went
-            unstated. It carries a <b>&#9873; wants a partner</b> chip in the table and has its own filter toggle, so you
-            can pull exactly that list.
+            unstated. It carries a <b>&#9873; wants a partner</b> chip in the table.
           </p>
+          <p style={{ margin: "8px 0 0" }}>
+            The <b>Partner interest</b> dropdown pulls that list, and three narrower ones beside it. It is a separate
+            question from the <b>Partner</b> dropdown next to it &mdash; that one is who holds the customer <i>today</i>,
+            this one is whether they want someone else.
+          </p>
+          <ul style={{ margin: "6px 0 0 18px", padding: 0 }}>
+            <li><b>&#9873; Asks &mdash; already held.</b> They have a partner and are <i>still</i> asking. On the real
+              export that is 79 of the 109 who ask, and it is the best lead type on the list.</li>
+            <li><b>&#9873; Asks &mdash; open lane.</b> They ask and nobody is on the record: a blank partner column,
+              Microsoft direct, or an MPN ID that does not resolve.</li>
+            <li><b>Unhappy with their partner.</b> The notes state pain with the partner they already have. A separate
+              signal, and mostly a separate set of people &mdash; 69 of 83 never ask for a new partner at all, so they
+              do not appear under &#9873; and nothing else would surface them.</li>
+            <li><b>Asks or unhappy</b> is the union: everyone showing any partner interest.</li>
+          </ul>
           <p style={{ margin: "8px 0 0", color: "var(--muted)" }}>
             Three things are deliberately NOT treated as a customer asking, because on a real 9,265-row export the naive
             reading fired 961 times with 857 of those on rows that already <i>name</i> a partner:

@@ -58,6 +58,14 @@ const csv = [HEAD.join(',')].concat([
     msp_licensingprogramname:'CSP | Annual New Upfront Billing', msp_partneraccountidname:'NULL',
     fullname:'Dana Reyes', telephone1:'312-555-0195', emailaddress1:'dana@pinned.com',
     msp_forecastcomments:`MA - ${ago(5)} - Customer is looking for a partner to take over licensing. Next Steps: intro call Monday.` }),
+  // 6. PAIN WITHOUT AN ASK. They say nothing about wanting a partner, but
+  //    they are unhappy with the one they have. On Jack's real export this
+  //    is 69 of 83 pain rows — the set the old ⚑ checkbox could not reach
+  //    at all, which is why the Partner interest dropdown exists.
+  row({ ...base, customeridname:'UNHAPPY CO', msp_licensingprogramname:'CSP | Monthly New',
+    msp_partneraccountidname:'Fourth Reseller LLC', fullname:'Kit Doyle', telephone1:'312-555-0194',
+    emailaddress1:'kit@unhappy.com',
+    msp_forecastcomments:`JS - ${ago(7)} - Customer says their current partner has been unresponsive on the last two renewals. Next Steps: follow up.` }),
 ]).join('\n');
 const FILE = path.join(os.tmpdir(), 'wants-partner.csv');
 fs.writeFileSync(FILE, csv);
@@ -88,12 +96,12 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   const all = async () => { await page.locator('[aria-label="CSP filters"] .seg-btn', { hasText: /^All/ }).click(); await sleep(450); };
 
   console.log('\n== the flag itself ==');
-  const wpLabel = page.locator('label:has-text("Wants a partner")');
-  ok('the CSP tab has a Wants-a-partner filter', await wpLabel.count() === 1);
-  const labelText = (await wpLabel.innerText()).replace(/ /g, ' ');
+  const pi = page.locator('select[aria-label="Partner interest"]');
+  const piOpt = async v => (await pi.locator(`option[value="${v}"]`).innerText()).replace(/ /g, ' ');
+  ok('the CSP tab has a Partner interest filter', await pi.count() === 1);
   // STATES IT CO and PINNED CO. Not the template row, not the negation,
-  // not the quiet whale.
-  ok('  and its count is exactly the two leads that state it', /\(\s*2\s*\)/.test(labelText), labelText);
+  // not the quiet whale, and NOT the unhappy-but-silent row.
+  ok('  and its count is exactly the two leads that state it', /\(\s*2\s*\)/.test(await piOpt('asks')), await piOpt('asks'));
 
   console.log('\n== it forces High priority, per Jack ==');
   await band('High priority');
@@ -123,18 +131,48 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
      iStates >= 0 && iWhale >= 0 && iStates < iWhale, `states@${iStates} whale@${iWhale}`);
 
   console.log('\n== the filter ==');
-  const box = wpLabel.locator('input[type=checkbox]');
-  await box.check(); await sleep(500);
-  const only = await tbody();
-  ok('checking it narrows to exactly the flagged leads',
+  const pick = async v => { await pi.selectOption(v); await sleep(500); return tbody(); };
+  const only = await pick('asks');
+  ok('selecting it narrows to exactly the flagged leads',
      /STATES IT CO/.test(only) && /PINNED CO/.test(only), only.slice(0, 200));
   ok('  template-only excluded', !/TEMPLATE ONLY CO/.test(only), only.slice(0, 200));
   ok('  negation excluded', !/DECLINED CO/.test(only), only.slice(0, 200));
   ok('  unflagged high scorer excluded', !/QUIET WHALE CO/.test(only), only.slice(0, 200));
+  ok('  pain without an ask excluded', !/UNHAPPY CO/.test(only), only.slice(0, 200));
   ok('  the active-filter summary names it',
-     /wants a partner/i.test(await page.locator('[aria-label="CSP filters"]').innerText()));
-  await box.uncheck(); await sleep(450);
-  ok('unchecking restores every row', /TEMPLATE ONLY CO/.test(await tbody()) && /DECLINED CO/.test(await tbody()));
+     /asks for a partner/i.test(await page.locator('[aria-label="CSP filters"]').innerText()));
+
+  // The two splits the old checkbox could not express. STATES IT CO is held
+  // by a named reseller and still asking — per CLAUDE.md the best lead type
+  // on this list — while PINNED CO asks with nobody on the record.
+  console.log('\n== asks, split by who holds them ==');
+  const held = await pick('asks-held');
+  ok('"already held" is the asking lead that HAS a partner',
+     /STATES IT CO/.test(held) && !/PINNED CO/.test(held), held.slice(0, 200));
+  ok('  and its option count says 1', /\(\s*1\s*\)/.test(await piOpt('asks-held')), await piOpt('asks-held'));
+  const open = await pick('asks-open');
+  ok('"open lane" is the asking lead with NOBODY on the record',
+     /PINNED CO/.test(open) && !/STATES IT CO/.test(open), open.slice(0, 200));
+  ok('  the two splits are exclusive and sum to the ask list',
+     /\(\s*1\s*\)/.test(await piOpt('asks-open')), await piOpt('asks-open'));
+
+  // The signal the old checkbox could not reach at all: pain with the
+  // partner they already have, stated WITHOUT ever asking for a new one.
+  console.log('\n== unhappy with their partner ==');
+  const pain = await pick('pain');
+  ok('"unhappy" finds the row that states pain but never asks',
+     /UNHAPPY CO/.test(pain), pain.slice(0, 200));
+  ok('  and it is not in the ask list', !/STATES IT CO/.test(pain) && !/PINNED CO/.test(pain), pain.slice(0, 200));
+  ok('  a plain negation is not pain', !/DECLINED CO/.test(pain), pain.slice(0, 200));
+  const any = await pick('any');
+  ok('"asks or unhappy" is the union of both',
+     /STATES IT CO/.test(any) && /PINNED CO/.test(any) && /UNHAPPY CO/.test(any), any.slice(0, 200));
+  ok('  and still excludes the template row and the quiet whale',
+     !/TEMPLATE ONLY CO/.test(any) && !/QUIET WHALE CO/.test(any), any.slice(0, 200));
+  ok('  its count is 3', /\(\s*3\s*\)/.test(await piOpt('any')), await piOpt('any'));
+
+  await pick('all');
+  ok('clearing it restores every row', /TEMPLATE ONLY CO/.test(await tbody()) && /DECLINED CO/.test(await tbody()));
 
   console.log('\n== it reaches the CSV ==');
   ok('the reason text flags the ask on the flagged lead',

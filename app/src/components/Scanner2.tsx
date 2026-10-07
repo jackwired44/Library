@@ -34,6 +34,30 @@ const RENEWAL_FILTER_CHIP: Record<string, string> = {
   none: "no date stated",
 };
 
+/**
+ * Partner-interest filter on the CSP tab. Deliberately separate from the
+ * `Partner:` posture dropdown, which answers a different question — that
+ * one is who HOLDS them today, this one is whether they want someone else.
+ *
+ * It replaced a single on/off "⚑ Wants a partner" checkbox, which could
+ * only ever ask one of these. Measured on the real 9,265-row export, the
+ * questions it could not reach were the ones worth asking:
+ *   - 79 of the 109 who ask are ALREADY HELD — per CLAUDE.md the best lead
+ *     type on the list — and isolating them took two controls.
+ *   - 83 rows state pain with the partner they have, 69 of them without
+ *     ever asking for a new one. No control anywhere surfaced them.
+ * ★ perfect deliberately has no option: those 7 pin to the top of the
+ * table and every download already.
+ */
+export type PartnerFilter = "all" | "asks" | "asks-held" | "asks-open" | "pain" | "any";
+const PARTNER_FILTER_CHIP: Record<string, string> = {
+  asks: "⚑ asks for a partner",
+  "asks-held": "⚑ asks, already held",
+  "asks-open": "⚑ asks, open lane",
+  pain: "unhappy with their partner",
+  any: "asks or unhappy",
+};
+
 /** YYYY-MM-DD for `n` days ago in the viewer's own calendar. */
 function daysAgoKey(n: number): string {
   const d = new Date(); d.setDate(d.getDate() - n);
@@ -898,8 +922,9 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
   // one-click answer: only leads you can actually dial.
   const [phoneOnly, setPhoneOnly] = useState(false);
   // Top quality, per Jack: the customer states they want a partner. Its own
-  // toggle because it is the list he would pull first.
-  const [wantsPartnerOnly, setWantsPartnerOnly] = useState(false);
+  // control because it is the list he would pull first — see
+  // PARTNER_FILTER_CHIP for why it is a dropdown and not a checkbox.
+  const [partnerFilter, setPartnerFilter] = useState<PartnerFilter>("all");
   /** Renewal window, CSP only. "any" = states a date at all; 30/60/90 = a
    *  CONTRACT renewal that many days out or fewer and not already past; a
    *  seller forecast close is deliberately not a renewal window, it is a
@@ -954,7 +979,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
   // so a set saved before scoring existed loads on the defaults.
   const smcScoreRules = useMemo(() => ({ ...DEFAULT_SMC_SCORE_RULES, ...(active?.smcScoreRules ?? {}) }), [active]);
   const smcWeights = useMemo(() => ({ ...DEFAULT_SMC_WEIGHTS, ...(active?.smcWeights ?? {}) }), [active]);
-  useEffect(() => { setPage(1); }, [bucketFilter, curationFilter, search, productFilter, gapsOnly, callableOnly, lineFilter, sortBy, fromDate, toDate, postureFilter, billingFilter, minScore, maxScore, minValue, phoneOnly, wantsPartnerOnly, smcPostureFilter, renewalFilter]);
+  useEffect(() => { setPage(1); }, [bucketFilter, curationFilter, search, productFilter, gapsOnly, callableOnly, lineFilter, sortBy, fromDate, toDate, postureFilter, billingFilter, minScore, maxScore, minValue, phoneOnly, partnerFilter, smcPostureFilter, renewalFilter]);
 
   // A storage failure must never block the scan or wipe the screen. The
   // change is applied for this session either way; the banner says it
@@ -1251,7 +1276,26 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
       gaps: (r: Row2) => !gapsOnly || !!(r.smc && salesGaps(r.smc, smcRules).length),
       callable: (r: Row2) => !callableOnly || !!(r.lead.phone || r.lead.mobilePhone || r.lead.email),
       phone: (r: Row2) => !phoneOnly || !!(r.lead.phone || r.lead.mobilePhone),
-      wantsPartner: (r: Row2) => !wantsPartnerOnly || !!r.csp?.wantsPartner,
+      // Partner interest. "asks" is the customer's own stated ask, guarded
+      // three ways in wantsPartnerStated; "pain" is dissatisfaction with
+      // the partner they already have, which is a separate signal and on
+      // the real file mostly arrives WITHOUT an ask attached. Both read
+      // the lead's own fields rather than re-deriving a rule here, so the
+      // filter and the note can never disagree about what fired.
+      partner: (r: Row2) => {
+        if (partnerFilter === "all") return true;
+        const c = r.csp;
+        if (!c) return false;
+        const asks = c.wantsPartner, pain = !!c.partnerPain;
+        if (partnerFilter === "asks") return asks;
+        if (partnerFilter === "pain") return pain;
+        if (partnerFilter === "any") return asks || pain;
+        // Held vs open lane uses POSTURE_META[...].open, the same reading
+        // of "nobody is on the record" the ◆ renewal pin uses — a blank
+        // column, Microsoft direct and an unresolvable MPN ID all count.
+        const open = POSTURE_META[c.posture].open;
+        return asks && (partnerFilter === "asks-open" ? open : !open);
+      },
       renewal: (r: Row2) => {
         if (renewalFilter === "all") return true;
         // The pin itself, as one click — per Jack, pairing a renewal with a
@@ -1281,7 +1325,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
       },
       search: (r: Row2) => searchHits === null || searchHits.has(r.id),
     };
-  }, [bucketFilter, curationFilter, searchHits, curation, productFilter, gapsOnly, callableOnly, smcRules, fromDate, toDate, postureFilter, billingFilter, minScore, maxScore, minValue, lineFilter, effBucket, isCsp, phoneOnly, wantsPartnerOnly, smcPostureFilter, renewalFilter]);
+  }, [bucketFilter, curationFilter, searchHits, curation, productFilter, gapsOnly, callableOnly, smcRules, fromDate, toDate, postureFilter, billingFilter, minScore, maxScore, minValue, lineFilter, effBucket, isCsp, phoneOnly, partnerFilter, smcPostureFilter, renewalFilter]);
 
   type FilterKey = keyof typeof tests;
 
@@ -1384,10 +1428,19 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
     return out;
   }, [rowsExcept]);
   const smcPostureAll = smcPostureCounts.open + smcPostureCounts.held + smcPostureCounts.unknown;
-  const wantsPartnerCount = useMemo(
-    () => rowsExcept("wantsPartner").filter((r) => r.csp?.wantsPartner).length,
-    [rowsExcept],
-  );
+  const partnerCounts = useMemo(() => {
+    const out = { all: 0, asks: 0, "asks-held": 0, "asks-open": 0, pain: 0, any: 0 };
+    for (const r of rowsExcept("partner")) {
+      out.all++;
+      const c = r.csp;
+      if (!c) continue;
+      const asks = c.wantsPartner, pain = !!c.partnerPain;
+      if (asks) { out.asks++; if (POSTURE_META[c.posture].open) out["asks-open"]++; else out["asks-held"]++; }
+      if (pain) out.pain++;
+      if (asks || pain) out.any++;
+    }
+    return out;
+  }, [rowsExcept]);
 
   const filtered = useMemo(() => {
     if (!result) return [];
@@ -2109,7 +2162,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
                       renewalFilter !== "all" ? RENEWAL_FILTER_CHIP[renewalFilter] : "",
                       callableOnly ? "callable" : "",
                       phoneOnly ? "has phone" : "",
-                      wantsPartnerOnly ? "wants a partner" : "",
+                      partnerFilter !== "all" ? PARTNER_FILTER_CHIP[partnerFilter] : "",
                       search ? `\u201c${search}\u201d` : "",
                     ].filter(Boolean).join(" \u00b7 ") || "none active"}
                   </span>
@@ -2137,12 +2190,6 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
                 <input type="checkbox" checked={phoneOnly} onChange={(e) => setPhoneOnly(e.target.checked)} aria-label="Has phone" />
                 Has&nbsp;phone ({phoneCount.toLocaleString()})
               </label>
-              {isCsp && (
-                <label className="toolbar-check" title={"Only leads whose notes state the CUSTOMER wants a partner \u2014 top quality. Microsoft's own template language (\"Partner: Not discovered\", \"PCM program: Open to partner introduction\") and negations (\"does not want a partner\") are excluded, so this is the real list."}>
-                  <input type="checkbox" checked={wantsPartnerOnly} onChange={(e) => setWantsPartnerOnly(e.target.checked)} aria-label="Wants a partner" />
-                  {"\u2691 Wants a partner"} ({wantsPartnerCount.toLocaleString()})
-                </label>
-              )}
               <div className="toolbar-spacer" />
               <input className="field" placeholder={"Search company, contact, or notes\u2026"} value={search} onChange={(e) => setSearch(e.target.value)} style={{ flex: 1, minWidth: 200, maxWidth: 380 }} />
             </div>
@@ -2194,6 +2241,21 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
                 <option value="file">File order</option>
               </select>
               <div className="toolbar-spacer" />
+              <select
+                className="field"
+                aria-label="Partner interest"
+                style={{ width: 208 }}
+                value={partnerFilter}
+                onChange={(e) => setPartnerFilter(e.target.value as PartnerFilter)}
+                title={"Whether they want someone ELSE — separate from the Partner dropdown beside it, which is who holds them today.\n\n⚑ Asks: the notes state the CUSTOMER wants a partner. Microsoft's own template language (\"Partner: Not discovered\", \"PCM program: Open to partner introduction\") and negations (\"does not want a partner\") are excluded, so this is the real list.\n\nAlready held is the best lead type here — they have a partner and are still asking.\n\nUnhappy: the notes state pain with the partner they already have. Most of these never ask for a new one, so they do not show under ⚑."}
+              >
+                <option value="all">Partner interest: any ({partnerCounts.all.toLocaleString()})</option>
+                <option value="asks">{"⚑"} Asks for a partner ({partnerCounts.asks.toLocaleString()})</option>
+                <option value="asks-held">{"⚑"} Asks {"—"} already held ({partnerCounts["asks-held"].toLocaleString()})</option>
+                <option value="asks-open">{"⚑"} Asks {"—"} open lane ({partnerCounts["asks-open"].toLocaleString()})</option>
+                <option value="pain">Unhappy with their partner ({partnerCounts.pain.toLocaleString()})</option>
+                <option value="any">Asks or unhappy ({partnerCounts.any.toLocaleString()})</option>
+              </select>
               <select className="field" aria-label="Partner" style={{ width: 150 }} value={postureFilter} onChange={(e) => setPostureFilter(e.target.value as PartnerPosture | "open" | "all")} title="Who holds this customer today">
                 <option value="all">Partner: any ({postureAllCount})</option>
                 <option value="open">Open lane ({postureCounts.open})</option>
