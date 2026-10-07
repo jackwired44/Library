@@ -846,9 +846,14 @@ const { persist, rescan, profiles, result, showRules, setShowRules } = ctx;
  * Shares nothing with Scanner 1 but the CSV parser, the download helper
  * and the stylesheet. See lib/scanner2.ts for why.
  */
-export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStartOver }: {
+export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStoreLeads, onStartOver }: {
   kind?: ScannerKind;
   lists?: LeadList[];
+  /** Store every scanned lead in the Library's source of truth.
+   *  Until this existed, Custom and CSP persisted ZERO leads: buildRun
+   *  records counts and filenames, never rows, so a 9,265-row scan was
+   *  gone on Start over unless the CSV had been downloaded. */
+  onStoreLeads?: (rows: Row2[], kind: ScannerKind) => void;
   onAddToList?: (
     rows: { row: Scanner2ExportRow; scanner: "main" | "smc" | "csp"; band?: string; score?: number }[],
     opts: { existingId?: string; newName?: string },
@@ -1061,6 +1066,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
       }
       const res = scan2(parsed, set);
       setResult(res);
+      onStoreLeads?.(res.rows, kind);
       // The file chips in the page bar state the row count; the only thing
       // worth saying here is what the scanner changed on your behalf.
       setNotice(mappingNote || null);
@@ -1099,6 +1105,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStar
       setFiles(next);
       setProfiles(profileColumns(next));
       setResult(res);
+      onStoreLeads?.(res.rows, kind);
       setPage(1);
       setSelected(new Set());
       // Supersede this batch's run record rather than adding a second one

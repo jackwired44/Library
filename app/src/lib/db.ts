@@ -3,7 +3,7 @@
 // used. No server, no shared backend (see CLAUDE.md, Access & ownership).
 
 export const DB_NAME = "wiredCioUnifiedLeadScannerLibrary_v1";
-export const DB_VERSION = 17;
+export const DB_VERSION = 18;
 export const STORE_LIBRARY = "files";
 export const STORE_GROUPS = "groups";
 export const STORE_HISTORY = "history";
@@ -22,6 +22,11 @@ export const STORE_EMAIL_ACCOUNTS = "emailAccounts";
 export const STORE_DISPOSITIONS = "dispositions";
 export const STORE_COMPANY_PROFILES = "companyProfiles";
 export const STORE_OUTREACH_ATTEMPTS = "outreachAttempts";
+/** Every lead ever scanned, from all three scanners — the Library's
+ *  source of truth. Keyed by the lead match key (email, else
+ *  first-name+company), so re-uploading the same person merges rather
+ *  than duplicating. See lib/leadStore.ts. */
+export const STORE_LEADS = "leads";
 // Scanner 2 — its own stores, so nothing it writes can touch the Lead
 // Library, Lists or History that Scanner 1 owns (see lib/scanner2.ts).
 export const STORE_SCANNER2_RULESETS = "scanner2RuleSets";
@@ -61,6 +66,7 @@ function openDB(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE_DISPOSITIONS)) db.createObjectStore(STORE_DISPOSITIONS, { keyPath: "id" });
       if (!db.objectStoreNames.contains(STORE_COMPANY_PROFILES)) db.createObjectStore(STORE_COMPANY_PROFILES, { keyPath: "key" });
       if (!db.objectStoreNames.contains(STORE_OUTREACH_ATTEMPTS)) db.createObjectStore(STORE_OUTREACH_ATTEMPTS, { keyPath: "id" });
+      if (!db.objectStoreNames.contains(STORE_LEADS)) db.createObjectStore(STORE_LEADS, { keyPath: "key" });
     };
     req.onsuccess = () => {
       const db = req.result;
@@ -155,6 +161,31 @@ export async function dbPut<T>(storeName: string, entry: T): Promise<void> {
     // that failed for lack of space simply hung, with nothing shown
     // anywhere. Reject, and name the quota case so it reads as "out of
     // room" rather than a mystery stall.
+    tx.onabort = () => { db.close(); reject(describeTxError(tx.error)); };
+  });
+}
+
+/**
+ * Write many records in ONE transaction.
+ *
+ * Every other helper here opens its own connection, which is right for a
+ * single task or library file but fatal at lead-store volume: one cycle of
+ * the real scanner files is ~37,000 rows, and `dbPut` per row would open
+ * 37,000 connections and 37,000 transactions. This opens one of each.
+ *
+ * Writes are fired without awaiting each request — IndexedDB queues them on
+ * the transaction and `oncomplete` only fires once they have all landed, so
+ * the single completion handler is the real "all written" signal.
+ */
+export async function dbBulkPut<T>(storeName: string, entries: T[]): Promise<void> {
+  if (entries.length === 0) return;
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readwrite");
+    const store = tx.objectStore(storeName);
+    for (const e of entries) store.put(e);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
     tx.onabort = () => { db.close(); reject(describeTxError(tx.error)); };
   });
 }

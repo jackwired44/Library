@@ -36,6 +36,11 @@ import {
 } from "./lib/library";
 import { applyCompetitorDQ } from "./lib/companyProfiles";
 import {
+  loadLeads, saveLeads, mergeLeads, type StoredLead, type LeadInput,
+} from "./lib/leadStore";
+import { leadInputsFromResults, leadInputsFromRows2, leadInputsFromNoSignal } from "./lib/leadFiling";
+import AllLeads from "./components/AllLeads";
+import {
   applyStickyState, attachScanResultsToContacts, loadContactsFromDB,
   mergeContactsFromParsedFiles, persistContact, type Contact,
 } from "./lib/contacts";
@@ -65,13 +70,14 @@ export interface UploadedFile {
   rows: number;
 }
 
-export type View = "scanner" | "scanner2" | "scanner3" | "library" | "history" | "lists" | "docs";
+export type View = "scanner" | "scanner2" | "scanner3" | "library" | "allleads" | "history" | "lists" | "docs";
 
 const NAV: { key: View; label: string }[] = [
   { key: "scanner", label: "Main Scanner" },
   { key: "scanner2", label: "Custom Scanner September" },
   { key: "scanner3", label: "CSP Scanner" },
   { key: "library", label: "Lead library" },
+  { key: "allleads", label: "All leads" },
   { key: "lists", label: "Lists" },
   { key: "history", label: "History" },
 ];
@@ -94,6 +100,8 @@ export default function App() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [companyProfiles, setCompanyProfiles] = useState<CompanyProfile[]>([]);
   const [leadLists, setLeadLists] = useState<LeadList[]>([]);
+  /** Every lead ever scanned, all three scanners. See lib/leadStore.ts. */
+  const [leads, setLeads] = useState<StoredLead[]>([]);
   const [dispositions, setDispositions] = useState<CustomDisposition[]>([]);
   const [ruleOverrides, setRuleOverrides] = useState<RuleOverrides>(DEFAULT_RULE_OVERRIDES);
   const [loading, setLoading] = useState(true);
@@ -116,10 +124,10 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const [lib, hist, cts, lists, disp, profiles, rules] = await Promise.all([
+        const [lib, hist, cts, lists, disp, profiles, rules, storedLeads] = await Promise.all([
           loadLibraryFromDB(), loadHistoryFromDB(), loadContactsFromDB(),
           loadLeadListsFromDB(), loadDispositionsFromDB(), loadCompanyProfilesFromDB(),
-          loadRuleOverrides(),
+          loadRuleOverrides(), loadLeads(),
         ]);
         // Prune before seeding, so a folder removed here cannot be
         // recreated by the seeding pass in the same breath.
@@ -135,6 +143,7 @@ export default function App() {
         setDispositions(disp);
         setCompanyProfiles(profiles);
         setRuleOverrides(rules);
+        setLeads(storedLeads);
         if (blocked.length) {
           setError(
             `Kept ${blocked.length} older month folder(s) that still hold filed leads: ` +
@@ -191,6 +200,16 @@ export default function App() {
     persistHistoryEntry(entry);
     if (replaceId) deleteHistoryEntryFromDB(replaceId);
     mergeContacts(parsedFiles, scanned);
+    // Every scanned lead is stored, not just the Strong Signal ones the
+    // Lead Library files. Per Jack: "we need to make this the source of
+    // truth for leads ... from raw lead to finished lead in this library".
+    // Including the rows detection skipped outright: on the real 500-row
+    // file that is 342 leads which exist nowhere else in the app. Per
+    // Jack, the Library shows "every lead filtered out".
+    fileLeads([
+      ...leadInputsFromResults(scanned),
+      ...leadInputsFromNoSignal(dropped.noSignalRows ?? []),
+    ]);
     // Which of this batch's companies still have no Apollo profile — the
     // list the "enrich now?" prompt is built from. Computed from the raw
     // rows so it covers every company in the upload, not just detection
@@ -202,6 +221,30 @@ export default function App() {
     setPendingEnrich(companiesNeedingEnrichment(rows, companyProfiles));
     setCompanyEnrichOutcomes(null);
     return entry;
+  }
+
+  /**
+   * Store this batch's leads.
+   *
+   * Reads `prev` from inside the functional updater, never an outer
+   * closure — two uploads in quick succession would otherwise race and
+   * silently drop one, the stale-closure class of bug this file has hit
+   * before (see finishTerminalEnrollments).
+   *
+   * Only the rows that actually changed are written, in ONE transaction:
+   * a cycle of the real files is ~37,000 rows and a per-row dbPut would
+   * open 37,000 connections.
+   */
+  function fileLeads(inputs: LeadInput[]) {
+    if (inputs.length === 0) return;
+    setLeads((prev) => {
+      const { leads, changed } = mergeLeads(prev, inputs);
+      if (changed.length) {
+        saveLeads(changed).catch((e) =>
+          setError(`Leads were scanned, but could not be stored: ${e instanceof Error ? e.message : String(e)}`));
+      }
+      return leads;
+    });
   }
 
   function mergeContacts(parsedFiles: ParsedFile[], scanned: ResultRow[]) {
@@ -437,8 +480,10 @@ export default function App() {
         {/* Per Jack: no per-scanner passwords. The sign-in gate still
             fronts the whole page; these two screens open like any other. */}
         {view === "docs" && <Documentation />}
-        {view === "scanner2" && <Scanner2 key={`smc-${scanEpoch}`} kind="smc" lists={leadLists} onAddToList={addExportRowsToLists} onStartOver={() => setScanEpoch((n) => n + 1)} />}
-        {view === "scanner3" && <Scanner2 key={`csp-${scanEpoch}`} kind="csp" lists={leadLists} onAddToList={addExportRowsToLists} onStartOver={() => setScanEpoch((n) => n + 1)} />}
+        {view === "allleads" && <AllLeads leads={leads} />}
+
+        {view === "scanner2" && <Scanner2 key={`smc-${scanEpoch}`} kind="smc" lists={leadLists} onAddToList={addExportRowsToLists} onStoreLeads={(rows, k) => fileLeads(leadInputsFromRows2(rows, k))} onStartOver={() => setScanEpoch((n) => n + 1)} />}
+        {view === "scanner3" && <Scanner2 key={`csp-${scanEpoch}`} kind="csp" lists={leadLists} onAddToList={addExportRowsToLists} onStoreLeads={(rows, k) => fileLeads(leadInputsFromRows2(rows, k))} onStartOver={() => setScanEpoch((n) => n + 1)} />}
 
         {view === "scanner" && (
           <>
