@@ -765,6 +765,15 @@ export interface CspLead {
   /** Weighted strength of the motion language in the notes — the second
    *  ranking key after billing shape. */
   strength: number;
+  /** A stated seat / licence count, read out of the seller notes — the
+   *  export has no column for it. Null when none is stated, never 0.
+   *  Product digits are masked first, so "Microsoft 365 licenses" can
+   *  never be read as 365 seats. */
+  seats: number | null;
+  /** Pain with the partner they already have, in the seller's own words,
+   *  reduced to a short phrase. Null on the ~99% of rows that say none —
+   *  this shows only when it is real. */
+  partnerPain: string | null;
   /** License SKUs the seller's notes refer to, for the notes line. */
   skus: string[];
   /** A labelled phone found in the notes, for a row whose columns have none. */
@@ -936,6 +945,8 @@ export function readCspLead(
     renewal,
     strength: notesStrength(motion),
     skus: skusMentioned(notes),
+    seats: seatsStated(notes),
+    partnerPain: partnerPainFrom(notes),
     wantsPartner,
     partnerAsk: wantsPartner ? partnerAskFrom(notes, today) : null,
     perfect: posture === "unassigned" && wantsPartner && billingRank === 0,
@@ -947,6 +958,114 @@ export function readCspLead(
     notesPhone: labelledPhoneFrom(notes),
     phoneMangled: false,
   };
+}
+
+/* ------------------------------------------- seats and partner pain */
+
+/** Product names whose own digits are not a headcount. Masked to the same
+ *  length so every later index still lines up. The Main Scanner learned
+ *  this the hard way — "Microsoft 365 licenses" read as 365 seats on 85
+ *  real rows — and this engine keeps its own copy rather than importing
+ *  one, because the three engines never import each other. */
+const CSP_PRODUCT_TOKEN_RE =
+  /\b(?:microsoft\s*365|office\s*365|dynamics\s*365|windows\s*365|m365|o365|d365|a365|ms\s*365|agent\s*365|copilot\s*365|windows\s*(?:10|11)|e[1357]|f[13]|g[135]|p[12]|365)\b/gi;
+const maskCspProducts = (t: string) => t.replace(CSP_PRODUCT_TOKEN_RE, (m) => "#".repeat(m.length));
+
+/** A seat / licence count stated in the notes. The CSP export carries no
+ *  column for it — measured, 20% of scored rows state one in prose — so
+ *  this reads the labelled and the plain forms a seller actually writes:
+ *  "Seat size: 70", "Total Microsoft 365 licenses: 37", "285 users",
+ *  "Growth Seats: 164".
+ *
+ *  Three guards, every one of them written against real rows that printed
+ *  a wrong number before it existed:
+ *
+ *  - **A bare 365 is masked too.** The Main Scanner deliberately left an
+ *    unqualified 365 alone, on the grounds that masking it would also
+ *    suppress a real 365-seat lead. On THIS file the evidence is
+ *    unanimous the other way: all 6 rows that printed "365 seats" were
+ *    the product — "their 365 subscription", "base 365 licenses",
+ *    "Windows 365 licenses" — and none was a headcount.
+ *  - **A number welded to a SKU is not a count.** `SKU: AAM?56823 Users:
+ *    20` printed 56,823 seats; the real answer was 20. A count has to
+ *    have whitespace or a line start in front of it, so a part number
+ *    cannot be read out of the middle of a token.
+ *  - **A ceiling of CSP_MAX_SEATS.** p99 of the real file is 9,000 and
+ *    the only two values above 100k were free-tier entitlement ceilings
+ *    ("Microsoft Fabric (Free): 1,000,000 licenses"), which nobody buys.
+ *
+ *  Takes the LARGEST surviving count: a note that mentions both a whole
+ *  estate and one workload is quoting the estate. */
+/** Above this a "seat count" is a free-tier entitlement ceiling or a
+ *  stray identifier, not a headcount anyone buys. */
+export const CSP_MAX_SEATS = 100_000;
+
+export function seatsStated(notes: string): number | null {
+  const masked = maskCspProducts(String(notes || ""));
+  let best: number | null = null;
+  const take = (raw: string) => {
+    const n = Number(raw.replace(/,/g, ""));
+    if (!Number.isFinite(n) || n <= 0 || n > CSP_MAX_SEATS) return;
+    if (best == null || n > best) best = n;
+  };
+  // "Seat size: 70" / "licenses: 37" / "Growth Seats: 164"
+  for (const m of masked.matchAll(/\b(?:seat\s*size|seats?|licen[cs]es?|users?|subscriptions?)\s*[:=]\s*(\d[\d,]*)/gi)) take(m[1]);
+  // "285 users" / "37 licenses" / "70 seats" — the (?:^|\s) is the
+  // part-number guard: a count stands on its own, "AAM?56823 Users" does not.
+  for (const m of masked.matchAll(/(?:^|\s)(\d[\d,]*)\s*(?:x\s*)?(?:users?|seats?|licen[cs]es?|subscriptions?)\b/gi)) take(m[1]);
+  return best;
+}
+
+/** Pain with the partner they ALREADY have.
+ *
+ * Bound, never merely nearby. Measured on the real 9,265-row export, a
+ * proximity rule (a pain word within +-90 chars of a partner noun) matched
+ * 327 rows and roughly six in ten were "customer still unresponsive" — the
+ * seller failing to reach the PROSPECT, which is the opposite party and
+ * the opposite meaning. The bound form matches 62 rows (0.7%), and that
+ * rarity is the point: it shows only when it is real.
+ *
+ * Three guards, each written against a real row that would otherwise be a
+ * false positive: Microsoft's own "rather than replacing existing
+ * partners" positioning boilerplate, a negated intent ("not replacing the
+ * partner", "happy with their current partner"), and dissatisfaction with
+ * a PRODUCT rather than a partner ("dissatisfied with their current ERP
+ * system"). The name form is deliberately case-SENSITIVE and has no /i:
+ * under /i the `[A-Z]` class matches anything, which is exactly how
+ * "dissatisfied with it" got in on the first pass.
+ */
+// Up to three words may sit between the verb and the noun — a real row
+// reads "dissatisfied with their current Microsoft partner (UDT)", and a
+// determiner-only prefix missed it. The OBJECT still has to be a partner
+// noun, which is what keeps "dissatisfied with their current ERP system"
+// out: "system" is not in the set, however short the gap.
+const CSP_PARTNER_NOUN = String.raw`(?:[\w&.\-]+\s+){0,3}(?:partner|reseller|csp|var)\b`;
+const CSP_PAIN_FORMS: { re: RegExp; say: string }[] = [
+  { re: new RegExp(String.raw`\b(?:unhappy|not\s+happy|dissatisfied|frustrated|disappointed)\s+with\s+${CSP_PARTNER_NOUN}`, "i"), say: "unhappy with them" },
+  { re: new RegExp(String.raw`\b(?:unhappy|not happy|dissatisfied|frustrated|disappointed) with ([A-Z][A-Za-z&.\-]{2,})`), say: "unhappy with them" },
+  { re: new RegExp(String.raw`\b${CSP_PARTNER_NOUN}\s+(?:is\s+|has\s+been\s+)?(?:unresponsive|not\s+responsive|non[- ]responsive|disengaged|inactive)\b`, "i"), say: "partner unresponsive" },
+  { re: new RegExp(String.raw`\b(?:poor|bad|lack\s+of|no|limited)\s+(?:service|support|engagement|communication)\s+from\s+${CSP_PARTNER_NOUN}`, "i"), say: "poor partner support" },
+  { re: new RegExp(String.raw`\b(?:switch\w*|replac\w*|chang\w*|mov\w*\s+away\s+from|transition\w*\s+away\s+from|leav\w*|drop\w*)\s+(?:${CSP_PARTNER_NOUN}s?|partners)\b`, "i"), say: "switching partners" },
+  { re: /\bevaluating\s+(?:other\s+|new\s+|alternative\s+)?partner\s+options?\b/i, say: "weighing other partners" },
+];
+const CSP_PAIN_BOILERPLATE =
+  /\b(?:rather\s+than|instead\s+of|not)\s+(?:selling\s+products?\s+or\s+)?replacing\s+(?:existing\s+)?partners?\b|\bnon[- ]sales\b|\bnot\s+replacing\s+the\s+partner\b/i;
+const CSP_PAIN_NEGATED =
+  /\b(?:not\s+(?:replac\w*|switch\w*|chang\w*)|no\s+(?:plans?|intention)\s+to\s+(?:switch|replace|leave)|happy\s+with\s+(?:their|the|current)\s+(?:partner|reseller|csp))\b/i;
+const CSP_PAIN_PRODUCT_OBJECT =
+  /\b(?:dissatisfied|unhappy|frustrated)\s+with\s+(?:it|this|that|them)?\s*(?:their\s+|the\s+|current\s+)?(?:\w+\s+)?(?:system|platform|solution|software|erp|crm|tool|product|setup|environment)\b/i;
+
+export function partnerPainFrom(notes: string): string | null {
+  const t = String(notes || "").replace(/\s+/g, " ");
+  if (!t) return null;
+  for (const form of CSP_PAIN_FORMS) {
+    const m = form.re.exec(t);
+    if (!m) continue;
+    const win = t.slice(Math.max(0, m.index - 110), m.index + 130);
+    if (CSP_PAIN_BOILERPLATE.test(win) || CSP_PAIN_NEGATED.test(win) || CSP_PAIN_PRODUCT_OBJECT.test(win)) continue;
+    return form.say;
+  }
+  return null;
 }
 
 /* --------------------------------------------------------------- rules */
@@ -1118,8 +1237,11 @@ export interface CspVerdict {
  * on a renewal call is the conversation ("renews in 56 days, you're on E7,
  * E5 and Copilot" is the whole opening).
  */
-export const CSP_NOTE_MAX_WORDS = 20;
-export const CSP_NOTE_MAX_WORDS_ASK = 26;
+// Per Jack: "keep under 30 words total less is better straight forward".
+// One cap now, not two — the ask row needed its own larger budget only
+// because 20 was too tight to finish a thought, and 30 is not.
+export const CSP_NOTE_MAX_WORDS = 30;
+export const CSP_NOTE_MAX_WORDS_ASK = 30;
 const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 /** Words, NOT tokens. The clause separator is punctuation, so counting it
  *  spent 6 of a 20-word budget on "·" alone and made the cap mean ~14 real
@@ -1175,7 +1297,12 @@ export function cspNote(lead: CspLead, score: number, flags: string[] = [], pin 
   // Size of the opp and what it is about are ONE fact, so they are one
   // clause: "$504k on Copilot, M365 E5". Split across two they read as a
   // number and then an unrelated list, and the separator bought nothing.
-  const deal = value && skus ? `${value} on ${skus}` : value || skus;
+  // Per Jack the note must carry "the licensing count and a value if there
+  // is one" — one clause, because the size of the opportunity is one fact:
+  // "$504k · 285 seats on Copilot, M365 E5". Either half can be absent.
+  const seats = lead.seats != null && lead.seats > 0 ? `${lead.seats} seats` : "";
+  const size = [value, seats].filter(Boolean).join(" \u00b7 ");
+  const deal = size && skus ? `${size} on ${skus}` : size || skus;
   const billing = BILLING_META.find((b) => b.rank === lead.billingRank)?.note ?? "";
   // "Do they go direct or through a partner" is the question Jack asked
   // this clause to answer, so it answers it in words. "Open lane" stays the
@@ -1185,10 +1312,20 @@ export function cspNote(lead: CspLead, score: number, flags: string[] = [], pin 
   // real rows, when what it means is "the record says nobody, the notes say
   // SHI" — one fact with a caveat, not two facts that disagree.
   const conflict = lead.partnerConflict ? ` (${firstWord(lead.partnerConflict)} in notes)` : "";
-  const lane = lead.posture === "named" && lead.partner
-    ? `via partner: ${firstWord(lead.partner)}`
-    : lead.posture === "microsoft" ? `direct with Microsoft${conflict}`
-      : `no partner yet${conflict}`;
+  // Pain rides ON the lane rather than as its own clause, because it is
+  // pain WITH THAT PARTNER — "via partner: Executech (unhappy with them)"
+  // is one fact, and splitting it costs a separator to say less. It is
+  // null on ~99% of rows and simply absent there; see partnerPainFrom for
+  // why it is deliberately rare.
+  const pain = lead.partnerPain ? ` (${lead.partnerPain})` : "";
+  // "via partner: partner" shipped on 75 real rows — the column literally
+  // holds the word. A placeholder is not a name, so it reads as no name.
+  const namedPartner = /^(?:partner|reseller|csp|var|vendor|the|a|an|n\/?a|none|unknown|tbd|pending|direct)$/i
+    .test(firstWord(lead.partner).trim()) ? "" : firstWord(lead.partner);
+  const lane = lead.posture === "named" && namedPartner
+    ? `via partner: ${namedPartner}${pain}`
+    : lead.posture === "microsoft" ? `direct with Microsoft${conflict}${pain}`
+      : `no partner yet${conflict}${pain}`;
   // Renewals are the whole play on this list, so this LEADS the line when
   // there is one and is never shed — a renewal in August IS the reason to
   // dial. ONE grammar, with the verb carrying the tense: four shapes

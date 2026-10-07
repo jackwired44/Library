@@ -5798,6 +5798,89 @@ all and simply carry no renewal clause. A "no renewal date on file" filler
 would cost words on 77% of rows to say nothing, so absent stays absent —
 flag if Jack wants it stated explicitly.
 
+### CSP Scanner: the Notes line carries the licence count and partner pain
+
+Per Jack, asking for the CSP note to move the same way the Main Scanner's
+matched snippet just did: *"i want it to be known if there is a partner if
+there is a pain with them or purchasing direct to microsoft the licensing
+count and a value if there is one and renewal date if there is one or
+interest in a partner"*, and *"keep under 30 words total less is better
+straight forward"*.
+
+Four of those six the line already carried. The two new ones are the
+**licence count** and **pain with the partner they already have**, and
+both had to be read out of the seller notes — this export has thirteen
+columns and neither is one of them.
+
+**One cap, not two.** `CSP_NOTE_MAX_WORDS` 20 → **30**, and
+`CSP_NOTE_MAX_WORDS_ASK` collapses onto it. The ask row only ever needed
+its own larger budget because 20 was too tight to finish a thought; 30 is
+not. Measured after, on the real 9,265-row file: **median 15 words, p90
+22, max 30, zero rows over cap.**
+
+```
+Renewed ~end of September · $102k · 300 seats on Dynamics 365 · via partner: Folio3 · annual new, paid upfront · 29d cold · (62)
+⚑ Wants partner (3 Mar): Not strongly attached to GoDaddy and are open… · $2k · 15 seats on Copilot, Azure, Dynamics 365 · via partner: Eide (switching partners) · month-to-month · 61d cold · (43)
+```
+
+**The licence count folds into the deal clause** — `$504k · 285 seats on
+Copilot, M365 E5` — because value, count and subject are one fact: the
+size of the opportunity. 344 of 2,169 High rows carry one. Every guard on
+it is a real row that printed a wrong number first:
+
+| Guard | The row that forced it |
+|---|---|
+| A **bare 365** is masked | All 6 rows printing "365 seats" were the product — "their 365 subscription", "base 365 licenses", "Windows 365 licenses". **None** was a headcount. |
+| A count needs **whitespace in front** | `SKU: AAM?56823 Users: 20` printed **56,823 seats**; the true answer is 20. |
+| `CSP_MAX_SEATS` = 100,000 | The only two values above it were free-tier ceilings — "Microsoft Fabric (Free): 1,000,000 licenses" — which nobody buys. p99 of the real file is 9,000. |
+
+This engine keeps its **own** product mask rather than importing the Main
+Scanner's, because the three engines never import each other. Note it
+reaches a *different* verdict on a bare 365 than Main does, deliberately:
+Main left it alone on the grounds that masking would suppress a real
+365-seat lead, and on this file the evidence is unanimous the other way.
+
+**Partner pain rides ON the lane**, not as its own clause — `via partner:
+Executech (unhappy with them)` is one fact, and splitting it spends a
+separator to say less. It is null on 99.3% of rows and simply absent
+there.
+
+**It is bound to the partner, never merely near one, and that distinction
+is the whole rule.** A proximity version (a pain word within ±90 chars of
+a partner noun) matched **327** real rows — and roughly six in ten were
+`"Customer still unresponsive"`, the seller failing to reach the
+**prospect**, which is the opposite party and the opposite meaning. These
+notes are dense enough that a partner noun sits near almost everything.
+The bound form matches **62 (0.7%)**, and that rarity is the point: it
+shows only when it is real.
+
+Three further guards, each from a real row: Microsoft's own positioning
+boilerplate (*"rather than selling products or replacing existing
+partners"*), a negated intent (*"not replacing the partner"*, *"happy with
+their current partner"*), and dissatisfaction with a **product** rather
+than a partner (*"dissatisfied with their current ERP system"*). The
+proper-name form is deliberately **case-sensitive with no `/i`** — under
+`/i` the `[A-Z]` class matches anything, which is exactly how
+*"dissatisfied with it"* got in on the first pass. Up to three words may
+sit between the verb and the noun, because a real row reads *"dissatisfied
+with their current Microsoft partner (UDT)"*; the object still has to be a
+partner noun, which is what keeps the ERP case out however short the gap.
+
+**One more defect fixed in the same pass:** `via partner: partner` shipped
+on **75 real rows** — the column literally holds the word "partner". A
+placeholder is not a name, so it now reads as no name at all.
+
+**Verification.** 33 suites / **1,432 checks** (`csp-notes` 72 → 97, all
+25 new ones being the guards above, half of them negative cases).
+Documentation's Notes-line table was re-derived for six clauses and one
+cap; the `docs` locator moved with the wording it describes, since that
+clause genuinely now says more.
+
+**Flagged, not changed:** one of twelve sampled pain rows is still the
+seller's own framing (*"leaving partner support as an optional
+implementation path"*) rather than customer pain. At 62 rows that is
+diminishing returns, not a defect.
+
 ### Main Scanner: the Notes line is a CALL BRIEF, not a quote
 
 Per Jack, over one thread: *"this is how main scanner notes should come

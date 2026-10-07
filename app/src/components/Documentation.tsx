@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { EXPORT_LABELS, TOP_PRIORITY_META, TOP_PRIORITY_ORDER } from "../lib/detection";
 import { SCANNER2_EXPORT_LABELS, CSP_EXPORT_LABELS } from "../lib/scanner2";
-import { BILLING_META, POSTURE_META, DEFAULT_CSP_RULES, DEFAULT_CSP_WEIGHTS, WEIGHT_META, DEAD_PATTERNS, MOTION_PATTERNS, MOTION_WEIGHT, CSP_COLUMN_HINTS, WANTS_PARTNER_LABEL, OPEN_RENEWAL_MARK, RENEWAL_SOON_DAYS, RENEWAL_BONUS_MAX, CSP_NOTE_MAX_WORDS, CSP_NOTE_MAX_WORDS_ASK } from "../lib/cspRenewal";
+import { BILLING_META, POSTURE_META, DEFAULT_CSP_RULES, DEFAULT_CSP_WEIGHTS, WEIGHT_META, DEAD_PATTERNS, MOTION_PATTERNS, MOTION_WEIGHT, CSP_COLUMN_HINTS, WANTS_PARTNER_LABEL, OPEN_RENEWAL_MARK, RENEWAL_SOON_DAYS, RENEWAL_BONUS_MAX, CSP_NOTE_MAX_WORDS } from "../lib/cspRenewal";
 import { SMC_PRODUCTS, DEFAULT_SMC_SCORE_RULES, DEFAULT_SMC_WEIGHTS, SMC_FACTOR_META, SMC_PARTNER_META, RUNS_MAX } from "../lib/smcLead";
 
 /**
@@ -247,16 +247,17 @@ export default function Documentation() {
 
           <H>The Notes line</H>
           <p style={{ margin: 0 }}>
-            One line a rep can read on a dial, capped at {CSP_NOTE_MAX_WORDS} words ({CSP_NOTE_MAX_WORDS_ASK} where the
-            customer has asked for a partner, or where the {OPEN_RENEWAL_MARK} pin is on). It carries four things, in
-            this order:
+            One line a rep can read on a dial, capped at {CSP_NOTE_MAX_WORDS} words — less is better. It carries six
+            things, in this order:
           </p>
           <Table
             head={["Reads", "What it answers"]}
             rows={[
               ["⏰ Renews ~Dec (56d)", "When their renewal is. ⏰ and the day count appear inside the window; “Forecast close” is the seller’s guess, never worded as a contract."],
-              ["$504k on Copilot, M365 E5", "The size of the opportunity and what it is about — one fact, so one clause."],
+              ["$504k · 285 seats on Copilot, M365 E5", "The size of the opportunity — value, a stated licence count, and what it is about. One fact, so one clause. The count is read out of the seller notes; this export has no column for it."],
               ["no partner yet (SHI in notes) / via partner: CDW / direct with Microsoft", "Whether they go direct, through a partner, or have nobody on the record yet."],
+              ["via partner: Executech (unhappy with them)", "Pain with the partner they already have. Bound to the partner, never merely near one — so “customer still unresponsive”, which is the seller failing to reach the prospect, is not read as partner pain. Absent on ~99% of rows, which is the point."],
+              [`\u2691 ${WANTS_PARTNER_LABEL}`, "The customer has asked for a partner, dated to the entry it was written in."],
               ["annual new, paid upfront · 45d cold · (82)", "Billing shape, how cold the record is, the score. These ride behind the four above and are what gets shed when a row runs long."],
             ]}
           />

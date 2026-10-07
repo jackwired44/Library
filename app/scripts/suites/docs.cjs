@@ -73,11 +73,17 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  PASS', n)) : (fail++,
      // Case-insensitive: the <H> subheading is CSS-uppercased, so innerText
      // reads "THE NOTES LINE".
      /the notes line/i.test(csp) && /When their renewal is/.test(csp)
-     && /size of the opportunity and what it is about/.test(csp)
+     && /size of the opportunity \u2014 value, a stated licence count, and what it is about/.test(csp)
      && /direct, through a partner, or have nobody/.test(csp), '');
-  ok('CSP: states the caps from the live constants, and that \u00b7 is not a word',
-     /capped at 20 words \(26 where/.test(csp.replace(/\s+/g, ' '))
+  // One cap now, not two: per Jack, "keep under 30 words total less is
+  // better". The ask row needed its own larger budget only because 20 was
+  // too tight to finish a thought, and 30 is not.
+  ok('CSP: states the cap from the live constant, and that \u00b7 is not a word',
+     /capped at 30 words/.test(csp.replace(/\s+/g, ' '))
      && /counts words, not the/.test(csp.replace(/\s+/g, ' ')), '');
+  ok('CSP: the notes line documents the licence count and partner pain',
+     /stated licence count/i.test(csp.replace(/\s+/g, ' '))
+     && /Pain with the partner they already have/i.test(csp.replace(/\s+/g, ' ')), '');
   ok('CSP: names the three clauses that are never shed',
      /renewal, the deal and the lane are never shed/i.test(csp.replace(/\s+/g, ' ')), '');
   ok('CSP: says Product Area carries the priority', /Product Area carries the priority/.test(csp));

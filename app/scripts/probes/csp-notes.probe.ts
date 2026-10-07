@@ -17,8 +17,7 @@
 import {
   cspNote, partnerAskFrom, nextStepFrom, allEntries, shortAskDate,
   readCspLead, classifyCsp, DEFAULT_CSP_RULES, guessCspColumns,
-  CSP_NOTE_MAX_WORDS, CSP_NOTE_MAX_WORDS_ASK, noteWordCount, type CspLead,
-} from "../../src/lib/cspRenewal";
+  CSP_NOTE_MAX_WORDS, CSP_NOTE_MAX_WORDS_ASK, noteWordCount, type CspLead, seatsStated, partnerPainFrom, CSP_MAX_SEATS} from "../../src/lib/cspRenewal";
 
 let pass = 0, fail = 0;
 const ok = (n: string, c: boolean, d = "") => {
@@ -263,6 +262,59 @@ for (const junk of [
 // The separator is punctuation, so the cap counts words, not tokens.
 ok("the word cap does not count the \u00b7 separator",
    noteWordCount("a \u00b7 b \u00b7 c") === 3, String(noteWordCount("a \u00b7 b \u00b7 c")));
+
+console.log("\n== the licence count, and what is NOT one ==");
+// Per Jack the note must carry "the licensing count". The export has no
+// column for it, so it is read out of the seller notes — which is exactly
+// where the wrong numbers live. Every guard below is a real row that
+// printed a false count before it existed.
+const SEATS: [string, string, number | null][] = [
+  ["a plain count",            "Customer has 285 users on M365 E3.", 285],
+  ["a labelled count",         "Seat size: 70 Partner: TSR", 70],
+  ["a labelled licence count", "Total Microsoft 365 licenses: 37 Copilot licenses suggested: 15", 37],
+  ["a comma-grouped count",    "approximately 21,600 licenses in scope", 21600],
+  // All 6 real rows that printed "365 seats" were the product, never a
+  // headcount: "their 365 subscription", "base 365 licenses", "Windows
+  // 365 licenses". A bare 365 is masked here for that reason.
+  ["“their 365 subscription” is not 365 seats", "utilize MS Forms (from their 365 subscription) to create forms", null],
+  ["“base 365 licenses” is not 365 seats", "bullet list of supported base 365 licenses required for Copilot Premium", null],
+  ["“Windows 365 licenses” is not 365 seats", "finalizing Windows 365 license configurations, adjusting quantities", null],
+  ["“Microsoft 365 licenses” alone is not a count", "reviewing their Microsoft 365 licenses this quarter", null],
+  // Real row: printed 56,823 seats when the true answer was 20.
+  ["a SKU part number is not a count", "Teams Phone with Calling Plan SKU: AAM?56823 Users: 20 Unit Price: $15", 20],
+  // Real rows: free-tier entitlement ceilings nobody buys.
+  ["a free-tier ceiling is refused", "Microsoft Fabric (Free): 1,000,000 licenses", null],
+  ["no count stated",           "Customer is evaluating an Azure migration.", null],
+];
+for (const [label, text, want] of SEATS)
+  ok(label, seatsStated(text) === want, `got ${seatsStated(text)}, want ${want}`);
+ok("the ceiling is a named constant, not a magic number", CSP_MAX_SEATS === 100_000, String(CSP_MAX_SEATS));
+
+console.log("\n== pain with the partner, bound and not merely nearby ==");
+// Measured: a proximity rule (pain word within +-90 chars of a partner
+// noun) matched 327 real rows and ~6 in 10 were "customer still
+// unresponsive" — the seller failing to reach the PROSPECT, the opposite
+// party. The bound form matches 62 (0.7%), and the rarity is the point.
+const PAIN: [string, string, string | null][] = [
+  ["unhappy with a named partner", "Evaluating partner options as they are unhappy with Executech.", "unhappy with them"],
+  ["dissatisfied with their partner", "the customer is dissatisfied with their current Microsoft partner (UDT)", "unhappy with them"],
+  ["switching partners", "They are with AHEAD Inc but are looking to change partners.", "switching partners"],
+  ["partner unresponsive", "Their partner has been unresponsive for weeks.", "partner unresponsive"],
+  ["weighing other partners", "Leadership is evaluating partner options this quarter.", "weighing other partners"],
+  // The whole reason the rule is bound rather than near.
+  ["CUSTOMER unresponsive is not partner pain", "First follow up made via phone call and email Customer still unresponsive Next Steps: Discovery Seat size: 70 Partner: TSR", null],
+  ["the partner REPORTING an unreachable customer is not pain", "The partner confirmed that the customer is unreachable and has not responded to emails or calls.", null],
+  // Microsoft's own positioning boilerplate, on real rows.
+  ["Microsoft's own boilerplate is not pain", "focused on providing consultative support rather than selling products or replacing existing partners", null],
+  ["an explicit non-replacement is not pain", "opportunity focuses on Microsoft security licensing, not replacing the partner.", null],
+  ["happy with the incumbent is not pain", "They are happy with their current partner and have no plans to switch.", null],
+  // Dissatisfaction with a PRODUCT is a different complaint.
+  ["dissatisfied with a PRODUCT is not partner pain", "dissatisfied with their current ERP system and actively looking for a cloud alternative", null],
+  ["“dissatisfied with it” is not partner pain", "using Salesforce for CRM but dissatisfied with it for multiple unspecified reasons", null],
+  ["no pain stated", "Customer is renewing M365 E3 for 300 users in March.", null],
+];
+for (const [label, text, want] of PAIN)
+  ok(label, partnerPainFrom(text) === want, `got ${partnerPainFrom(text)}, want ${want}`);
 
 console.log(`\n${pass}/${pass + fail} checks passed`);
 if (fail) process.exit(1);
