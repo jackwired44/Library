@@ -26,6 +26,7 @@ import { SYNC_STALE_DAYS } from "../lib/apolloSync";
 import { realSteps, type ApolloFunnel } from "../lib/apolloFunnel";
 import { isIntentDate, soonestUpcoming, type NoteDate } from "../lib/noteDates";
 import { loadRawNotes, type RawNotes } from "../lib/rawNotes";
+import { FUNCTION_META, LEVEL_META, titleFunction, titleLevel } from "../lib/titleLevel";
 import {
   employeeCountOf, normalizeCompanyKey, profileForCompany, type CompanyProfile,
 } from "../lib/companyProfiles";
@@ -468,6 +469,12 @@ export default function LeadDetail({
               </Row>
             </Section>
             <Section title="Contact">
+              <Row label="Position">
+                {lead.title || <span style={muted}>no title</span>}
+                <span style={{ fontSize: 11.5, ...muted }}>
+                  {" · "}{LEVEL_META[titleLevel(lead.title)].label} · {FUNCTION_META[titleFunction(lead.title)].label}
+                </span>
+              </Row>
               <Row label="Email">{lead.email ? <a href={`mailto:${lead.email}`}>{lead.email}</a> : dash}</Row>
               <Row label="Work phone">{lead.phone || dash}</Row>
               <Row label="Mobile">{lead.mobilePhone || dash}</Row>

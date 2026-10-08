@@ -252,6 +252,14 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('"Called, never reached" finds the lead dialled with no answer', /\b1 of 5\b/.test(t) && /MAIN ALPHA CO/.test(t), t.slice(0, 300));
   await page.locator('main button', { hasText: 'Clear all' }).first().click(); await sleep(400);
 
+  console.log('\n== position filter ==');
+  const posOpts = (await page.locator('select[aria-label="Position"] option').allInnerTexts()).join(' | ');
+  ok('Position counts the fixture titles', /Director \/ Head of \(1\)/.test(posOpts) && /Owner \/ C-suite \(2\)/.test(posOpts) && /No title \(2\)/.test(posOpts), posOpts);
+  await page.selectOption('select[aria-label="Position"]', 'director'); await sleep(500);
+  t = await text();
+  ok('Position: Director narrows to the IT Director', /\b1 of 5\b/.test(t) && /MAIN ALPHA CO/.test(t), t.slice(0, 300));
+  await page.selectOption('select[aria-label="Position"]', 'all'); await sleep(300);
+
   console.log('\n== Home shows the status lifecycle ==');
   await nav('Home');
   t = await text();

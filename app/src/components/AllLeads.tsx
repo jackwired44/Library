@@ -36,6 +36,10 @@ import {
 } from "../lib/leadStatus";
 import { stepsInSequence, type ApolloFunnel } from "../lib/apolloFunnel";
 import { isIntentDate, soonestUpcoming, type NoteDate } from "../lib/noteDates";
+import {
+  FUNCTION_META, LEVEL_META, LEVEL_ORDER, titleFunction, titleLevel,
+  type TitleFunction, type TitleLevel,
+} from "../lib/titleLevel";
 
 const PAGE_SIZES = [25, 100, 250, 500];
 
@@ -104,6 +108,8 @@ interface Derived {
   /** "upcoming" / "past" / "logged" (stamps only) / "none". */
   dateKind: "upcoming" | "past" | "logged" | "none";
   nextDate: NoteDate | null;
+  level: TitleLevel;
+  fn: TitleFunction;
 }
 
 function dateKindOf(dates: NoteDate[] | undefined): Derived["dateKind"] {
@@ -163,6 +169,8 @@ export default function AllLeads({
   const [fileNameF, setFileNameF] = useState("all");
   const [statusF, setStatusF] = useState<LeadStatus | "all">(initialStatus ?? "all");
   const [monthF, setMonthF] = useState("all");
+  const [levelF, setLevelF] = useState<TitleLevel | "all">("all");
+  const [fnF, setFnF] = useState<TitleFunction | "all">("all");
   const [dateF, setDateF] = useState<Derived["dateKind"] | "all">("all");
   const [bulkStatus, setBulkStatus] = useState("");
   const [from, setFrom] = useState("");
@@ -214,6 +222,8 @@ export default function AllLeads({
         month: (l.receivedOn || l.firstSeenAt).slice(0, 7),
         dateKind: dateKindOf(l.noteDates),
         nextDate: soonestUpcoming(l.noteDates),
+        level: titleLevel(l.title),
+        fn: titleFunction(l.title),
       });
     }
     return m;
@@ -224,11 +234,13 @@ export default function AllLeads({
   const fromT = from ? Date.parse(`${from}T00:00:00`) : null;
   const toT = to ? Date.parse(`${to}T23:59:59.999`) : null;
 
-  type Key = "month" | "dates" | "status" | "search" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "plan" | "planSeq" | "files" | "fileName" | "date";
+  type Key = "level" | "fn" | "month" | "dates" | "status" | "search" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "plan" | "planSeq" | "files" | "fileName" | "date";
   const tests = useMemo(() => {
     const t: Record<Key, (l: StoredLead, d: Derived) => boolean> = {
       status: (_l, d) => statusF === "all" || d.status === statusF,
       month: (_l, d) => monthF === "all" || d.month === monthF,
+      level: (_l, d) => levelF === "all" || d.level === levelF,
+      fn: (_l, d) => fnF === "all" || d.fn === fnF,
       dates: (_l, d) => dateF === "all" || d.dateKind === dateF,
       search: (_l, d) => !q || d.hay.includes(q),
       source: (l) => sourceF === "all" || l.source === sourceF,
@@ -261,7 +273,7 @@ export default function AllLeads({
       },
     };
     return t;
-  }, [monthF, dateF, statusF, q, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, planF, planSeqF, filesF, fileNameF, fromT, toT]);
+  }, [levelF, fnF, monthF, dateF, statusF, q, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, planF, planSeqF, filesF, fileNameF, fromT, toT]);
 
   const passes = (l: StoredLead, skip?: Key) => {
     const d = derived.get(l.key)!;
@@ -321,6 +333,7 @@ export default function AllLeads({
       files: facet("files", (_l, d) => [d.files === 1 ? "1" : "", d.files >= 2 ? "2" : "", d.files >= 3 ? "3" : ""].filter(Boolean)),
       fileName: facet("fileName", (l) => l.sourceFiles),
       month: facet("month", (_l, d) => d.month),
+      fn: facet("fn", (_l, d) => d.fn),
       dates: facet("dates", (_l, d) => d.dateKind),
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -331,6 +344,13 @@ export default function AllLeads({
   const statusCounts = useMemo(() => {
     const m = Object.fromEntries(STATUS_ORDER.map((x) => [x, 0])) as Record<LeadStatus, number>;
     for (const l of leads) if (passes(l, "status")) m[derived.get(l.key)!.status]++;
+    return m;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leads, derived, tests]);
+
+  const levelCounts = useMemo(() => {
+    const m = Object.fromEntries(LEVEL_ORDER.map((x) => [x, 0])) as Record<TitleLevel, number>;
+    for (const l of leads) if (passes(l, "level")) m[derived.get(l.key)!.level]++;
     return m;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leads, derived, tests]);
@@ -347,6 +367,8 @@ export default function AllLeads({
 
   /* ---- active filter chips ---- */
   const chips: { label: string; clear: () => void }[] = [];
+  if (levelF !== "all") chips.push({ label: `Position: ${LEVEL_META[levelF].label}`, clear: () => setLevelF("all") });
+  if (fnF !== "all") chips.push({ label: FUNCTION_META[fnF].label, clear: () => setFnF("all") });
   if (monthF !== "all") chips.push({ label: `Received ${monthLabel(monthF)}`, clear: () => setMonthF("all") });
   if (dateF !== "all") chips.push({ label: DATE_LABEL[dateF], clear: () => setDateF("all") });
   if (statusF !== "all") chips.push({ label: `Status: ${STATUS_META[statusF].label}`, clear: () => setStatusF("all") });
@@ -534,6 +556,12 @@ export default function AllLeads({
             <option value="all">Tier: any</option>
             {tiers.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
+          <select className="field" aria-label="Position" value={levelF}
+                  onChange={(e) => setLevelF(e.target.value as TitleLevel | "all")}
+                  title="Seniority read from the contact's job title. 'Contact role' is a tenant or CRM role like Company Administrator, not a job title.">
+            <option value="all">Position: any</option>
+            {LEVEL_ORDER.map((x) => <option key={x} value={x}>{LEVEL_META[x].label} ({levelCounts[x].toLocaleString()})</option>)}
+          </select>
           <div className="filter-wrap" style={{ position: "relative" }}>
             <button className="filter-btn btn btn-sm btn-secondary" onClick={() => setFiltersOpen((v) => !v)} aria-expanded={filtersOpen}>
               Filters{chips.length > 0 && <span className="filter-count"> {chips.length}</span>}
@@ -625,6 +653,16 @@ export default function AllLeads({
               <div className="section-label">On this file</div>
               <select className="field" style={{ width: "100%" }} aria-label="Source file" value={fileNameF} onChange={(e) => setFileNameF(e.target.value)}>
                 <option value="all">Any</option>{opts(facets.fileName)}
+              </select>
+            </label>
+            <label>
+              <div className="section-label">Function</div>
+              <select className="field" aria-label="Function" style={{ width: "100%" }} value={fnF}
+                      onChange={(e) => setFnF(e.target.value as TitleFunction | "all")}>
+                <option value="all">Any</option>
+                {(Object.keys(FUNCTION_META) as TitleFunction[]).map((k) => (
+                  <option key={k} value={k}>{FUNCTION_META[k].label} ({(facets.fn.get(k) || 0).toLocaleString()})</option>
+                ))}
               </select>
             </label>
             <label>
@@ -759,7 +797,14 @@ export default function AllLeads({
                   </td>
                   <td style={{ whiteSpace: "nowrap" }}>
                     {l.contact || "—"}
-                    <div style={{ fontSize: 11, color: "var(--muted)" }}>{l.title || l.email || ""}</div>
+                    <div style={{ fontSize: 11, color: "var(--muted)" }}>
+                      {l.title || <i>no title</i>}
+                      {d.level !== "none" && d.level !== "staff" && (
+                        <span style={{ marginLeft: 6, fontSize: 10, padding: "0 5px", borderRadius: 4, background: "var(--surface-sunken)" }}>
+                          {LEVEL_META[d.level].label}
+                        </span>
+                      )}
+                    </div>
                   </td>
                   {/* Status, then the two things Jack asked to see at a
                       glance: which sequence they are in, and how many times
