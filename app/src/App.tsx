@@ -36,8 +36,16 @@ import {
 } from "./lib/library";
 import { applyCompetitorDQ } from "./lib/companyProfiles";
 import {
-  loadLeads, saveLeads, mergeLeads, type StoredLead, type LeadInput,
+  loadLeads, saveLeads, mergeLeads, deleteLead, type StoredLead, type LeadInput,
 } from "./lib/leadStore";
+import {
+  qualifyLeadInputs, requalifyStoredLeads, summarizeDiscards, type DiscardedLead,
+} from "./lib/leadQualify";
+import { parseApolloSync, applyApolloSync } from "./lib/apolloSync";
+import {
+  loadFunnels, saveFunnels, parseFunnelCSV, realSteps, type ApolloFunnel,
+} from "./lib/apolloFunnel";
+import Campaigns from "./components/Campaigns";
 import { leadInputsFromResults, leadInputsFromRows2, leadInputsFromNoSignal } from "./lib/leadFiling";
 import AllLeads from "./components/AllLeads";
 import {
@@ -70,7 +78,7 @@ export interface UploadedFile {
   rows: number;
 }
 
-export type View = "scanner" | "scanner2" | "scanner3" | "library" | "allleads" | "history" | "lists" | "docs";
+export type View = "scanner" | "scanner2" | "scanner3" | "library" | "allleads" | "campaigns" | "history" | "lists" | "docs";
 
 const NAV: { key: View; label: string }[] = [
   { key: "scanner", label: "Main Scanner" },
@@ -78,6 +86,7 @@ const NAV: { key: View; label: string }[] = [
   { key: "scanner3", label: "CSP Scanner" },
   { key: "library", label: "Lead library" },
   { key: "allleads", label: "All leads" },
+  { key: "campaigns", label: "Campaigns" },
   { key: "lists", label: "Lists" },
   { key: "history", label: "History" },
 ];
@@ -102,6 +111,14 @@ export default function App() {
   const [leadLists, setLeadLists] = useState<LeadList[]>([]);
   /** Every lead ever scanned, all three scanners. See lib/leadStore.ts. */
   const [leads, setLeads] = useState<StoredLead[]>([]);
+  /** What the qualification gate just threw away. Transient by necessity —
+   *  a discarded lead is never stored, so this is the only record of it. */
+  const [lastDiscards, setLastDiscards] =
+    useState<{ discarded: DiscardedLead[]; sizeUnknown: string[] } | null>(null);
+  const [funnels, setFunnels] = useState<ApolloFunnel[]>([]);
+  /** Seeds All leads' sequence filter when arriving from a campaign card,
+   *  so "open these leads" lands on that sequence rather than everything. */
+  const [leadsSequenceEntry, setLeadsSequenceEntry] = useState<string>("");
   const [dispositions, setDispositions] = useState<CustomDisposition[]>([]);
   const [ruleOverrides, setRuleOverrides] = useState<RuleOverrides>(DEFAULT_RULE_OVERRIDES);
   const [loading, setLoading] = useState(true);
@@ -124,10 +141,10 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const [lib, hist, cts, lists, disp, profiles, rules, storedLeads] = await Promise.all([
+        const [lib, hist, cts, lists, disp, profiles, rules, storedLeads, storedFunnels] = await Promise.all([
           loadLibraryFromDB(), loadHistoryFromDB(), loadContactsFromDB(),
           loadLeadListsFromDB(), loadDispositionsFromDB(), loadCompanyProfilesFromDB(),
-          loadRuleOverrides(), loadLeads(),
+          loadRuleOverrides(), loadLeads(), loadFunnels(),
         ]);
         // Prune before seeding, so a folder removed here cannot be
         // recreated by the seeding pass in the same breath.
@@ -144,6 +161,7 @@ export default function App() {
         setCompanyProfiles(profiles);
         setRuleOverrides(rules);
         setLeads(storedLeads);
+        setFunnels(storedFunnels);
         if (blocked.length) {
           setError(
             `Kept ${blocked.length} older month folder(s) that still hold filed leads: ` +
@@ -237,14 +255,80 @@ export default function App() {
    */
   function fileLeads(inputs: LeadInput[]) {
     if (inputs.length === 0) return;
+    // The qualification gate, BEFORE anything is written. Per Jack an IT /
+    // MSP / Microsoft-partner company and a confirmed sub-10-employee
+    // company are "automatically excluded from being stored" — discarded
+    // outright, his explicit choice over keeping a hidden copy. Nothing
+    // records them afterwards, so the report below is the only trace and
+    // the banner that shows it is not optional polish.
+    const { kept, discarded, sizeUnknown } = qualifyLeadInputs(inputs, companyProfiles);
+    if (discarded.length) setLastDiscards({ discarded, sizeUnknown });
+    if (kept.length === 0) return;
     setLeads((prev) => {
-      const { leads, changed } = mergeLeads(prev, inputs);
+      const { leads, changed } = mergeLeads(prev, kept);
       if (changed.length) {
         saveLeads(changed).catch((e) =>
           setError(`Leads were scanned, but could not be stored: ${e instanceof Error ? e.message : String(e)}`));
       }
       return leads;
     });
+  }
+
+  /**
+   * Re-run the gate over leads ALREADY stored, after enrichment taught us
+   * new industries and headcounts.
+   *
+   * Without this the gate only ever catches companies that happened to be
+   * enriched before their leads were scanned, which on a fresh upload is
+   * almost none of them — measured on Jack's seven real files, 4,571 of
+   * 4,587 companies had no headcount on file at scan time.
+   */
+  /**
+   * Load an Apollo sync file onto the leads already stored.
+   *
+   * The app cannot call Apollo itself — it is a static bundle with no MCP
+   * runtime (see lib/apolloSync.ts). So the round trip is: export the
+   * lookup list from here, run the pull in a Claude session, import the
+   * result back. This is the import half.
+   */
+  async function applySyncFiles(files: ParsedFile[]) {
+    const { rows, unmapped, skipped } = parseApolloSync(files);
+    const { leads: next, changed, matched, unmatched } = applyApolloSync(leads, rows);
+    setLeads(next);
+    if (changed.length) {
+      await saveLeads(changed).catch((e) =>
+        setError(`Sync read, but could not be stored: ${e instanceof Error ? e.message : String(e)}`));
+    }
+    return { rows: rows.length, matched, unmatched: unmatched.length, unmapped, skipped };
+  }
+
+  /** Import Apollo's per-step funnel. Replaced per sequence, not merged —
+   *  a funnel is a snapshot, so a re-import has to be able to shrink a
+   *  count, not only grow it. */
+  async function importFunnelFiles(files: ParsedFile[]) {
+    const { funnels: incoming, unmapped, skipped } = parseFunnelCSV(files);
+    const byName = new Map(funnels.map((f) => [f.name, f]));
+    for (const f of incoming) byName.set(f.name, f);
+    const next = [...byName.values()];
+    setFunnels(next);
+    await saveFunnels(incoming).catch((e) =>
+      setError(`Funnel read, but could not be stored: ${e instanceof Error ? e.message : String(e)}`));
+    return {
+      funnels: incoming.length,
+      steps: incoming.reduce((a, f) => a + realSteps(f).length, 0),
+      unmapped,
+      skipped,
+    };
+  }
+
+  async function requalifyAll(profiles: CompanyProfile[]) {
+    const { kept, discarded } = requalifyStoredLeads(leads, profiles);
+    if (!discarded.length) return 0;
+    setLeads(kept);
+    await Promise.all(discarded.map((d) => deleteLead(d.key))).catch((e) =>
+      setError(`Could not remove disqualified leads: ${e instanceof Error ? e.message : String(e)}`));
+    setLastDiscards({ discarded, sizeUnknown: [] });
+    return discarded.length;
   }
 
   function mergeContacts(parsedFiles: ParsedFile[], scanned: ResultRow[]) {
@@ -433,6 +517,11 @@ export default function App() {
         const hit = applyCompetitorDQ(prev, working);
         return hit > 0 ? [...prev] : prev;
       });
+      // And the same newly-learned industries have to reach the STORE, not
+      // only the rows on screen. A lead stored before its company was
+      // enriched passed the gate on no evidence; this is where that is
+      // settled.
+      await requalifyAll(working);
       const done = new Set(outcomes.map((o) => o.domain));
       setPendingEnrich((prev) => prev.filter((p) => !done.has(p.domain)));
     } catch (e) {
@@ -495,10 +584,60 @@ export default function App() {
       <main className="app-main" style={{ minWidth: 0 }}>
         {error && <div style={{ marginBottom: 12, color: "#9A5B22" }}>{error}</div>}
 
+        {/* The discard report. A gated-out lead is never written anywhere,
+            so this banner is the ONLY place it is ever named — which is why
+            it lists the companies rather than just counting them. */}
+        {lastDiscards && lastDiscards.discarded.length > 0 && (
+          <div style={{
+            marginBottom: 12, padding: "10px 12px", border: "1px solid var(--border)",
+            borderLeft: "3px solid #B5443B", borderRadius: 10, background: "var(--surface-sunken)",
+            fontSize: 13,
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
+              <strong>{lastDiscards.discarded.length} lead{lastDiscards.discarded.length === 1 ? "" : "s"} not stored</strong>
+              <button className="btn btn-sm btn-ghost" onClick={() => setLastDiscards(null)}>Dismiss</button>
+            </div>
+            {summarizeDiscards(lastDiscards.discarded).map((g) => (
+              <div key={g.reason} style={{ marginTop: 6 }}>
+                <div style={{ color: "var(--muted)" }}>{g.count} · {g.reason}</div>
+                <div style={{ maxHeight: 120, overflowY: "auto", marginTop: 2 }}>
+                  {g.companies.join(" · ")}
+                </div>
+              </div>
+            ))}
+            <div style={{ marginTop: 8, color: "var(--muted)" }}>
+              These were discarded, not hidden — they are not in the store and will be
+              discarded again on a re-upload. If one is wrong, tell me and I will narrow the rule.
+            </div>
+            {lastDiscards.sizeUnknown.length > 0 && (
+              <div style={{ marginTop: 6, color: "var(--muted)" }}>
+                {lastDiscards.sizeUnknown.length} compan{lastDiscards.sizeUnknown.length === 1 ? "y has" : "ies have"} no
+                headcount on file and were kept. Enrich them to apply the 10-employee floor.
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Per Jack: no per-scanner passwords. The sign-in gate still
             fronts the whole page; these two screens open like any other. */}
         {view === "docs" && <Documentation />}
-        {view === "allleads" && <AllLeads leads={leads} />}
+        {view === "allleads" && (
+          <AllLeads
+            key={`leads-${leadsSequenceEntry}`}
+            leads={leads}
+            companyProfiles={companyProfiles}
+            onApplySync={applySyncFiles}
+            initialSequence={leadsSequenceEntry}
+          />
+        )}
+        {view === "campaigns" && (
+          <Campaigns
+            leads={leads}
+            funnels={funnels}
+            onImportFunnels={importFunnelFiles}
+            onOpenLeads={(name) => { setLeadsSequenceEntry(name); setView("allleads"); }}
+          />
+        )}
 
         {view === "scanner2" && <Scanner2 key={`smc-${scanEpoch}`} kind="smc" lists={leadLists} onAddToList={addExportRowsToLists} onStoreLeads={(rows, k) => fileLeads(leadInputsFromRows2(rows, k))} onStartOver={() => setScanEpoch((n) => n + 1)} />}
         {view === "scanner3" && <Scanner2 key={`csp-${scanEpoch}`} kind="csp" lists={leadLists} onAddToList={addExportRowsToLists} onStoreLeads={(rows, k) => fileLeads(leadInputsFromRows2(rows, k))} onStartOver={() => setScanEpoch((n) => n + 1)} />}

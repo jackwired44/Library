@@ -3,7 +3,7 @@
 // used. No server, no shared backend (see CLAUDE.md, Access & ownership).
 
 export const DB_NAME = "wiredCioUnifiedLeadScannerLibrary_v1";
-export const DB_VERSION = 18;
+export const DB_VERSION = 19;
 export const STORE_LIBRARY = "files";
 export const STORE_GROUPS = "groups";
 export const STORE_HISTORY = "history";
@@ -27,6 +27,10 @@ export const STORE_OUTREACH_ATTEMPTS = "outreachAttempts";
  *  first-name+company), so re-uploading the same person merges rather
  *  than duplicating. See lib/leadStore.ts. */
 export const STORE_LEADS = "leads";
+/** Apollo's own sequences and their step funnels — the aggregate half of
+ *  campaign oversight. Keyed by sequence name, which is what a synced lead
+ *  carries; Apollo's ids never reach a StoredLead. */
+export const STORE_APOLLO_FUNNELS = "apolloFunnels";
 // Scanner 2 — its own stores, so nothing it writes can touch the Lead
 // Library, Lists or History that Scanner 1 owns (see lib/scanner2.ts).
 export const STORE_SCANNER2_RULESETS = "scanner2RuleSets";
@@ -67,6 +71,7 @@ function openDB(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE_COMPANY_PROFILES)) db.createObjectStore(STORE_COMPANY_PROFILES, { keyPath: "key" });
       if (!db.objectStoreNames.contains(STORE_OUTREACH_ATTEMPTS)) db.createObjectStore(STORE_OUTREACH_ATTEMPTS, { keyPath: "id" });
       if (!db.objectStoreNames.contains(STORE_LEADS)) db.createObjectStore(STORE_LEADS, { keyPath: "key" });
+      if (!db.objectStoreNames.contains(STORE_APOLLO_FUNNELS)) db.createObjectStore(STORE_APOLLO_FUNNELS, { keyPath: "name" });
     };
     req.onsuccess = () => {
       const db = req.result;
