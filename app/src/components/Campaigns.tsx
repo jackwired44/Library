@@ -74,11 +74,23 @@ function SequenceCard({
       >
         <div style={{ minWidth: 0 }}>
           <b>{open ? "▾" : "▸"} {row.name}</b>
+          {row.funnel?.live === true && <span className="status-pill success" style={{ marginLeft: 8 }}>Live</span>}
+          {row.funnel?.live === false && <span style={{ marginLeft: 8, fontSize: 11, color: "var(--muted)" }}>off</span>}
           <div style={{ fontSize: 12, color: "var(--muted)" }}>
-            {steps.length > 0 ? `${steps.length} steps · ` : "no funnel imported · "}
-            {row.apolloActive !== null
-              ? `Apollo: ${row.apolloActive.toLocaleString()} active, ${row.apolloFinished!.toLocaleString()} finished`
-              : "Apollo totals not imported"}
+            {steps.length > 0 ? `${steps.length} steps · ` : "no step breakdown · "}
+            {row.funnel ? (
+              <>
+                Apollo: {[
+                  ["on sequence", row.apolloActive],
+                  ["finished", row.apolloFinished],
+                  ["delivered", row.apolloDelivered],
+                  ["replied", row.apolloReplied],
+                ]
+                  .filter(([, v]) => v !== null)
+                  .map(([k, v]) => `${(v as number).toLocaleString()} ${k}`)
+                  .join(", ") || "no totals reported"}
+              </>
+            ) : "Apollo totals not imported"}
           </div>
         </div>
         <div style={{ textAlign: "right", fontSize: 12, whiteSpace: "nowrap" }}>
@@ -93,8 +105,8 @@ function SequenceCard({
         <div className="panel-body">
           {steps.length === 0 ? (
             <div style={{ fontSize: 13, color: "var(--muted)" }}>
-              No step funnel imported for this sequence, so the drop-off per step is unknown.
-              Import the step-funnel CSV to fill this in.
+              No per-step breakdown for this sequence, so where people dropped off is unknown —
+              only the campaign totals above. A fresh funnel export from Apollo fills this in.
             </div>
           ) : (
             <table className="data-table" style={{ marginBottom: 10 }}>

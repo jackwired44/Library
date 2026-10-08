@@ -48,9 +48,29 @@ export interface ApolloStep {
   topOutcome: string;
 }
 
+/** Campaign-level numbers. EVERY field is nullable on purpose: for most of
+ *  a sequence's history Apollo reports some totals and not others, and a
+ *  count we were never given must render as unknown, not as zero — a dead
+ *  campaign and an unmeasured one are different things. */
+export interface FunnelTotals {
+  /** Active plus paused — people still sitting somewhere in the sequence. */
+  onSequence: number | null;
+  finished: number | null;
+  delivered: number | null;
+  replied: number | null;
+  bounced: number | null;
+  spam: number | null;
+}
+
 export interface ApolloFunnel {
   name: string;
+  /** Real steps only, 1-based. The summary row is NOT a step and lives in
+   *  `totals` instead, so nothing that draws a funnel can mistake it for one. */
   steps: ApolloStep[];
+  /** From the position-0 row, when the export carried one. */
+  totals?: FunnelTotals;
+  /** Switched on in Apollo. Null when the export did not say. */
+  live?: boolean | null;
   importedAt: string;
 }
 
@@ -65,6 +85,9 @@ const COL = {
   spam: ["spam", "spamblocked", "countspam"],
   calls: ["callscompleted", "calls", "completedcalls", "uniquecompleted"],
   outcome: ["topoutcome", "outcome", "topdisposition"],
+  delivered: ["delivered", "countdelivered", "emailsdelivered"],
+  replied: ["replied", "countreplied", "replies"],
+  live: ["live", "isactive", "enabled", "on"],
 };
 
 /** Apollo returns the literal string "loading" for counts it has not
@@ -87,6 +110,7 @@ export function parseFunnelCSV(files: ParsedFile[]): {
   skipped: number;
 } {
   const byName = new Map<string, ApolloStep[]>();
+  const totalsByName = new Map<string, { totals: FunnelTotals; live: boolean | null }>();
   const unmapped = new Set<string>();
   let skipped = 0;
 
@@ -107,6 +131,9 @@ export function parseFunnelCSV(files: ParsedFile[]): {
     const cSpam = pick(COL.spam);
     const cCalls = pick(COL.calls);
     const cOutcome = pick(COL.outcome);
+    const cDelivered = pick(COL.delivered);
+    const cReplied = pick(COL.replied);
+    const cLive = pick(COL.live);
     for (const h of f.fields) if (!taken.has(h)) unmapped.add(h);
 
     const get = (r: Record<string, unknown>, c: string | null) => (c ? r[c] : "");
@@ -116,6 +143,29 @@ export function parseFunnelCSV(files: ParsedFile[]): {
       const position = numOrNull(get(r, cStep));
       // A row with no sequence name or no step number cannot be placed.
       if (!name || position === null) { skipped++; continue; }
+
+      // Position 0 is the campaign summary, never a step. Read with
+      // numOrNull throughout so a blank stays unknown.
+      if (position === 0) {
+        const a = numOrNull(get(r, cActive));
+        const p = numOrNull(get(r, cPaused));
+        const liveRaw = String(get(r, cLive) ?? "").trim().toLowerCase();
+        totalsByName.set(name, {
+          totals: {
+            onSequence: a === null && p === null ? null : (a ?? 0) + (p ?? 0),
+            finished: numOrNull(get(r, cFinished)),
+            delivered: numOrNull(get(r, cDelivered)),
+            replied: numOrNull(get(r, cReplied)),
+            bounced: numOrNull(get(r, cBounced)),
+            spam: numOrNull(get(r, cSpam)),
+          },
+          live: /^(yes|y|true|1|live|on|active)$/.test(liveRaw) ? true
+            : /^(no|n|false|0|off|inactive)$/.test(liveRaw) ? false : null,
+        });
+        if (!byName.has(name)) byName.set(name, []);
+        continue;
+      }
+
       const steps = byName.get(name) ?? [];
       steps.push({
         position,
@@ -133,11 +183,15 @@ export function parseFunnelCSV(files: ParsedFile[]): {
   }
 
   const now = new Date().toISOString();
-  const funnels = [...byName.entries()].map(([name, steps]) => ({
-    name,
-    steps: steps.sort((a, b) => a.position - b.position),
-    importedAt: now,
-  }));
+  const funnels: ApolloFunnel[] = [...byName.entries()].map(([name, steps]) => {
+    const t = totalsByName.get(name);
+    return {
+      name,
+      steps: steps.sort((a, b) => a.position - b.position),
+      ...(t ? { totals: t.totals, live: t.live } : {}),
+      importedAt: now,
+    };
+  });
   return { funnels, unmapped: [...unmapped], skipped };
 }
 
@@ -147,19 +201,14 @@ export function parseFunnelCSV(files: ParsedFile[]): {
  *  than a bare 5. Null when no funnel is held for that name. */
 export function stepsInSequence(funnels: ApolloFunnel[], name: string): number | null {
   const f = funnels.find((x) => x.name === name);
-  const real = f ? f.steps.filter((s) => s.position > 0) : [];
-  return real.length ? real.length : null;
+  return f && f.steps.length ? f.steps.length : null;
 }
 
-/** The real steps, with the position-0 summary row removed. Everything
- *  that draws a funnel uses this; only the sequence totals read row 0. */
+/** The real steps. The summary row never enters `steps` (it is parsed into
+ *  `totals`), but a funnel stored before that change may still carry a
+ *  position-0 entry, so it is filtered here defensively. */
 export function realSteps(funnel: ApolloFunnel | null | undefined): ApolloStep[] {
   return (funnel?.steps ?? []).filter((s) => s.position > 0);
-}
-
-/** The sequence-level summary row, when the export carried one. */
-export function summaryRow(funnel: ApolloFunnel | null | undefined): ApolloStep | null {
-  return (funnel?.steps ?? []).find((s) => s.position === 0) ?? null;
 }
 
 export interface SequenceRollup {
@@ -177,6 +226,8 @@ export interface SequenceRollup {
    *  funnel has been imported for this sequence. */
   apolloActive: number | null;
   apolloFinished: number | null;
+  apolloDelivered: number | null;
+  apolloReplied: number | null;
 }
 
 /**
@@ -195,6 +246,7 @@ export function rollUpSequences(leads: StoredLead[], funnels: ApolloFunnel[]): S
       r = {
         name, funnel: null, held: 0, heldActive: 0, heldFinished: 0,
         heldByStep: new Map(), apolloActive: null, apolloFinished: null,
+        apolloDelivered: null, apolloReplied: null,
       };
       rows.set(name, r);
     }
@@ -209,14 +261,14 @@ export function rollUpSequences(leads: StoredLead[], funnels: ApolloFunnel[]): S
     // A sequence-level summary row is authoritative when present: several
     // sequences have campaign totals but no per-step breakdown, and summing
     // steps that do not exist would report them as empty.
-    const summary = summaryRow(f);
     const steps = realSteps(f);
-    r.apolloActive = summary
-      ? summary.active + summary.paused
-      : steps.reduce((a, s) => a + s.active + s.paused, 0);
-    r.apolloFinished = summary
-      ? summary.finished
-      : steps.reduce((a, s) => a + s.finished, 0);
+    const t = f.totals;
+    const summed = (pick: (s: ApolloStep) => number) =>
+      steps.length ? steps.reduce((a, s) => a + pick(s), 0) : null;
+    r.apolloActive = t ? t.onSequence : summed((s) => s.active + s.paused);
+    r.apolloFinished = t ? t.finished : summed((s) => s.finished);
+    r.apolloDelivered = t?.delivered ?? null;
+    r.apolloReplied = t?.replied ?? null;
   }
 
   for (const l of leads) {
@@ -230,7 +282,16 @@ export function rollUpSequences(leads: StoredLead[], funnels: ApolloFunnel[]): S
     }
   }
 
-  return [...rows.values()].sort((a, b) => b.held - a.held || a.name.localeCompare(b.name));
+  // Your leads first; then live sequences ahead of switched-off ones; then
+  // by reach. With nothing synced yet every `held` is 0, so without the
+  // live/reach keys the list falls back to alphabetical and buries the
+  // campaigns actually running under ones created today with no traffic.
+  const reach = (r: SequenceRollup) => r.apolloDelivered ?? r.apolloActive ?? 0;
+  return [...rows.values()].sort((a, b) =>
+    b.held - a.held
+    || Number(b.funnel?.live === true) - Number(a.funnel?.live === true)
+    || reach(b) - reach(a)
+    || a.name.localeCompare(b.name));
 }
 
 /* --------------------------------------------------------- persistence */
