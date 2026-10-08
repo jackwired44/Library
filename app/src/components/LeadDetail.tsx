@@ -10,6 +10,11 @@
 // by the next upload of the same person (the store merges, it does not
 // branch). Outreach that IS hand-tracked lives on Contact, which is a
 // different record with its own editor.
+import { useEffect } from "react";
+import StatusPill from "./StatusPill";
+import {
+  STATUS_META, STATUS_ORDER, derivedStatus, statusOf, type LeadStatus,
+} from "../lib/leadStatus";
 import {
   LEAD_SOURCE_META, noteSegments, outcomeSummary, type StoredLead,
 } from "../lib/leadStore";
@@ -41,7 +46,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 const dash = <span style={{ color: "var(--muted)" }}>&mdash;</span>;
 
 export default function LeadDetail({
-  lead, companyProfiles, onClose, sequenceNames = [], onSetPlan,
+  lead, companyProfiles, onClose, sequenceNames = [], onSetPlan, onSetStatus,
+  onPrev, onNext, position,
 }: {
   lead: StoredLead;
   companyProfiles: CompanyProfile[];
@@ -51,7 +57,28 @@ export default function LeadDetail({
   /** Set or clear (null) the Apollo sequence this lead is headed for.
    *  Absent where the caller does not manage the queue. */
   onSetPlan?: (sequence: string | null) => void;
+  /** Hand-set the status, or null to hand it back to the evidence. */
+  onSetStatus?: (status: LeadStatus | null) => void;
+  /** Step through the list the record was opened from. */
+  onPrev?: () => void;
+  onNext?: () => void;
+  /** e.g. "12 of 340" — where this record sits in that list. */
+  position?: string;
 }) {
+  // Arrow keys step through the list, Escape closes — working a few
+  // hundred leads one by one should not need the mouse for every move.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+      if (e.key === "Escape") onClose();
+      else if (e.key === "ArrowDown" || e.key === "ArrowRight") onNext?.();
+      else if (e.key === "ArrowUp" || e.key === "ArrowLeft") onPrev?.();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, onNext, onPrev]);
+
   const a = lead.apollo;
   const segments = noteSegments(lead.notes);
   const profile = companyProfiles.length
@@ -64,23 +91,82 @@ export default function LeadDetail({
   const outcomes = a ? Object.entries(a.outcomes).sort((x, y) => y[1] - x[1]) : [];
 
   return (
-    <div className="notes-popover-backdrop" onClick={onClose}>
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, background: "rgba(8,30,34,0.18)", zIndex: 60,
+    }}>
+      {/* A side panel rather than a centred modal: the list stays visible
+          beside it, which is the point when stepping through leads. */}
       <div
-        className="panel"
+        role="dialog"
+        aria-label={`Lead: ${lead.contact || lead.company}`}
         onClick={(e) => e.stopPropagation()}
-        style={{ maxWidth: 620, width: "92vw", maxHeight: "86vh", overflowY: "auto", margin: "4vh auto" }}
+        style={{
+          position: "absolute", top: 0, right: 0, bottom: 0, width: "min(560px, 96vw)",
+          background: "var(--bg-surface, #fff)", borderLeft: "1px solid var(--border)",
+          boxShadow: "-8px 0 24px rgba(8,30,34,0.12)", display: "flex", flexDirection: "column",
+        }}
       >
-        <div className="panel-head" style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontWeight: 600 }}>{lead.contact || "Unnamed contact"}</div>
-            <div style={{ fontSize: 12, color: "var(--muted)" }}>
-              {[lead.title, lead.company].filter(Boolean).join(" · ") || "—"}
+        <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+            {(onPrev || onNext) && (
+              <>
+                <button className="btn btn-sm btn-ghost" onClick={onPrev} disabled={!onPrev} title="Previous (↑)">↑ Prev</button>
+                <button className="btn btn-sm btn-ghost" onClick={onNext} disabled={!onNext} title="Next (↓)">↓ Next</button>
+                {position && <span style={{ fontSize: 12, color: "var(--muted)" }}>{position}</span>}
+              </>
+            )}
+            <div style={{ flex: 1 }} />
+            <button className="btn btn-sm btn-ghost" onClick={onClose} title="Close (Esc)">Close</button>
+          </div>
+          <div style={{ fontSize: 17, fontWeight: 600 }}>{lead.company || "No company"}</div>
+          <div style={{ fontSize: 13, color: "var(--muted)" }}>
+            {[lead.contact, lead.title].filter(Boolean).join(" · ") || "—"}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+            <StatusPill lead={lead} />
+            {onSetStatus && (
+              <select
+                className="field"
+                style={{ fontSize: 12, width: 190 }}
+                value=""
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === "__auto") onSetStatus(null);
+                  else if (v) onSetStatus(v as LeadStatus);
+                }}
+                aria-label="Change status"
+              >
+                <option value="">Change status…</option>
+                {STATUS_ORDER.filter((x) => x !== statusOf(lead)).map((x) => (
+                  <option key={x} value={x}>{STATUS_META[x].label}</option>
+                ))}
+                {lead.statusOverride && <option value="__auto">Back to automatic ({STATUS_META[derivedStatus(lead)].label})</option>}
+              </select>
+            )}
+          </div>
+          {/* The two things that matter most at a glance. */}
+          <div style={{ display: "flex", gap: 18, marginTop: 10, fontSize: 12.5 }}>
+            <div>
+              <div className="section-label" style={{ marginBottom: 2 }}>Sequence</div>
+              {!a ? <span style={{ color: "var(--muted)" }}>not synced</span>
+                : a.sequences.length === 0 ? "Not in a sequence"
+                : a.sequences.map((sq, i) => (
+                  <div key={i}>
+                    <b>{sq.name}</b>
+                    <span style={{ color: "var(--muted)" }}> · {sq.status}{sq.step != null ? ` · step ${sq.step}` : ""}</span>
+                  </div>
+                ))}
+            </div>
+            <div>
+              <div className="section-label" style={{ marginBottom: 2 }}>Calls</div>
+              {!a ? <span style={{ color: "var(--muted)" }}>not synced</span>
+                : a.callCount === 0 ? "Not called"
+                : <><b>{a.callCount}</b>{a.lastOutcome ? <span style={{ color: "var(--muted)" }}> · last: {a.lastOutcome}</span> : null}</>}
             </div>
           </div>
-          <button className="btn btn-sm btn-ghost" onClick={onClose}>Close</button>
         </div>
 
-        <div className="panel-body">
+        <div className="panel-body" style={{ overflowY: "auto", flex: 1 }}>
           {/* The one editable thing on this screen, and deliberately so: the
               target sequence is a plan, not a fact from the scan, so it is
               the person's to set — and it survives every re-upload. */}

@@ -47,6 +47,7 @@ import {
 } from "./lib/apolloFunnel";
 import Campaigns from "./components/Campaigns";
 import Overview from "./components/Overview";
+import { withStatusOverride, type LeadStatus } from "./lib/leadStatus";
 import SequenceQueue from "./components/SequenceQueue";
 import {
   DEFAULT_ROUTING, autoRoute, loadRouting, markExported, saveRouting, withPlan, type RoutingRules,
@@ -151,6 +152,8 @@ export default function App() {
   /** Seeds All leads' sequence filter when arriving from a campaign card,
    *  so "open these leads" lands on that sequence rather than everything. */
   const [leadsSequenceEntry, setLeadsSequenceEntry] = useState<string>("");
+  /** Same idea, for Home's status links. */
+  const [leadsStatusEntry, setLeadsStatusEntry] = useState<LeadStatus | "">("");
   const [dispositions, setDispositions] = useState<CustomDisposition[]>([]);
   const [ruleOverrides, setRuleOverrides] = useState<RuleOverrides>(DEFAULT_RULE_OVERRIDES);
   const [loading, setLoading] = useState(true);
@@ -341,6 +344,9 @@ export default function App() {
   const setPlan = (keys: string[], sequence: string | null) =>
     updateLeads(keys, (l) => withPlan(l, sequence));
   const markLeadsExported = (keys: string[]) => updateLeads(keys, (l) => markExported(l));
+  /** Hand-set a status, or null to give it back to the evidence. */
+  const setLeadStatus = (keys: string[], status: LeadStatus | null) =>
+    updateLeads(keys, (l) => withStatusOverride(l, status));
 
   /** Save the routing rules, then route every stored, un-planned lead that
    *  is now eligible. Returns how many were routed, for the notice. */
@@ -768,6 +774,7 @@ export default function App() {
             companyProfiles={companyProfiles}
             rules={routing}
             onNavigate={setView}
+            onOpenStatus={(st) => { setLeadsStatusEntry(st); setLeadsSequenceEntry(""); setView("allleads"); }}
           />
         )}
         {view === "queue" && (
@@ -783,13 +790,16 @@ export default function App() {
         )}
         {view === "allleads" && (
           <AllLeads
-            key={`leads-${leadsSequenceEntry}`}
+            key={`leads-${leadsSequenceEntry}-${leadsStatusEntry}`}
             leads={leads}
             companyProfiles={companyProfiles}
             onApplySync={applySyncFiles}
             initialSequence={leadsSequenceEntry}
+            initialStatus={leadsStatusEntry || undefined}
             sequenceNames={knownSequences}
             onSetPlan={setPlan}
+            onSetStatus={setLeadStatus}
+            funnels={funnels}
           />
         )}
         {view === "campaigns" && (
@@ -797,7 +807,7 @@ export default function App() {
             leads={leads}
             funnels={funnels}
             onImportFunnels={importFunnelFiles}
-            onOpenLeads={(name) => { setLeadsSequenceEntry(name); setView("allleads"); }}
+            onOpenLeads={(name) => { setLeadsSequenceEntry(name); setLeadsStatusEntry(""); setView("allleads"); }}
           />
         )}
 

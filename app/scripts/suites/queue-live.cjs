@@ -171,6 +171,59 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await page.selectOption('select[aria-label="Queue status"]', 'none'); await sleep(500);
   ok('  and "Not queued" shows the rest', /\b[1-9] of 5\b/.test(await text()));
 
+  console.log('\n== Apollo sync fills the Sequence and Calls columns ==');
+  const SYNC_FILE = path.join(os.tmpdir(), 'queue-live-sync.csv');
+  fs.writeFileSync(SYNC_FILE, [
+    'Email,Name,Company,Sequences,Call Count,Outcomes,Last Outcome,Last Call',
+    'dana@cspalpha.com,Dana Reyes,CSP ALPHA CO,CSP Leads:active:2,3,No Answer x2; Meeting Booked x1,Meeting Booked,2026-10-07',
+    'ada@mainalpha.com,Ada Brant,MAIN ALPHA CO,Jack Main Sequence:finished:5,4,No Answer x4,No Answer,2026-10-01',
+  ].join('\n'));
+  await nav('All leads');
+  // Still on All leads from the step above, with its filter set — clear it.
+  const clr = page.locator('main button', { hasText: 'Clear all' });
+  if (await clr.count()) { await clr.first().click(); await sleep(400); }
+  await page.setInputFiles('main label:has-text("Import sync") input[type=file]', SYNC_FILE); await sleep(900);
+  t = await text();
+  ok('the sync matches both leads', /\b2\b of 2 rows matched/.test(t), t.slice(0, 500));
+  const rowOf = async (co) => (await page.locator('.data-table tbody tr', { hasText: co }).first().innerText()).replace(/\s+/g, ' ');
+  let r = await rowOf('CSP ALPHA CO');
+  ok('Sequence column names the Apollo sequence with status and step', /CSP Leads active · step 2/.test(r), r);
+  ok('Calls column shows the count and the last outcome', /3 calls Meeting Booked · 2026-10-07/.test(r), r);
+  ok('status reads Meeting booked', /Meeting booked/.test(r), r);
+  r = await rowOf('MAIN ALPHA CO');
+  ok('a finished sequence shows where it stopped', /Jack Main Sequence finished · step 5/.test(r), r);
+  ok('dialled but never reached is NOT "contacted"', /Called, not reached/.test(r) && /4 calls/.test(r), r);
+
+  console.log('\n== the status strip filters ==');
+  await page.locator('button[aria-pressed]', { hasText: 'Meeting booked' }).click(); await sleep(500);
+  t = await text();
+  ok('clicking Meeting booked narrows to that lead', /\b1 of 5\b/.test(t) && /CSP ALPHA CO/.test(t), t.slice(0, 300));
+  await page.locator('button[aria-pressed]', { hasText: 'Meeting booked' }).click(); await sleep(400);
+  ok('clicking again clears it', /\b5 of 5\b/.test(await text()));
+
+  console.log('\n== a hand-set status sticks ==');
+  await page.locator('.data-table tbody tr', { hasText: 'MAIN BETA CO' }).first().click(); await sleep(500);
+  ok('the lead opens in a side panel with its position', /\d+ of 5/.test(await page.locator('[role=dialog]').innerText()));
+  await page.selectOption('[role=dialog] select[aria-label="Change status"]', 'not-interested'); await sleep(500);
+  ok('the override shows as hand-set', /Not interested ✎/.test(await page.locator('[role=dialog]').innerText()));
+  const before = (await page.locator('[role=dialog]').innerText()).match(/(\d+) of 5/)[1];
+  await page.locator('[role=dialog] button', { hasText: 'Next' }).click(); await sleep(400);
+  const afterPos = (await page.locator('[role=dialog]').innerText()).match(/(\d+) of 5/)[1];
+  ok('Next steps to the following lead', Number(afterPos) === Number(before) + 1, `${before} -> ${afterPos}`);
+  await page.keyboard.press('Escape'); await sleep(300);
+  ok('Escape closes the panel', (await page.locator('[role=dialog]').count()) === 0);
+  await upload('Main Scanner', MAIN_FILE);
+  await nav('All leads');
+  r = await rowOf('MAIN BETA CO');
+  ok('the hand-set status survives a re-upload', /Not interested ✎/.test(r), r);
+
+  console.log('\n== Home shows the status lifecycle ==');
+  await nav('Home');
+  t = await text();
+  ok('Home lists statuses by stage', /Lead status/.test(t) && /Meeting booked/.test(t) && /Called, not reached/.test(t), t.slice(0, 600));
+  await page.locator('main button', { hasText: 'Meeting booked' }).first().click(); await sleep(700);
+  ok('a Home status opens Leads filtered to it', /Status: Meeting booked/.test(await text()) && /\b1 of 5\b/.test(await text()));
+
   console.log('\n== everything persists ==');
   await page.reload(); await sleep(1200);
   if (await page.locator('input[aria-label="Email"]').count()) await login();

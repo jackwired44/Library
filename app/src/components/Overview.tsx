@@ -20,6 +20,9 @@ import { loadRuns, type Run2 } from "../lib/scanner2";
 import type { HistoryEntry } from "../lib/history";
 import type { CompanyProfile } from "../lib/companyProfiles";
 import type { View } from "../App";
+import {
+  STAGE_META, STAGE_ORDER, STATUS_META, STATUS_ORDER, countByStatus, type LeadStatus,
+} from "../lib/leadStatus";
 
 const SOURCE_COLOR: Record<LeadSource, string> = { main: "#0E7A72", smc: "#5B3FC4", csp: "#B34A1F" };
 const DAY = 86_400_000;
@@ -66,7 +69,7 @@ function Bar({ label, n, of, color = "var(--brand)", hint }: {
 interface UploadRow { at: string; source: LeadSource; files: string; rows: number; top: number }
 
 export default function Overview({
-  leads, funnels, historyEntries, companyProfiles, rules, onNavigate,
+  leads, funnels, historyEntries, companyProfiles, rules, onNavigate, onOpenStatus,
 }: {
   leads: StoredLead[];
   funnels: ApolloFunnel[];
@@ -74,6 +77,8 @@ export default function Overview({
   companyProfiles: CompanyProfile[];
   rules: RoutingRules;
   onNavigate: (view: View) => void;
+  /** Open All leads filtered to one status. */
+  onOpenStatus: (status: LeadStatus) => void;
 }) {
   const [runs, setRuns] = useState<Run2[]>([]);
   useEffect(() => {
@@ -113,6 +118,7 @@ export default function Overview({
     return { bySource, byTier, byLine, newWeek, top, qualified, inApollo, active, noEmail, unknownSize, waitingRule };
   }, [leads, sizeBands, rules, now]);
 
+  const byStatus = useMemo(() => countByStatus(leads), [leads]);
   const queued = groups.reduce((a, g) => a + g.queued.length, 0);
   const exported = groups.reduce((a, g) => a + g.exported.length, 0);
 
@@ -224,13 +230,29 @@ export default function Overview({
 
       <div className="home-cols" style={{ marginTop: 0 }}>
         <div>
-          <Panel title="Pipeline" sub="From every lead stored to what has gone to Apollo">
-            <Bar label="Stored" n={leads.length} of={leads.length} color="var(--line-strong, #c4d2d6)" />
-            <Bar label="Top tier" n={s.top} of={leads.length} hint="High priority on Main and CSP, Strong Signal on Custom." />
-            <Bar label="Qualified for a sequence" n={s.qualified} of={leads.length}
-                 hint={`Top tier, not already worked in Apollo, and not a confirmed under-${MIN_EMPLOYEES} company.`} />
-            <Bar label="Queued" n={queued} of={leads.length} />
-            <Bar label="Exported to Apollo" n={exported} of={leads.length} color="var(--success, #2a8a5b)" />
+          <Panel title="Lead status" sub="Where every stored lead stands — click one to work those leads">
+            {STAGE_ORDER.map((stage) => {
+              const inStage = STATUS_ORDER.filter((x) => STATUS_META[x].stage === stage);
+              const total = inStage.reduce((a, x) => a + byStatus[x], 0);
+              return (
+                <div key={stage} style={{ marginBottom: 10 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span className="section-label" style={{ marginBottom: 2 }}>{STAGE_META[stage].label}</span>
+                    <span style={{ fontSize: 11, color: "var(--muted)" }}>{total.toLocaleString()}</span>
+                  </div>
+                  {inStage.map((x) => (
+                    <button
+                      key={x}
+                      onClick={() => onOpenStatus(x)}
+                      title={STATUS_META[x].hint}
+                      style={{ display: "block", width: "100%", background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}
+                    >
+                      <Bar label={STATUS_META[x].label} n={byStatus[x]} of={leads.length} color={STATUS_META[x].color} />
+                    </button>
+                  ))}
+                </div>
+              );
+            })}
             {s.waitingRule > 0 && (
               <div style={{ fontSize: 12, color: "#9A5B22", marginTop: 6 }}>
                 {s.waitingRule.toLocaleString()} qualified leads are not queued because their lead type has no routing rule.{" "}

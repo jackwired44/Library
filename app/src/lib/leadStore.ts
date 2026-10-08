@@ -13,6 +13,7 @@
 // different job. Neither replaces the other.
 import { STORE_LEADS, dbGetAll, dbBulkPut, dbDelete } from "./db";
 import type { SequencePlan } from "./sequenceRouting";
+import type { StatusOverride } from "./leadStatus";
 
 /** Which scanner produced the row. The three engines stay separate, so a
  *  lead carries where it came from rather than being normalised into one
@@ -81,6 +82,9 @@ export interface StoredLead {
    *  it. Carried through every re-upload by mergeLeads' `...prev`, and
    *  never overwritten by a rule — see lib/sequenceRouting.ts. */
   plan?: SequencePlan;
+  /** A person's hand-set status. Wins over the derived one until cleared;
+   *  absent means "let the evidence decide" — see lib/leadStatus.ts. */
+  statusOverride?: StatusOverride;
 }
 
 /* ------------------------------------------------------------ match key */
@@ -133,7 +137,7 @@ export function leadKeyOf(email: unknown, contact: unknown, company: unknown): s
 /** A lead as a scanner hands it over, before it is keyed or merged. */
 export type LeadInput = Omit<
   StoredLead,
-  "key" | "firstSeenAt" | "lastSeenAt" | "sourceFiles" | "timesSeen" | "apollo" | "plan"
+  "key" | "firstSeenAt" | "lastSeenAt" | "sourceFiles" | "timesSeen" | "apollo" | "plan" | "statusOverride"
 > & { sourceFile: string };
 
 /** Keep an existing non-empty value; a later, sparser upload must never

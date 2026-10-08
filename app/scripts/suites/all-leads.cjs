@@ -169,7 +169,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('the row still shows ONE lead, not two', /\b1 of 5\b/.test(await allLeadsText()), (await allLeadsText()).slice(0, 160));
   ok('  and flags that earlier notes are held behind it', /earlier/.test(cell), cell.replace(/\s+/g, ' ').slice(0, 300));
   // The full timeline lives in the cell's title attribute.
-  const full = await page.locator('.data-table tbody tr td').nth(4).getAttribute('title');
+  const full = await page.locator('.data-table tbody tr td').nth(7).getAttribute('title');
   // The stored note is the scanner's rendered brief, not the raw comment,
   // so the evidence that both survived is the two DIFFERENT seat counts:
   // 40 from the follow-up upload, 240 from the original.

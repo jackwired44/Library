@@ -29,6 +29,12 @@ import {
   SIZE_BUCKETS, employeeCountOf, normalizeCompanyKey, profileForCompany, type CompanyProfile,
 } from "../lib/companyProfiles";
 import LeadDetail from "./LeadDetail";
+import StatusPill from "./StatusPill";
+import {
+  STAGE_META, STAGE_ORDER, STATUS_META, STATUS_ORDER, statusOf,
+  type LeadStatus,
+} from "../lib/leadStatus";
+import { stepsInSequence, type ApolloFunnel } from "../lib/apolloFunnel";
 
 const PAGE_SIZES = [25, 100, 250, 500];
 
@@ -87,6 +93,7 @@ interface Derived {
   calls: number;
   has: boolean;
   files: number;
+  status: LeadStatus;
 }
 
 const NO_INDUSTRY = "(not enriched)";
@@ -96,7 +103,7 @@ const NO_LINE = "(no product line)";
 
 export default function AllLeads({
   leads, companyProfiles = [], onApplySync, initialSequence = "",
-  sequenceNames = [], onSetPlan,
+  sequenceNames = [], onSetPlan, onSetStatus, funnels = [], initialStatus,
 }: {
   leads: StoredLead[];
   companyProfiles?: CompanyProfile[];
@@ -107,6 +114,12 @@ export default function AllLeads({
   initialSequence?: string;
   sequenceNames?: string[];
   onSetPlan?: (keys: string[], sequence: string | null) => void;
+  /** Hand-set (or clear, with null) the status of these leads. */
+  onSetStatus?: (keys: string[], status: LeadStatus | null) => void;
+  /** For "step 5 of 6" — total steps per sequence, when a funnel is held. */
+  funnels?: ApolloFunnel[];
+  /** Seeded once on mount, from a Home status link. */
+  initialStatus?: LeadStatus;
 }) {
   const [search, setSearch] = useState("");
   const [sourceF, setSourceF] = useState<LeadSource | "all">("all");
@@ -120,6 +133,8 @@ export default function AllLeads({
   const [planSeqF, setPlanSeqF] = useState("all");
   const [filesF, setFilesF] = useState<FilesFilter>("all");
   const [fileNameF, setFileNameF] = useState("all");
+  const [statusF, setStatusF] = useState<LeadStatus | "all">(initialStatus ?? "all");
+  const [bulkStatus, setBulkStatus] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [sort, setSort] = useState<SortKey>("last");
@@ -164,6 +179,7 @@ export default function AllLeads({
         calls: a?.callCount ?? 0,
         has: !!a,
         files: l.sourceFiles.length,
+        status: statusOf(l),
       });
     }
     return m;
@@ -174,9 +190,10 @@ export default function AllLeads({
   const fromT = from ? Date.parse(`${from}T00:00:00`) : null;
   const toT = to ? Date.parse(`${to}T23:59:59.999`) : null;
 
-  type Key = "search" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "plan" | "planSeq" | "files" | "fileName" | "date";
+  type Key = "status" | "search" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "plan" | "planSeq" | "files" | "fileName" | "date";
   const tests = useMemo(() => {
     const t: Record<Key, (l: StoredLead, d: Derived) => boolean> = {
+      status: (_l, d) => statusF === "all" || d.status === statusF,
       search: (_l, d) => !q || d.hay.includes(q),
       source: (l) => sourceF === "all" || l.source === sourceF,
       tier: (l) => tierF === "all" || l.tier === tierF,
@@ -207,7 +224,7 @@ export default function AllLeads({
       },
     };
     return t;
-  }, [q, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, planF, planSeqF, filesF, fileNameF, fromT, toT]);
+  }, [statusF, q, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, planF, planSeqF, filesF, fileNameF, fromT, toT]);
 
   const passes = (l: StoredLead, skip?: Key) => {
     const d = derived.get(l.key)!;
@@ -267,6 +284,15 @@ export default function AllLeads({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtersOpen, leads, derived, tests]);
 
+  // The status strip is a facet like any other: each count is what that
+  // status would show given every OTHER filter.
+  const statusCounts = useMemo(() => {
+    const m = Object.fromEntries(STATUS_ORDER.map((x) => [x, 0])) as Record<LeadStatus, number>;
+    for (const l of leads) if (passes(l, "status")) m[derived.get(l.key)!.status]++;
+    return m;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leads, derived, tests]);
+
   const tiers = useMemo(() => [...new Set(leads.map((l) => l.tier).filter(Boolean))].sort(), [leads]);
   const ageDays = useMemo(() => syncAgeDays(leads), [leads]);
 
@@ -279,6 +305,7 @@ export default function AllLeads({
 
   /* ---- active filter chips ---- */
   const chips: { label: string; clear: () => void }[] = [];
+  if (statusF !== "all") chips.push({ label: `Status: ${STATUS_META[statusF].label}`, clear: () => setStatusF("all") });
   if (sourceF !== "all") chips.push({ label: LEAD_SOURCE_META[sourceF].label, clear: () => setSourceF("all") });
   if (tierF !== "all") chips.push({ label: tierF, clear: () => setTierF("all") });
   if (lineF !== "all") chips.push({ label: lineF, clear: () => setLineF("all") });
@@ -330,7 +357,6 @@ export default function AllLeads({
 
   const filterLabel = chips.map((c) => c.label).join(" ") || "all";
   const openLead = openKey ? leads.find((l) => l.key === openKey) : null;
-  const dash = <span style={{ color: "var(--muted)" }}>&mdash;</span>;
 
   /* ---- an option list with counts, for a select inside the filter panel ---- */
   const opts = (m: Map<string, number> | undefined, labelOf: (k: string) => string = (k) => k) =>
@@ -408,6 +434,45 @@ export default function AllLeads({
             )}
           </div>
         )}
+      </div>
+
+      {/* ---- the status pipeline. Click a status to work just those leads;
+             click it again to clear. Grouped by stage, left to right, in
+             the order a lead moves. ---- */}
+      <div className="panel" style={{ marginBottom: 10 }}>
+        <div className="panel-body" style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "flex-start" }}>
+          {STAGE_ORDER.map((stage) => (
+            <div key={stage} style={{ minWidth: 0 }}>
+              <div className="section-label" style={{ marginBottom: 4 }}>{STAGE_META[stage].label}</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {STATUS_ORDER.filter((x) => STATUS_META[x].stage === stage).map((x) => {
+                  const on = statusF === x;
+                  const m = STATUS_META[x];
+                  return (
+                    <button
+                      key={x}
+                      onClick={() => setStatusF(on ? "all" : x)}
+                      title={m.hint}
+                      aria-pressed={on}
+                      style={{
+                        border: `1px solid ${on ? m.color : "var(--border)"}`,
+                        background: on ? m.bg : "var(--bg-surface, #fff)",
+                        color: on ? m.color : "var(--ink, #081E22)",
+                        borderRadius: 8, padding: "5px 10px", cursor: "pointer", textAlign: "left",
+                        fontSize: 12, lineHeight: 1.25,
+                      }}
+                    >
+                      <div style={{ fontWeight: 600, fontVariantNumeric: "tabular-nums", fontSize: 15, color: m.color }}>
+                        {statusCounts[x].toLocaleString()}
+                      </div>
+                      {m.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* ---- toolbar: the basics in the open, everything else behind Filters ---- */}
@@ -572,6 +637,24 @@ export default function AllLeads({
             </button>
           </>
         )}
+        {onSetStatus && (
+          <>
+            <span style={{ width: 1, height: 18, background: "var(--border)" }} />
+            <select className="field" aria-label="Set status" style={{ width: 170 }} value={bulkStatus}
+                    onChange={(e) => setBulkStatus(e.target.value)}>
+              <option value="">Set status…</option>
+              {STATUS_ORDER.map((x) => <option key={x} value={x}>{STATUS_META[x].label}</option>)}
+              <option value="__auto">Back to automatic</option>
+            </select>
+            <button className="btn btn-sm btn-secondary" disabled={!selected.size || !bulkStatus}
+                    onClick={() => {
+                      onSetStatus([...selected], bulkStatus === "__auto" ? null : (bulkStatus as LeadStatus));
+                      setBulkStatus(""); setSelected(new Set());
+                    }}>
+              Apply{selected.size ? ` to ${selected.size.toLocaleString()}` : ""}
+            </button>
+          </>
+        )}
         <button className="btn btn-sm btn-ghost" disabled={!selected.size || exporting}
                 onClick={() => exportSet(selectedLeads, "selection")}>
           ⬇ Export selection
@@ -587,8 +670,10 @@ export default function AllLeads({
               <th style={{ width: 28 }}>
                 <input type="checkbox" checked={allShownSelected} onChange={selectPage} aria-label="Select this page" />
               </th>
-              <th>Company</th><th>Contact</th><th>Scan</th><th>Notes</th>
-              <th>In Apollo</th><th>Headed for</th><th>Files</th><th>First / last seen</th>
+              <th>Company</th><th>Contact</th><th>Status</th>
+              <th title="The Apollo sequence this lead is in, from the last sync">Sequence</th>
+              <th title="Calls logged in Apollo, from the last sync">Calls</th>
+              <th>Scan</th><th>Notes</th><th>Files · seen</th>
             </tr>
           </thead>
           <tbody>
@@ -613,49 +698,69 @@ export default function AllLeads({
                     {l.contact || "—"}
                     <div style={{ fontSize: 11, color: "var(--muted)" }}>{l.title || l.email || ""}</div>
                   </td>
+                  {/* Status, then the two things Jack asked to see at a
+                      glance: which sequence they are in, and how many times
+                      they have been called. */}
+                  <td style={{ whiteSpace: "nowrap" }}>
+                    <StatusPill lead={l} />
+                    {l.plan && (
+                      <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                        → {l.plan.sequence}
+                        {l.plan.status === "exported" ? ` · exported ${(l.plan.exportedAt || "").slice(0, 10)}` : " · queued"}
+                      </div>
+                    )}
+                  </td>
+                  <td style={{ fontSize: 12, minWidth: 150 }}>
+                    {!a ? <span style={{ color: "var(--muted)" }} title="No Apollo sync has matched this lead">—</span>
+                      : a.sequences.length === 0 ? <span style={{ color: "var(--muted)" }}>Not in a sequence</span>
+                      : (
+                        <>
+                          {a.sequences.slice(0, 2).map((s, i) => {
+                            const total = stepsInSequence(funnels, s.name);
+                            return (
+                              <div key={i} style={{ whiteSpace: "nowrap" }}>
+                                <b style={{ fontWeight: 600 }}>{s.name}</b>
+                                <div style={{ fontSize: 11, color: s.status === "active" ? "var(--accent)" : "var(--muted)" }}>
+                                  {s.status}
+                                  {s.step != null ? ` · step ${s.step}${total ? ` of ${total}` : ""}` : ""}
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {a.sequences.length > 2 && (
+                            <div style={{ fontSize: 11, color: "var(--muted)" }} title={a.sequences.map((s) => s.name).join("\n")}>
+                              +{a.sequences.length - 2} more
+                            </div>
+                          )}
+                        </>
+                      )}
+                  </td>
+                  <td style={{ whiteSpace: "nowrap", fontSize: 12 }} title={a ? outcomeSummary(a) : undefined}>
+                    {!a ? <span style={{ color: "var(--muted)" }}>—</span>
+                      : a.callCount === 0 ? <span style={{ color: "var(--muted)" }}>Not called</span>
+                      : (
+                        <>
+                          <b style={{ fontSize: 14, fontVariantNumeric: "tabular-nums" }}>{a.callCount}</b>
+                          {" "}call{a.callCount === 1 ? "" : "s"}
+                          <div style={{ fontSize: 11, color: "var(--muted)" }}>
+                            {a.lastOutcome || "—"}{a.lastCallAt ? ` · ${a.lastCallAt.slice(0, 10)}` : ""}
+                          </div>
+                        </>
+                      )}
+                  </td>
                   <td style={{ whiteSpace: "nowrap", fontSize: 12 }}>
                     {LEAD_SOURCE_META[l.source].short} · {l.tier || "—"}
                     <div style={{ fontSize: 11, color: "var(--muted)" }}>{l.productArea || "no product line"}</div>
                   </td>
-                  <td title={l.notes} style={{ maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12 }}>
+                  <td title={l.notes} style={{ maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12 }}>
                     {newestNote(l.notes) || "—"}
                     {segs > 1 && <span style={{ color: "var(--muted)", fontSize: 11 }}> +{segs - 1} earlier</span>}
                   </td>
-                  <td style={{ fontSize: 11.5 }} title={a ? outcomeSummary(a) : undefined}>
-                    {!a ? dash : a.sequences.length === 0 ? (
-                      <span style={{ color: "var(--muted)" }}>never sequenced{a.callCount ? ` · ${a.callCount} calls` : ""}</span>
-                    ) : (
-                      <>
-                        {a.sequences.slice(0, 2).map((s, i) => (
-                          <div key={i} style={{ whiteSpace: "nowrap" }}>
-                            {s.name}
-                            <span style={{ color: s.status === "active" ? "var(--accent)" : "var(--muted)" }}>
-                              {" · "}{s.status}{s.step != null ? ` @${s.step}` : ""}
-                            </span>
-                          </div>
-                        ))}
-                        {a.sequences.length > 2 && <div style={{ color: "var(--muted)" }}>+{a.sequences.length - 2} more</div>}
-                        {a.callCount > 0 && <div style={{ color: "var(--muted)" }}>{a.callCount} calls</div>}
-                      </>
-                    )}
-                  </td>
-                  <td style={{ fontSize: 11.5, whiteSpace: "nowrap" }}>
-                    {!l.plan ? dash : (
-                      <>
-                        {l.plan.sequence}
-                        <div style={{ color: l.plan.status === "exported" ? "var(--success, #2a8a5b)" : "var(--muted)" }}>
-                          {l.plan.status === "exported" ? `exported ${(l.plan.exportedAt || "").slice(0, 10)}` : "queued"}
-                        </div>
-                      </>
-                    )}
-                  </td>
                   <td title={l.sourceFiles.join("\n")} style={{ fontSize: 12, whiteSpace: "nowrap" }}>
-                    <b>{d.files}</b> file{d.files === 1 ? "" : "s"}
-                    <div style={{ fontSize: 11, color: "var(--muted)" }}>seen ×{l.timesSeen}</div>
-                  </td>
-                  <td style={{ whiteSpace: "nowrap", fontSize: 11.5, color: "var(--muted)" }}>
-                    {l.firstSeenAt.slice(0, 10)}
-                    <div>{l.lastSeenAt.slice(0, 10)}</div>
+                    <b>{d.files}</b> file{d.files === 1 ? "" : "s"} · ×{l.timesSeen}
+                    <div style={{ fontSize: 11, color: "var(--muted)" }}>
+                      {l.firstSeenAt.slice(0, 10)}{l.lastSeenAt.slice(0, 10) !== l.firstSeenAt.slice(0, 10) ? ` → ${l.lastSeenAt.slice(0, 10)}` : ""}
+                    </div>
                   </td>
                 </tr>
               );
@@ -693,15 +798,30 @@ export default function AllLeads({
         </div>
       )}
 
-      {openLead && (
-        <LeadDetail
-          lead={openLead}
-          companyProfiles={companyProfiles}
-          onClose={() => setOpenKey(null)}
-          sequenceNames={sequenceNames}
-          onSetPlan={onSetPlan ? (s) => onSetPlan([openLead.key], s) : undefined}
-        />
-      )}
+      {openLead && (() => {
+        // Prev/Next walk the list exactly as filtered and sorted on screen.
+        const i = filtered.findIndex((l) => l.key === openLead.key);
+        const go = (j: number) => {
+          const next = filtered[j];
+          if (!next) return;
+          setOpenKey(next.key);
+          // Keep the table's page in step with the record being read.
+          setPage(Math.floor(j / pageSize) + 1);
+        };
+        return (
+          <LeadDetail
+            lead={openLead}
+            companyProfiles={companyProfiles}
+            onClose={() => setOpenKey(null)}
+            sequenceNames={sequenceNames}
+            onSetPlan={onSetPlan ? (sq) => onSetPlan([openLead.key], sq) : undefined}
+            onSetStatus={onSetStatus ? (st) => onSetStatus([openLead.key], st) : undefined}
+            onPrev={i > 0 ? () => go(i - 1) : undefined}
+            onNext={i >= 0 && i < filtered.length - 1 ? () => go(i + 1) : undefined}
+            position={i >= 0 ? `${(i + 1).toLocaleString()} of ${filtered.length.toLocaleString()}` : undefined}
+          />
+        );
+      })()}
     </>
   );
 }
