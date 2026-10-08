@@ -20,7 +20,7 @@ const ago = n => { const d = new Date(); d.setDate(d.getDate() - n); return `${d
 const MAIN_HEAD = ['Company','Full Name','Title','Email','Phone','Comments'];
 const mainCsv = [MAIN_HEAD.join(',')].concat([
   ['MAIN ALPHA CO','Ada Brant','IT Director','ada@mainalpha.com','312-555-0101',
-   'Looking to move from Google Workspace to Microsoft 365 for 240 users and want a partner to run it.'],
+   'Looking to move from Google Workspace to Microsoft 365 for 240 users and want a partner to run it. Target go-live March 2027.'],
   ['MAIN BETA CO','Bo Hale','CFO','bo@mainbeta.com','312-555-0102',
    'Mentioned Dynamics 365 in passing on the last call.'],
   ['MAIN GAMMA CO','Cy Webb','Owner','cy@maingamma.com','312-555-0103',
@@ -174,9 +174,9 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   console.log('\n== Apollo sync fills the Sequence and Calls columns ==');
   const SYNC_FILE = path.join(os.tmpdir(), 'queue-live-sync.csv');
   fs.writeFileSync(SYNC_FILE, [
-    'Email,Name,Company,Sequences,Call Count,Outcomes,Last Outcome,Last Call',
-    'dana@cspalpha.com,Dana Reyes,CSP ALPHA CO,CSP Leads:active:2,3,No Answer x2; Meeting Booked x1,Meeting Booked,2026-10-07',
-    'ada@mainalpha.com,Ada Brant,MAIN ALPHA CO,Jack Main Sequence:finished:5,4,No Answer x4,No Answer,2026-10-01',
+    'Email,Name,Company,Sequences,Call Count,Outcomes,Last Outcome,Last Call,Call History',
+    'dana@cspalpha.com,Dana Reyes,CSP ALPHA CO,CSP Leads:active:2,3,No Answer x2; Meeting Booked x1,Meeting Booked,2026-10-07,2026-10-01 No Answer @CSP Leads:1; 2026-10-03 No Answer @CSP Leads:1; 2026-10-07 Meeting Booked @CSP Leads:2',
+    'ada@mainalpha.com,Ada Brant,MAIN ALPHA CO,Jack Main Sequence:finished:5,4,No Answer x4,No Answer,2026-10-01,',
   ].join('\n'));
   await nav('All leads');
   // Still on All leads from the step above, with its filter set — clear it.
@@ -216,6 +216,41 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await nav('All leads');
   r = await rowOf('MAIN BETA CO');
   ok('the hand-set status survives a re-upload', /Not interested ✎/.test(r), r);
+
+  console.log('\n== the lead record: before and after ==');
+  const dialog = () => page.locator('[role=dialog]');
+  await page.locator('.data-table tbody tr', { hasText: 'CSP ALPHA CO' }).first().click(); await sleep(800);
+  let dt = (await dialog().innerText()).replace(/\s+/g, ' ');
+  ok('Before shows the RAW note exactly as the CSV had it', /Before.*Customer is looking for a partner to take over licensing/.test(dt), dt.slice(0, 600));
+  ok('  with the file it came in and its upload date', /queue-live-csp\.csv · uploaded \d{4}-\d{2}-\d{2}/.test(dt));
+  ok('  and the month it was received', /Received [A-Z][a-z]+ \d{4}/.test(dt));
+  ok('After shows the scanned note and where it is headed', /After.*Scanned note.*Headed for/.test(dt) || (/After/.test(dt) && /Headed for/.test(dt) && /Scanned note/.test(dt)));
+  ok('the outcome leads the record', /Meeting booked/.test(dt.slice(0, 400)), dt.slice(0, 400));
+  ok('the sequence is drawn step by step with where they are', /CSP Leads ● active · on step 2/.test(dt), dt.match(/Sequences.{0,200}/)?.[0]);
+  ok('the disposition history is dated, newest first', /2026-10-07 Meeting Booked · CSP Leads step 2 2026-10-03 No Answer/.test(dt), dt.match(/Disposition history.{0,200}/)?.[0]);
+  await page.keyboard.press('Escape'); await sleep(300);
+
+  await page.locator('.data-table tbody tr', { hasText: 'MAIN ALPHA CO' }).first().click(); await sleep(800);
+  dt = (await dialog().innerText()).replace(/\s+/g, ' ');
+  ok('dialled four times and never reached is flagged as such', /Never reached Called 4 times/.test(dt), dt.slice(0, 500));
+  ok('a date the notes mention is pulled out', /Dates in the notes.*2027-03-31/i.test(dt), dt.match(/Dates in the notes.{0,200}/i)?.[0]);
+  ok('  and marked in the raw note', (await dialog().locator('mark', { hasText: 'March 2027' }).count()) > 0);
+  await page.keyboard.press('Escape'); await sleep(300);
+  const mainRow = await rowOf('MAIN ALPHA CO');
+  ok('the Leads row shows the next date in the notes', /📅 2027-03-31/.test(mainRow), mainRow);
+
+  console.log('\n== filter by dates in notes, received month, never reached ==');
+  await page.locator('button.filter-btn').first().click(); await sleep(400);
+  await page.selectOption('select[aria-label="Dates in notes"]', 'upcoming'); await sleep(500);
+  t = await text();
+  ok('"Mentions an upcoming date" narrows to that lead', /\b1 of 5\b/.test(t) && /MAIN ALPHA CO/.test(t), t.slice(0, 300));
+  await page.selectOption('select[aria-label="Dates in notes"]', 'all'); await sleep(300);
+  const months = await page.locator('select[aria-label="Received month"] option').allInnerTexts();
+  ok('the received-month filter lists the month the leads came in', months.some((m) => /[A-Z][a-z]+ \d{4} \(\d+\)/.test(m)), JSON.stringify(months));
+  await page.selectOption('select[aria-label="Apollo state"]', 'never-reached'); await sleep(500);
+  t = await text();
+  ok('"Called, never reached" finds the lead dialled with no answer', /\b1 of 5\b/.test(t) && /MAIN ALPHA CO/.test(t), t.slice(0, 300));
+  await page.locator('main button', { hasText: 'Clear all' }).first().click(); await sleep(400);
 
   console.log('\n== Home shows the status lifecycle ==');
   await nav('Home');

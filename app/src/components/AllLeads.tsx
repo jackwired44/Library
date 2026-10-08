@@ -31,10 +31,11 @@ import {
 import LeadDetail from "./LeadDetail";
 import StatusPill from "./StatusPill";
 import {
-  STAGE_META, STAGE_ORDER, STATUS_META, STATUS_ORDER, statusOf,
+  STAGE_META, STAGE_ORDER, STATUS_META, STATUS_ORDER, statusOf, wasReached,
   type LeadStatus,
 } from "../lib/leadStatus";
 import { stepsInSequence, type ApolloFunnel } from "../lib/apolloFunnel";
+import { isIntentDate, soonestUpcoming, type NoteDate } from "../lib/noteDates";
 
 const PAGE_SIZES = [25, 100, 250, 500];
 
@@ -45,7 +46,7 @@ export interface SyncReport {
 /* ----------------------------------------------------------- filter types */
 
 type ApolloFilter =
-  | "all" | "active" | "finished" | "never-sequenced" | "called" | "never-called" | "no-record";
+  | "all" | "active" | "finished" | "never-sequenced" | "called" | "never-called" | "never-reached" | "no-record";
 
 const APOLLO_LABEL: Record<Exclude<ApolloFilter, "all">, string> = {
   active: "Active in a sequence",
@@ -53,6 +54,7 @@ const APOLLO_LABEL: Record<Exclude<ApolloFilter, "all">, string> = {
   "never-sequenced": "Never in a sequence",
   called: "Has been called",
   "never-called": "Never called",
+  "never-reached": "Called, never reached",
   "no-record": "No Apollo record",
 };
 
@@ -70,7 +72,7 @@ const FILES_LABEL: Record<Exclude<FilesFilter, "all">, string> = {
   "3": "On 3+ files",
 };
 
-type SortKey = "last" | "first" | "company" | "files" | "score" | "calls";
+type SortKey = "last" | "first" | "company" | "files" | "score" | "calls" | "nextdate";
 const SORT_LABEL: Record<SortKey, string> = {
   last: "Last seen (newest)",
   first: "First seen (newest)",
@@ -78,6 +80,7 @@ const SORT_LABEL: Record<SortKey, string> = {
   files: "Most files",
   score: "Highest score",
   calls: "Most calls",
+  nextdate: "Soonest date in notes",
 };
 
 /** Everything a filter, a facet count or a cell reads, resolved once. */
@@ -94,7 +97,32 @@ interface Derived {
   has: boolean;
   files: number;
   status: LeadStatus;
+  /** A real conversation is on record (not just no-answers). */
+  reached: boolean;
+  /** YYYY-MM the lead was received: the file's own date, else first upload. */
+  month: string;
+  /** "upcoming" / "past" / "logged" (stamps only) / "none". */
+  dateKind: "upcoming" | "past" | "logged" | "none";
+  nextDate: NoteDate | null;
 }
+
+function dateKindOf(dates: NoteDate[] | undefined): Derived["dateKind"] {
+  if (!dates?.length) return "none";
+  const intent = dates.filter(isIntentDate);
+  if (!intent.length) return "logged";
+  const today = new Date().toISOString().slice(0, 10);
+  return intent.some((d) => d.iso && d.iso >= today) ? "upcoming" : "past";
+}
+
+const DATE_LABEL: Record<Derived["dateKind"], string> = {
+  upcoming: "Mentions an upcoming date",
+  past: "Mentions only past dates",
+  logged: "Only log stamps",
+  none: "No dates mentioned",
+};
+
+const monthLabel = (ym: string) =>
+  new Date(`${ym}-15T12:00:00`).toLocaleDateString(undefined, { month: "long", year: "numeric" });
 
 const NO_INDUSTRY = "(not enriched)";
 const NO_LINE = "(no product line)";
@@ -134,6 +162,8 @@ export default function AllLeads({
   const [filesF, setFilesF] = useState<FilesFilter>("all");
   const [fileNameF, setFileNameF] = useState("all");
   const [statusF, setStatusF] = useState<LeadStatus | "all">(initialStatus ?? "all");
+  const [monthF, setMonthF] = useState("all");
+  const [dateF, setDateF] = useState<Derived["dateKind"] | "all">("all");
   const [bulkStatus, setBulkStatus] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -180,6 +210,10 @@ export default function AllLeads({
         has: !!a,
         files: l.sourceFiles.length,
         status: statusOf(l),
+        reached: wasReached(a),
+        month: (l.receivedOn || l.firstSeenAt).slice(0, 7),
+        dateKind: dateKindOf(l.noteDates),
+        nextDate: soonestUpcoming(l.noteDates),
       });
     }
     return m;
@@ -190,10 +224,12 @@ export default function AllLeads({
   const fromT = from ? Date.parse(`${from}T00:00:00`) : null;
   const toT = to ? Date.parse(`${to}T23:59:59.999`) : null;
 
-  type Key = "status" | "search" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "plan" | "planSeq" | "files" | "fileName" | "date";
+  type Key = "month" | "dates" | "status" | "search" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "plan" | "planSeq" | "files" | "fileName" | "date";
   const tests = useMemo(() => {
     const t: Record<Key, (l: StoredLead, d: Derived) => boolean> = {
       status: (_l, d) => statusF === "all" || d.status === statusF,
+      month: (_l, d) => monthF === "all" || d.month === monthF,
+      dates: (_l, d) => dateF === "all" || d.dateKind === dateF,
       search: (_l, d) => !q || d.hay.includes(q),
       source: (l) => sourceF === "all" || l.source === sourceF,
       tier: (l) => tierF === "all" || l.tier === tierF,
@@ -208,6 +244,7 @@ export default function AllLeads({
           case "never-sequenced": return !d.sequenced;
           case "called": return d.calls > 0;
           case "never-called": return d.calls === 0;
+          case "never-reached": return d.calls > 0 && !d.reached;
           case "no-record": return !d.has;
         }
       },
@@ -224,7 +261,7 @@ export default function AllLeads({
       },
     };
     return t;
-  }, [statusF, q, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, planF, planSeqF, filesF, fileNameF, fromT, toT]);
+  }, [monthF, dateF, statusF, q, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, planF, planSeqF, filesF, fileNameF, fromT, toT]);
 
   const passes = (l: StoredLead, skip?: Key) => {
     const d = derived.get(l.key)!;
@@ -246,6 +283,8 @@ export default function AllLeads({
       // A lead with no score sinks rather than being read as 0.
       score: (a, b) => (b.score ?? -1) - (a.score ?? -1),
       calls: (a, b) => d(b).calls - d(a).calls,
+      // Leads with no upcoming date sink below every dated one.
+      nextdate: (a, b) => (d(a).nextDate?.iso ?? "\uffff").localeCompare(d(b).nextDate?.iso ?? "\uffff"),
     };
     return out.sort(cmp[sort]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -273,6 +312,7 @@ export default function AllLeads({
       apollo: facet("apollo", (_l, d) => [
         ...(d.active ? ["active"] : []), ...(d.finished ? ["finished"] : []),
         d.sequenced ? "" : "never-sequenced", d.calls > 0 ? "called" : "never-called",
+        d.calls > 0 && !d.reached ? "never-reached" : "",
         d.has ? "" : "no-record",
       ].filter(Boolean)),
       seq: facet("seq", (l) => (l.apollo?.sequences ?? []).map((x) => x.name)),
@@ -280,6 +320,8 @@ export default function AllLeads({
       planSeq: facet("planSeq", (l) => (l.plan ? [l.plan.sequence] : [])),
       files: facet("files", (_l, d) => [d.files === 1 ? "1" : "", d.files >= 2 ? "2" : "", d.files >= 3 ? "3" : ""].filter(Boolean)),
       fileName: facet("fileName", (l) => l.sourceFiles),
+      month: facet("month", (_l, d) => d.month),
+      dates: facet("dates", (_l, d) => d.dateKind),
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtersOpen, leads, derived, tests]);
@@ -305,6 +347,8 @@ export default function AllLeads({
 
   /* ---- active filter chips ---- */
   const chips: { label: string; clear: () => void }[] = [];
+  if (monthF !== "all") chips.push({ label: `Received ${monthLabel(monthF)}`, clear: () => setMonthF("all") });
+  if (dateF !== "all") chips.push({ label: DATE_LABEL[dateF], clear: () => setDateF("all") });
   if (statusF !== "all") chips.push({ label: `Status: ${STATUS_META[statusF].label}`, clear: () => setStatusF("all") });
   if (sourceF !== "all") chips.push({ label: LEAD_SOURCE_META[sourceF].label, clear: () => setSourceF("all") });
   if (tierF !== "all") chips.push({ label: tierF, clear: () => setTierF("all") });
@@ -583,6 +627,25 @@ export default function AllLeads({
                 <option value="all">Any</option>{opts(facets.fileName)}
               </select>
             </label>
+            <label>
+              <div className="section-label">Received (month)</div>
+              <select className="field" aria-label="Received month" style={{ width: "100%" }} value={monthF} onChange={(e) => setMonthF(e.target.value)}>
+                <option value="all">Any</option>
+                {[...facets.month.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([k, n]) => (
+                  <option key={k} value={k}>{monthLabel(k)} ({n.toLocaleString()})</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <div className="section-label">Dates in the notes</div>
+              <select className="field" aria-label="Dates in notes" style={{ width: "100%" }} value={dateF}
+                      onChange={(e) => setDateF(e.target.value as Derived["dateKind"] | "all")}>
+                <option value="all">Any</option>
+                {(Object.keys(DATE_LABEL) as Derived["dateKind"][]).map((k) => (
+                  <option key={k} value={k}>{DATE_LABEL[k]} ({(facets.dates.get(k) || 0).toLocaleString()})</option>
+                ))}
+              </select>
+            </label>
             <div>
               <div className="section-label">First uploaded</div>
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -753,6 +816,11 @@ export default function AllLeads({
                     <div style={{ fontSize: 11, color: "var(--muted)" }}>{l.productArea || "no product line"}</div>
                   </td>
                   <td title={l.notes} style={{ maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12 }}>
+                    {d.nextDate && (
+                      <div style={{ fontSize: 11, color: "var(--accent)", fontWeight: 600 }}>
+                        📅 {d.nextDate.iso}{d.nextDate.about ? ` · ${d.nextDate.about}` : ""}
+                      </div>
+                    )}
                     {newestNote(l.notes) || "—"}
                     {segs > 1 && <span style={{ color: "var(--muted)", fontSize: 11 }}> +{segs - 1} earlier</span>}
                   </td>
@@ -819,6 +887,7 @@ export default function AllLeads({
             onPrev={i > 0 ? () => go(i - 1) : undefined}
             onNext={i >= 0 && i < filtered.length - 1 ? () => go(i + 1) : undefined}
             position={i >= 0 ? `${(i + 1).toLocaleString()} of ${filtered.length.toLocaleString()}` : undefined}
+            funnels={funnels}
           />
         );
       })()}

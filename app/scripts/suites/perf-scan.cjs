@@ -129,8 +129,20 @@ const ok = (name, cond, detail) => {
   console.log('\n== Start over releases the scan ==');
   const scanned = await gcHeap();
   await page.locator('button:has-text("Start over")').first().click(); await sleep(1000);
-  const cleared = await gcHeap();
-  console.log(`  baseline ${base} MB · after scan ${scanned} MB · after Start over ${cleared} MB`);
+  // Measure RETAINED memory, not in-flight work. Storing a scan's raw notes
+  // (~8,000 x 4 KB here) is a background database write that takes a few
+  // seconds, and the strings it is saving are legitimately alive until it
+  // commits — measured: 61 MB at one second, 46 MB once it lands. So wait
+  // until the heap stops falling. A real leak never falls, so this cannot
+  // hide one; the bar below is unchanged.
+  let cleared = await gcHeap();
+  for (let i = 0; i < 20; i++) {
+    await sleep(1000);
+    const next = await gcHeap();
+    if (cleared - next < 2) { cleared = Math.min(cleared, next); break; }
+    cleared = next;
+  }
+  console.log(`  baseline ${base} MB · after scan ${scanned} MB · after Start over ${cleared} MB (settled)`);
   ok('Start over frees most of the scan (it used to free none)',
      cleared < base + (scanned - base) * 0.4, `${cleared} MB vs ${scanned} MB scanned`);
   ok('  and the upload screen is back', await page.locator('input[type=file]').count() > 0);

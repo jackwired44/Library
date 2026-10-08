@@ -24,7 +24,7 @@
 // numbers here or what sequence a lead is assigned to til i upload the
 // files going forward."
 import { guessColumn, type ParsedFile } from "./detection";
-import { leadKeyOf, type ApolloLeadState, type StoredLead } from "./leadStore";
+import { leadKeyOf, type ApolloLeadState, type CallEvent, type StoredLead } from "./leadStore";
 
 /** One contact's Apollo state, as it arrives in the sync file. */
 export interface ApolloSyncRow {
@@ -36,6 +36,8 @@ export interface ApolloSyncRow {
   outcomes: Record<string, number>;
   lastOutcome: string;
   lastCallAt: string;
+  /** Optional: a sync that carries only totals has none. */
+  history?: CallEvent[];
 }
 
 /* --------------------------------------------------------------- format */
@@ -53,7 +55,29 @@ const COL = {
   outcomes: ["outcomes", "calloutcomes", "dispositions", "outcome"],
   lastOutcome: ["lastoutcome", "lastdisposition", "latestoutcome"],
   lastCallAt: ["lastcall", "lastcallat", "lastcalled", "lastcalldate"],
+  history: ["callhistory", "dispositionhistory", "callog", "calllog", "history"],
 };
+
+/**
+ * Call history arrives as dated segments joined by `;`, newest or oldest
+ * first in any order, each optionally naming the sequence and step:
+ *   "2026-10-07 Meeting Booked @CSP Leads:2; 2026-10-01 No Answer @CSP Leads:1"
+ * A segment with no parseable date is skipped rather than guessed at.
+ */
+export function parseHistoryCell(raw: unknown): CallEvent[] {
+  const out: CallEvent[] = [];
+  for (const chunk of String(raw || "").split(/[;|]/)) {
+    const m = chunk.trim().match(/^(\d{4}-\d{2}-\d{2})(?:[T ][\d:.Z+-]*)?\s+(.+?)(?:\s*@\s*(.+?)(?::(\d+))?)?$/);
+    if (!m) continue;
+    out.push({
+      at: m[1],
+      outcome: m[2].trim(),
+      ...(m[3] ? { sequence: m[3].trim() } : {}),
+      ...(m[4] ? { step: Number(m[4]) } : {}),
+    });
+  }
+  return out.sort((a, b) => b.at.localeCompare(a.at));
+}
 
 /**
  * Sequences arrive as `Name:status:step` joined by `;`, e.g.
@@ -124,6 +148,7 @@ export function parseApolloSync(files: ParsedFile[]): {
     const cEmail = pick(COL.email);
     const cContact = pick(COL.contact);
     const cCompany = pick(COL.company);
+    const cHist = pick(COL.history);
     const cSeq = pick(COL.sequences);
     const cCalls = pick(COL.callCount);
     const cOut = pick(COL.outcomes);
@@ -140,7 +165,11 @@ export function parseApolloSync(files: ParsedFile[]): {
       const company = get(r, cCompany);
       // Unkeyable rows are counted, never silently dropped.
       if (!leadKeyOf(email, contact, company)) { skipped++; continue; }
+      const history = parseHistoryCell(get(r, cHist));
+      // A file carrying only the dated history still answers "how many
+      // calls" and "what happened" — tallied from it, never left at zero.
       const outcomes = parseOutcomeCell(get(r, cOut));
+      if (Object.keys(outcomes).length === 0) for (const h of history) outcomes[h.outcome] = (outcomes[h.outcome] || 0) + 1;
       const statedCalls = Number(get(r, cCalls));
       // A stated count wins; otherwise the outcome tallies ARE the count,
       // so a file carrying only outcomes still answers "how many calls".
@@ -152,6 +181,7 @@ export function parseApolloSync(files: ParsedFile[]): {
         outcomes,
         lastOutcome: get(r, cLastOut),
         lastCallAt: get(r, cLastAt),
+        history,
       });
     }
   }
@@ -193,8 +223,9 @@ export function applyApolloSync(
       sequences: r.sequences,
       callCount: r.callCount,
       outcomes: r.outcomes,
-      lastOutcome: r.lastOutcome,
-      lastCallAt: r.lastCallAt,
+      lastOutcome: r.lastOutcome || r.history?.[0]?.outcome || "",
+      lastCallAt: r.lastCallAt || r.history?.[0]?.at || "",
+      ...(r.history?.length ? { history: r.history } : {}),
     };
     const next = { ...lead, apollo };
     byKey.set(key, next);

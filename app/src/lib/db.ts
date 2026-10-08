@@ -3,7 +3,7 @@
 // used. No server, no shared backend (see CLAUDE.md, Access & ownership).
 
 export const DB_NAME = "wiredCioUnifiedLeadScannerLibrary_v1";
-export const DB_VERSION = 20;
+export const DB_VERSION = 21;
 export const STORE_LIBRARY = "files";
 export const STORE_GROUPS = "groups";
 export const STORE_HISTORY = "history";
@@ -33,6 +33,11 @@ export const STORE_LEADS = "leads";
 export const STORE_APOLLO_FUNNELS = "apolloFunnels";
 /** Lead type -> target Apollo sequence. One record, id "routing". */
 export const STORE_ROUTING = "routing";
+/** Each lead's RAW note text, dated per upload. Kept apart from the lead
+ *  store on purpose: CSP notes average ~4,000 characters, and 25,000 of
+ *  them inline would ride along in every list render and filter pass. Read
+ *  one lead at a time, when its record is opened. */
+export const STORE_RAW_NOTES = "rawNotes";
 // Scanner 2 — its own stores, so nothing it writes can touch the Lead
 // Library, Lists or History that Scanner 1 owns (see lib/scanner2.ts).
 export const STORE_SCANNER2_RULESETS = "scanner2RuleSets";
@@ -75,6 +80,7 @@ function openDB(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE_LEADS)) db.createObjectStore(STORE_LEADS, { keyPath: "key" });
       if (!db.objectStoreNames.contains(STORE_APOLLO_FUNNELS)) db.createObjectStore(STORE_APOLLO_FUNNELS, { keyPath: "name" });
       if (!db.objectStoreNames.contains(STORE_ROUTING)) db.createObjectStore(STORE_ROUTING, { keyPath: "id" });
+      if (!db.objectStoreNames.contains(STORE_RAW_NOTES)) db.createObjectStore(STORE_RAW_NOTES, { keyPath: "key" });
     };
     req.onsuccess = () => {
       const db = req.result;
@@ -192,6 +198,47 @@ export async function dbBulkPut<T>(storeName: string, entries: T[]): Promise<voi
     const tx = db.transaction(storeName, "readwrite");
     const store = tx.objectStore(storeName);
     for (const e of entries) store.put(e);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
+    tx.onabort = () => { db.close(); reject(describeTxError(tx.error)); };
+  });
+}
+
+/** One record by key, or undefined. */
+export async function dbGet<T>(storeName: string, key: string): Promise<T | undefined> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readonly");
+    const req = tx.objectStore(storeName).get(key);
+    req.onsuccess = () => { db.close(); resolve(req.result as T | undefined); };
+    req.onerror = () => { db.close(); reject(req.error); };
+  });
+}
+
+/**
+ * Read-modify-write many records in ONE transaction: for each key, read
+ * what is stored, hand it to `merge`, write the result. An upload appends
+ * raw notes to thousands of leads at once, and a get+put per lead through
+ * separate connections is the 37,000-connection shape dbBulkPut exists to
+ * avoid.
+ */
+export async function dbUpdateMany<T>(
+  storeName: string,
+  keys: string[],
+  merge: (key: string, existing: T | undefined) => T | null,
+): Promise<void> {
+  if (keys.length === 0) return;
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readwrite");
+    const store = tx.objectStore(storeName);
+    for (const key of keys) {
+      const req = store.get(key);
+      req.onsuccess = () => {
+        const next = merge(key, req.result as T | undefined);
+        if (next) store.put(next);
+      };
+    }
     tx.oncomplete = () => { db.close(); resolve(); };
     tx.onerror = () => { db.close(); reject(tx.error); };
     tx.onabort = () => { db.close(); reject(describeTxError(tx.error)); };

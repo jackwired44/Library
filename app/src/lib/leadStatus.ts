@@ -82,6 +82,13 @@ export interface StatusOverride {
   at: string;
 }
 
+/** Whether Apollo has a real conversation on record — any outcome other
+ *  than no answer, voicemail, gatekeeper or no disposition. */
+export function wasReached(a: StoredLead["apollo"]): boolean {
+  if (!a) return false;
+  return Object.keys(a.outcomes).some((n) => !NOT_REACHED_RE.test(n) && a.outcomes[n] > 0);
+}
+
 /** What the evidence says, ignoring any override. */
 export function derivedStatus(l: StoredLead): LeadStatus {
   const a = l.apollo;

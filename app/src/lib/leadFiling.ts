@@ -54,6 +54,9 @@ export function leadInputsFromResults(rows: ResultRow[]): LeadInput[] {
       notes: r.notesSummary || "",
       score: r.mainScore ? r.mainScore.score : null,
       sourceFile: r.sourceFile || "",
+      // The Comments cell exactly as the file had it, before the scanner
+      // condensed it into a call brief.
+      rawNotes: String(f.comments || ""),
     };
   });
 }
@@ -86,6 +89,9 @@ export function leadInputsFromRows2(rows: Row2[], kind: ScannerKind): LeadInput[
     notes: r.snippet || "",
     score: isCsp ? (r.csp?.score ?? null) : (r.smcScore?.score ?? null),
     sourceFile: r.sourceFile || "",
+    rawNotes: String(r.lead.notes || ""),
+    // The file's own date for this row, when it states one.
+    receivedOn: r.receivedOn ? String(r.receivedOn).slice(0, 10) : undefined,
   }));
 }
 
@@ -118,5 +124,6 @@ export function leadInputsFromNoSignal(rows: NoSignalRow[]): LeadInput[] {
     notes: r.notes || "",
     score: null,
     sourceFile: r.sourceFile || "",
+    rawNotes: r.notes || "",
   }));
 }

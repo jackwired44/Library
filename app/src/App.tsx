@@ -36,7 +36,7 @@ import {
 } from "./lib/library";
 import { applyCompetitorDQ } from "./lib/companyProfiles";
 import {
-  loadLeads, saveLeads, mergeLeads, deleteLead, type StoredLead, type LeadInput,
+  loadLeads, saveLeads, mergeLeads, deleteLead, leadKeyOf, type StoredLead, type LeadInput,
 } from "./lib/leadStore";
 import {
   qualifyLeadInputs, requalifyStoredLeads, summarizeDiscards, type DiscardedLead,
@@ -47,6 +47,7 @@ import {
 } from "./lib/apolloFunnel";
 import Campaigns from "./components/Campaigns";
 import Overview from "./components/Overview";
+import { appendRawNotes } from "./lib/rawNotes";
 import { withStatusOverride, type LeadStatus } from "./lib/leadStatus";
 import SequenceQueue from "./components/SequenceQueue";
 import {
@@ -300,6 +301,14 @@ export default function App() {
     const { kept, discarded, sizeUnknown } = qualifyLeadInputs(inputs, companyProfiles);
     if (discarded.length) setLastDiscards({ discarded, sizeUnknown });
     if (kept.length === 0) return;
+    // The raw note, exactly as the file had it — the "before" beside the
+    // scanner's "after". Its own store, written once per upload; never on
+    // the lead record itself (see lib/rawNotes.ts).
+    const uploadedAt = new Date().toISOString();
+    appendRawNotes(kept
+      .filter((i) => (i.rawNotes || "").trim())
+      .map((i) => ({ key: leadKeyOf(i.email, i.contact, i.company), seg: { at: uploadedAt, file: i.sourceFile, text: i.rawNotes! } })),
+    ).catch((e) => setError(`Raw notes could not be stored: ${e instanceof Error ? e.message : String(e)}`));
     setLeads((prev) => {
       const { leads: merged, changed: mergedChanged } = mergeLeads(prev, kept);
       // Route the leads this upload touched. Only those can have become

@@ -14,6 +14,7 @@
 import { STORE_LEADS, dbGetAll, dbBulkPut, dbDelete } from "./db";
 import type { SequencePlan } from "./sequenceRouting";
 import type { StatusOverride } from "./leadStatus";
+import { extractNoteDates, mergeNoteDates, type NoteDate } from "./noteDates";
 
 /** Which scanner produced the row. The three engines stay separate, so a
  *  lead carries where it came from rather than being normalised into one
@@ -50,6 +51,17 @@ export interface ApolloLeadState {
   outcomes: Record<string, number>;
   lastOutcome: string;
   lastCallAt: string;
+  /** Every call, dated, newest first — the disposition history. Optional:
+   *  a sync file that carries only totals still loads, it just has no
+   *  timeline to show. */
+  history?: CallEvent[];
+}
+
+export interface CallEvent {
+  at: string;
+  outcome: string;
+  sequence?: string;
+  step?: number | null;
 }
 
 export interface StoredLead {
@@ -85,6 +97,18 @@ export interface StoredLead {
   /** A person's hand-set status. Wins over the derived one until cleared;
    *  absent means "let the evidence decide" — see lib/leadStatus.ts. */
   statusOverride?: StatusOverride;
+  /** When the lead arrived, by the file's OWN date (an "as pulled on" or a
+   *  received/created column) — the earliest across every file it came in.
+   *  Absent when no file stated one; then the upload date is all we know,
+   *  and the views say so rather than presenting it as the received date. */
+  receivedOn?: string;
+  /** Each CSV this lead has appeared in, with when that file was uploaded.
+   *  `sourceFiles` is the plain list; this adds the date per file. */
+  fileSeen?: { file: string; at: string }[];
+  /** Dates the notes MENTION — renewals, timelines, meetings — extracted
+   *  from the raw note at upload. Small on purpose: the raw text itself
+   *  lives in its own store (lib/rawNotes.ts). */
+  noteDates?: NoteDate[];
 }
 
 /* ------------------------------------------------------------ match key */
@@ -137,8 +161,14 @@ export function leadKeyOf(email: unknown, contact: unknown, company: unknown): s
 /** A lead as a scanner hands it over, before it is keyed or merged. */
 export type LeadInput = Omit<
   StoredLead,
-  "key" | "firstSeenAt" | "lastSeenAt" | "sourceFiles" | "timesSeen" | "apollo" | "plan" | "statusOverride"
-> & { sourceFile: string };
+  "key" | "firstSeenAt" | "lastSeenAt" | "sourceFiles" | "timesSeen" | "apollo" | "plan" | "statusOverride" | "fileSeen" | "noteDates"
+> & {
+  sourceFile: string;
+  /** The note exactly as the CSV had it, before any scanner summarised it.
+   *  Feeds the raw-note store and the note-date extraction; never stored on
+   *  the lead itself. */
+  rawNotes?: string;
+};
 
 /** Keep an existing non-empty value; a later, sparser upload must never
  *  blank a field an earlier one filled in. Same rule as Contacts' merge. */
@@ -273,6 +303,23 @@ export function newestNote(combined: string): string {
  *
  * `apollo` is never touched here — only a sync writes that.
  */
+/** The earlier of two ISO dates, ignoring blanks. */
+function earliest(a?: string, b?: string | null): string | undefined {
+  if (!a) return b || undefined;
+  if (!b) return a;
+  return b < a ? b : a;
+}
+
+/** Dates mentioned in this input's notes. Relative wording is resolved
+ *  against when the lead was received, else the upload — "next quarter"
+ *  means the quarter after the note was written, not after today. */
+function datesIn(inc: LeadInput, now: string): NoteDate[] {
+  const text = inc.rawNotes || inc.notes;
+  if (!text) return [];
+  const anchor = new Date(inc.receivedOn || now);
+  return extractNoteDates(text, Number.isNaN(anchor.getTime()) ? new Date(now) : anchor);
+}
+
 export function mergeLeads(
   existing: StoredLead[],
   incoming: LeadInput[],
@@ -306,6 +353,9 @@ export function mergeLeads(
         lastSeenAt: now,
         sourceFiles: inc.sourceFile ? [inc.sourceFile] : [],
         timesSeen: 1,
+        ...(inc.receivedOn ? { receivedOn: inc.receivedOn } : {}),
+        fileSeen: inc.sourceFile ? [{ file: inc.sourceFile, at: now }] : [],
+        noteDates: datesIn(inc, now),
       };
       byKey.set(key, lead);
       changed.set(key, lead);
@@ -333,6 +383,13 @@ export function mergeLeads(
         ? [...prev.sourceFiles, inc.sourceFile]
         : prev.sourceFiles,
       timesSeen: prev.timesSeen + 1,
+      // The EARLIEST stated receipt across every file wins: that is when
+      // the lead first arrived, and a later re-export restates it later.
+      ...(earliest(prev.receivedOn, inc.receivedOn) ? { receivedOn: earliest(prev.receivedOn, inc.receivedOn) } : {}),
+      fileSeen: inc.sourceFile && !(prev.fileSeen ?? []).some((f) => f.file === inc.sourceFile)
+        ? [...(prev.fileSeen ?? []), { file: inc.sourceFile, at: now }]
+        : prev.fileSeen ?? [],
+      noteDates: mergeNoteDates(prev.noteDates, datesIn(inc, now)),
     };
     byKey.set(key, lead);
     changed.set(key, lead);
