@@ -82,18 +82,38 @@ const numbersTraceable = (snippet: string, row: string) => {
  */
 const factsTraceable = (snippet: string, row: string): true | string => {
   const n = (x: string) => x.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-  for (const raw of factHalf(snippet).split(/(?<=\.)\s+/)) {
+  // The Dynamics line is " \u00b7 "-separated facts rather than sentences —
+  // per Jack, "i just need the platform in dyanmics mentioned the user
+  // count if theres info on a partner and timeline". Split on both so the
+  // SAME guarantee (every product name and seat count is the row's own)
+  // applies to either shape.
+  for (const raw of factHalf(snippet).split(/\s+\u00b7\s+|(?<=\.)\s+/)) {
     const c = raw.trim().replace(/[.…]+$/, "");
     if (!c) continue;
     // Ours, not the row's: engine vocabulary and derived bands.
     if (/^Large estate$/i.test(c)) continue;
     if (/no products or seat count named in the row/i.test(c)) continue;
     if (/^(?:Microsoft is already pitching them |Partner on record: |Goes direct with Microsoft)/.test(c)) continue;
+    // Dynamics-line clauses that are OURS, not the row's: the partner and
+    // "direct with Microsoft" come from the Product Area COLUMN (scanPA
+    // covers those directly), and "already on Dynamics" is a derived
+    // reading rather than quoted wording.
+    if (/^(?:partner: |direct with Microsoft$|already on Dynamics$)/i.test(c)) continue;
+    // A bare seat count on its own is checked by the count sweep below.
+    if (/^\d+\s+seats$/i.test(c)) continue;
+    // A timeline is the row's own wording, but it is often a date the row
+    // writes in a different format than the brief prints, so it is checked
+    // by its digits rather than as a phrase.
+    if (/^(?:Q[1-4]\b|\d{1,2}[/-]\d{1,2}[/-]|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec))/i.test(c)
+        || /^(?:next|within|in|end of|this)\b/i.test(c)) continue;
 
     let claims: string[] = [];
     let runs = /^Runs\s+(.+)$/i.exec(c);
     const seatsOn = /^(\d+)\s+seats\s+on\s+(.+)$/i.exec(c);
-    const onToday = /^On\s+(.+?)\s+today$/i.exec(c);
+    const onToday = /^[Oo]n\s+(.+?)\s+today$/.exec(c);
+    // reversed: "..." and a bare quoted pain are both the row's own words.
+    const reversed = /^reversed:\s*"(.+?)"?$/i.exec(c);
+    const quoted = /^"(.+?)"?$/.exec(c);
     const flagged = /^Flagged\s+"(.+)"$/i.exec(c);
     if (runs) {
       claims = runs[1].split(/\s*,\s*|\s+and\s+/)
@@ -101,6 +121,8 @@ const factsTraceable = (snippet: string, row: string): true | string => {
     } else if (seatsOn) claims = [seatsOn[2]];
     else if (onToday) claims = [onToday[1]];
     else if (flagged) claims = [flagged[1]];
+    else if (reversed) claims = [reversed[1].replace(/\u2026$/, "")];
+    else if (quoted) claims = [quoted[1].replace(/\u2026$/, "")];
     else claims = [c.replace(/,?\s*(?:no seat count stated|\d+ seats stated).*$/i, "").trim()];
 
     for (const claim of claims) {
@@ -146,7 +168,13 @@ scan(REAL).forEach((row, i) => {
   const s: string = row.notesSummary;
   const t = factsTraceable(s, REAL[i]);
   ok(`facts traceable to the row: "${REAL[i].slice(0, 38)}…"`, t === true, `${s}  <<< ${t} >>>`);
-  ok(`  and it asks rather than inventing intent`, /^Ask .+\.$/.test(askHalf(s)), s);
+  // Dynamics carries NO ask — per Jack, "i just need the platform in
+  // dyanmics mentioned the user count if theres info on a partner and
+  // timeline". Every other product line still closes on one.
+  ok(row.category === "dynamics365"
+       ? `  and a Dynamics line carries no generated question`
+       : `  and it asks rather than inventing intent`,
+     row.category === "dynamics365" ? !/\bAsk /.test(s) : /^Ask .+\.$/.test(askHalf(s)), s);
 });
 
 console.log("\n== no snippet anywhere may invent a hot signal ==");
@@ -227,8 +255,9 @@ const LONG_REVERSAL = "The customer has been evaluating Dynamics 365 Business Ce
 const [lr] = scan([LONG_REVERSAL]);
 ok("a brief that would drop \u201cdecided not to proceed\u201d carries it instead",
    !!lr && /decided not to proceed/i.test(lr.notesSummary), lr ? lr.notesSummary : "(no row)");
-ok("  and asks the question that fits a dead deal",
-   !!lr && /Ask what changed and what would reopen it/.test(lr.notesSummary), lr ? lr.notesSummary : "(no row)");
+ok("  and the reversal is the last thing it says, with no ask after it",
+   !!lr && !/\bAsk /.test(lr.notesSummary) && /reversed:/.test(lr.notesSummary),
+   lr ? lr.notesSummary : "(no row)");
 const LONG_PLAIN = "The customer has been evaluating Dynamics 365 Business Central for their finance team across every regional office and subsidiary for several quarters now and continues to move forward.";
 const [lp] = scan([LONG_PLAIN]);
 // The brief does not truncate a quote, so there is no cut to mark. What
@@ -248,8 +277,8 @@ console.log("\n== the call brief: what it is about, then two questions ==");
 const AREAS: [string, string, RegExp][] = [
   ["a named licensing SKU asks the licensing question",
    "Renewing Microsoft 365 E3 for 300 users this year.", /Ask how they manage licensing today/],
-  ["Dynamics asks the Dynamics question",
-   "Looking at Dynamics 365 Business Central for 40 users.", /Ask if they have looked at Dynamics before/],
+  ["Dynamics names the module instead of asking a question",
+   "Looking at Dynamics 365 Business Central for 40 users.", /Business Central/],
   ["general IT / Azure with no SKU named asks the Azure question",
    "We want to bring in an MSP for ongoing IT support.", /Ask how Azure is managed today/],
   ["an Azure migration asks the Azure question too",
@@ -269,7 +298,7 @@ ok("a licensing seat count rides on the SKU that stated it",
    !!c300 && /\(300 seats\)/.test(c300.notesSummary), c300 ? c300.notesSummary : "(no row)");
 const [c40] = scan(["Looking at Dynamics 365 Business Central for 40 users."]);
 ok("a Dynamics seat count survives into the note",
-   !!c40 && /40 seats on /.test(c40.notesSummary), c40 ? c40.notesSummary : "(no row)");
+   !!c40 && /\b40 seats\b/.test(c40.notesSummary), c40 ? c40.notesSummary : "(no row)");
 // The Dynamics module the row named must survive, not collapse to the
 // category: "Dynamics 365 Business Central - 25 users" rendered as
 // "25 seats on Dynamics 365" because the hit's \u00b170 window clipped it.
@@ -291,17 +320,18 @@ console.log("\n== a reversal is carried, and only a real one ==");
 // verdict on the deal.
 const [soft] = scan(["Planning an on-prem to Azure migration with a partner, but the current setup is far from meeting their requirements."]);
 ok("a bare \u201cbut\u201d is NOT reported as a lost deal",
-   !!soft && !/Row reverses:/.test(soft.notesSummary), soft ? soft.notesSummary : "(no row)");
+   !!soft && !/reversed:/.test(soft.notesSummary), soft ? soft.notesSummary : "(no row)");
 ok("  so the row keeps its normal questions",
    !!soft && /Ask how Azure is managed today/.test(soft.notesSummary), soft ? soft.notesSummary : "(no row)");
 const [hard] = scan(["We evaluated Dynamics 365 Business Central for 40 users, but they are staying on SAP for now."]);
 ok("a substantive verdict IS reported even with a \u201cbut\u201d before it",
-   !!hard && /Row reverses:/.test(hard.notesSummary), hard ? hard.notesSummary : "(no row)");
+   !!hard && /reversed:/.test(hard.notesSummary), hard ? hard.notesSummary : "(no row)");
 ok("  and it quotes the verdict, not the evaluation it replaced",
-   !!hard && /staying on sap/i.test(hard.notesSummary) && !/Row reverses: "we evaluated/i.test(hard.notesSummary),
+   !!hard && /staying on sap/i.test(hard.notesSummary) && !/reversed: "we evaluated/i.test(hard.notesSummary),
    hard ? hard.notesSummary : "(no row)");
-ok("  and asks the question that fits a dead deal",
-   !!hard && /Ask what changed and what would reopen it/.test(hard.notesSummary), hard ? hard.notesSummary : "(no row)");
+ok("  and the reversal is the last thing it says, with no ask after it",
+   !!hard && !/\bAsk /.test(hard.notesSummary) && /reversed:/.test(hard.notesSummary),
+   hard ? hard.notesSummary : "(no row)");
 
 console.log("\n== Jack's three-clause shape ==");
 // Per Jack, the target line verbatim: "Runs O365 and M365. Microsoft is
@@ -360,30 +390,35 @@ ok("an Azure direction takes the Azure ask even when M365 SKUs are named",
    !!jack && /Runs /.test(jack.notesSummary) && /Ask how Azure is managed today/.test(jack.notesSummary),
    jack ? jack.notesSummary : "(no row)");
 
-console.log("\n== the Dynamics ask asks for pain points, not “falls short” ==");
-// Per Jack, correcting the first wording: "not where it falls short but
-// what the high level pain points are".
-const DYN_ASK: [string, string, RegExp][] = [
-  ["no incumbent, no pain stated",
+console.log("\n== the Dynamics line states facts instead of asking ==");
+// These four rows used to assert the WORDING of a generated question. Per
+// Jack — "i dont need a score for dynamics", "i just need the platform in
+// dyanmics mentioned the user count if theres info on a partner and
+// timeline ... if theymention a pain they havce" — the ask is gone, so
+// each now asserts the FACT the same row states. Measured before the
+// change: the ask was 59% of all Dynamics note text, and 529 of 591 rows
+// carried the identical 106-character sentence.
+const DYN_FACTS: [string, string, RegExp][] = [
+  ["a bare evaluation is just the module and the count",
    "Looking at Dynamics 365 Business Central for 40 users.",
-   /Ask if they have looked at Dynamics before, what they run today, and what the high level pain points are\./],
-  ["an incumbent swaps in the forcing question, pain still asked",
+   /^Dynamics 365 Business Central \u00b7 40 seats$/],
+  ["an incumbent is named as a fact, not asked about",
    "We looked at Dynamics 365 Business Central for 40 users. We are on Sage 100 today and continue to move forward.",
-   /Ask if they have looked at Dynamics before, what is forcing the change now, and what the high level pain points are\./],
-  // Two clauses take "and", three take a comma list — without that rule
-  // dropping the pain clause left "…Dynamics before, what they run today."
-  ["a row that already stated its pain is not asked for it again",
+   /on Sage today/],
+  ["a stated pain is quoted",
    "Looking at Dynamics 365 Business Central for 40 users. The current setup is end of life.",
-   /Ask if they have looked at Dynamics before and what they run today\./],
-  ["incumbent AND pain known leaves two real questions",
+   /"end of life"/],
+  ["incumbent AND pain both land",
    "Dynamics 365 Business Central for 40 users. On QuickBooks today and the manual double-entry is a bottleneck, and we continue to move forward.",
-   /Ask if they have looked at Dynamics before and what is forcing the change now\./],
+   /on QuickBooks today/],
 ];
-scan(DYN_ASK.map((d) => d[1])).forEach((row, i) => {
-  const [label, , want] = DYN_ASK[i];
+scan(DYN_FACTS.map((d) => d[1])).forEach((row, i) => {
+  const [label, , want] = DYN_FACTS[i];
   ok(label, !!row && want.test(row.notesSummary), row ? row.notesSummary : "(no row)");
+  ok(`  ${label} \u2014 no generated question`, !!row && !/\bAsk /.test(row.notesSummary), row ? row.notesSummary : "");
+  ok(`  ${label} \u2014 no score head`, !!row && !/^\(\d+\)/.test(row.notesSummary), row ? row.notesSummary : "");
 });
-scan(DYN_ASK.map((d) => d[1])).forEach((row, i) => {
+scan(DYN_FACTS.map((d) => d[1])).forEach((row, i) => {
   ok(`  [${i}] never says “where it falls short”`,
      !!row && !/falls short/i.test(row.notesSummary), row ? row.notesSummary : "(no row)");
 });

@@ -1710,6 +1710,64 @@ export function isCompetitorName(companyName: string | undefined | null): boolea
   return v.length > 0 && COMPETITOR_NAME_RE.test(v);
 }
 
+/**
+ * The lead THEMSELVES says they are a Microsoft partner or an IT company.
+ *
+ * Per Jack: "make sure if it indicates they are a microsoft partner to push
+ * to bad leads", and "yeah if it an it company or mic partner that wants
+ * dynamics for themselves bad lead".
+ *
+ * THE TRAP THIS EXISTS TO AVOID, measured on the real seven-file upload:
+ * 59 rows carry "Partner: Microsoft Corporation", which means MICROSOFT is
+ * their partner of record — they buy direct, the opposite signal and
+ * exactly the kind of lead Jack wants. Only 2 rows say the customer IS a
+ * partner. A rule matching "Microsoft partner" anywhere would have dumped
+ * 59 good leads to catch 2, so this matches SUBJECT POSITION only: someone
+ * saying it ABOUT the customer, never a field naming who their partner is.
+ *
+ *   "The customer is a Microsoft partner and would like to learn more
+ *    about how Dynamics 365 could support..."        -> DQ (Allovus)
+ *   "They are a Microsoft partner, comfortable with
+ *    implementation..."                              -> DQ (Micro Support)
+ *   "Timeline: 3/30/2027 Partner: Microsoft Corporation" -> kept
+ */
+const LEAD_IS_PARTNER_RE = new RegExp(
+  // "<subject> is/are (a) [microsoft] [gold/silver/certified] partner|MSP|reseller|VAR"
+  String.raw`\b(?:the\s+)?(?:customer|client|company|account|they|prospect|this\s+(?:company|account|customer))\s+(?:is|are)\s+(?:also\s+)?(?:a|an)?\s*` +
+  String.raw`(?:microsoft\s+)?(?:gold\s+|silver\s+|certified\s+|solutions?\s+|cloud\s+)?` +
+  String.raw`(?:partner|reseller|msp|csp|var|managed\s+service\s+provider|it\s+(?:services\s+)?(?:company|firm|provider))\b` +
+  // ...or a first-person claim in a quoted customer note.
+  String.raw`|\bwe\s+are\s+(?:a|an)\s+(?:microsoft\s+)?(?:gold\s+|silver\s+|certified\s+)?(?:partner|reseller|msp|csp)\b`,
+  "i",
+);
+
+/** True when the row's own words say the LEAD is a partner / IT company. */
+export function leadClaimsToBePartner(text: string | undefined | null): boolean {
+  return LEAD_IS_PARTNER_RE.test(String(text || ""));
+}
+
+/**
+ * The email domain read as TEXT — the scanner has no network, so it cannot
+ * look a domain up. Per Jack: "just run the company domain to check when
+ * scanning". A domain like "cloudservicesmsp.com" says the same thing a
+ * company called that would, so the same narrow patterns apply to it.
+ *
+ * Domain labels run words together, so the phrase patterns in
+ * COMPETITOR_NAME_RE will not match a domain directly. These are the
+ * unspaced forms, and they are deliberately the LONG ones only: a domain
+ * containing "it" or "tech" says nothing, while "managedservices" does.
+ */
+const COMPETITOR_DOMAIN_RE =
+  /(managedservices?|itservices|itsolutions|itconsulting|itsupport|msp\d*\.|cybersecurity|networksolutions|cloudsolutions|cloudservices|techsolutions|technologysolutions|computerservices|systemsintegrat)/i;
+
+/** True when the email DOMAIN reads as an IT services business. Free
+ *  providers are skipped — a gmail address says nothing about an employer. */
+export function isCompetitorDomain(email: string | undefined | null): boolean {
+  const d = getEmailDomain(email);
+  if (!d || isFreeEmailDomain(d)) return false;
+  return COMPETITOR_DOMAIN_RE.test(d.replace(/[.-]/g, (m) => (m === "-" ? "" : ".")));
+}
+
 function getDQReasons(combinedText: string, resolved: ResolvedFields): string[] {
   const reasons: string[] = [];
   for (const rule of DQ_RULES) if (rule.pattern.test(combinedText)) reasons.push(rule.label);
@@ -1729,7 +1787,17 @@ function getDQReasons(combinedText: string, resolved: ResolvedFields): string[] 
   // Company-NAME signal only. The far more reliable industry signal needs
   // an enriched profile, which detection has no access to — see
   // applyCompetitorDQ, run right after a scan and again after enrichment.
-  if (isCompetitorName(resolved.company as string)) reasons.push(COMPETITOR_DQ_LABEL);
+  // Three independent company-side signals, none of which needs a network
+  // call: the company NAME, the email DOMAIN read as text, and the row's
+  // own words saying the customer IS a partner / IT company. The far more
+  // reliable industry signal needs an enriched profile, which detection has
+  // no access to — see applyCompetitorDQ, run right after a scan and again
+  // after enrichment.
+  if (isCompetitorName(resolved.company as string)
+      || isCompetitorDomain(resolved.email as string)
+      || leadClaimsToBePartner(combinedText)) {
+    reasons.push(COMPETITOR_DQ_LABEL);
+  }
   return reasons;
 }
 
@@ -1994,7 +2062,14 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
     resolved.company || "",
     resolved.email || "",
   ) || notesSummary;
-  notesSummary = formatMatchedSnippet(notesSummary, mainScore.score, priorityBand);
+  // Per Jack: "i dont need a score for dynamics". The Dynamics line is
+  // facts the row stated; a score and band mark in front of it is the
+  // engine talking over the lead. Every other product line keeps the head,
+  // which Jack asked for separately ("put a score and then priority symbol
+  // being high or low").
+  notesSummary = autoCategory === "dynamics365"
+    ? notesSummary
+    : formatMatchedSnippet(notesSummary, mainScore.score, priorityBand);
 
   return {
     categories,
@@ -2299,13 +2374,12 @@ function briefQuestions(
  * rows ALSO use partner/reseller/CSP wording in their own Comments, against
  * 52 of 460 on the product-valued rows — 50% against 11%.
  */
-const PRODUCT_AREA_MICROSOFT_RE =
-  /^(?:(?:microsoft|msft|ms)\s*(?:corp(?:oration)?|services|direct)?|direct)$/i;
-/** Product Area values that name a Microsoft product line rather than a
- *  company. Anchored, so a reseller whose name merely CONTAINS one of these
- *  words ("MCIT Business Solutions") is not misread as a product. */
-const PRODUCT_AREA_PRODUCT_RE =
-  /^(?:m365|o365|office|microsoft\s*365|dynamics|d365|azure|power\s*(?:bi|apps|automate|platform)|security|intune|exchange|teams|windows|surface|copilot|ai\s+business|cloud\s+and\s+ai|sharepoint|viva|defender|entra|fabric|business\s+(?:premium|standard|basic)|modern\s+work|biz\s+apps|growth)\b/i;
+// The two regexes that used to live here — one for "is this Microsoft
+// itself", one for "is this a product" — were replaced by
+// classifyProductArea, which answers both plus "is this a SEGMENT label"
+// from one rule. Two rules that can disagree about the same value is how
+// 253 rows came to say "Microsoft is already pitching them Growth" while
+// 29 others filed "Baseline" as the partner on record.
 /** For the "is the direction just what we already said they run?" test.
  *  M365 / O365 / Office 365 / Microsoft 365 are one product family written
  *  four ways, so they fold to one token — otherwise a row running
@@ -2330,8 +2404,15 @@ function directionClause(productArea: string, company: string, email: string, ru
   if (!pa || pa.length > 60) return "";
   // A bare account number says nothing a rep can use.
   if (!/[a-z]/i.test(pa)) return "";
-  if (PRODUCT_AREA_MICROSOFT_RE.test(pa)) return "Goes direct with Microsoft.";
-  if (PRODUCT_AREA_PRODUCT_RE.test(pa)) {
+  // Microsoft's own segment taxonomy is neither a product nor a partner.
+  // Printing it as either is the defect Jack caught: 253 real rows said
+  // "Microsoft is already pitching them Growth" and the most common
+  // "Partner on record" value was "Baseline" (29 rows). A segment label
+  // says nothing about the lead, so the clause is omitted entirely.
+  const kind = classifyProductArea(pa).kind;
+  if (kind === "segment" || kind === "none") return "";
+  if (kind === "microsoft") return "Goes direct with Microsoft.";
+  if (kind === "product") {
     // Naming the direction when it is already what we just said they run
     // is noise, not information.
     const a = normaliseName(pa);
@@ -2350,6 +2431,285 @@ function directionClause(productArea: string, company: string, email: string, ru
  * Build the Main Scanner's Notes line. Returns "" when the row gives
  * nothing to state, so the caller keeps whatever it had.
  */
+/* ------------------------------------------------------------------ */
+/* Product Area — one column holding five different KINDS of value       */
+/* ------------------------------------------------------------------ */
+/**
+ * Per Jack: "we need to clean some of the product areas and their variable
+ * format up."
+ *
+ * Charted across his real seven-file upload: 457 DISTINCT values over 5,599
+ * rows, and they are not all the same kind of thing.
+ *
+ *   real Microsoft products   Azure 820, M365 621, Dynamics 365 141, ...
+ *   Microsoft SEGMENT labels  Baseline 392, AI Business Solutions 159,
+ *                             Growth 110, Cloud and AI Platforms 75
+ *   Microsoft itself          Microsoft Corporation 302, Direct 33,
+ *                             Microsoft Corp 15, Microsoft corporation 7
+ *   partner / reseller names  Rubrik 29, Insight 27, CDW Logistics LLC 16
+ *   non-Microsoft vendors     Datadog 14, Dbt Labs 9, Blue Yonder 6 + 5
+ *
+ * The brief read whatever was there as either a product or a partner, so
+ * 253 real rows said "Microsoft is already pitching them Growth" and the
+ * most common "Partner on record" value was "Baseline" (29 rows). A segment
+ * label is Microsoft's own org taxonomy — it says nothing about the lead,
+ * so it contributes NOTHING rather than being printed wrong.
+ */
+export type ProductAreaKind = "product" | "microsoft" | "partner" | "segment" | "none";
+
+/** Microsoft's internal solution-area / segment taxonomy. Not products, and
+ *  not partners — these name how Microsoft organises its own sales motion. */
+const PA_SEGMENTS = new Set([
+  "baseline", "growth", "ai business solutions", "cloud and ai platforms",
+  "business applications", "modern work", "modern work and security",
+  "azure infrastructure", "unmanaged", "scale", "corporate", "smb", "smc",
+]);
+
+/** Microsoft itself in the partner slot: nobody else is on the record. */
+const PA_MICROSOFT_RE = /^(?:microsoft(?:\s+(?:corp|corporation|services|inc))?|direct|ms\s+direct|microsoft\s+direct)$/i;
+
+/**
+ * A value naming an actual Microsoft product. Matched on the normalised
+ * value so "Dynamics CRM Online" and "dynamics crm online" agree.
+ *
+ * ANCHORED, carrying forward the reason the regex this replaces gave: a
+ * reseller whose name merely CONTAINS a product word ("MCIT Business
+ * Solutions", "Azure Data Group") is a partner, not a product. Unanchored,
+ * every one of those companies would be silently reclassified.
+ */
+const PA_PRODUCT_RE =
+  /^(azure|m365|o365|office\s*365|microsoft\s*365|w365|windows\s*365|dynamics|d365|business\s*central|power\s*(?:bi|apps|automate|platform|pages)|fabric|copilot|intune|entra|purview|defender|exchange|sharepoint|teams|sql\s*server|windows\s*server|visio|project|surface|viva|onedrive|security|developer\s+tools|microsoft\s+services)\b/i;
+
+/**
+ * Words that may legitimately FOLLOW a product name in a Product Area
+ * value: editions, plans, modules, and the SKU letters.
+ *
+ * Anchoring PA_PRODUCT_RE is not enough on its own — "^(azure|...)" still
+ * matches "Azure Data Group", "Project Partners LLC" and "Teams Connect
+ * Inc", all of which are companies. So a value counts as a product only
+ * when EVERY word after the product phrase is itself product wording;
+ * anything else ("group", "partners", "connect") means a company that
+ * happens to be named after a Microsoft product.
+ */
+const PA_PRODUCT_TAIL = new Set([
+  "online", "premium", "standard", "basic", "pro", "plan", "plans", "edition",
+  "server", "central", "sales", "service", "services", "marketing", "field",
+  "finance", "operations", "supply", "chain", "insights", "engagement",
+  "customer", "studio", "copilot", "apps", "automate", "platform", "bi",
+  "crm", "erp", "consumption", "increase", "other", "and", "for", "the",
+  "p1", "p2", "e1", "e3", "e5", "f1", "f3", "g1", "g3", "g5", "a1", "a3", "a5",
+  "365", "intelligence", "document", "defender", "identity", "security",
+]);
+
+function isProductValue(norm: string): boolean {
+  const m = PA_PRODUCT_RE.exec(norm);
+  if (!m) return false;
+  const rest = norm.slice(m[0].length).trim();
+  if (!rest) return true;
+  return rest.split(/\s+/).every((w) => PA_PRODUCT_TAIL.has(w) || /^\d+$/.test(w));
+}
+
+/** Case, punctuation and legal-suffix normalisation, so "CDW Logistics LLC"
+ *  and "CDW Logistics" are one value, as are the three spellings of
+ *  "Microsoft Corporation". */
+export function normalizeProductArea(v: unknown): string {
+  return String(v || "")
+    .toLowerCase()
+    .replace(/[.,]/g, " ")
+    .replace(/\b(inc|llc|l\.?l\.?c|ltd|limited|corp(?!oration)|plc|gmbh|pty|co)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** What kind of thing this Product Area value is. */
+export function classifyProductArea(value: unknown): { kind: ProductAreaKind; label: string } {
+  const raw = String(value || "").trim();
+  if (!raw) return { kind: "none", label: "" };
+  const norm = normalizeProductArea(raw);
+  if (!norm) return { kind: "none", label: "" };
+  // A bare account number says nothing.
+  if (/^\d+$/.test(norm)) return { kind: "none", label: "" };
+  if (PA_SEGMENTS.has(norm)) return { kind: "segment", label: raw };
+  if (PA_MICROSOFT_RE.test(norm)) return { kind: "microsoft", label: raw };
+  if (isProductValue(norm)) return { kind: "product", label: raw };
+  return { kind: "partner", label: raw };
+}
+
+/* ------------------------------------------------------------------ */
+/* Timeline                                                             */
+/* ------------------------------------------------------------------ */
+/**
+ * When they say they want to move. Per Jack's Dynamics spec: "i just need
+ * the platform in dyanmics mentioned the user count if theres info on a
+ * partner and timeline".
+ *
+ * A labelled "Timeline:" field wins — these CRM exports carry one on 5% of
+ * Dynamics rows and it is unambiguous. Otherwise a real date, quarter or
+ * relative window.
+ *
+ * DELIBERATELY NOT budget language. A draft pattern matching "budget" hit
+ * 121 real rows, and reading them showed the overwhelming majority say the
+ * OPPOSITE of a timeline — "do not yet have a defined budget", "do not
+ * currently have enough information to establish a budget". A timeline has
+ * to name a time.
+ */
+const TIMELINE_LABEL_RE =
+  /\bTimeline\s*:\s*([^]{1,60}?)(?=\s+(?:Partner|TPID|TenantId|Budget|Authority|Need|BANT|Notes|Next\s+Steps|Solution|Product|Customer)\s*:|[.;]|$)/i;
+const TIMELINE_PATTERNS: RegExp[] = [
+  /\bQ[1-4]\s*(?:FY)?\s?20\d{2}\b/i,
+  /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+20\d{2}\b/i,
+  /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+20\d{2}\b/i,
+  /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/,
+  /\b(?:next|within|in)\s+(?:the\s+)?(?:\d+|a few|couple of|six|three|twelve)\s*(?:-\s*\d+\s*)?(?:month|week|quarter)s?\b/i,
+  /\bend of (?:the )?(?:year|quarter|month|20\d{2})\b/i,
+  /\b(?:this|next)\s+(?:year|quarter|fiscal year)\b/i,
+];
+
+/** The row's own words for when, or "" when it never says. Never inferred. */
+export function extractTimeline(text: string | undefined | null): string {
+  const t = String(text || "").replace(/\s+/g, " ");
+  if (!t) return "";
+  const labelled = TIMELINE_LABEL_RE.exec(t);
+  if (labelled) {
+    const v = labelled[1].trim().replace(/[,;]$/, "");
+    // A label whose value says there ISN'T one is not a timeline.
+    // "Timeline: Not explicitly mentioned" is a label saying there ISN'T
+    // one. Any "not ..." phrase, however long, is the absence of a date.
+    if (v && !/^(?:not\b.*|n\/?a|none|tbd|unknown|pending|-+|next|to be \w+)$/i.test(v)) {
+      return v.length > 48 ? v.slice(0, 45).trimEnd() + "\u2026" : v;
+    }
+  }
+  for (const re of TIMELINE_PATTERNS) {
+    const m = re.exec(t);
+    if (m) return m[0].trim();
+  }
+  return "";
+}
+
+/* ------------------------------------------------------------------ */
+/* Already on Dynamics, or on a rival                                   */
+/* ------------------------------------------------------------------ */
+/** Per Jack: "most of this will not alr be on dynamics so if it indicates
+ *  they are let me know." An existing Dynamics customer is an expansion
+ *  conversation, not a net-new one. */
+const ALREADY_ON_DYNAMICS_RE =
+  /\b(?:current(?:ly)?|existing|already|today|in\s+place)\b[^.]{0,50}\b(?:dynamics|d365|business\s*central)\b|\b(?:is|are)\s+a\s+current\s+(?:d365|dynamics)\s+customer\b|\b(?:expand|grow)\w*\s+(?:their\s+)?(?:usage|footprint)\b[^.]{0,40}\b(?:dynamics|d365|dataverse)\b/i;
+
+/** On a COMPETING CRM/ERP today — a displacement angle, and a different
+ *  conversation from a greenfield evaluation. */
+const RIVAL_PLATFORM_RE =
+  /\b(salesforce|netsuite|\bsap\b|zoho|hubspot|quickbooks|sage|oracle\s+(?:erp|netsuite|fusion)|infor|epicor|acumatica|odoo|pipedrive|monday\.com|freshsales)\b/i;
+
+export function alreadyOnDynamics(text: string | undefined | null): boolean {
+  return ALREADY_ON_DYNAMICS_RE.test(String(text || ""));
+}
+/** The rival named, or "" — quoted so the brief never asserts one. */
+export function rivalPlatformNamed(text: string | undefined | null): string {
+  const m = RIVAL_PLATFORM_RE.exec(String(text || ""));
+  return m ? m[0] : "";
+}
+
+/**
+ * The Dynamics line: platform, seats, partner, timeline, pain — each only
+ * when the row says it. See the note inside buildCallBrief for the
+ * measurement behind dropping the generated question.
+ *
+ *   Dynamics 365 Business Central \u00b7 20 seats \u00b7 partner: CDW Logistics \u00b7 3/30/2027
+ *   Dynamics CRM \u00b7 10 seats
+ *   Dynamics 365 Sales \u00b7 already on Dynamics \u00b7 "manual double-entry"
+ */
+function buildDynamicsBrief(
+  platform: PlatformResult | null,
+  fullText: string,
+  productArea: string,
+  company: string,
+  email: string,
+): string {
+  const dynHit = platform?.hits.find((h) => h.category === "Dynamics 365");
+  const anchorText = dynHit?.snippet ?? "";
+  const parts: string[] = [];
+
+  // 1. THE PLATFORM. The row's own longest wording for it.
+  parts.push(longestDynamicsProduct(anchorText, fullText) || "Dynamics 365");
+
+  // 2. THE USER COUNT, only when stated. A missing count is simply absent:
+  //    saying "no seat count stated" spends a clause to say nothing.
+  const seats = platform?.dynamicsSeatCount ?? null;
+  if (seats != null && seats > 0) parts.push(`${seats} seats`);
+
+  // 3. WHO HANDLES IT. Only a value that is actually a partner or
+  //    Microsoft-direct — a segment label like "Baseline" or "Growth" is
+  //    Microsoft's own taxonomy and says nothing about the lead, so it is
+  //    dropped rather than printed as a partner. The customer's own name
+  //    is never reported as their partner.
+  const pa = classifyProductArea(productArea);
+  if (pa.kind === "microsoft") parts.push("direct with Microsoft");
+  else if (pa.kind === "partner" && !isOwnCompany(pa.label, company, email)) {
+    parts.push(`partner: ${firstWords(pa.label, 3)}`);
+  }
+
+  // 4. WHEN. Labelled "Timeline:" first, else a real date or window.
+  const when = extractTimeline(fullText);
+  if (when) parts.push(when);
+
+  // 5. ALREADY ON IT, per Jack: "most of this will not alr be on dynamics
+  //    so if it indicates they are let me know." A rival named instead is
+  //    the displacement angle and is worth as much.
+  if (alreadyOnDynamics(fullText)) parts.push("already on Dynamics");
+  else {
+    const rival = rivalPlatformNamed(fullText);
+    if (rival) parts.push(`on ${rival} today`);
+  }
+
+  // 6. THE PAIN, quoted, only when they said one.
+  const pain = nearestIn(fullText, anchorText, PAIN_RE);
+  if (pain) parts.push(quoteOnce(pain));
+
+  // A row that reversed itself must never read as a live deal.
+  const reversal = reversalClause(fullText);
+  if (reversal) parts.push(`reversed: ${quoteOnce(reversal)}`);
+
+  return parts.join(" \u00b7 ");
+}
+
+/** The Product Area sometimes repeats the customer's own name, which is not
+ *  a partner. Compared on the normalised name and on the email domain. */
+function isOwnCompany(value: string, company: string, email: string): boolean {
+  const v = normalizeProductArea(value);
+  if (!v) return true;
+  if (v === normalizeProductArea(company)) return true;
+  const d = getEmailDomain(email);
+  return !!d && !isFreeEmailDomain(d) && d.split(".")[0] === v.replace(/\s+/g, "");
+}
+
+/**
+ * Quote the row's own words exactly once, and keep them short.
+ *
+ * A reversal is often already quoted in the source note, so wrapping it
+ * again printed `reversed: ""we are not going to jump into something""`.
+ * Strips any quote marks the row supplied — straight or curly — then adds
+ * one pair.
+ */
+const REVERSAL_MAX = 70;
+function quoteOnce(s: string): string {
+  // Strip EVERY quote mark, not just the outer ones. A reversal often
+  // carries its own internal pair ('"not going to worry about that right
+  // now" - so no consumption products'), and trimming only the ends left
+  // the inner quotes plus the one added here, reading unbalanced.
+  let v = String(s || "").trim().toLowerCase()
+    .replace(/["'\u201c\u201d\u2018\u2019]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (v.length > REVERSAL_MAX) v = v.slice(0, REVERSAL_MAX - 1).trimEnd() + "\u2026";
+  return `"${v}"`;
+}
+
+/** Keep a partner name short — "CDW Logistics LLC" is CDW Logistics. */
+function firstWords(s: string, n: number): string {
+  const w = String(s || "").trim().split(/\s+/).slice(0, n).join(" ");
+  return w.replace(/[(,;:].*$/, "").trim();
+}
+
 export function buildCallBrief(
   category: CategoryKey,
   licensing: LicensingResult | null,
@@ -2360,6 +2720,26 @@ export function buildCallBrief(
   email = "",
 ): string {
   const dynamics = category === "dynamics365";
+
+  // ----------------------------------------------------------------
+  // DYNAMICS: facts only, no score, no generated question.
+  //
+  // Per Jack: "pull back on the matched snippet for dynamics i want that a
+  // bit shorter and more focused on the real notes", "i dont need a score
+  // for dynamics", and the spec itself: "i just need the platform in
+  // dyanmics mentioned the user count if theres info on a partner and
+  // timeline ... if theymention a pain they havce".
+  //
+  // Measured before changing it: Dynamics notes ran a median 179 chars and
+  // the generated "Ask ..." sentence was 59% of ALL Dynamics note text,
+  // firing on 591 of 591 rows — and 529 of those carried the IDENTICAL
+  // 106-character sentence. A constant printed 529 times is not
+  // information; a rep learns it once. Facts only takes the median to ~55.
+  //
+  // Every clause is omitted unless the row states it, so a thin row reads
+  // short rather than padded. On the real files only 43% state a seat
+  // count, 37% any timeline and 7% a pain.
+  if (dynamics) return buildDynamicsBrief(platform, fullText, productArea, company, email);
 
   // WHAT IT IS ABOUT — the row's own wording for the product, and a count
   // it actually stated. A Dynamics row reads its product from the DYNAMICS

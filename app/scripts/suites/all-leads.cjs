@@ -176,8 +176,17 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
      /240/.test(full || ''), (full || '').slice(0, 400));
   ok('  as two separate dated lines, not one run-on',
      (full || '').split('\n').length === 2, String((full || '').split('\n').length));
-  ok('  with the generated ask printed only once across the whole timeline',
-     ((full || '').match(/Ask if they have looked/g) || []).length === 1, (full || '').slice(0, 400));
+  // This fixture is a Dynamics lead, and a Dynamics line now carries NO
+  // generated question at all — per Jack, "i dont need a score for
+  // dynamics ... i just need the platform ... the user count ... partner
+  // and timeline". So the stronger assertion is zero, not one. The
+  // combine's own ask-deduplication is covered directly in lead-store.
+  ok('  and a Dynamics timeline carries no generated question at all',
+     !/\bAsk /.test(full || ''), (full || '').slice(0, 400));
+  // NB: the earlier segment of this same timeline is an M365/Azure scan,
+  // which correctly KEEPS its "(NN) ▲" head — only Dynamics drops it. So
+  // there is deliberately no assertion here that the whole combined note
+  // is head-free; that would be asserting the wrong thing.
   ok('  both are dated', ((full || '').match(/\d{4}-\d{2}-\d{2}/g) || []).length >= 2, (full || '').slice(0, 300));
   await search2.fill(''); await sleep(500);
 
