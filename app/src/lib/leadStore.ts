@@ -12,6 +12,7 @@
 // of everything scanned, every tier, all three scanners, which is a
 // different job. Neither replaces the other.
 import { STORE_LEADS, dbGetAll, dbBulkPut, dbDelete } from "./db";
+import type { SequencePlan } from "./sequenceRouting";
 
 /** Which scanner produced the row. The three engines stay separate, so a
  *  lead carries where it came from rather than being normalised into one
@@ -75,6 +76,11 @@ export interface StoredLead {
    *  uploads: "dont upload or update those numbers here or what sequence a
    *  lead is assigned to til i upload the files going forward." */
   apollo?: ApolloLeadState;
+  /** The Apollo sequence this lead is headed for, and whether it has gone
+   *  out in an export yet. Absent until a routing rule or a person sets
+   *  it. Carried through every re-upload by mergeLeads' `...prev`, and
+   *  never overwritten by a rule — see lib/sequenceRouting.ts. */
+  plan?: SequencePlan;
 }
 
 /* ------------------------------------------------------------ match key */
@@ -127,7 +133,7 @@ export function leadKeyOf(email: unknown, contact: unknown, company: unknown): s
 /** A lead as a scanner hands it over, before it is keyed or merged. */
 export type LeadInput = Omit<
   StoredLead,
-  "key" | "firstSeenAt" | "lastSeenAt" | "sourceFiles" | "timesSeen" | "apollo"
+  "key" | "firstSeenAt" | "lastSeenAt" | "sourceFiles" | "timesSeen" | "apollo" | "plan"
 > & { sourceFile: string };
 
 /** Keep an existing non-empty value; a later, sparser upload must never

@@ -47,10 +47,15 @@ const csv = ['companyname,description,campaignidname,emailaddress1,fullname']
   const nav = (await page.locator('.side-nav-btn').allInnerTexts()).map(t => t.split('\n')[0].trim());
   // The three scanners sit together at the top, in the order they were
   // built, with the rest of the platform below them.
+  // Per Jack the scanners now live in their own collapsible section, with
+  // the lead views (All leads, Apollo queue, Campaigns) between them and
+  // the archive — so "together, in build order, above the Lead library"
+  // is the invariant, not "directly above".
   ok('the three scanners sit together above Lead library',
+     nav.indexOf('Main Scanner') >= 0 &&
      nav.indexOf('Custom Scanner September') === nav.indexOf('Main Scanner') + 1 &&
      nav.indexOf('CSP Scanner') === nav.indexOf('Custom Scanner September') + 1 &&
-     nav.indexOf('Lead library') === nav.indexOf('CSP Scanner') + 1, JSON.stringify(nav));
+     nav.indexOf('Lead library') > nav.indexOf('CSP Scanner'), JSON.stringify(nav));
 
   await page.locator('.side-nav-btn', { hasText: 'Custom Scanner' }).first().click(); await sleep(600);
 

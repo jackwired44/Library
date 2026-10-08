@@ -95,6 +95,29 @@ export async function downloadCampaignCSV(
   await downloadBlob(toCSV(rows, CAMPAIGN_COLUMNS), campaignFileName(label, leads.length));
 }
 
+/**
+ * One file per target sequence, from the Apollo queue.
+ *
+ * Same columns as the general push list, plus "Sequence" — so a file that
+ * gets renamed or forwarded still says where its leads are meant to go,
+ * and Apollo's importer can carry it as a field. The filename leads with
+ * the sequence name for the same reason.
+ */
+export const SEQUENCE_EXPORT_COLUMNS = [...CAMPAIGN_COLUMNS, "Sequence"] as const;
+
+export async function downloadSequenceExport(
+  sequence: string,
+  leads: StoredLead[],
+  profiles: CompanyProfile[],
+): Promise<void> {
+  const rows = leads.map((l) => ({ ...campaignRow(l, profiles), Sequence: sequence }));
+  const slug = sequence.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "sequence";
+  await downloadBlob(
+    toCSV(rows, SEQUENCE_EXPORT_COLUMNS),
+    `apollo-${slug}-${leads.length}-${new Date().toISOString().slice(0, 10)}.csv`,
+  );
+}
+
 /* ------------------------------------------------------- size filtering */
 
 /** How a lead's company reads on headcount. `unknown` is its own value on

@@ -41,11 +41,16 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 const dash = <span style={{ color: "var(--muted)" }}>&mdash;</span>;
 
 export default function LeadDetail({
-  lead, companyProfiles, onClose,
+  lead, companyProfiles, onClose, sequenceNames = [], onSetPlan,
 }: {
   lead: StoredLead;
   companyProfiles: CompanyProfile[];
   onClose: () => void;
+  /** Sequences to offer in the "headed for" picker. */
+  sequenceNames?: string[];
+  /** Set or clear (null) the Apollo sequence this lead is headed for.
+   *  Absent where the caller does not manage the queue. */
+  onSetPlan?: (sequence: string | null) => void;
 }) {
   const a = lead.apollo;
   const segments = noteSegments(lead.notes);
@@ -76,6 +81,45 @@ export default function LeadDetail({
         </div>
 
         <div className="panel-body">
+          {/* The one editable thing on this screen, and deliberately so: the
+              target sequence is a plan, not a fact from the scan, so it is
+              the person's to set — and it survives every re-upload. */}
+          <Section title="Headed for">
+            {lead.plan ? (
+              <Row label="Sequence">
+                <b>{lead.plan.sequence}</b>
+                <span style={{ color: "var(--muted)", fontSize: 12 }}>
+                  {" · "}{lead.plan.status === "exported"
+                    ? `exported ${(lead.plan.exportedAt || "").slice(0, 10)}`
+                    : `queued ${lead.plan.by === "manual" ? "by hand" : "by rule"} ${lead.plan.assignedAt.slice(0, 10)}`}
+                </span>
+              </Row>
+            ) : (
+              <Row label="Sequence"><span style={{ color: "var(--muted)" }}>not queued</span></Row>
+            )}
+            {onSetPlan && (
+              <Row label="Change">
+                <select
+                  className="field"
+                  style={{ width: 240 }}
+                  value=""
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === "__remove") onSetPlan(null);
+                    else if (v) onSetPlan(v);
+                  }}
+                  aria-label="Set the sequence this lead is headed for"
+                >
+                  <option value="">{lead.plan ? "Move to…" : "Queue into…"}</option>
+                  {sequenceNames.filter((n) => n !== lead.plan?.sequence).map((n) => (
+                    <option key={n} value={n}>{n}</option>
+                  ))}
+                  {lead.plan && <option value="__remove">Remove from queue</option>}
+                </select>
+              </Row>
+            )}
+          </Section>
+
           <Section title="Contact">
             <Row label="Email">{lead.email ? <a href={`mailto:${lead.email}`}>{lead.email}</a> : dash}</Row>
             <Row label="Work phone">{lead.phone || dash}</Row>

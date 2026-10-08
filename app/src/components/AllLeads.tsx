@@ -1,248 +1,342 @@
 // Every lead ever scanned, from all three scanners — the Library's source
-// of truth, and where Apollo state is read.
+// of truth, built to be worked at volume.
 //
-// Per Jack: "i will be able to filter through all strong signals here if
-// they are active in a sequence finished their apollo and trellus selected
-// disposition but from raw lead to finished lead in this library", and
-// "then i can filter through leads i may never have contacted yet".
+// Per Jack: "i want to be able to filter by industry here as well as
+// employee range and which sequence it is tied to in apollo for each lead
+// but at a mass volume level as well and include any basic filter options
+// as well as scroll abilities … upload scan store and then over see the
+// lead if they are assigned as a task in apollo if they have never been
+// uploaded when how many different csv files they are on."
+//
+// PERFORMANCE RULES this file follows, all learned the hard way elsewhere:
+//   - Everything a predicate reads is derived ONCE per lead set into one
+//     map (`derived`), never inside a filter. A per-keystroke rebuild cost
+//     1,033 ms on 9,265 rows in Scanner2 before that was fixed.
+//   - The table renders one page at a time, at most 500 rows. 77,500 DOM
+//     nodes is what an unpaginated Contacts table measured at 3,000 rows.
+//   - Selection is a Set of keys, so it survives paging and refiltering.
 import { useEffect, useMemo, useState } from "react";
 import {
-  LEAD_SOURCE_META, hasActiveSequence, hasFinishedSequence, neverContacted,
-  newestNote, noteSegments, outcomeSummary, sequenceNamesIn,
+  LEAD_SOURCE_META, newestNote, noteSegments, outcomeSummary,
   type LeadSource, type StoredLead,
 } from "../lib/leadStore";
 import { SYNC_STALE_DAYS, syncAgeDays, leadsToSync } from "../lib/apolloSync";
 import { parseCSVFile, toCSV, downloadBlob } from "../lib/csv";
 import type { ParsedFile } from "../lib/detection";
-import {
-  buildSizeBands, companiesWithUnknownSize, downloadCampaignCSV, type SizeBand,
-} from "../lib/campaignExport";
+import { downloadCampaignCSV } from "../lib/campaignExport";
 import { MIN_EMPLOYEES } from "../lib/leadQualify";
-import type { CompanyProfile } from "../lib/companyProfiles";
+import {
+  SIZE_BUCKETS, employeeCountOf, normalizeCompanyKey, profileForCompany, type CompanyProfile,
+} from "../lib/companyProfiles";
 import LeadDetail from "./LeadDetail";
 
-const PAGE = 25;
-
-/** How many dated notes a lead has accumulated across uploads. */
-const segCount = (notes: string) => noteSegments(notes).length;
-
-/** Apollo-state filter. Kept as one control rather than several toggles so
- *  the states stay mutually exclusive and a count can be shown per option
- *  — the same shape the CSP Partner-interest filter uses. */
-type ApolloFilter =
-  | "all" | "active" | "finished" | "never-contacted" | "contacted" | "no-apollo";
-
-const APOLLO_LABEL: Record<Exclude<ApolloFilter, "all">, string> = {
-  active: "Active in a sequence",
-  finished: "Finished a sequence",
-  "never-contacted": "Never contacted",
-  contacted: "Has been called",
-  "no-apollo": "No Apollo record",
-};
-
-/** Company-size filter. `unknown` is a first-class option because per Jack
- *  an unknown-headcount company is kept, not cut — so it has to be findable
- *  in order to be confirmed, rather than hiding inside "any". */
-type SizeFilter = "all" | SizeBand;
-
-const SIZE_LABEL: Record<SizeBand, string> = {
-  ok: `${MIN_EMPLOYEES}+ employees`,
-  under: `Under ${MIN_EMPLOYEES}`,
-  unknown: "Size unknown",
-};
+const PAGE_SIZES = [25, 100, 250, 500];
 
 export interface SyncReport {
   rows: number; matched: number; unmatched: number; unmapped: string[]; skipped: number;
 }
 
+/* ----------------------------------------------------------- filter types */
+
+type ApolloFilter =
+  | "all" | "active" | "finished" | "never-sequenced" | "called" | "never-called" | "no-record";
+
+const APOLLO_LABEL: Record<Exclude<ApolloFilter, "all">, string> = {
+  active: "Active in a sequence",
+  finished: "Finished a sequence",
+  "never-sequenced": "Never in a sequence",
+  called: "Has been called",
+  "never-called": "Never called",
+  "no-record": "No Apollo record",
+};
+
+type PlanFilter = "all" | "none" | "queued" | "exported";
+const PLAN_LABEL: Record<Exclude<PlanFilter, "all">, string> = {
+  none: "Not queued",
+  queued: "Queued for Apollo",
+  exported: "Exported to Apollo",
+};
+
+type FilesFilter = "all" | "1" | "2" | "3";
+const FILES_LABEL: Record<Exclude<FilesFilter, "all">, string> = {
+  "1": "On 1 file",
+  "2": "On 2+ files",
+  "3": "On 3+ files",
+};
+
+type SortKey = "last" | "first" | "company" | "files" | "score" | "calls";
+const SORT_LABEL: Record<SortKey, string> = {
+  last: "Last seen (newest)",
+  first: "First seen (newest)",
+  company: "Company A–Z",
+  files: "Most files",
+  score: "Highest score",
+  calls: "Most calls",
+};
+
+/** Everything a filter, a facet count or a cell reads, resolved once. */
+interface Derived {
+  hay: string;
+  industry: string;
+  employees: number | null;
+  sizeKey: string; // a SIZE_BUCKETS key, or "unknown"
+  line: string;
+  active: boolean;
+  finished: boolean;
+  sequenced: boolean;
+  calls: number;
+  has: boolean;
+  files: number;
+}
+
+const NO_INDUSTRY = "(not enriched)";
+const NO_LINE = "(no product line)";
+
+/* --------------------------------------------------------------- component */
+
 export default function AllLeads({
   leads, companyProfiles = [], onApplySync, initialSequence = "",
+  sequenceNames = [], onSetPlan,
 }: {
   leads: StoredLead[];
   companyProfiles?: CompanyProfile[];
   onApplySync?: (files: ParsedFile[]) => Promise<SyncReport>;
   /** Seeded once on mount, from a campaign card's "open these leads". App
    *  keys this component on it, so arriving twice for the same sequence
-   *  still remounts and re-seeds — the repeat-value staleness bug this
-   *  codebase has already hit on Engage's tab prop. */
+   *  still remounts and re-seeds. */
   initialSequence?: string;
+  sequenceNames?: string[];
+  onSetPlan?: (keys: string[], sequence: string | null) => void;
 }) {
   const [search, setSearch] = useState("");
-  const [sourceFilter, setSourceFilter] = useState<LeadSource | "all">("all");
-  const [tierFilter, setTierFilter] = useState<string>("all");
-  const [apolloFilter, setApolloFilter] = useState<ApolloFilter>("all");
-  const [sequenceFilter, setSequenceFilter] = useState<string>(initialSequence || "all");
-  const [sizeFilter, setSizeFilter] = useState<SizeFilter>("all");
+  const [sourceF, setSourceF] = useState<LeadSource | "all">("all");
+  const [tierF, setTierF] = useState("all");
+  const [lineF, setLineF] = useState("all");
+  const [industryF, setIndustryF] = useState("all");
+  const [sizeF, setSizeF] = useState("all");
+  const [apolloF, setApolloF] = useState<ApolloFilter>("all");
+  const [seqF, setSeqF] = useState(initialSequence || "all");
+  const [planF, setPlanF] = useState<PlanFilter>("all");
+  const [planSeqF, setPlanSeqF] = useState("all");
+  const [filesF, setFilesF] = useState<FilesFilter>("all");
+  const [fileNameF, setFileNameF] = useState("all");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [sort, setSort] = useState<SortKey>("last");
+  const [pageSize, setPageSize] = useState(100);
   const [page, setPage] = useState(1);
-  const [exporting, setExporting] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkSeq, setBulkSeq] = useState("");
   const [openKey, setOpenKey] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [syncReport, setSyncReport] = useState<SyncReport | string | null>(null);
   const [syncing, setSyncing] = useState(false);
 
-  // Search text is joined ONCE per lead set, not inside the filter.
-  // Rebuilding a per-row haystack inside a predicate is the defect that
-  // cost 1,033 ms per keystroke in Scanner2 before it was fixed; this view
-  // can hold tens of thousands of leads and would reproduce it exactly.
-  const haystacks = useMemo(() => {
-    const m = new Map<string, string>();
+  /* ---- derived, once per lead set ---- */
+  const derived = useMemo(() => {
+    const byCompany = new Map<string, { industry: string; employees: number | null }>();
+    const m = new Map<string, Derived>();
     for (const l of leads) {
-      m.set(l.key, [
-        l.company, l.contact, l.title, l.email, l.phone, l.mobilePhone,
-        l.productArea, l.tier, l.notes,
-        ...(l.apollo?.sequences ?? []).map((s) => s.name),
-      ].join(" \u0001").toLowerCase());
-    }
-    return m;
-  }, [leads]);
-
-  // Each lead's Apollo state resolved once per lead set, for the same
-  // reason: the predicates and every facet count read these booleans
-  // rather than re-deriving them per pass.
-  const state = useMemo(() => {
-    const m = new Map<string, { active: boolean; finished: boolean; never: boolean; has: boolean }>();
-    for (const l of leads) {
+      const ck = normalizeCompanyKey(l.company);
+      let c = byCompany.get(ck);
+      if (!c) {
+        const p = companyProfiles.length ? profileForCompany(companyProfiles, ck, [l.email]) : null;
+        c = { industry: (p?.industry || "").trim(), employees: employeeCountOf(p) };
+        byCompany.set(ck, c);
+      }
+      const a = l.apollo;
+      const seqs = a?.sequences ?? [];
+      const bucket = c.employees === null ? null : SIZE_BUCKETS.find((b) => b.test(c!.employees!));
       m.set(l.key, {
-        active: hasActiveSequence(l),
-        finished: hasFinishedSequence(l),
-        never: neverContacted(l),
-        has: !!l.apollo,
+        hay: [
+          l.company, l.contact, l.title, l.email, l.phone, l.mobilePhone,
+          l.productArea, l.tier, l.notes, c.industry, l.plan?.sequence ?? "",
+          ...seqs.map((x) => x.name), ...l.sourceFiles,
+        ].join(" \u0001").toLowerCase(),
+        industry: c.industry || NO_INDUSTRY,
+        employees: c.employees,
+        sizeKey: bucket ? bucket.key : "unknown",
+        line: l.productArea || NO_LINE,
+        active: seqs.some((x) => x.status === "active"),
+        finished: seqs.length > 0 && !seqs.some((x) => x.status === "active"),
+        sequenced: seqs.length > 0,
+        calls: a?.callCount ?? 0,
+        has: !!a,
+        files: l.sourceFiles.length,
       });
     }
     return m;
-  }, [leads]);
+  }, [leads, companyProfiles]);
 
-  const tiers = useMemo(() => {
-    const set = new Set<string>();
-    for (const l of leads) if (l.tier) set.add(l.tier);
-    return [...set].sort((a, b) => a.localeCompare(b));
-  }, [leads]);
-
-  const sequences = useMemo(() => sequenceNamesIn(leads), [leads]);
-  const ageDays = useMemo(() => syncAgeDays(leads), [leads]);
-
-  // Resolved once per lead set, like the haystacks and Apollo state above —
-  // profileForCompany walks the profile list, so doing it inside a
-  // predicate would re-walk it on every keystroke.
-  const sizeBands = useMemo(
-    () => buildSizeBands(leads, companyProfiles, MIN_EMPLOYEES),
-    [leads, companyProfiles],
-  );
-
+  /* ---- the predicates, one per filter, so each facet can skip its own ---- */
   const q = search.trim().toLowerCase();
-  const matchesApollo = (l: StoredLead, f: ApolloFilter) => {
-    if (f === "all") return true;
-    const s = state.get(l.key)!;
-    if (f === "active") return s.active;
-    if (f === "finished") return s.finished;
-    if (f === "never-contacted") return s.never;
-    if (f === "contacted") return !s.never;
-    return !s.has;
+  const fromT = from ? Date.parse(`${from}T00:00:00`) : null;
+  const toT = to ? Date.parse(`${to}T23:59:59.999`) : null;
+
+  type Key = "search" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "plan" | "planSeq" | "files" | "fileName" | "date";
+  const tests = useMemo(() => {
+    const t: Record<Key, (l: StoredLead, d: Derived) => boolean> = {
+      search: (_l, d) => !q || d.hay.includes(q),
+      source: (l) => sourceF === "all" || l.source === sourceF,
+      tier: (l) => tierF === "all" || l.tier === tierF,
+      line: (_l, d) => lineF === "all" || d.line === lineF,
+      industry: (_l, d) => industryF === "all" || d.industry === industryF,
+      size: (_l, d) => sizeF === "all" || d.sizeKey === sizeF,
+      apollo: (_l, d) => {
+        switch (apolloF) {
+          case "all": return true;
+          case "active": return d.active;
+          case "finished": return d.finished;
+          case "never-sequenced": return !d.sequenced;
+          case "called": return d.calls > 0;
+          case "never-called": return d.calls === 0;
+          case "no-record": return !d.has;
+        }
+      },
+      seq: (l) => seqF === "all" || (l.apollo?.sequences ?? []).some((x) => x.name === seqF),
+      plan: (l) => planF === "all"
+        || (planF === "none" ? !l.plan : l.plan?.status === planF),
+      planSeq: (l) => planSeqF === "all" || l.plan?.sequence === planSeqF,
+      files: (_l, d) => filesF === "all" || d.files >= Number(filesF) && (filesF !== "1" || d.files === 1),
+      fileName: (l) => fileNameF === "all" || l.sourceFiles.includes(fileNameF),
+      date: (l) => {
+        if (fromT === null && toT === null) return true;
+        const t = Date.parse(l.firstSeenAt);
+        return (fromT === null || t >= fromT) && (toT === null || t <= toT);
+      },
+    };
+    return t;
+  }, [q, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, planF, planSeqF, filesF, fileNameF, fromT, toT]);
+
+  const passes = (l: StoredLead, skip?: Key) => {
+    const d = derived.get(l.key)!;
+    for (const k in tests) {
+      if (k === skip) continue;
+      if (!tests[k as Key](l, d)) return false;
+    }
+    return true;
   };
 
-  const filtered = useMemo(() => leads.filter((l) =>
-    (!q || (haystacks.get(l.key) || "").includes(q)) &&
-    (sourceFilter === "all" || l.source === sourceFilter) &&
-    (tierFilter === "all" || l.tier === tierFilter) &&
-    (sequenceFilter === "all" || (l.apollo?.sequences ?? []).some((s) => s.name === sequenceFilter)) &&
-    (sizeFilter === "all" || sizeBands.get(l.key) === sizeFilter) &&
-    matchesApollo(l, apolloFilter)
+  const filtered = useMemo(() => {
+    const out = leads.filter((l) => passes(l));
+    const d = (l: StoredLead) => derived.get(l.key)!;
+    const cmp: Record<SortKey, (a: StoredLead, b: StoredLead) => number> = {
+      last: (a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt),
+      first: (a, b) => b.firstSeenAt.localeCompare(a.firstSeenAt),
+      company: (a, b) => (a.company || "￿").localeCompare(b.company || "￿"),
+      files: (a, b) => d(b).files - d(a).files || b.lastSeenAt.localeCompare(a.lastSeenAt),
+      // A lead with no score sinks rather than being read as 0.
+      score: (a, b) => (b.score ?? -1) - (a.score ?? -1),
+      calls: (a, b) => d(b).calls - d(a).calls,
+    };
+    return out.sort(cmp[sort]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  ), [leads, q, haystacks, sourceFilter, tierFilter, sequenceFilter, sizeFilter, sizeBands, apolloFilter, state]);
+  }, [leads, derived, tests, sort]);
 
-  // Per-band counts, faceted the same way the Apollo counts are: each says
-  // how many it would show given every OTHER filter.
-  const sizeCounts = useMemo(() => {
-    const out = { all: 0, ok: 0, under: 0, unknown: 0 };
+  /** Counts for one facet, honouring every OTHER filter. */
+  function facet(skip: Key, keyOf: (l: StoredLead, d: Derived) => string | string[]): Map<string, number> {
+    const m = new Map<string, number>();
     for (const l of leads) {
-      if (q && !(haystacks.get(l.key) || "").includes(q)) continue;
-      if (sourceFilter !== "all" && l.source !== sourceFilter) continue;
-      if (tierFilter !== "all" && l.tier !== tierFilter) continue;
-      if (sequenceFilter !== "all" && !(l.apollo?.sequences ?? []).some((s) => s.name === sequenceFilter)) continue;
-      if (!matchesApollo(l, apolloFilter)) continue;
-      out.all++;
-      out[sizeBands.get(l.key) ?? "unknown"]++;
+      if (!passes(l, skip)) continue;
+      const k = keyOf(l, derived.get(l.key)!);
+      for (const v of Array.isArray(k) ? k : [k]) m.set(v, (m.get(v) || 0) + 1);
     }
-    return out;
+    return m;
+  }
+
+  // Facets are computed only while the panel is open — at 25,000 leads a
+  // dozen of them is real work, and nobody reads a count they cannot see.
+  const facets = useMemo(() => {
+    if (!filtersOpen) return null;
+    return {
+      line: facet("line", (_l, d) => d.line),
+      industry: facet("industry", (_l, d) => d.industry),
+      size: facet("size", (_l, d) => d.sizeKey),
+      apollo: facet("apollo", (_l, d) => [
+        ...(d.active ? ["active"] : []), ...(d.finished ? ["finished"] : []),
+        d.sequenced ? "" : "never-sequenced", d.calls > 0 ? "called" : "never-called",
+        d.has ? "" : "no-record",
+      ].filter(Boolean)),
+      seq: facet("seq", (l) => (l.apollo?.sequences ?? []).map((x) => x.name)),
+      plan: facet("plan", (l) => (l.plan ? l.plan.status : "none")),
+      planSeq: facet("planSeq", (l) => (l.plan ? [l.plan.sequence] : [])),
+      files: facet("files", (_l, d) => [d.files === 1 ? "1" : "", d.files >= 2 ? "2" : "", d.files >= 3 ? "3" : ""].filter(Boolean)),
+      fileName: facet("fileName", (l) => l.sourceFiles),
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [leads, q, haystacks, sourceFilter, tierFilter, sequenceFilter, apolloFilter, sizeBands, state]);
+  }, [filtersOpen, leads, derived, tests]);
 
-  const unknownCompanies = useMemo(
-    () => companiesWithUnknownSize(filtered, sizeBands),
-    [filtered, sizeBands],
-  );
+  const tiers = useMemo(() => [...new Set(leads.map((l) => l.tier).filter(Boolean))].sort(), [leads]);
+  const ageDays = useMemo(() => syncAgeDays(leads), [leads]);
 
-  /** What the current filter set is, in words — so the downloaded file is
-   *  named after what is actually in it rather than a generic "leads". */
-  const filterLabel = [
-    tierFilter !== "all" ? tierFilter : "",
-    sourceFilter !== "all" ? LEAD_SOURCE_META[sourceFilter].short : "",
-    sequenceFilter !== "all" ? sequenceFilter : "",
-    apolloFilter !== "all" ? APOLLO_LABEL[apolloFilter] : "",
-    sizeFilter !== "all" ? SIZE_LABEL[sizeFilter] : "",
-  ].filter(Boolean).join(" ") || "all";
+  useEffect(() => { setPage(1); }, [tests, sort, pageSize]);
 
-  /** The exact people a sync should ask Apollo about. Exported so the pull
-   *  runs against a real list instead of a guess at who is held here — the
-   *  whole reason the sync is lead-driven rather than a blind bulk fetch. */
+  const pages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const shown = filtered.slice((page - 1) * pageSize, page * pageSize);
+  const allShownSelected = shown.length > 0 && shown.every((l) => selected.has(l.key));
+  const selectedLeads = useMemo(() => leads.filter((l) => selected.has(l.key)), [leads, selected]);
+
+  /* ---- active filter chips ---- */
+  const chips: { label: string; clear: () => void }[] = [];
+  if (sourceF !== "all") chips.push({ label: LEAD_SOURCE_META[sourceF].label, clear: () => setSourceF("all") });
+  if (tierF !== "all") chips.push({ label: tierF, clear: () => setTierF("all") });
+  if (lineF !== "all") chips.push({ label: lineF, clear: () => setLineF("all") });
+  if (industryF !== "all") chips.push({ label: `Industry: ${industryF}`, clear: () => setIndustryF("all") });
+  if (sizeF !== "all") chips.push({ label: `Employees: ${SIZE_BUCKETS.find((b) => b.key === sizeF)?.label ?? "unknown"}`, clear: () => setSizeF("all") });
+  if (apolloF !== "all") chips.push({ label: APOLLO_LABEL[apolloF], clear: () => setApolloF("all") });
+  if (seqF !== "all") chips.push({ label: `In: ${seqF}`, clear: () => setSeqF("all") });
+  if (planF !== "all") chips.push({ label: PLAN_LABEL[planF], clear: () => setPlanF("all") });
+  if (planSeqF !== "all") chips.push({ label: `Headed for: ${planSeqF}`, clear: () => setPlanSeqF("all") });
+  if (filesF !== "all") chips.push({ label: FILES_LABEL[filesF], clear: () => setFilesF("all") });
+  if (fileNameF !== "all") chips.push({ label: `File: ${fileNameF}`, clear: () => setFileNameF("all") });
+  if (from || to) chips.push({ label: `First seen ${from || "…"} → ${to || "…"}`, clear: () => { setFrom(""); setTo(""); } });
+  const clearAll = () => chips.forEach((c) => c.clear());
+
+  /* ---- actions ---- */
+  function toggle(key: string) {
+    setSelected((s) => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  }
+  function selectPage() {
+    setSelected((s) => {
+      const n = new Set(s);
+      if (allShownSelected) shown.forEach((l) => n.delete(l.key)); else shown.forEach((l) => n.add(l.key));
+      return n;
+    });
+  }
+
+  async function exportSet(set: StoredLead[], label: string) {
+    if (!set.length || exporting) return;
+    setExporting(true);
+    try { await downloadCampaignCSV(set, companyProfiles, label); } finally { setExporting(false); }
+  }
+
   async function exportLookupList() {
-    const rows = leadsToSync(leads).map((l) => ({
-      Email: l.email, Name: l.contact, Company: l.company,
-    }));
-    await downloadBlob(
-      toCSV(rows, ["Email", "Name", "Company"] as const),
-      `apollo-lookup-${rows.length}-${new Date().toISOString().slice(0, 10)}.csv`,
-    );
+    const rows = leadsToSync(leads).map((l) => ({ Email: l.email, Name: l.contact, Company: l.company }));
+    await downloadBlob(toCSV(rows, ["Email", "Name", "Company"] as const),
+      `apollo-lookup-${rows.length}-${new Date().toISOString().slice(0, 10)}.csv`);
   }
 
   async function importSyncFile(files: FileList | null) {
     if (!files?.length || !onApplySync || syncing) return;
-    setSyncing(true);
-    setSyncReport(null);
+    setSyncing(true); setSyncReport(null);
     try {
       const parsed = await Promise.all([...files].map((f) => parseCSVFile(f)));
       setSyncReport(await onApplySync(parsed as ParsedFile[]));
     } catch (e) {
       setSyncReport(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSyncing(false);
-    }
+    } finally { setSyncing(false); }
   }
 
-  async function exportForApollo() {
-    if (!filtered.length || exporting) return;
-    setExporting(true);
-    try {
-      await downloadCampaignCSV(filtered, companyProfiles, filterLabel);
-    } finally {
-      setExporting(false);
-    }
-  }
+  const filterLabel = chips.map((c) => c.label).join(" ") || "all";
+  const openLead = openKey ? leads.find((l) => l.key === openKey) : null;
+  const dash = <span style={{ color: "var(--muted)" }}>&mdash;</span>;
 
-  // Counts exclude the Apollo filter's own effect, so each option says how
-  // many it would show given everything else — the faceted convention the
-  // scanners already use.
-  const apolloCounts = useMemo(() => {
-    const base = leads.filter((l) =>
-      (!q || (haystacks.get(l.key) || "").includes(q)) &&
-      (sourceFilter === "all" || l.source === sourceFilter) &&
-      (tierFilter === "all" || l.tier === tierFilter) &&
-      (sequenceFilter === "all" || (l.apollo?.sequences ?? []).some((s) => s.name === sequenceFilter)));
-    const out = { all: base.length, active: 0, finished: 0, "never-contacted": 0, contacted: 0, "no-apollo": 0 };
-    for (const l of base) {
-      const s = state.get(l.key)!;
-      if (s.active) out.active++;
-      if (s.finished) out.finished++;
-      if (s.never) out["never-contacted"]++; else out.contacted++;
-      if (!s.has) out["no-apollo"]++;
-    }
-    return out;
-  }, [leads, q, haystacks, sourceFilter, tierFilter, sequenceFilter, state]);
-
-  // Narrowing to 12 leads while sitting on page 40 shows an empty table.
-  useEffect(() => { setPage(1); }, [search, sourceFilter, tierFilter, apolloFilter, sequenceFilter, sizeFilter]);
-
-  const pages = Math.max(1, Math.ceil(filtered.length / PAGE));
-  const shown = filtered.slice((page - 1) * PAGE, page * PAGE);
+  /* ---- an option list with counts, for a select inside the filter panel ---- */
+  const opts = (m: Map<string, number> | undefined, labelOf: (k: string) => string = (k) => k) =>
+    [...(m ?? new Map()).entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => (
+      <option key={k} value={k}>{labelOf(k)} ({n.toLocaleString()})</option>
+    ));
 
   if (leads.length === 0) {
     return (
@@ -250,12 +344,10 @@ export default function AllLeads({
         <div className="page-head">
           <div><h2>All leads</h2><p className="page-sub">Every lead scanned, from all three scanners.</p></div>
         </div>
-        <div className="panel"><div className="panel-body">
-          <p style={{ margin: 0 }}>
-            Nothing stored yet. Every lead you scan from here on is kept — all three scanners,
-            every tier, not just the Strong Signal rows the Lead library files.
-          </p>
-        </div></div>
+        <div className="calm-state">
+          <div className="calm-title">Nothing stored yet</div>
+          <div className="calm-body">Every lead you scan from here on is kept — all three scanners, every tier.</div>
+        </div>
       </>
     );
   }
@@ -266,37 +358,34 @@ export default function AllLeads({
         <div>
           <h2>All leads</h2>
           <p className="page-sub">
-            {leads.length.toLocaleString()} lead{leads.length === 1 ? "" : "s"} scanned, all three scanners.
+            {leads.length.toLocaleString()} lead{leads.length === 1 ? "" : "s"} stored from all three scanners
           </p>
         </div>
       </div>
 
-      {/* Staleness is stated, never implied. Without this, "never contacted"
-          and "never synced" read identically and the view lies by omission. */}
-      <div className="panel" style={{ marginBottom: 12 }}>
-        <div className="panel-body" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <b style={{ fontSize: 12 }}>Apollo</b>
+      {/* Apollo state is only as fresh as the last sync, so its age is
+          stated here, every time. */}
+      <div className="panel" style={{ marginBottom: 10 }}>
+        <div className="panel-body" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", fontSize: 12.5 }}>
+          <b>Apollo</b>
           {ageDays === null ? (
-            <span style={{ fontSize: 12, color: "var(--muted)" }}>
-              Not synced yet &mdash; sequence assignments and call counts are blank until a sync runs,
-              so every lead currently reads as never contacted.
+            <span style={{ color: "var(--muted)" }}>
+              Not synced — sequence and call columns are blank until a sync is imported, so nothing here
+              reads as "in Apollo" yet.
             </span>
           ) : (
-            <span style={{ fontSize: 12, color: ageDays > SYNC_STALE_DAYS ? "#B5443B" : "var(--muted)" }}>
+            <span style={{ color: ageDays > SYNC_STALE_DAYS ? "#B5443B" : "var(--muted)" }}>
               Synced {ageDays === 0 ? "today" : `${ageDays} day${ageDays === 1 ? "" : "s"} ago`}
-              {ageDays > SYNC_STALE_DAYS ? " — stale, re-sync before trusting these numbers." : "."}
-              {" "}{apolloCounts.all - apolloCounts["no-apollo"]} of {apolloCounts.all} leads have an Apollo record.
+              {ageDays > SYNC_STALE_DAYS ? " — stale, re-sync before trusting these." : "."}
             </span>
           )}
           {onApplySync && (
             <>
               <div className="toolbar-spacer" />
-              <button className="btn btn-sm btn-ghost" onClick={exportLookupList} disabled={!leads.length}
-                      title="Download the people to ask Apollo about: email, name, company. This is the input to the sync pull.">
-                ⬇ Lookup list
-              </button>
+              <button className="btn btn-sm btn-ghost" onClick={exportLookupList}
+                      title="Download the people to look up in Apollo: email, name, company.">⬇ Lookup list</button>
               <label className="btn btn-sm btn-ghost" style={{ cursor: syncing ? "default" : "pointer" }}
-                     title="Load the sync file produced from Apollo. Sequence assignments and call counts are replaced, not merged — a re-sync has to be able to clear a sequence that ended.">
+                     title="Load a sync file from Apollo. Sequence and call state are replaced, not merged.">
                 {syncing ? "Reading…" : "⬆ Import sync"}
                 <input type="file" accept=".csv,text/csv" multiple hidden disabled={syncing}
                        onChange={(e) => { importSyncFile(e.target.files); e.target.value = ""; }} />
@@ -311,17 +400,9 @@ export default function AllLeads({
             ) : (
               <>
                 <b>{syncReport.matched.toLocaleString()}</b> of {syncReport.rows.toLocaleString()} rows matched a stored lead.
-                {syncReport.unmatched > 0 && (
-                  <> {syncReport.unmatched.toLocaleString()} matched nobody here — those people were never scanned into this library.</>
-                )}
-                {syncReport.skipped > 0 && (
-                  <> {syncReport.skipped.toLocaleString()} row{syncReport.skipped === 1 ? "" : "s"} had no email and no name+company, so could not be keyed.</>
-                )}
-                {syncReport.unmapped.length > 0 && (
-                  <div style={{ color: "var(--muted)", marginTop: 2 }}>
-                    Unmapped columns, ignored rather than guessed at: {syncReport.unmapped.join(", ")}
-                  </div>
-                )}
+                {syncReport.unmatched > 0 && <> {syncReport.unmatched.toLocaleString()} matched nobody here.</>}
+                {syncReport.skipped > 0 && <> {syncReport.skipped.toLocaleString()} could not be keyed.</>}
+                {syncReport.unmapped.length > 0 && <div style={{ color: "var(--muted)" }}>Unmapped: {syncReport.unmapped.join(", ")}</div>}
                 <button className="btn btn-sm btn-ghost" style={{ marginLeft: 6 }} onClick={() => setSyncReport(null)}>Dismiss</button>
               </>
             )}
@@ -329,172 +410,298 @@ export default function AllLeads({
         )}
       </div>
 
+      {/* ---- toolbar: the basics in the open, everything else behind Filters ---- */}
       <div className="toolbar">
         <div className="toolbar-row">
-          <input
-            className="field"
-            placeholder="Search company, contact, email, notes or sequence&hellip;"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{ flex: 1, minWidth: 220, maxWidth: 420 }}
-          />
-          <select className="field" aria-label="Scanner" value={sourceFilter}
-                  onChange={(e) => setSourceFilter(e.target.value as LeadSource | "all")}>
+          <input className="field" placeholder="Search company, contact, email, notes, industry, file…"
+                 value={search} onChange={(e) => setSearch(e.target.value)}
+                 style={{ flex: 1, minWidth: 220, maxWidth: 380 }} />
+          <select className="field" aria-label="Scanner" value={sourceF}
+                  onChange={(e) => setSourceF(e.target.value as LeadSource | "all")}>
             <option value="all">Scanner: any</option>
-            {(["main", "smc", "csp"] as LeadSource[]).map((s) => (
-              <option key={s} value={s}>{LEAD_SOURCE_META[s].label}</option>
-            ))}
+            {(["main", "smc", "csp"] as LeadSource[]).map((s) => <option key={s} value={s}>{LEAD_SOURCE_META[s].label}</option>)}
           </select>
-          <select className="field" aria-label="Tier" value={tierFilter}
-                  onChange={(e) => setTierFilter(e.target.value)}>
+          <select className="field" aria-label="Tier" value={tierF} onChange={(e) => setTierF(e.target.value)}>
             <option value="all">Tier: any</option>
             {tiers.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
-          <select
-            className="field"
-            aria-label="Apollo state"
-            style={{ width: 230 }}
-            value={apolloFilter}
-            onChange={(e) => setApolloFilter(e.target.value as ApolloFilter)}
-            title={"Where this lead stands in Apollo.\n\nNever contacted is about CALLS, not enrolment — a lead can sit in a sequence and still never have been dialled."}
-          >
-            <option value="all">Apollo: any ({apolloCounts.all.toLocaleString()})</option>
-            {(Object.keys(APOLLO_LABEL) as (keyof typeof APOLLO_LABEL)[]).map((k) => (
-              <option key={k} value={k}>{APOLLO_LABEL[k]} ({apolloCounts[k].toLocaleString()})</option>
-            ))}
-          </select>
-          {sequences.length > 0 && (
-            <select className="field" aria-label="Sequence" style={{ width: 200 }}
-                    value={sequenceFilter} onChange={(e) => setSequenceFilter(e.target.value)}>
-              <option value="all">Sequence: any</option>
-              {sequences.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-          )}
-          <select
-            className="field"
-            aria-label="Company size"
-            style={{ width: 190 }}
-            value={sizeFilter}
-            onChange={(e) => setSizeFilter(e.target.value as SizeFilter)}
-            title={`Headcount from the company's Apollo profile.\n\nSize unknown means we hold no profile for that company — those leads are kept, never cut, so they are findable here in order to be confirmed.`}
-          >
-            <option value="all">Size: any ({sizeCounts.all.toLocaleString()})</option>
-            {(["ok", "under", "unknown"] as SizeBand[]).map((b) => (
-              <option key={b} value={b}>{SIZE_LABEL[b]} ({sizeCounts[b].toLocaleString()})</option>
-            ))}
+          <div className="filter-wrap" style={{ position: "relative" }}>
+            <button className="filter-btn btn btn-sm btn-secondary" onClick={() => setFiltersOpen((v) => !v)} aria-expanded={filtersOpen}>
+              Filters{chips.length > 0 && <span className="filter-count"> {chips.length}</span>}
+            </button>
+          </div>
+          <select className="field" aria-label="Sort" value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
+            {(Object.keys(SORT_LABEL) as SortKey[]).map((k) => <option key={k} value={k}>Sort: {SORT_LABEL[k]}</option>)}
           </select>
           <div className="toolbar-spacer" />
           <span style={{ fontSize: 12, color: "var(--muted)" }}>
-            {filtered.length.toLocaleString()} of {leads.length.toLocaleString()} shown
+            <b>{filtered.length.toLocaleString()}</b> of {leads.length.toLocaleString()}
           </span>
-          <button
-            className="btn btn-sm btn-primary"
-            disabled={!filtered.length || exporting}
-            onClick={exportForApollo}
-            title={"Download the leads currently shown, as a CSV in Apollo's own column shape.\n\nThis writes a file — it does not touch your live Apollo account."}
-          >
-            {exporting ? "Preparing…" : `⬇ Push list for Apollo (${filtered.length.toLocaleString()})`}
+          <button className="btn btn-sm btn-primary" disabled={!filtered.length || exporting}
+                  onClick={() => exportSet(filtered, filterLabel)}
+                  title="Download every lead matching these filters as an Apollo import CSV. A file only — nothing is pushed to Apollo.">
+            {exporting ? "Preparing…" : `⬇ Export ${filtered.length.toLocaleString()} for Apollo`}
           </button>
         </div>
       </div>
 
-      {/* The unknown-headcount route. Nothing in this app can read a
-          company website: a local page is blocked by CORS from fetching a
-          third party, and LinkedIn has a login wall and no API. The
-          Company Overview Agent does it OUTSIDE the browser, and this is
-          where its input list comes from. */}
-      {unknownCompanies.length > 0 && companyProfiles.length > 0 && (
-        <div style={{ margin: "0 0 12px", fontSize: 12, color: "var(--muted)" }}>
-          {unknownCompanies.length.toLocaleString()} compan{unknownCompanies.length === 1 ? "y in" : "ies in"} this
-          selection {unknownCompanies.length === 1 ? "has" : "have"} no headcount on file, so the{" "}
-          {MIN_EMPLOYEES}-employee floor has not been applied to {unknownCompanies.length === 1 ? "it" : "them"}.
-          Enrich from the Scanner, or run the Company Overview Agent on their websites.
+      {/* ---- the filter panel ---- */}
+      {filtersOpen && facets && (
+        <div className="panel" style={{ marginBottom: 10 }}>
+          <div className="panel-body" style={{
+            display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 12, fontSize: 12.5,
+          }}>
+            <label>
+              <div className="section-label">Product line</div>
+              <select className="field" style={{ width: "100%" }} aria-label="Product line" value={lineF} onChange={(e) => setLineF(e.target.value)}>
+                <option value="all">Any</option>{opts(facets.line)}
+              </select>
+            </label>
+            <label>
+              <div className="section-label">Industry (from Apollo)</div>
+              <select className="field" style={{ width: "100%" }} aria-label="Industry" value={industryF} onChange={(e) => setIndustryF(e.target.value)}>
+                <option value="all">Any</option>{opts(facets.industry)}
+              </select>
+            </label>
+            <label>
+              <div className="section-label">Employees</div>
+              <select className="field" style={{ width: "100%" }} aria-label="Employees" value={sizeF} onChange={(e) => setSizeF(e.target.value)}>
+                <option value="all">Any</option>
+                {SIZE_BUCKETS.map((b) => (
+                  <option key={b.key} value={b.key}>{b.label} ({(facets.size.get(b.key) || 0).toLocaleString()})</option>
+                ))}
+                <option value="unknown">Unknown — not enriched ({(facets.size.get("unknown") || 0).toLocaleString()})</option>
+              </select>
+            </label>
+            <label>
+              <div className="section-label">In Apollo</div>
+              <select className="field" style={{ width: "100%" }} aria-label="Apollo state" value={apolloF} onChange={(e) => setApolloF(e.target.value as ApolloFilter)}>
+                <option value="all">Any</option>
+                {(Object.keys(APOLLO_LABEL) as (keyof typeof APOLLO_LABEL)[]).map((k) => (
+                  <option key={k} value={k}>{APOLLO_LABEL[k]} ({(facets.apollo.get(k) || 0).toLocaleString()})</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <div className="section-label">Apollo sequence they're in</div>
+              <select className="field" style={{ width: "100%" }} aria-label="Apollo sequence" value={seqF} onChange={(e) => setSeqF(e.target.value)}>
+                <option value="all">Any</option>{opts(facets.seq)}
+              </select>
+            </label>
+            <label>
+              <div className="section-label">Queue status</div>
+              <select className="field" style={{ width: "100%" }} aria-label="Queue status" value={planF} onChange={(e) => setPlanF(e.target.value as PlanFilter)}>
+                <option value="all">Any</option>
+                {(Object.keys(PLAN_LABEL) as (keyof typeof PLAN_LABEL)[]).map((k) => (
+                  <option key={k} value={k}>{PLAN_LABEL[k]} ({(facets.plan.get(k) || 0).toLocaleString()})</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <div className="section-label">Headed for (target sequence)</div>
+              <select className="field" style={{ width: "100%" }} aria-label="Headed for" value={planSeqF} onChange={(e) => setPlanSeqF(e.target.value)}>
+                <option value="all">Any</option>{opts(facets.planSeq)}
+              </select>
+            </label>
+            <label>
+              <div className="section-label">How many files</div>
+              <select className="field" style={{ width: "100%" }} aria-label="File count" value={filesF} onChange={(e) => setFilesF(e.target.value as FilesFilter)}>
+                <option value="all">Any</option>
+                {(Object.keys(FILES_LABEL) as (keyof typeof FILES_LABEL)[]).map((k) => (
+                  <option key={k} value={k}>{FILES_LABEL[k]} ({(facets.files.get(k) || 0).toLocaleString()})</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <div className="section-label">On this file</div>
+              <select className="field" style={{ width: "100%" }} aria-label="Source file" value={fileNameF} onChange={(e) => setFileNameF(e.target.value)}>
+                <option value="all">Any</option>{opts(facets.fileName)}
+              </select>
+            </label>
+            <div>
+              <div className="section-label">First uploaded</div>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <input type="date" className="field" value={from} onChange={(e) => setFrom(e.target.value)} aria-label="First seen from" />
+                <span>→</span>
+                <input type="date" className="field" value={to} onChange={(e) => setTo(e.target.value)} aria-label="First seen to" />
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
-      <div className="table-card">
+      {chips.length > 0 && (
+        <div className="chip-row" style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8, alignItems: "center" }}>
+          {chips.map((c) => (
+            <button key={c.label} className="chip" onClick={c.clear} title="Remove this filter">{c.label} ✕</button>
+          ))}
+          <button className="btn btn-sm btn-ghost" onClick={clearAll}>Clear all</button>
+        </div>
+      )}
+
+      {/* ---- bulk bar: acts on the selection, or on everything matched ---- */}
+      <div className="bulkbar" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8, fontSize: 12.5 }}>
+        <span>
+          {selected.size > 0
+            ? <><b>{selected.size.toLocaleString()}</b> selected</>
+            : <span style={{ color: "var(--muted)" }}>Select leads, or act on all {filtered.length.toLocaleString()} matched</span>}
+        </span>
+        {filtered.length > 0 && selected.size < filtered.length && (
+          <button className="btn btn-sm btn-ghost" onClick={() => setSelected(new Set(filtered.map((l) => l.key)))}>
+            Select all {filtered.length.toLocaleString()} matched
+          </button>
+        )}
+        {selected.size > 0 && <button className="btn btn-sm btn-ghost" onClick={() => setSelected(new Set())}>Clear selection</button>}
+        {onSetPlan && (
+          <>
+            <span className="bulkbar-divider" style={{ width: 1, height: 18, background: "var(--border)" }} />
+            <input className="field" list="all-leads-seqs" style={{ width: 210 }} placeholder="Queue into sequence…"
+                   value={bulkSeq} onChange={(e) => setBulkSeq(e.target.value)} aria-label="Queue into sequence" />
+            <datalist id="all-leads-seqs">{sequenceNames.map((n) => <option key={n} value={n} />)}</datalist>
+            <button className="btn btn-sm btn-secondary" disabled={!selected.size || !bulkSeq.trim()}
+                    onClick={() => { onSetPlan([...selected], bulkSeq.trim()); setBulkSeq(""); setSelected(new Set()); }}>
+              Queue {selected.size ? selected.size.toLocaleString() : ""}
+            </button>
+            <button className="btn btn-sm btn-ghost" disabled={!selected.size}
+                    onClick={() => {
+                      if (window.confirm(`Remove ${selected.size} lead(s) from the Apollo queue? They stay stored.`)) {
+                        onSetPlan([...selected], null); setSelected(new Set());
+                      }
+                    }}>
+              Remove from queue
+            </button>
+          </>
+        )}
+        <button className="btn btn-sm btn-ghost" disabled={!selected.size || exporting}
+                onClick={() => exportSet(selectedLeads, "selection")}>
+          ⬇ Export selection
+        </button>
+      </div>
+
+      {/* ---- the table: one page at a time, scrolling inside its own box
+             so the toolbar and filters stay in view ---- */}
+      <div className="table-card" style={{ maxHeight: "calc(100vh - 290px)", minHeight: 240, overflow: "auto" }}>
         <table className="data-table">
-          <thead>
+          <thead style={{ position: "sticky", top: 0, zIndex: 2, background: "var(--bg-surface, #fff)" }}>
             <tr>
-              <th>Company</th><th>Contact</th><th>Scanner</th><th>Tier</th>
-              <th>Product line</th><th>Notes</th><th>Apollo</th><th>Calls</th><th>Seen</th>
+              <th style={{ width: 28 }}>
+                <input type="checkbox" checked={allShownSelected} onChange={selectPage} aria-label="Select this page" />
+              </th>
+              <th>Company</th><th>Contact</th><th>Scan</th><th>Notes</th>
+              <th>In Apollo</th><th>Headed for</th><th>Files</th><th>First / last seen</th>
             </tr>
           </thead>
           <tbody>
             {shown.map((l) => {
+              const d = derived.get(l.key)!;
               const a = l.apollo;
-              const summary = outcomeSummary(a);
+              const segs = noteSegments(l.notes).length;
               return (
-                <tr key={l.key} style={{ cursor: "pointer" }} onClick={() => setOpenKey(l.key)}>
-                  <td><b>{l.company || "—"}</b></td>
+                <tr key={l.key} style={{ cursor: "pointer", background: selected.has(l.key) ? "var(--bg-selected, #eef6f5)" : undefined }}
+                    onClick={() => setOpenKey(l.key)}>
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <input type="checkbox" checked={selected.has(l.key)} onChange={() => toggle(l.key)} aria-label={`Select ${l.company}`} />
+                  </td>
+                  <td style={{ minWidth: 160 }}>
+                    <b>{l.company || "—"}</b>
+                    <div style={{ fontSize: 11, color: "var(--muted)" }}>
+                      {d.industry === NO_INDUSTRY ? "industry —" : d.industry}
+                      {" · "}{d.employees === null ? "size —" : `${d.employees.toLocaleString()} emp`}
+                    </div>
+                  </td>
                   <td style={{ whiteSpace: "nowrap" }}>
                     {l.contact || "—"}
-                    {l.email && <div style={{ fontSize: 11, color: "var(--muted)" }}>{l.email}</div>}
+                    <div style={{ fontSize: 11, color: "var(--muted)" }}>{l.title || l.email || ""}</div>
                   </td>
-                  <td style={{ whiteSpace: "nowrap" }}>{LEAD_SOURCE_META[l.source].short}</td>
-                  <td style={{ whiteSpace: "nowrap" }}>{l.tier || "—"}</td>
-                  <td>{l.productArea || "—"}</td>
-                  {/* The newest note reads on the row; the whole dated
-                      timeline is on hover, so combining notes across
-                      uploads does not turn every row into a paragraph. */}
-                  <td
-                    title={l.notes}
-                    style={{ maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                  >
+                  <td style={{ whiteSpace: "nowrap", fontSize: 12 }}>
+                    {LEAD_SOURCE_META[l.source].short} · {l.tier || "—"}
+                    <div style={{ fontSize: 11, color: "var(--muted)" }}>{l.productArea || "no product line"}</div>
+                  </td>
+                  <td title={l.notes} style={{ maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12 }}>
                     {newestNote(l.notes) || "—"}
-                    {segCount(l.notes) > 1 && (
-                      <span style={{ color: "var(--muted)", fontSize: 11 }}>
-                        {" "}+{segCount(l.notes) - 1} earlier
-                      </span>
-                    )}
+                    {segs > 1 && <span style={{ color: "var(--muted)", fontSize: 11 }}> +{segs - 1} earlier</span>}
                   </td>
-                  <td>
-                    {!a ? <span style={{ color: "var(--muted)" }}>&mdash;</span>
-                      : a.sequences.length === 0 ? <span style={{ color: "var(--muted)" }}>No sequence</span>
-                      : a.sequences.map((s, i) => (
-                          <div key={i} style={{ fontSize: 11, whiteSpace: "nowrap" }}>
+                  <td style={{ fontSize: 11.5 }} title={a ? outcomeSummary(a) : undefined}>
+                    {!a ? dash : a.sequences.length === 0 ? (
+                      <span style={{ color: "var(--muted)" }}>never sequenced{a.callCount ? ` · ${a.callCount} calls` : ""}</span>
+                    ) : (
+                      <>
+                        {a.sequences.slice(0, 2).map((s, i) => (
+                          <div key={i} style={{ whiteSpace: "nowrap" }}>
                             {s.name}
                             <span style={{ color: s.status === "active" ? "var(--accent)" : "var(--muted)" }}>
-                              {" · "}{s.status}{s.step != null ? ` · step ${s.step}` : ""}
+                              {" · "}{s.status}{s.step != null ? ` @${s.step}` : ""}
                             </span>
                           </div>
                         ))}
-                  </td>
-                  <td title={summary}>
-                    {!a ? <span style={{ color: "var(--muted)" }}>&mdash;</span> : (
-                      <>
-                        <b>{a.callCount}</b>
-                        {summary && <div style={{ fontSize: 11, color: "var(--muted)" }}>{summary}</div>}
+                        {a.sequences.length > 2 && <div style={{ color: "var(--muted)" }}>+{a.sequences.length - 2} more</div>}
+                        {a.callCount > 0 && <div style={{ color: "var(--muted)" }}>{a.callCount} calls</div>}
                       </>
                     )}
                   </td>
-                  <td style={{ whiteSpace: "nowrap", fontSize: 11, color: "var(--muted)" }}>
-                    {l.lastSeenAt.slice(0, 10)}
-                    {l.timesSeen > 1 && ` · ×${l.timesSeen}`}
+                  <td style={{ fontSize: 11.5, whiteSpace: "nowrap" }}>
+                    {!l.plan ? dash : (
+                      <>
+                        {l.plan.sequence}
+                        <div style={{ color: l.plan.status === "exported" ? "var(--success, #2a8a5b)" : "var(--muted)" }}>
+                          {l.plan.status === "exported" ? `exported ${(l.plan.exportedAt || "").slice(0, 10)}` : "queued"}
+                        </div>
+                      </>
+                    )}
+                  </td>
+                  <td title={l.sourceFiles.join("\n")} style={{ fontSize: 12, whiteSpace: "nowrap" }}>
+                    <b>{d.files}</b> file{d.files === 1 ? "" : "s"}
+                    <div style={{ fontSize: 11, color: "var(--muted)" }}>seen ×{l.timesSeen}</div>
+                  </td>
+                  <td style={{ whiteSpace: "nowrap", fontSize: 11.5, color: "var(--muted)" }}>
+                    {l.firstSeenAt.slice(0, 10)}
+                    <div>{l.lastSeenAt.slice(0, 10)}</div>
                   </td>
                 </tr>
               );
             })}
+            {shown.length === 0 && (
+              <tr><td colSpan={9} style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}>
+                No leads match these filters. <button className="btn btn-sm btn-ghost" onClick={clearAll}>Clear all</button>
+              </td></tr>
+            )}
           </tbody>
         </table>
       </div>
 
-      {pages > 1 && (
-        <div className="pager">
-          <button className="btn btn-sm btn-ghost" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Prev</button>
-          <span style={{ fontSize: 12, color: "var(--muted)" }}>
-            Showing {(page - 1) * PAGE + 1}&ndash;{Math.min(page * PAGE, filtered.length)} of {filtered.length.toLocaleString()} &middot; Page {page} of {pages}
-          </span>
-          <button className="btn btn-sm btn-ghost" disabled={page >= pages} onClick={() => setPage((p) => p + 1)}>Next</button>
+      <div className="pager" style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
+        <button className="btn btn-sm btn-ghost" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Prev</button>
+        <span style={{ fontSize: 12, color: "var(--muted)" }}>
+          {filtered.length === 0 ? "0" : `${((page - 1) * pageSize + 1).toLocaleString()}–${Math.min(page * pageSize, filtered.length).toLocaleString()}`}
+          {" "}of {filtered.length.toLocaleString()} · page {page} of {pages}
+        </span>
+        <button className="btn btn-sm btn-ghost" disabled={page >= pages} onClick={() => setPage((p) => p + 1)}>Next</button>
+        <div className="toolbar-spacer" />
+        <label style={{ fontSize: 12, color: "var(--muted)" }}>
+          Rows per page{" "}
+          <select className="field" value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))}>
+            {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </label>
+      </div>
+
+      {companyProfiles.length === 0 && (
+        <div style={{ marginTop: 8, fontSize: 12, color: "var(--muted)" }}>
+          Industry and employee filters read from enriched company profiles, and none are loaded yet — every lead
+          reads "not enriched" until companies are enriched from the Scanner or imported from Apollo. The
+          {" "}{MIN_EMPLOYEES}-employee floor only applies to companies with a known headcount.
         </div>
       )}
 
-      {openKey && (() => {
-        const lead = leads.find((l) => l.key === openKey);
-        return lead
-          ? <LeadDetail lead={lead} companyProfiles={companyProfiles} onClose={() => setOpenKey(null)} />
-          : null;
-      })()}
+      {openLead && (
+        <LeadDetail
+          lead={openLead}
+          companyProfiles={companyProfiles}
+          onClose={() => setOpenKey(null)}
+          sequenceNames={sequenceNames}
+          onSetPlan={onSetPlan ? (s) => onSetPlan([openLead.key], s) : undefined}
+        />
+      )}
     </>
   );
 }

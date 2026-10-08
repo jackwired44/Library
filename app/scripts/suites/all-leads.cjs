@@ -84,7 +84,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await sleep(1500);
   await nav('All leads');
   const afterMain = await allLeadsText();
-  ok('all three Main rows are stored', /3 leads scanned/.test(afterMain), afterMain.slice(0, 200));
+  ok('all three Main rows are stored', /3 leads stored/.test(afterMain), afterMain.slice(0, 200));
   ok('  the Strong Signal lead is there', /MAIN ALPHA CO/.test(afterMain));
   ok('  the Needs Review lead is there too', /MAIN BETA CO/.test(afterMain));
   ok('  and so is the Bad Lead — this is every tier, not a filtered shelf',
@@ -97,7 +97,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await sleep(1800);
   await nav('All leads');
   const afterCsp = await allLeadsText();
-  ok('CSP leads are now stored', /5 leads scanned/.test(afterCsp), afterCsp.slice(0, 200));
+  ok('CSP leads are now stored', /5 leads stored/.test(afterCsp), afterCsp.slice(0, 200));
   ok('  by name', /CSP ALPHA CO/.test(afterCsp) && /CSP BETA CO/.test(afterCsp));
   ok('  each scanner is identified on its own rows',
      /Main/.test(afterCsp) && /CSP/.test(afterCsp));
@@ -108,30 +108,32 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   const search = page.locator('main input.field').first();
   await search.fill('CSP ALPHA'); await sleep(600);
   let t = await allLeadsText();
-  ok('search narrows to one lead', /1 of 5 shown/.test(t), t.slice(0, 200));
+  ok('search narrows to one lead', /\b1 of 5\b/.test(t), t.slice(0, 200));
   ok('  and it is the right one', /CSP ALPHA CO/.test(t) && !/MAIN ALPHA CO/.test(t));
   await search.fill(''); await sleep(600);
 
   await page.selectOption('select[aria-label="Scanner"]', 'csp'); await sleep(600);
   t = await allLeadsText();
-  ok('the scanner filter narrows to CSP only', /2 of 5 shown/.test(t), t.slice(0, 200));
+  ok('the scanner filter narrows to CSP only', /\b2 of 5\b/.test(t), t.slice(0, 200));
   ok('  and excludes the Main rows', !/MAIN ALPHA CO/.test(t));
   await page.selectOption('select[aria-label="Scanner"]', 'all'); await sleep(600);
 
   console.log('\n== Apollo state: honest while unsynced ==');
   t = await allLeadsText();
-  ok('the panel says it has never been synced', /Not synced yet/.test(t), t.slice(0, 300));
-  ok('  and warns that every lead therefore reads as never contacted',
-     /every lead currently reads as never contacted/i.test(t));
+  ok('the panel says it has never been synced', /Not synced/.test(t), t.slice(0, 300));
+  ok('  and warns that nothing therefore reads as in Apollo yet',
+     /nothing here reads as "in Apollo" yet/i.test(t));
+  // The Apollo filter now lives in the Filters panel.
+  await page.locator('button.filter-btn').first().click(); await sleep(500);
   const apolloSel = page.locator('select[aria-label="Apollo state"]');
-  ok('the Apollo filter offers "Never contacted"',
-     /Never contacted/.test(await apolloSel.innerText()));
+  ok('the Apollo filter offers "Never called"',
+     /Never called/.test(await apolloSel.innerText()));
   ok('  and with nothing synced it counts every lead',
-     /Never contacted \(5\)/.test(await apolloSel.innerText()), await apolloSel.innerText());
+     /Never called \(5\)/.test(await apolloSel.innerText()), await apolloSel.innerText());
   ok('  "No Apollo record" also counts every lead',
      /No Apollo record \(5\)/.test(await apolloSel.innerText()));
-  await apolloSel.selectOption('never-contacted'); await sleep(600);
-  ok('  selecting it keeps all five', /5 of 5 shown/.test(await allLeadsText()));
+  await apolloSel.selectOption('never-called'); await sleep(600);
+  ok('  selecting it keeps all five', /\b5 of 5\b/.test(await allLeadsText()));
   await apolloSel.selectOption('all'); await sleep(500);
 
   console.log('\n== re-scanning the same file merges rather than duplicating ==');
@@ -142,7 +144,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await sleep(1500);
   await nav('All leads');
   t = await allLeadsText();
-  ok('the count does NOT grow on a re-upload', /5 leads scanned/.test(t), t.slice(0, 200));
+  ok('the count does NOT grow on a re-upload', /5 leads stored/.test(t), t.slice(0, 200));
   ok('  and the lead records it has been seen twice', /×2/.test(t), t.slice(0, 400));
 
   console.log('\n== notes COMBINE across uploads, never overwrite ==');
@@ -164,10 +166,10 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   const search2 = page.locator('main input.field').first();
   await search2.fill('MAIN ALPHA'); await sleep(700);
   const cell = await page.locator('.data-table tbody tr').first().innerText();
-  ok('the row still shows ONE lead, not two', /1 of 5 shown/.test(await allLeadsText()), (await allLeadsText()).slice(0, 160));
+  ok('the row still shows ONE lead, not two', /\b1 of 5\b/.test(await allLeadsText()), (await allLeadsText()).slice(0, 160));
   ok('  and flags that earlier notes are held behind it', /earlier/.test(cell), cell.replace(/\s+/g, ' ').slice(0, 300));
   // The full timeline lives in the cell's title attribute.
-  const full = await page.locator('.data-table tbody tr td').nth(5).getAttribute('title');
+  const full = await page.locator('.data-table tbody tr td').nth(4).getAttribute('title');
   // The stored note is the scanner's rendered brief, not the raw comment,
   // so the evidence that both survived is the two DIFFERENT seat counts:
   // 40 from the follow-up upload, 240 from the original.
@@ -194,7 +196,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await page.reload(); await sleep(2000);
   await nav('All leads');
   t = await allLeadsText();
-  ok('leads persist across a full page reload', /5 leads scanned/.test(t), t.slice(0, 200));
+  ok('leads persist across a full page reload', /5 leads stored/.test(t), t.slice(0, 200));
   ok('  with both scanners still represented',
      /MAIN ALPHA CO/.test(t) || /CSP ALPHA CO/.test(t));
 

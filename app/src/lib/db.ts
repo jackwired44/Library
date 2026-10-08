@@ -3,7 +3,7 @@
 // used. No server, no shared backend (see CLAUDE.md, Access & ownership).
 
 export const DB_NAME = "wiredCioUnifiedLeadScannerLibrary_v1";
-export const DB_VERSION = 19;
+export const DB_VERSION = 20;
 export const STORE_LIBRARY = "files";
 export const STORE_GROUPS = "groups";
 export const STORE_HISTORY = "history";
@@ -31,6 +31,8 @@ export const STORE_LEADS = "leads";
  *  campaign oversight. Keyed by sequence name, which is what a synced lead
  *  carries; Apollo's ids never reach a StoredLead. */
 export const STORE_APOLLO_FUNNELS = "apolloFunnels";
+/** Lead type -> target Apollo sequence. One record, id "routing". */
+export const STORE_ROUTING = "routing";
 // Scanner 2 — its own stores, so nothing it writes can touch the Lead
 // Library, Lists or History that Scanner 1 owns (see lib/scanner2.ts).
 export const STORE_SCANNER2_RULESETS = "scanner2RuleSets";
@@ -72,6 +74,7 @@ function openDB(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE_OUTREACH_ATTEMPTS)) db.createObjectStore(STORE_OUTREACH_ATTEMPTS, { keyPath: "id" });
       if (!db.objectStoreNames.contains(STORE_LEADS)) db.createObjectStore(STORE_LEADS, { keyPath: "key" });
       if (!db.objectStoreNames.contains(STORE_APOLLO_FUNNELS)) db.createObjectStore(STORE_APOLLO_FUNNELS, { keyPath: "name" });
+      if (!db.objectStoreNames.contains(STORE_ROUTING)) db.createObjectStore(STORE_ROUTING, { keyPath: "id" });
     };
     req.onsuccess = () => {
       const db = req.result;

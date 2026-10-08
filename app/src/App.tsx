@@ -15,7 +15,7 @@
 // App.tsx rather than rewritten, so behaviour cannot drift — the only
 // edit was removing the two finishTerminalEnrollments() calls, which
 // belonged to sequences that do not exist here.
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Scanner from "./components/Scanner";
 import LibraryView from "./components/Library";
 import HistoryView from "./components/History";
@@ -46,6 +46,13 @@ import {
   loadFunnels, saveFunnels, parseFunnelCSV, realSteps, type ApolloFunnel,
 } from "./lib/apolloFunnel";
 import Campaigns from "./components/Campaigns";
+import Overview from "./components/Overview";
+import SequenceQueue from "./components/SequenceQueue";
+import {
+  DEFAULT_ROUTING, autoRoute, loadRouting, markExported, saveRouting, withPlan, type RoutingRules,
+} from "./lib/sequenceRouting";
+import { buildSizeBands } from "./lib/campaignExport";
+import { MIN_EMPLOYEES } from "./lib/leadQualify";
 import { leadInputsFromResults, leadInputsFromRows2, leadInputsFromNoSignal } from "./lib/leadFiling";
 import AllLeads from "./components/AllLeads";
 import {
@@ -78,22 +85,46 @@ export interface UploadedFile {
   rows: number;
 }
 
-export type View = "scanner" | "scanner2" | "scanner3" | "library" | "allleads" | "campaigns" | "history" | "lists" | "docs";
+export type View =
+  | "home" | "scanner" | "scanner2" | "scanner3" | "library" | "allleads"
+  | "queue" | "campaigns" | "history" | "lists" | "docs";
 
-const NAV: { key: View; label: string }[] = [
+/** The three scanners, kept in their own collapsible sidebar section.
+ *  Per Jack: "build the scanners into a drop down section on the left hand
+ *  side." They are the on-ramp; the groups below are where leads live. */
+const SCANNER_NAV: { key: View; label: string }[] = [
   { key: "scanner", label: "Main Scanner" },
   { key: "scanner2", label: "Custom Scanner September" },
   { key: "scanner3", label: "CSP Scanner" },
-  { key: "library", label: "Lead library" },
-  { key: "allleads", label: "All leads" },
-  { key: "campaigns", label: "Campaigns" },
-  { key: "lists", label: "Lists" },
-  { key: "history", label: "History" },
+];
+
+const NAV_GROUPS: { title: string; items: { key: View; label: string }[] }[] = [
+  { title: "Leads", items: [
+    { key: "allleads", label: "All leads" },
+    { key: "queue", label: "Apollo queue" },
+    { key: "campaigns", label: "Campaigns" },
+  ] },
+  { title: "Archive", items: [
+    { key: "library", label: "Lead library" },
+    { key: "lists", label: "Lists" },
+    { key: "history", label: "History" },
+  ] },
 ];
 
 export default function App() {
   const [unlocked, setUnlockedState] = useState(isUnlocked());
-  const [view, setView] = useState<View>("scanner");
+  const [view, setView] = useState<View>("home");
+  // Sidebar scanner section. A per-viewer display preference, so browser
+  // storage is the right home for it — wrapped, since storage can throw.
+  const [scannersOpen, setScannersOpen] = useState(() => {
+    try { return localStorage.getItem("navScannersOpen") !== "0"; } catch { return true; }
+  });
+  function toggleScanners() {
+    setScannersOpen((v) => {
+      try { localStorage.setItem("navScannersOpen", v ? "0" : "1"); } catch { /* preference only */ }
+      return !v;
+    });
+  }
   // Bumped by either scanner's "Start over" so its key changes and the
   // component remounts. A scan retains ~146 MB that clearing the state does
   // not release, because React keeps the last render's memoised rows on the
@@ -116,6 +147,7 @@ export default function App() {
   const [lastDiscards, setLastDiscards] =
     useState<{ discarded: DiscardedLead[]; sizeUnknown: string[] } | null>(null);
   const [funnels, setFunnels] = useState<ApolloFunnel[]>([]);
+  const [routing, setRouting] = useState<RoutingRules>(DEFAULT_ROUTING);
   /** Seeds All leads' sequence filter when arriving from a campaign card,
    *  so "open these leads" lands on that sequence rather than everything. */
   const [leadsSequenceEntry, setLeadsSequenceEntry] = useState<string>("");
@@ -141,10 +173,10 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const [lib, hist, cts, lists, disp, profiles, rules, storedLeads, storedFunnels] = await Promise.all([
+        const [lib, hist, cts, lists, disp, profiles, rules, storedLeads, storedFunnels, storedRouting] = await Promise.all([
           loadLibraryFromDB(), loadHistoryFromDB(), loadContactsFromDB(),
           loadLeadListsFromDB(), loadDispositionsFromDB(), loadCompanyProfilesFromDB(),
-          loadRuleOverrides(), loadLeads(), loadFunnels(),
+          loadRuleOverrides(), loadLeads(), loadFunnels(), loadRouting(),
         ]);
         // Prune before seeding, so a folder removed here cannot be
         // recreated by the seeding pass in the same breath.
@@ -162,6 +194,7 @@ export default function App() {
         setRuleOverrides(rules);
         setLeads(storedLeads);
         setFunnels(storedFunnels);
+        setRouting(storedRouting);
         if (blocked.length) {
           setError(
             `Kept ${blocked.length} older month folder(s) that still hold filed leads: ` +
@@ -265,7 +298,17 @@ export default function App() {
     if (discarded.length) setLastDiscards({ discarded, sizeUnknown });
     if (kept.length === 0) return;
     setLeads((prev) => {
-      const { leads, changed } = mergeLeads(prev, kept);
+      const { leads: merged, changed: mergedChanged } = mergeLeads(prev, kept);
+      // Route the leads this upload touched. Only those can have become
+      // newly eligible, and autoRoute never touches a lead that already
+      // has a plan — a re-upload cannot re-route anything.
+      const routed = autoRoute(
+        mergedChanged, routing,
+        buildSizeBands(mergedChanged, companyProfiles, MIN_EMPLOYEES),
+      );
+      const routedByKey = new Map(routed.map((l) => [l.key, l]));
+      const leads = routed.length ? merged.map((l) => routedByKey.get(l.key) ?? l) : merged;
+      const changed = mergedChanged.map((l) => routedByKey.get(l.key) ?? l);
       if (changed.length) {
         saveLeads(changed).catch((e) =>
           setError(`Leads were scanned, but could not be stored: ${e instanceof Error ? e.message : String(e)}`));
@@ -273,6 +316,62 @@ export default function App() {
       return leads;
     });
   }
+
+  /** Apply a change to some leads by key, in state and in the store. Reads
+   *  `prev` inside the updater, never a closure — the queue fires these in
+   *  quick succession (export, then move, then export again). */
+  function updateLeads(keys: string[], fn: (l: StoredLead) => StoredLead) {
+    const want = new Set(keys);
+    setLeads((prev) => {
+      const changed: StoredLead[] = [];
+      const next = prev.map((l) => {
+        if (!want.has(l.key)) return l;
+        const u = fn(l);
+        if (u !== l) changed.push(u);
+        return u;
+      });
+      if (changed.length) {
+        saveLeads(changed).catch((e) =>
+          setError(`Could not save the queue change: ${e instanceof Error ? e.message : String(e)}`));
+      }
+      return changed.length ? next : prev;
+    });
+  }
+
+  const setPlan = (keys: string[], sequence: string | null) =>
+    updateLeads(keys, (l) => withPlan(l, sequence));
+  const markLeadsExported = (keys: string[]) => updateLeads(keys, (l) => markExported(l));
+
+  /** Save the routing rules, then route every stored, un-planned lead that
+   *  is now eligible. Returns how many were routed, for the notice. */
+  async function saveRoutingRules(next: RoutingRules) {
+    setRouting(next);
+    await saveRouting(next).catch((e) =>
+      setError(`Could not save routing rules: ${e instanceof Error ? e.message : String(e)}`));
+    const routed = autoRoute(leads, next, buildSizeBands(leads, companyProfiles, MIN_EMPLOYEES));
+    if (routed.length) {
+      const byKey = new Map(routed.map((l) => [l.key, l]));
+      setLeads((prev) => prev.map((l) => (l.plan ? l : byKey.get(l.key) ?? l)));
+      await saveLeads(routed).catch((e) =>
+        setError(`Rules saved, but routed leads could not be stored: ${e instanceof Error ? e.message : String(e)}`));
+    }
+    return routed.length;
+  }
+
+  /** Every sequence name worth offering in a picker: imported funnels,
+   *  routing rules, and any plan already on a lead. */
+  const queuedCount = useMemo(
+    () => leads.reduce((a, l) => a + (l.plan?.status === "queued" ? 1 : 0), 0),
+    [leads],
+  );
+
+  const knownSequences = useMemo(() => {
+    const set = new Set<string>();
+    for (const f of funnels) set.add(f.name);
+    for (const v of Object.values(routing.rules)) if (v) set.add(v);
+    for (const l of leads) if (l.plan) set.add(l.plan.sequence);
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [funnels, routing, leads]);
 
   /**
    * Re-run the gate over leads ALREADY stored, after enrichment taught us
@@ -560,14 +659,54 @@ export default function App() {
 
       <aside className="sidebar">
         <nav className="sidebar-nav">
-          {NAV.map((item) => (
+          <button
+            className={`side-nav-btn${view === "home" ? " active" : ""}`}
+            onClick={() => setView("home")}
+          >
+            Home
+          </button>
+
+          {/* Scanners: collapsible. Kept open while one of them is on
+              screen, so collapsing can never hide where you are. */}
+          <button
+            className="sidebar-group"
+            onClick={toggleScanners}
+            aria-expanded={scannersOpen || SCANNER_NAV.some((i) => i.key === view)}
+            style={{ display: "flex", width: "100%", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+          >
+            <span>{scannersOpen || SCANNER_NAV.some((i) => i.key === view) ? "▾" : "▸"}</span>
+            <span>Scanners</span>
+          </button>
+          {(scannersOpen || SCANNER_NAV.some((i) => i.key === view)) && SCANNER_NAV.map((item) => (
             <button
               key={item.key}
               className={`side-nav-btn${view === item.key ? " active" : ""}`}
+              style={{ paddingLeft: 22 }}
               onClick={() => setView(item.key)}
             >
               {item.label}
             </button>
+          ))}
+
+          {NAV_GROUPS.map((g) => (
+            <div key={g.title}>
+              <div className="sidebar-group">{g.title}</div>
+              {g.items.map((item) => (
+                <button
+                  key={item.key}
+                  className={`side-nav-btn${view === item.key ? " active" : ""}`}
+                  onClick={() => setView(item.key)}
+                >
+                  <span className="side-nav-label" style={{ flex: 1 }}>{item.label}</span>
+                  {item.key === "allleads" && leads.length > 0 && (
+                    <span className="side-nav-count">{leads.length.toLocaleString()}</span>
+                  )}
+                  {item.key === "queue" && queuedCount > 0 && (
+                    <span className="side-nav-count">{queuedCount.toLocaleString()}</span>
+                  )}
+                </button>
+              ))}
+            </div>
           ))}
         </nav>
         <div style={{ marginTop: "auto", padding: 8, display: "flex", flexDirection: "column", gap: 6 }}>
@@ -621,6 +760,27 @@ export default function App() {
         {/* Per Jack: no per-scanner passwords. The sign-in gate still
             fronts the whole page; these two screens open like any other. */}
         {view === "docs" && <Documentation />}
+        {view === "home" && (
+          <Overview
+            leads={leads}
+            funnels={funnels}
+            historyEntries={historyEntries}
+            companyProfiles={companyProfiles}
+            rules={routing}
+            onNavigate={setView}
+          />
+        )}
+        {view === "queue" && (
+          <SequenceQueue
+            leads={leads}
+            companyProfiles={companyProfiles}
+            rules={routing}
+            knownSequences={knownSequences}
+            onSaveRules={saveRoutingRules}
+            onSetPlan={setPlan}
+            onMarkExported={markLeadsExported}
+          />
+        )}
         {view === "allleads" && (
           <AllLeads
             key={`leads-${leadsSequenceEntry}`}
@@ -628,6 +788,8 @@ export default function App() {
             companyProfiles={companyProfiles}
             onApplySync={applySyncFiles}
             initialSequence={leadsSequenceEntry}
+            sequenceNames={knownSequences}
+            onSetPlan={setPlan}
           />
         )}
         {view === "campaigns" && (
