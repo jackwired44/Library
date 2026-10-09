@@ -29,8 +29,8 @@ const ok = (n, c, d = '') => { c ? pass++ : (fail++, console.log(`  FAIL ${n}${d
   await page.fill('input[type=password]', 'changeme');
   await page.click('button:has-text("Unlock")'); await sleep(1200);
 
-  await nav('Campaigns');
-  ok('Campaigns is in the nav and opens', /Campaigns/.test(await main()));
+  await nav('Sequences');
+  ok('Sequences (formerly Campaigns) is in the nav and opens', /Sequences/.test(await main()));
   ok('empty state explains the two imports', /step funnel/.test(await main()));
 
   await page.setInputFiles('main input[type=file]', SNAPSHOT); await sleep(1200);
@@ -63,7 +63,7 @@ const ok = (n, c, d = '') => { c ? pass++ : (fail++, console.log(`  FAIL ${n}${d
     await u.fill('jack@wiredcio.com'); await page.fill('input[type=password]', 'changeme');
     await page.click('button:has-text("Unlock")'); await sleep(1200);
   }
-  await nav('Campaigns');
+  await nav('Sequences');
   t = await main();
   ok('funnels persist across reload', t.includes('Email only campaign - Wired') && t.includes('CSP Leads'));
 

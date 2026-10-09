@@ -411,7 +411,7 @@ export default function Overview({
 
             <ChartCard
               title="Live Apollo sequences"
-              sub={funnels.length ? "Emails delivered per sequence, from the last funnel import · hover for replies and drop-off" : "Import the step funnel on Campaigns to fill this in"}
+              sub={funnels.length ? "Emails delivered per sequence, from the last funnel import · hover for replies and drop-off" : "Import the step funnel on Sequences to fill this in"}
               table={{ head: ["Sequence", "Delivered"], rows: liveSeq.map((r) => [r.label, r.value]) }}
               action={<button className="viz-toggle" onClick={() => onNavigate("campaigns")}>Open</button>}
             >

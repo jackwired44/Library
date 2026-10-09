@@ -353,6 +353,23 @@ function datesIn(inc: LeadInput, now: string): NoteDate[] {
   return extractNoteDates(text, Number.isNaN(anchor.getTime()) ? new Date(now) : anchor);
 }
 
+/** The word a row the Main Scanner's engine skipped is filed under. Not a
+ *  verdict — such a row was never scored — so it must never replace one. */
+export const NO_SIGNAL_TIER = "No signal";
+
+/** Whether an incoming tier may replace the one on file. Newest scan wins,
+ *  EXCEPT that "No signal" never overwrites a real verdict: the same person
+ *  in two files, one with buying language and one without, is the lead the
+ *  first file said they were. Measured on six real Main files, 148 of 1,784
+ *  scored leads (8%) were being demoted to "No signal" this way, purely by
+ *  which file happened to be read last. An empty tier never replaces
+ *  anything either (a duplicate row filed only for its file attribution). */
+function nextTier(prev: string, inc: string): string {
+  if (!inc) return prev;
+  if (inc === NO_SIGNAL_TIER && prev && prev !== NO_SIGNAL_TIER) return prev;
+  return inc;
+}
+
 export function mergeLeads(
   existing: StoredLead[],
   incoming: LeadInput[],
@@ -407,7 +424,7 @@ export function mergeLeads(
       // Scan verdict: the newest scan wins.
       source: inc.source,
       productArea: inc.productArea || prev.productArea,
-      tier: inc.tier || prev.tier,
+      tier: nextTier(prev.tier, inc.tier),
       // The one scan-derived field that accumulates rather than replaces.
       notes: combineNotes(prev.notes, inc.notes, now),
       score: inc.score ?? prev.score,

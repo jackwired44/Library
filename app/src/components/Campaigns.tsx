@@ -106,7 +106,7 @@ function SequenceCard({
           {steps.length === 0 ? (
             <div style={{ fontSize: 13, color: "var(--muted)" }}>
               No per-step breakdown for this sequence, so where people dropped off is unknown —
-              only the campaign totals above. A fresh funnel export from Apollo fills this in.
+              only the sequence totals above. A fresh funnel export from Apollo fills this in.
             </div>
           ) : (
             <table className="data-table" style={{ marginBottom: 10 }}>
@@ -224,7 +224,7 @@ export default function Campaigns({
     <>
       <div className="page-head">
         <div>
-          <h2>Campaigns</h2>
+          <h2>Sequences</h2>
           <p className="page-sub">
             Every sequence, where people fall off, and which of them you hold here.
           </p>

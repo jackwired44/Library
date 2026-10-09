@@ -55,7 +55,7 @@ import {
 } from "./lib/sequenceRouting";
 import { buildSizeBands } from "./lib/campaignExport";
 import { MIN_EMPLOYEES } from "./lib/leadQualify";
-import { leadInputsFromResults, leadInputsFromRows2, leadInputsFromNoSignal } from "./lib/leadFiling";
+import { leadInputsFromResults, leadInputsFromRows2, leadInputsFromNoSignal, leadInputsFromDuplicates } from "./lib/leadFiling";
 import AllLeads, { type LeadsPreset } from "./components/AllLeads";
 import {
   applyStickyState, attachScanResultsToContacts, loadContactsFromDB,
@@ -104,7 +104,7 @@ const NAV_GROUPS: { title: string; items: { key: View; label: string }[] }[] = [
   { title: "Leads", items: [
     { key: "allleads", label: "All leads" },
     { key: "queue", label: "Apollo queue" },
-    { key: "campaigns", label: "Campaigns" },
+    { key: "campaigns", label: "Sequences" },
   ] },
   { title: "Archive", items: [
     { key: "lists", label: "Lists" },
@@ -262,9 +262,14 @@ export default function App() {
     // Including the rows detection skipped outright: on the real 500-row
     // file that is 342 leads which exist nowhere else in the app. Per
     // Jack, the Library shows "every lead filtered out".
+    const scoredInputs = leadInputsFromResults(scanned);
+    const noSignalInputs = leadInputsFromNoSignal(dropped.noSignalRows ?? []);
+    const batchKeys = new Set([...scoredInputs, ...noSignalInputs].map((i) => leadKeyOf(i.email, i.contact, i.company)));
     fileLeads([
-      ...leadInputsFromResults(scanned),
-      ...leadInputsFromNoSignal(dropped.noSignalRows ?? []),
+      ...scoredInputs,
+      ...noSignalInputs,
+      // Repeats the scanner merged away still say which files a lead is on.
+      ...leadInputsFromDuplicates(dropped.duplicateRows ?? [], batchKeys),
     ]);
     // Which of this batch's companies still have no Apollo profile — the
     // list the "enrich now?" prompt is built from. Computed from the raw
