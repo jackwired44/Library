@@ -44,7 +44,17 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  PASS', n)) : (fail++,
 
   console.log('\n== each scanner is documented in its own terms ==');
   const openSec = async (name) => { await page.locator(`button[aria-label^="Toggle ${name}"]`).click(); await sleep(350); return page.locator('main').innerText(); };
-  const csp = await openSec('CSP Scanner');
+
+  // The side-by-side comparison opens by default. Per Jack: main targets
+  // main lead sets, custom targets custom sets, CSP is renewals/licensing.
+  {
+    const t = await page.locator('main').innerText();
+    ok('the side-by-side comparison is open first', /The three scanners side by side/.test(t) && /Targets/.test(t));
+    ok('  Main targets the main lead data sets', /main lead data sets/i.test(t));
+    ok('  Custom targets custom data sets', /Custom data sets/i.test(t));
+    ok('  CSP targets renewals and licensing', /licensing renewals/i.test(t));
+    ok('  every scanner states how it scores', (t.match(/0–100/g) || []).length >= 3);
+  }  const csp = await openSec('CSP Scanner');
   // The docs list the header CANDIDATES the guesser matches on, which are
   // stored without the export's msp_ prefix.
   ok('CSP: names the header candidates it matches', /licensingprogramname/.test(csp) && /partneraccountidname/.test(csp) && /estimatedvalue/.test(csp), '');

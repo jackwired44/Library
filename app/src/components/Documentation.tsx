@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { EXPORT_LABELS, TOP_PRIORITY_META, TOP_PRIORITY_ORDER } from "../lib/detection";
+import { EXPORT_LABELS, TOP_PRIORITY_META, TOP_PRIORITY_ORDER, QUALIFY_THRESHOLD, PRIORITY_META, CATEGORY_META, ACTIVE_CATEGORY_KEYS, DQ_RULES } from "../lib/detection";
 import { SCANNER2_EXPORT_LABELS, CSP_EXPORT_LABELS } from "../lib/scanner2";
 import { BILLING_META, POSTURE_META, DEFAULT_CSP_RULES, DEFAULT_CSP_WEIGHTS, WEIGHT_META, DEAD_PATTERNS, MOTION_PATTERNS, MOTION_WEIGHT, CSP_COLUMN_HINTS, WANTS_PARTNER_LABEL, OPEN_RENEWAL_MARK, RENEWAL_SOON_DAYS, RENEWAL_BONUS_MAX, CSP_NOTE_MAX_WORDS } from "../lib/cspRenewal";
 import { SMC_PRODUCTS, DEFAULT_SMC_SCORE_RULES, DEFAULT_SMC_WEIGHTS, SMC_FACTOR_META, SMC_PARTNER_META, RUNS_MAX } from "../lib/smcLead";
@@ -17,7 +17,7 @@ import { SMC_PRODUCTS, DEFAULT_SMC_SCORE_RULES, DEFAULT_SMC_WEIGHTS, SMC_FACTOR_
  * cannot drift into being wrong.
  */
 export default function Documentation() {
-  const [open, setOpen] = useState<string>("overview");
+  const [open, setOpen] = useState<string>("compare");
   const sec = (id: string, title: string, body: React.ReactNode, sub?: string) => (
     <div className="panel" style={{ marginBottom: 12 }} key={id}>
       <div className="panel-head">
@@ -63,6 +63,37 @@ export default function Documentation() {
         </div>
       </div>
 
+      {sec("compare", "The three scanners side by side", (
+        <>
+          <p style={{ marginTop: 0 }}>
+            Each scanner is built for one kind of file and judges it by its own rules. None of them reads another&rsquo;s
+            rules, so a change to one cannot move a lead in the other two. Whatever a scanner reads, every row lands in
+            <b> All leads</b>, with its raw note, its full CSV row, the file it came from and that file&rsquo;s date.
+          </p>
+          <Table
+            head={["", "Main Scanner", "Custom Scanner", "CSP Scanner"]}
+            rows={[
+              ["Targets", "The main lead data sets — the regular CRM / Apollo lead exports", "Custom data sets — Microsoft SMC / Cloud Ascent lists that arrive in their own shape", "CSP opportunities: licensing renewals and becoming partner of record"],
+              ["What it reads", "The free-text Comments and the Product Area column", "Microsoft's propensity scorecard per product, the stated BANT need, and what they already own", "The partner on record, the billing programme, the seller's dated forecast comments and the deal value"],
+              ["How it scans", "Looks for Microsoft product language (licensing SKUs, Dynamics 365, M365 / Azure) and buying intent around it, then checks it against the Auto-DQ rules", "Reads each product's verdict (Act Now, Evaluate, Nurture) and fit, against what they already run, and treats a written need as the strongest signal", "Splits the notes into dated entries, reads the newest first, and looks for a renewal date, a partner ask, motion language and dead language"],
+              ["How it scores", <>Tiered by rule, with a 0–100 score alongside. A confirmed seat count under {QUALIFY_THRESHOLD} is Low, never High</>, <>0–100 over its own weighted factors. High from {DEFAULT_SMC_SCORE_RULES.strongAt}, Medium from {DEFAULT_SMC_SCORE_RULES.reviewAt}</>, <>0–100 over six weighted factors. High from {DEFAULT_CSP_RULES.strongAt}, Medium from {DEFAULT_CSP_RULES.reviewAt}, plus up to {RENEWAL_BONUS_MAX} for a renewal within reach</>],
+              ["What it sets", <>{["high", "medium", "low", "dq"].map((k) => PRIORITY_META[k as "high"].label).join(" / ")}</>, "Strong Signal / Needs Review / Bad Leads", "High / Medium / Low priority"],
+              ["Product line", ACTIVE_CATEGORY_KEYS.map((k) => CATEGORY_META[k].label).join(" or "), ACTIVE_CATEGORY_KEYS.map((k) => CATEGORY_META[k].label).join(" or "), "None — every CSP lead is a licensing renewal"],
+              ["Pinned to the top", TOP_PRIORITY_ORDER.map((k) => TOP_PRIORITY_META[k].label).join(", "), "A stated need on an Act Now account", <>{OPEN_RENEWAL_MARK} a contract renewal within {RENEWAL_SOON_DAYS} days with no partner, then ★ and ⚑</>],
+              ["Rules that say no", `${DQ_RULES.length} Auto-DQ rules, plus missing company, placeholder email and competitors`, "Stale campaigns, empty rows, unsupported products", "Optional hard stop on dead language; otherwise only a score penalty"],
+              ["Download", `${EXPORT_LABELS.length} columns`, `${SCANNER2_EXPORT_LABELS.length} columns`, `${CSP_EXPORT_LABELS.length} columns (no Title, no employee count)`],
+            ]}
+          />
+          <H>Which one to use</H>
+          <p style={{ margin: 0 }}>
+            If the file is a regular lead export with a notes column, use the Main Scanner. If it is a Microsoft list with
+            propensity verdicts per product, use the Custom Scanner. If it is a CSP opportunity export with a partner and
+            billing column, use the CSP Scanner. The wrong scanner does not fail loudly — it just finds nothing to score —
+            so the columns it looks for are listed in each scanner&rsquo;s own section below.
+          </p>
+        </>
+      ), "What each targets, how it scans, how it scores")}
+
       {sec("overview", "How the platform is put together", (
         <>
           <p style={{ marginTop: 0 }}>
@@ -73,7 +104,7 @@ export default function Documentation() {
           <Table
             head={["Scanner", "Built for", "Decides on", "Output"]}
             rows={[
-              ["Main Scanner", "Apollo / CRM exports with free-text notes", "keyword and product-line detection", "Strong Signal / Needs Review / Bad Lead"],
+              ["Main Scanner", "Apollo / CRM exports with free-text notes", "keyword and product-line detection", "High / Medium / Low priority, or Bad Leads"],
               ["Custom Scanner September", "Microsoft SMC / Cloud Ascent propensity blobs", "propensity stage x fit, against what they already own", "Strong Signal / Needs Review / Bad Lead"],
               ["CSP Scanner", "Microsoft CSP opportunity exports", "a 0–100 score over six weighted factors", "High / Medium / Low priority"],
             ]}
