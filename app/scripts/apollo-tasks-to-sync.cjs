@@ -32,6 +32,18 @@ if (!out || inputs.length === 0) {
   process.exit(2);
 }
 
+// Apollo stores some names HTML-escaped several times over
+// ("O&amp;Amp;Amp;Apos;Rourke"). Unwind until stable, or the name can never
+// match the lead it belongs to.
+function unescapeHtml(s) {
+  let prev;
+  do {
+    prev = s;
+    s = s.replace(/&amp;/gi, "&").replace(/&apos;|&#39;/gi, "'").replace(/&quot;/gi, '"');
+  } while (s !== prev);
+  return s;
+}
+
 const seen = new Set();
 const byPerson = new Map();
 let read = 0, dup = 0, bad = 0;
@@ -43,7 +55,7 @@ for (const file of inputs) {
     read++;
     if (seen.has(c[0])) { dup++; continue; }
     seen.add(c[0]);
-    const name = c[2].trim().replace(/\s+/g, " ");
+    const name = unescapeHtml(c[2]).trim().replace(/\s+/g, " ");
     const key = name.toLowerCase();
     if (!byPerson.has(key)) byPerson.set(key, { name, ids: new Set(), tasks: [] });
     const p = byPerson.get(key);
