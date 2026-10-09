@@ -126,9 +126,10 @@ const csv=[HEAD,...rows].join('\n');
    ok('  and it is never less than the rows on screen',
       n(tile) >= (n(signal)||0) + (n(review)||0) + (n(bad)||0),
       `tile ${n(tile)} vs ${n(signal)}+${n(review)}+${n(bad)}`);
-   // The condensed accounting line reads "N read · N processed · ...".
+   // The accounting now sits under the Rows scanned tile:
+   // "N processed · N no signal · ...".
    ok('  and the accounting line is shown rather than the narrow fallback',
-      /\d[\d,]*\s+read\s*\u00b7/i.test(main), main.slice(0,400));
+      /\d[\d,]*\s+processed\s*\u00b7/i.test(main), main.slice(0,400));
  } else {
    ok('a Load control is present on a filed Lead library file', false, 'button not found');
  }

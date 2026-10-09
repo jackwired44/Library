@@ -1677,7 +1677,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
               say which one you are in — there is no tab strip above it. */}
           <h2 style={{ margin: 0, fontSize: 16 }}>{isCsp ? "CSP Scanner" : "Custom Scanner September"}</h2>
           <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
-            {isCsp ? "CSP licensing renewals" : "Microsoft SMC / Cloud Ascent"}
+            {isCsp ? "CSP opportunities — renewals and licensing" : "Custom data sets — Microsoft SMC / Cloud Ascent lists"}
           </span>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
             {files.map((f) => (
@@ -1793,7 +1793,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
               onChange={(e) => onFiles(e.target.files)}
             />
             <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 7 }}>
-              {busy ? "Reading…" : "Drop lead CSVs here"}
+              {busy ? "Reading…" : "Drop CSVs here"}
             </div>
             <div style={{ color: "var(--muted)", fontSize: 13.5 }}>or click to browse</div>
           </div>

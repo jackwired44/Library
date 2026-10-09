@@ -967,9 +967,46 @@ export default function Scanner({
   if (!results) {
     return (
       <div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12, marginBottom: 16 }}>
-          <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "14px 16px" }}>
-            <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", marginBottom: 10 }}>Load from the Lead Library</div>
+        <div className="page-bar">
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+            <h2 style={{ margin: 0, fontSize: 16 }}>Main Scanner</h2>
+            <span style={{ fontSize: 12.5, color: "var(--muted)" }}>Regular lead exports with a notes column</span>
+          </div>
+        </div>
+        <div
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer.files); }}
+          onClick={() => fileInputRef.current?.click()}
+          style={{
+            border: `2px dashed ${dragOver ? "var(--accent)" : "var(--border)"}`,
+            background: dragOver ? "#EDF4EF" : "var(--surface)",
+            borderRadius: 16,
+            padding: "48px 24px",
+            textAlign: "center",
+            cursor: "pointer",
+          }}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv"
+            multiple
+            style={{ display: "none" }}
+            onChange={(e) => handleFiles(e.target.files)}
+          />
+          <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>Drop CSVs here</div>
+          <div style={{ color: "var(--muted)", fontSize: 13 }}>or click to browse · up to {MAX_FILES} files at once</div>
+        </div>
+        {error && <div style={{ marginTop: 16, color: "#9A5B22" }}>{error}</div>}
+        {/* The "Recent uploads" panel that used to sit here was a
+            six-item slice of History with a View button. History has the
+            same thing for EVERY upload, grouped by month/week/day and
+            searchable, so keeping a shorter copy of it on this screen was
+            duplication — this points at the real one instead. */}
+        <div style={{ marginTop: 14 }}>
+          <div>
+            <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 6 }}>Or re-scan a monthly file already filed in All leads</div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               <select
                 value={pickerFolderId}
@@ -1026,39 +1063,8 @@ export default function Scanner({
           </div>
         </div>
 
-        <div
-          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={(e) => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer.files); }}
-          onClick={() => fileInputRef.current?.click()}
-          style={{
-            border: `2px dashed ${dragOver ? "var(--accent)" : "var(--border)"}`,
-            background: dragOver ? "#EDF4EF" : "var(--surface)",
-            borderRadius: 16,
-            padding: "48px 24px",
-            textAlign: "center",
-            cursor: "pointer",
-          }}
-        >
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".csv"
-            multiple
-            style={{ display: "none" }}
-            onChange={(e) => handleFiles(e.target.files)}
-          />
-          <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 7 }}>Drop up to {MAX_FILES} lead CSVs here</div>
-          <div style={{ color: "var(--muted)", fontSize: 13.5 }}>or click to browse — scanned for licensing AND platform signals in one pass.</div>
-        </div>
-        {error && <div style={{ marginTop: 16, color: "#9A5B22" }}>{error}</div>}
-        {/* The "Recent uploads" panel that used to sit here was a
-            six-item slice of History with a View button. History has the
-            same thing for EVERY upload, grouped by month/week/day and
-            searchable, so keeping a shorter copy of it on this screen was
-            duplication — this points at the real one instead. */}
-        <div style={{ marginTop: 14, fontSize: 12.5, color: "var(--muted)" }}>
-          Past uploads are in <b>History</b> — open one there to reload it into the Scanner.
+        <div style={{ marginTop: 12, fontSize: 12.5, color: "var(--muted)" }}>
+          Past uploads are in <b>History</b>.
         </div>
 
         {priorityLeads.length > 0 && (
@@ -1144,7 +1150,7 @@ export default function Scanner({
     <div>
       <div className="page-bar">
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <h2 style={{ margin: 0, fontSize: 16 }}>Scan results</h2>
+          <h2 style={{ margin: 0, fontSize: 16 }}>Main Scanner</h2>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
             {uploadedFiles.map((f) => (
               <span key={f.name} className="file-chip">
@@ -1193,13 +1199,13 @@ export default function Scanner({
         </button>
       </div>
 
+      {/* One actions row. Every row of this batch is already stored in All
+          leads; filing here only adds the Strong Signal leads to a monthly
+          file. The Apollo look-up toggle sits on the same row. */}
       <div className="panel">
-        <div className="panel-head">
-          <div>
-            <div className="panel-title">Save to Lead Library</div>
-            <div className="panel-sub">Files this batch's Strong Signal leads into any existing folder, or a new one you name here.</div>
-          </div>
+        <div className="panel-head" style={{ flexWrap: "wrap", gap: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12.5, fontWeight: 600 }}>File Strong Signal leads into</span>
             <select
               value={uploadMonthKey}
               disabled={libraryFiledForBatch}
@@ -1246,6 +1252,11 @@ export default function Scanner({
               {libraryFiledForBatch ? "✓ Filed" : "Save to Lead Library"}
             </button>
           </div>
+          <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, whiteSpace: "nowrap" }}
+                 title="Companies already covered by an imported Apollo export attach automatically. This also offers a live Apollo look-up for the ones that aren't, after each upload. Nothing runs without your click.">
+            <input type="checkbox" checked={autoEnrichCompanies} onChange={(e) => onToggleAutoEnrichCompanies(e.target.checked)} />
+            Offer Apollo company look-up
+          </label>
         </div>
       </div>
 
@@ -1261,20 +1272,8 @@ export default function Scanner({
           a row came in some other way (e.g. History's "Load into Scanner",
           which sets `results` directly rather than through this
           component's own scan calls). */}
+      {autoEnrichCompanies && (
       <div className="panel">
-        <div className="panel-head">
-          <div>
-            <div className="panel-title">Apollo company data</div>
-            <div className="panel-sub">
-              Companies already covered by an imported Apollo export attach to new contacts automatically. Turn this on to also
-              offer a live Apollo look-up for companies that aren't covered yet, after each upload.
-            </div>
-          </div>
-          <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap" }}>
-            <input type="checkbox" checked={autoEnrichCompanies} onChange={(e) => onToggleAutoEnrichCompanies(e.target.checked)} />
-            Check Apollo for new companies on upload
-          </label>
-        </div>
         {autoEnrichCompanies && (
           <div className="panel-body" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {pendingEnrich.length > 0 ? (
@@ -1312,6 +1311,7 @@ export default function Scanner({
           </div>
         )}
       </div>
+      )}
 
       <div className="kpi-row">
         {[
@@ -1319,40 +1319,30 @@ export default function Scanner({
           { label: "Strong Signal", value: batchTotals.signal, color: "#2CC295" },
           { label: "Needs review", value: batchTotals.mention, color: "#9A5B22" },
           { label: "Bad leads", value: batchTotals.dq, color: "#B5443B" },
-        ].map((s) => (
+        ].map((s, i) => (
           <div key={s.label} className="kpi" style={{ borderLeftColor: s.color }}>
             <div className="kpi-label">{s.label}</div>
             <div className="kpi-value" style={{ color: s.color }}>{s.value.toLocaleString()}</div>
+            {i === 0 && lastScanStats && (
+              <div className="scan-note" style={{ margin: "4px 0 0", padding: 0, border: 0, background: "none", fontSize: 11.5 }}>
+                {results.length.toLocaleString()} processed
+                {" · "}
+                <span title="No Dynamics 365, M365, Azure or licensing language anywhere in the row. Stored in All leads as No signal; listed under Non Relevant.">
+                  {Math.max(0, lastScanStats.rowsScanned - lastScanStats.duplicatesRemoved - results.length).toLocaleString()} no signal
+                </span>
+                {lastScanStats.duplicatesRemoved > 0 && (
+                  <>
+                    {" · "}
+                    <span title={`Exact name + company already seen in this upload, merged into the first-seen row${lastScanStats.largestDuplicateGroup > 2 ? `. One lead appeared ${lastScanStats.largestDuplicateGroup} times.` : "."}`}>
+                      {lastScanStats.duplicatesRemoved.toLocaleString()} duplicates merged
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
           </div>
         ))}
       </div>
-
-      {lastScanStats && (
-        <div className="scan-note">
-          <strong>{lastScanStats.rowsScanned.toLocaleString()}</strong> read
-          {" · "}
-          <strong>{results.length.toLocaleString()}</strong> processed
-          {" · "}
-          <strong>
-            {Math.max(0, lastScanStats.rowsScanned - lastScanStats.duplicatesRemoved - results.length).toLocaleString()}
-          </strong>{" "}
-          <span title="No Dynamics 365, M365, Azure or licensing language anywhere in the row. See the Non Relevant tab to review them.">no signal</span>
-          {lastScanStats.duplicatesRemoved > 0 && (
-            <>
-              {" · "}
-              <strong>{lastScanStats.duplicatesRemoved.toLocaleString()}</strong>{" "}
-              <span
-                title={`Exact name + company match already seen in this upload — merged into the first-seen row${
-                  lastScanStats.largestDuplicateGroup > 2 ? `. One lead appeared ${lastScanStats.largestDuplicateGroup} times.` : "."
-                }`}
-              >
-                duplicates merged
-              </span>
-              {lastScanStats.largestDuplicateGroup > 2 && ` (one ×${lastScanStats.largestDuplicateGroup})`}
-            </>
-          )}
-        </div>
-      )}
 
       {/* Final downloads, condensed: one compact row per product line.
           The editable filename is still there but tucked behind "Rename"

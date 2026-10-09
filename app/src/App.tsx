@@ -114,6 +114,7 @@ const NAV_GROUPS: { title: string; items: { key: View; label: string }[] }[] = [
 export default function App() {
   const [unlocked, setUnlockedState] = useState(isUnlocked());
   const [view, setView] = useState<View>("home");
+  const [showDiscardNames, setShowDiscardNames] = useState(false);
   // Sidebar scanner section. A per-viewer display preference, so browser
   // storage is the right home for it — wrapped, since storage can throw.
   const [scannersOpen, setScannersOpen] = useState(() => {
@@ -762,32 +763,28 @@ export default function App() {
             it lists the companies rather than just counting them. */}
         {lastDiscards && lastDiscards.discarded.length > 0 && (
           <div style={{
-            marginBottom: 12, padding: "10px 12px", border: "1px solid var(--border)",
-            borderLeft: "3px solid #B5443B", borderRadius: 10, background: "var(--surface-sunken)",
-            fontSize: 13,
+            marginBottom: 12, padding: "8px 12px", border: "1px solid var(--border)",
+            borderLeft: "3px solid #B5443B", borderRadius: 8, background: "var(--surface)", fontSize: 12.5,
           }}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
-              <strong>{lastDiscards.discarded.length} lead{lastDiscards.discarded.length === 1 ? "" : "s"} not stored</strong>
-              <button className="btn btn-sm btn-ghost" onClick={() => setLastDiscards(null)}>Dismiss</button>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+              <span>
+                <b>{lastDiscards.discarded.length} not stored</b>
+                <span style={{ color: "var(--muted)" }}>
+                  {" — "}{summarizeDiscards(lastDiscards.discarded).map((g) => `${g.count} ${g.reason.toLowerCase()}`).join(" · ")}
+                  {lastDiscards.sizeUnknown.length > 0 && ` · ${lastDiscards.sizeUnknown.length} kept with no headcount on file`}
+                </span>
+              </span>
+              <span style={{ display: "flex", gap: 4 }}>
+                <button className="btn btn-sm btn-ghost" onClick={() => setShowDiscardNames((v) => !v)}>{showDiscardNames ? "Hide names" : "Show names"}</button>
+                <button className="btn btn-sm btn-ghost" onClick={() => { setLastDiscards(null); setShowDiscardNames(false); }}>Dismiss</button>
+              </span>
             </div>
-            {summarizeDiscards(lastDiscards.discarded).map((g) => (
+            {showDiscardNames && summarizeDiscards(lastDiscards.discarded).map((g) => (
               <div key={g.reason} style={{ marginTop: 6 }}>
-                <div style={{ color: "var(--muted)" }}>{g.count} · {g.reason}</div>
-                <div style={{ maxHeight: 120, overflowY: "auto", marginTop: 2 }}>
-                  {g.companies.join(" · ")}
-                </div>
+                <div style={{ color: "var(--muted)" }}>{g.reason}</div>
+                <div style={{ maxHeight: 120, overflowY: "auto" }}>{g.companies.join(" · ")}</div>
               </div>
             ))}
-            <div style={{ marginTop: 8, color: "var(--muted)" }}>
-              These were discarded, not hidden — they are not in the store and will be
-              discarded again on a re-upload. If one is wrong, tell me and I will narrow the rule.
-            </div>
-            {lastDiscards.sizeUnknown.length > 0 && (
-              <div style={{ marginTop: 6, color: "var(--muted)" }}>
-                {lastDiscards.sizeUnknown.length} compan{lastDiscards.sizeUnknown.length === 1 ? "y has" : "ies have"} no
-                headcount on file and were kept. Enrich them to apply the 10-employee floor.
-              </div>
-            )}
           </div>
         )}
 
