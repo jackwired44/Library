@@ -3,7 +3,8 @@
 // are stored in all leads".
 import { receivedOnFromFileName, leadInputsFromDuplicates, NO_SIGNAL_TIER } from "../../src/lib/leadFiling";
 import { rawFieldsOf, appendRow, appendSegment } from "../../src/lib/rawNotes";
-import { mergeLeads, leadKeyOf, type LeadInput } from "../../src/lib/leadStore";
+import { mergeLeads, leadKeyOf, leadKeyOfInput, type LeadInput } from "../../src/lib/leadStore";
+import { qualifyLeadInputs } from "../../src/lib/leadQualify";
 
 let pass = 0, fail = 0;
 const ok = (n: string, c: boolean, d = "") => { c ? pass++ : (fail++, console.log(`  FAIL ${n}${d ? " — " + d : ""}`)); };
@@ -81,6 +82,21 @@ rec = appendRow(rec, "k", { at: "2026-10-10", file: "b.csv", fields: f })!;
 ok("same row from another file IS stored (which files it was on)", rec.rows!.length === 2);
 const withNote = appendSegment(rec, "k", { at: "2026-10-10", file: "b.csv", text: "new note" })!;
 ok("adding a note keeps the rows", withNote.rows?.length === 2 && withNote.segments.length === 1);
+
+// Per Jack: "i need to be able to save every lead from the uploads i dont
+// want to miss any".
+ok("no email + no company still keys on a phone", leadKeyOf("", "Sam Fox", "", "(312) 555-0199") === "p:3125550199");
+ok("…else on a full name", leadKeyOf("", "Sam Fox", "", "") === "x:sam fox");
+ok("a single word and nothing else is still unkeyable", leadKeyOf("", "Sam", "", "") === "");
+ok("email still wins over everything", leadKeyOf("a@b.com", "Sam Fox", "B Co", "3125550199") === "e:a@b.com");
+ok("first name + company is unchanged", leadKeyOf("", "Sam Fox", "Brandt Metals", "3125550199") === "n:sam|brandt metals");
+ok("an input keys through its mobile when there is no work phone", leadKeyOfInput({ contact: "Al", mobilePhone: "312 555 0100" }) === "p:3125550100");
+m = mergeLeads([], [inp({ email: "", company: "", contact: "Sam Fox", phone: "312-555-0199", tier: "Needs Review" })]);
+ok("such a row is stored, not skipped", m.leads.length === 1 && m.skipped === 0);
+const gate = qualifyLeadInputs([inp({ company: "Acme Managed Services LLC", email: "x@acme-it.com", tier: "High priority" })], []);
+ok("the gate hands back the input it flagged, so it can still be stored", gate.discarded.length === 1 && gate.discarded[0].input?.company === "Acme Managed Services LLC", JSON.stringify(gate.discarded.map((d) => d.reason)));
+m = mergeLeads([], [{ ...gate.discarded[0].input!, tier: "Bad Lead", notFit: "Competitor" }]);
+ok("a not-fit lead is stored as a Bad Lead with its reason", m.leads[0].tier === "Bad Lead" && m.leads[0].notFit === "Competitor");
 
 console.log(`main-filing ${fail ? "FAIL" : "PASS"} ${pass}/${pass + fail}`);
 if (fail) process.exit(1);

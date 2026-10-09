@@ -55,6 +55,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await page.setInputFiles('input[type=file]', FILE);
   await page.waitForFunction(() => !!document.querySelector('.data-table tbody tr'), null, { timeout: 120000 });
   await sleep(1500);
+  // Nothing is stored until Save (per Jack: a save option on every upload).
+  await page.locator('button[aria-label="Save to platform"]').first().click(); await sleep(900);
 
   console.log('\n== Home: Power BI-style dashboard ==');
   await nav('Home');

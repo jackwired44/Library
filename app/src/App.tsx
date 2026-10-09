@@ -36,7 +36,7 @@ import {
 } from "./lib/library";
 import { applyCompetitorDQ } from "./lib/companyProfiles";
 import {
-  loadLeads, saveLeads, mergeLeads, deleteLead, leadKeyOf, type StoredLead, type LeadInput,
+  loadLeads, saveLeads, mergeLeads, leadKeyOfInput, type StoredLead, type LeadInput,
 } from "./lib/leadStore";
 import {
   qualifyLeadInputs, requalifyStoredLeads, summarizeDiscards, type DiscardedLead,
@@ -115,6 +115,9 @@ export default function App() {
   const [unlocked, setUnlockedState] = useState(isUnlocked());
   const [view, setView] = useState<View>("home");
   const [showDiscardNames, setShowDiscardNames] = useState(false);
+  // The Main Scanner batch on screen, waiting for Save, and what Save did.
+  const [pendingMain, setPendingMain] = useState<LeadInput[] | null>(null);
+  const [mainSaved, setMainSaved] = useState<{ stored: number; discarded: number } | null>(null);
   // Sidebar scanner section. A per-viewer display preference, so browser
   // storage is the right home for it — wrapped, since storage can throw.
   const [scannersOpen, setScannersOpen] = useState(() => {
@@ -233,6 +236,30 @@ export default function App() {
     });
   }
 
+  /** Every row of a Main Scanner batch as lead inputs: scored rows, the
+   *  rows detection skipped, and the repeats it merged (for their file). */
+  function mainInputsFor(
+    parsedFiles: ParsedFile[],
+    scanned: ResultRow[],
+    dropped: { noSignalRows?: NoSignalRow[]; duplicateRows?: DuplicateRow[] } = {},
+  ): LeadInput[] {
+    const scoredInputs = leadInputsFromResults(scanned);
+    // Every Main row id ends "<file>-<row>", so the raw CSV row behind a
+    // skipped or merged row can be found again for the raw store.
+    const rawOf = (id: string) => {
+      const m = id.match(/(\d+)-(\d+)$/);
+      return m ? parsedFiles[Number(m[1])]?.data[Number(m[2])] as Record<string, unknown> | undefined : undefined;
+    };
+    const noSignalInputs = leadInputsFromNoSignal(dropped.noSignalRows ?? [], rawOf);
+    const batchKeys = new Set([...scoredInputs, ...noSignalInputs].map((i) => leadKeyOfInput(i)));
+    return [
+      ...scoredInputs,
+      ...noSignalInputs,
+      // Repeats the scanner merged away still say which files a lead is on.
+      ...leadInputsFromDuplicates(dropped.duplicateRows ?? [], batchKeys, rawOf),
+    ];
+  }
+
   function recordHistory(
     parsedFiles: ParsedFile[],
     scanned: ResultRow[],
@@ -273,21 +300,11 @@ export default function App() {
     // Including the rows detection skipped outright: on the real 500-row
     // file that is 342 leads which exist nowhere else in the app. Per
     // Jack, the Library shows "every lead filtered out".
-    const scoredInputs = leadInputsFromResults(scanned);
-    // Every Main row id ends "<file>-<row>", so the raw CSV row behind a
-    // skipped or merged row can be found again for the raw store.
-    const rawOf = (id: string) => {
-      const m = id.match(/(\d+)-(\d+)$/);
-      return m ? parsedFiles[Number(m[1])]?.data[Number(m[2])] as Record<string, unknown> | undefined : undefined;
-    };
-    const noSignalInputs = leadInputsFromNoSignal(dropped.noSignalRows ?? [], rawOf);
-    const batchKeys = new Set([...scoredInputs, ...noSignalInputs].map((i) => leadKeyOf(i.email, i.contact, i.company)));
-    fileLeads([
-      ...scoredInputs,
-      ...noSignalInputs,
-      // Repeats the scanner merged away still say which files a lead is on.
-      ...leadInputsFromDuplicates(dropped.duplicateRows ?? [], batchKeys, rawOf),
-    ]);
+    // NOT stored yet. Per Jack: "needs a save option when a csv uploads —
+    // if save is clicked all contacts and info there is saved". The batch
+    // waits here until the Save button on the scanner files it.
+    setPendingMain(mainInputsFor(parsedFiles, scanned, dropped));
+    setMainSaved(null);
     // Which of this batch's companies still have no Apollo profile — the
     // list the "enrich now?" prompt is built from. Computed from the raw
     // rows so it covers every company in the upload, not just detection
@@ -313,17 +330,28 @@ export default function App() {
    * a cycle of the real files is ~37,000 rows and a per-row dbPut would
    * open 37,000 connections.
    */
-  function fileLeads(inputs: LeadInput[]) {
-    if (inputs.length === 0) return;
+  function fileLeads(inputs: LeadInput[]): { stored: number; discarded: number } {
+    if (inputs.length === 0) return { stored: 0, discarded: 0 };
     // The qualification gate, BEFORE anything is written. Per Jack an IT /
     // MSP / Microsoft-partner company and a confirmed sub-10-employee
     // company are "automatically excluded from being stored" — discarded
     // outright, his explicit choice over keeping a hidden copy. Nothing
     // records them afterwards, so the report below is the only trace and
     // the banner that shows it is not optional polish.
-    const { kept, discarded, sizeUnknown } = qualifyLeadInputs(inputs, companyProfiles);
+    // Per Jack: "i need to be able to save every lead from the uploads i
+    // dont want to miss any". The gate no longer drops anything: a
+    // competitor / IT company or a sub-floor company is saved as a Bad Lead
+    // with the reason on the record, still visible, still reversible.
+    const gated = qualifyLeadInputs(inputs, companyProfiles);
+    const { discarded, sizeUnknown } = gated;
     if (discarded.length) setLastDiscards({ discarded, sizeUnknown });
-    if (kept.length === 0) return;
+    const kept = [
+      ...gated.kept,
+      ...discarded.filter((d) => d.input).map((d) => ({
+        ...d.input!, tier: "Bad Lead", notFit: `${d.reason}${d.detail ? ` — ${d.detail}` : ""}`,
+      })),
+    ];
+    if (kept.length === 0) return { stored: 0, discarded: discarded.length };
     // The raw note, exactly as the file had it — the "before" beside the
     // scanner's "after". Its own store, written once per upload; never on
     // the lead record itself (see lib/rawNotes.ts).
@@ -331,7 +359,7 @@ export default function App() {
     appendRawNotes(kept
       .filter((i) => (i.rawNotes || "").trim() || i.rawFields)
       .map((i) => ({
-        key: leadKeyOf(i.email, i.contact, i.company),
+        key: leadKeyOfInput(i),
         seg: { at: uploadedAt, file: i.sourceFile, text: i.rawNotes || "" },
         ...(i.rawFields ? { fields: i.rawFields } : {}),
       })),
@@ -347,6 +375,14 @@ export default function App() {
       }
       return leads;
     });
+    return { stored: new Set(kept.map((k) => leadKeyOfInput(k)).filter(Boolean)).size, discarded: discarded.length };
+  }
+
+  /** The Main Scanner's Save button. */
+  function saveMainBatch() {
+    if (!pendingMain) return;
+    setMainSaved(fileLeads(pendingMain));
+    setPendingMain(null);
   }
 
   /** Apply a change to some leads by key, in state and in the store. Reads
@@ -456,11 +492,11 @@ export default function App() {
   }
 
   async function requalifyAll(profiles: CompanyProfile[]) {
-    const { kept, discarded } = requalifyStoredLeads(leads, profiles);
+    const { discarded } = requalifyStoredLeads(leads, profiles);
     if (!discarded.length) return 0;
-    setLeads(kept);
-    await Promise.all(discarded.map((d) => deleteLead(d.key))).catch((e) =>
-      setError(`Could not remove disqualified leads: ${e instanceof Error ? e.message : String(e)}`));
+    // Marked, never deleted — see fileLeads.
+    const why = new Map(discarded.map((d) => [d.key, `${d.reason}${d.detail ? ` — ${d.detail}` : ""}`]));
+    updateLeads([...why.keys()], (l) => ({ ...l, tier: "Bad Lead", notFit: why.get(l.key) }));
     setLastDiscards({ discarded, sizeUnknown: [] });
     return discarded.length;
   }
@@ -768,7 +804,7 @@ export default function App() {
           }}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
               <span>
-                <b>{lastDiscards.discarded.length} not stored</b>
+                <b>{lastDiscards.discarded.length} saved as Bad Lead</b>
                 <span style={{ color: "var(--muted)" }}>
                   {" — "}{summarizeDiscards(lastDiscards.discarded).map((g) => `${g.count} ${g.reason.toLowerCase()}`).join(" · ")}
                   {lastDiscards.sizeUnknown.length > 0 && ` · ${lastDiscards.sizeUnknown.length} kept with no headcount on file`}
@@ -876,12 +912,15 @@ export default function App() {
               setResults={setResults}
               uploadedFiles={uploadedFiles}
               setUploadedFiles={setUploadedFiles}
-              onReset={() => { setResults(null); setUploadedFiles([]); setLoadedScanStats(null); }}
+              onReset={() => { setResults(null); setUploadedFiles([]); setLoadedScanStats(null); setPendingMain(null); setMainSaved(null); }}
               libraryEntries={libraryEntries}
               setLibraryEntries={setLibraryEntries}
               libraryGroups={libraryGroups}
               setLibraryGroups={setLibraryGroups}
               onRecordHistory={recordHistory}
+              saveCount={pendingMain ? pendingMain.length : 0}
+              savedReport={mainSaved}
+              onSaveLeads={saveMainBatch}
               onSyncToHistory={syncToHistory}
               allHistory={historyEntries}
               ruleOverrides={ruleOverrides}
@@ -924,7 +963,13 @@ export default function App() {
             loading={loading}
             error={null}
             onLoadIntoScanner={loadParsedFilesIntoScanner}
-            onRecordHistory={recordHistory}
+            onRecordHistory={(...args: Parameters<typeof recordHistory>) => {
+              // Uploading into a monthly file is already a deliberate save.
+              const entry = recordHistory(...args);
+              fileLeads(mainInputsFor(args[0], args[1], args[4]));
+              setPendingMain(null);
+              return entry;
+            }}
             ruleOverrides={ruleOverrides}
             dispositions={dispositions}
           />

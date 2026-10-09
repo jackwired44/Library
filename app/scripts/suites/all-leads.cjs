@@ -83,6 +83,13 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await page.waitForFunction(() => !!document.querySelector('.data-table tbody tr'), null, { timeout: 120000 });
   await sleep(1500);
   await nav('All leads');
+  ok('a scan alone stores nothing — the Save button does', /Nothing stored yet/.test(await allLeadsText()));
+  await nav('Main Scanner');
+  ok('  and the scanner offers Save for every row', /Save \d[\d,]* rows to All leads/.test(await page.locator('main').innerText()));
+  // Nothing is stored until Save (per Jack: a save option on every upload).
+  await page.locator('button[aria-label="Save to platform"]').first().click(); await sleep(900);
+  ok('  Save confirms what it stored', /✓ Saved \d[\d,]* leads? to All leads/.test(await page.locator('main').innerText()));
+  await nav('All leads');
   const afterMain = await allLeadsText();
   ok('all three Main rows are stored', /3 leads stored/.test(afterMain), afterMain.slice(0, 200));
   ok('  the Strong Signal lead is there', /MAIN ALPHA CO/.test(afterMain));
@@ -95,6 +102,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await page.setInputFiles('input[type=file]', CSP_FILE);
   await page.waitForFunction(() => !!document.querySelector('.data-table tbody tr'), null, { timeout: 120000 });
   await sleep(1800);
+  // Nothing is stored until Save (per Jack: a save option on every upload).
+  await page.locator('button[aria-label="Save to platform"]').first().click(); await sleep(900);
   await nav('All leads');
   const afterCsp = await allLeadsText();
   ok('CSP leads are now stored', /5 leads stored/.test(afterCsp), afterCsp.slice(0, 200));
@@ -142,6 +151,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await page.setInputFiles('input[type=file]', MAIN_FILE);
   await page.waitForFunction(() => !!document.querySelector('.data-table tbody tr'), null, { timeout: 120000 });
   await sleep(1500);
+  // Nothing is stored until Save (per Jack: a save option on every upload).
+  await page.locator('button[aria-label="Save to platform"]').first().click(); await sleep(900);
   await nav('All leads');
   t = await allLeadsText();
   ok('the count does NOT grow on a re-upload', /5 leads stored/.test(t), t.slice(0, 200));
@@ -164,6 +175,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await page.setInputFiles('input[type=file]', SECOND_FILE);
   await page.waitForFunction(() => !!document.querySelector('.data-table tbody tr'), null, { timeout: 120000 });
   await sleep(1500);
+  // Nothing is stored until Save (per Jack: a save option on every upload).
+  await page.locator('button[aria-label="Save to platform"]').first().click(); await sleep(900);
   await nav('All leads');
   const search2 = page.locator('main input.field').first();
   await search2.fill('MAIN ALPHA'); await sleep(700);

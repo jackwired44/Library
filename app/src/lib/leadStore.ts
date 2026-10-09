@@ -98,6 +98,9 @@ export interface CallEvent {
 }
 
 export interface StoredLead {
+  /** Not a fit, and why — see LeadInput.notFit. The lead is kept (as a Bad
+   *  Lead) rather than discarded. Per Jack: "i dont want to miss any". */
+  notFit?: string;
   /** Match key: the email, else first-name + company. See leadKeyOf. */
   key: string;
   source: LeadSource;
@@ -180,13 +183,27 @@ export function normEmail(s: unknown): string {
  * cannot be keyed and is not stored, the same rule the Scanner's own
  * duplicate check and Contacts' merge already follow.
  */
-export function leadKeyOf(email: unknown, contact: unknown, company: unknown): string {
+export function leadKeyOf(email: unknown, contact: unknown, company: unknown, phone?: unknown): string {
   const e = normEmail(email);
   if (e.includes("@")) return `e:${e}`;
   const first = String(contact || "").trim().toLowerCase().split(/\s+/)[0] || "";
   const c = normCompany(company);
-  if (!first || !c) return "";
-  return `n:${first}|${c}`;
+  if (first && c) return `n:${first}|${c}`;
+  // Per Jack: "i dont want to miss any". A row with no email and no company
+  // used to be dropped as unkeyable. It is kept on what it does carry: a
+  // phone number, else a full (two-word) name. A row with none of those
+  // names nobody and has nothing to keep.
+  const digits = String(phone || "").replace(/\D/g, "");
+  if (digits.length >= 7) return `p:${digits.slice(-10)}`;
+  const full = String(contact || "").trim().toLowerCase().replace(/\s+/g, " ");
+  if (full.includes(" ")) return `x:${full}${c ? `|${c}` : ""}`;
+  return "";
+}
+
+/** The key a lead input is stored under. Use this, never leadKeyOf
+ *  directly, anywhere an input is keyed — so the phone fallback matches. */
+export function leadKeyOfInput(i: { email?: unknown; contact?: unknown; company?: unknown; phone?: unknown; mobilePhone?: unknown }): string {
+  return leadKeyOf(i.email, i.contact, i.company, i.phone || i.mobilePhone);
 }
 
 /* -------------------------------------------------------------- merging */
@@ -385,7 +402,7 @@ export function mergeLeads(
   let added = 0, updated = 0, skipped = 0;
 
   for (const inc of incoming) {
-    const key = leadKeyOf(inc.email, inc.contact, inc.company);
+    const key = leadKeyOfInput(inc);
     if (!key) { skipped++; continue; }
     const prev = byKey.get(key);
     if (!prev) {
@@ -409,6 +426,7 @@ export function mergeLeads(
         ...(inc.receivedOn ? { receivedOn: inc.receivedOn } : {}),
         fileSeen: inc.sourceFile ? [{ file: inc.sourceFile, at: now }] : [],
         noteDates: datesIn(inc, now),
+        ...(inc.notFit ? { notFit: inc.notFit } : {}),
       };
       byKey.set(key, lead);
       changed.set(key, lead);
@@ -445,6 +463,7 @@ export function mergeLeads(
         ? [...(prev.fileSeen ?? []), { file: inc.sourceFile, at: now }]
         : prev.fileSeen ?? [],
       noteDates: mergeNoteDates(prev.noteDates, datesIn(inc, now)),
+      ...(inc.notFit ? { notFit: inc.notFit } : {}),
     };
     byKey.set(key, lead);
     changed.set(key, lead);

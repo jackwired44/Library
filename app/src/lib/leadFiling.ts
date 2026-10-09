@@ -16,7 +16,7 @@ import {
 } from "./detection";
 import { BUCKET2_META, CSP_BUCKET_META, type Row2, type ScannerKind } from "./scanner2";
 import { rawFieldsOf } from "./rawNotes";
-import { NO_SIGNAL_TIER, leadKeyOf, type LeadInput, type LeadSource } from "./leadStore";
+import { NO_SIGNAL_TIER, leadKeyOfInput, type LeadInput, type LeadSource } from "./leadStore";
 
 /**
  * The date a file states in its own name, as YYYY-MM-DD.
@@ -184,7 +184,7 @@ export function leadInputsFromNoSignal(rows: NoSignalRow[], rawOf?: RawRowOf): L
 export function leadInputsFromDuplicates(rows: DuplicateRow[], batchKeys: Set<string>, rawOf?: RawRowOf): LeadInput[] {
   const out: LeadInput[] = [];
   for (const r of rows) {
-    if (!batchKeys.has(leadKeyOf(r.email, r.contact, r.company))) continue;
+    if (!batchKeys.has(leadKeyOfInput(r))) continue;
     out.push({
       source: "main" as LeadSource,
       company: r.company || "", contact: r.contact || "", title: r.title || "",

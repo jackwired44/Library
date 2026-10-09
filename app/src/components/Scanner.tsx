@@ -125,6 +125,11 @@ function applyFacets(rows: ResultRow[], f: Facets): ResultRow[] {
 const TIER_CYCLE: Tier[] = ["signal", "mention", "dq"];
 
 interface ScannerProps {
+  /** Rows waiting for Save, 0 when nothing is pending. */
+  saveCount?: number;
+  /** What the last Save stored, or null before one. */
+  savedReport?: { stored: number; discarded: number } | null;
+  onSaveLeads?: () => void;
   results: ResultRow[] | null;
   setResults: React.Dispatch<React.SetStateAction<ResultRow[] | null>>;
   uploadedFiles: UploadedFile[];
@@ -213,6 +218,9 @@ export default function Scanner({
   libraryGroups,
   setLibraryGroups,
   onRecordHistory,
+  saveCount = 0,
+  savedReport = null,
+  onSaveLeads,
   loadedDropped,
   onSyncToHistory,
   allHistory,
@@ -1194,9 +1202,23 @@ export default function Scanner({
             )}
           </div>
         </div>
-        <button onClick={reset} className="btn btn-secondary">
-          Start over
-        </button>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {/* Nothing in this upload is in the platform until Save. */}
+          {savedReport ? (
+            <span style={{ fontSize: 12.5, color: "var(--muted)" }} aria-live="polite">
+              ✓ Saved {savedReport.stored.toLocaleString()} lead{savedReport.stored === 1 ? "" : "s"} to All leads
+              {savedReport.discarded > 0 && ` · ${savedReport.discarded} of them marked Bad Lead (not a fit)`}
+            </span>
+          ) : saveCount > 0 && onSaveLeads ? (
+            <button className="btn btn-primary" aria-label="Save to platform" onClick={onSaveLeads}
+                    title="Store every row of this upload — contacts, companies, raw and scanned notes, the CSV row and its file — in All leads. Nothing is stored until you click this.">
+              Save {saveCount.toLocaleString()} rows to All leads
+            </button>
+          ) : null}
+          <button onClick={reset} className="btn btn-secondary">
+            Start over
+          </button>
+        </div>
       </div>
 
       {/* One actions row. Every row of this batch is already stored in All

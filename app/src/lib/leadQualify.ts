@@ -49,6 +49,9 @@ export interface DiscardedLead {
   /** What specifically decided it — the matched industry, or the count.
    *  Shown next to the name so a wrong cut is recognisable on sight. */
   detail: string;
+  /** The lead itself, so a caller can still store it — as a Bad Lead with
+   *  the reason attached — rather than lose it. */
+  input?: LeadInput;
 }
 
 export interface QualifyOutcome {
@@ -148,6 +151,7 @@ export function qualifyLeadInputs(
         contact: String(input.contact || ""),
         reason: verdict.reason,
         detail: verdict.detail,
+        input,
       });
       continue;
     }

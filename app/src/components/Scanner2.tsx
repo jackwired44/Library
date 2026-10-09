@@ -853,7 +853,8 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
    *  Until this existed, Custom and CSP persisted ZERO leads: buildRun
    *  records counts and filenames, never rows, so a 9,265-row scan was
    *  gone on Start over unless the CSV had been downloaded. */
-  onStoreLeads?: (rows: Row2[], kind: ScannerKind) => void;
+  /** Stores a batch in All leads. Called only by the Save button. */
+  onStoreLeads?: (rows: Row2[], kind: ScannerKind) => { stored: number; discarded: number } | void;
   onAddToList?: (
     rows: { row: Scanner2ExportRow; scanner: "main" | "smc" | "csp"; band?: string; score?: number }[],
     opts: { existingId?: string; newName?: string },
@@ -922,6 +923,13 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
   const [maxScore, setMaxScore] = useState(100);
   const [minValue, setMinValue] = useState(0);
   const [filtersOpen, setFiltersOpen] = useState(true);
+  /** What Save stored for the batch on screen; null until it is clicked. */
+  const [savedReport, setSavedReport] = useState<{ stored: number; discarded: number } | null>(null);
+  function saveBatch() {
+    if (!result || !onStoreLeads) return;
+    const r = onStoreLeads(result.rows, kind);
+    setSavedReport(r || { stored: result.rows.length, discarded: 0 });
+  }
   // The scan's fine print — setup sentence, reconciliation, renewal and
   // phone coverage, download notes — starts folded. Per Jack: "too much
   // going on right after scanned". A per-viewer display preference.
@@ -1076,7 +1084,8 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
       }
       const res = scan2(parsed, set);
       setResult(res);
-      onStoreLeads?.(res.rows, kind);
+      // Not stored until Save — per Jack, a save option on every upload.
+      setSavedReport(null);
       // The file chips in the page bar state the row count; the only thing
       // worth saying here is what the scanner changed on your behalf.
       setNotice(mappingNote || null);
@@ -1115,7 +1124,8 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
       setFiles(next);
       setProfiles(profileColumns(next));
       setResult(res);
-      onStoreLeads?.(res.rows, kind);
+      // Not stored until Save — per Jack, a save option on every upload.
+      setSavedReport(null);
       setPage(1);
       setSelected(new Set());
       // Supersede this batch's run record rather than adding a second one
@@ -1730,7 +1740,22 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
             )}
           </div>
         </div>
-        {result && <button className="btn btn-secondary" onClick={startOver}>Start over</button>}
+        {result && (
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {savedReport ? (
+              <span style={{ fontSize: 12.5, color: "var(--muted)" }} aria-live="polite">
+                ✓ Saved {savedReport.stored.toLocaleString()} lead{savedReport.stored === 1 ? "" : "s"} to All leads
+                {savedReport.discarded > 0 && ` · ${savedReport.discarded} of them marked Bad Lead (not a fit)`}
+              </span>
+            ) : onStoreLeads ? (
+              <button className="btn btn-primary" aria-label="Save to platform" onClick={saveBatch}
+                      title="Store every row of this upload — contacts, companies, raw and scanned notes, the CSV row and its file — in All leads. Nothing is stored until you click this.">
+                Save {result.rows.length.toLocaleString()} rows to All leads
+              </button>
+            ) : null}
+            <button className="btn btn-secondary" onClick={startOver}>Start over</button>
+          </div>
+        )}
       </div>
 
       {error && (
