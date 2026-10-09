@@ -15,6 +15,7 @@ import {
   type DuplicateRow, type NoSignalRow, type ResultRow, type Tier,
 } from "./detection";
 import { BUCKET2_META, CSP_BUCKET_META, type Row2, type ScannerKind } from "./scanner2";
+import { rawFieldsOf } from "./rawNotes";
 import { NO_SIGNAL_TIER, leadKeyOf, type LeadInput, type LeadSource } from "./leadStore";
 
 /**
@@ -84,6 +85,7 @@ export function leadInputsFromResults(rows: ResultRow[]): LeadInput[] {
       // The Comments cell exactly as the file had it, before the scanner
       // condensed it into a call brief.
       rawNotes: String(f.comments || ""),
+      rawFields: rawFieldsOf(r.row, String(f.comments || "")),
       receivedOn: receivedOnFromFileName(r.sourceFile || ""),
     };
   });
@@ -118,6 +120,7 @@ export function leadInputsFromRows2(rows: Row2[], kind: ScannerKind): LeadInput[
     score: isCsp ? (r.csp?.score ?? null) : (r.smcScore?.score ?? null),
     sourceFile: r.sourceFile || "",
     rawNotes: String(r.lead.notes || ""),
+    rawFields: rawFieldsOf(r.row, String(r.lead.notes || "")),
     // The file's own date for this row, when it states one.
     receivedOn: r.receivedOn ? String(r.receivedOn).slice(0, 10) : receivedOnFromFileName(r.sourceFile || ""),
   }));
@@ -139,7 +142,13 @@ export { NO_SIGNAL_TIER };
  * out", so these are stored too, tagged for what they are rather than
  * given a tier they never earned.
  */
-export function leadInputsFromNoSignal(rows: NoSignalRow[]): LeadInput[] {
+/** Resolves a Main Scanner row id ("3-41", "nosignal-3-41", "dup-3-41") back
+ *  to the raw CSV row it came from. Supplied by the caller, which holds the
+ *  parsed files; the scan output itself keeps no raw row for skipped or
+ *  merged rows. */
+export type RawRowOf = (id: string) => Record<string, unknown> | undefined;
+
+export function leadInputsFromNoSignal(rows: NoSignalRow[], rawOf?: RawRowOf): LeadInput[] {
   return rows.map((r) => ({
     source: "main" as LeadSource,
     company: r.company || "",
@@ -154,6 +163,7 @@ export function leadInputsFromNoSignal(rows: NoSignalRow[]): LeadInput[] {
     score: null,
     sourceFile: r.sourceFile || "",
     rawNotes: r.notes || "",
+    rawFields: rawFieldsOf(rawOf?.(r.id), r.notes || ""),
     receivedOn: receivedOnFromFileName(r.sourceFile || ""),
   }));
 }
@@ -171,7 +181,7 @@ export function leadInputsFromNoSignal(rows: NoSignalRow[]): LeadInput[] {
  * repeat with a different email would otherwise become a second, empty
  * record of the same person.
  */
-export function leadInputsFromDuplicates(rows: DuplicateRow[], batchKeys: Set<string>): LeadInput[] {
+export function leadInputsFromDuplicates(rows: DuplicateRow[], batchKeys: Set<string>, rawOf?: RawRowOf): LeadInput[] {
   const out: LeadInput[] = [];
   for (const r of rows) {
     if (!batchKeys.has(leadKeyOf(r.email, r.contact, r.company))) continue;
@@ -181,6 +191,10 @@ export function leadInputsFromDuplicates(rows: DuplicateRow[], batchKeys: Set<st
       email: r.email || "", phone: r.phone || "", mobilePhone: "",
       productArea: "", tier: "", notes: "", score: null,
       sourceFile: r.sourceFile || "",
+      // Its own raw row: a repeat from another file can say something the
+      // kept copy did not. Notes too — the before-view should show every
+      // version that arrived, not only the first.
+      rawFields: rawFieldsOf(rawOf?.(r.id)),
       receivedOn: receivedOnFromFileName(r.sourceFile || ""),
     });
   }

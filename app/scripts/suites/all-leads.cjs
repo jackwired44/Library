@@ -145,7 +145,9 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await nav('All leads');
   t = await allLeadsText();
   ok('the count does NOT grow on a re-upload', /5 leads stored/.test(t), t.slice(0, 200));
-  ok('  and the lead records it has been seen twice', /×2/.test(t), t.slice(0, 400));
+  // Per Jack: "if i reupload the same csv i dont want the contact to
+  // consider it added more than once" — the same file counts once.
+  ok('  and the same file is NOT counted twice', !/×2/.test(t), t.slice(0, 400));
 
   console.log('\n== notes COMBINE across uploads, never overwrite ==');
   // Per Jack: "i just want to combine the notes not override with just the

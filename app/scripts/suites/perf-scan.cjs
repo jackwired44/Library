@@ -101,6 +101,11 @@ const ok = (name, cond, detail) => {
   console.log(`\n== search latency (${N} rows) ==`);
   const base = await gcHeap();
   await scan();
+  // A scan files every row into All leads — the lead record AND its raw
+  // CSV row — in the background. Typing during that write measures the
+  // write, not the search; wait for the heap to stop moving, the same
+  // settle rule the memory checks below use.
+  { let prev = -1; for (let i = 0; i < 20; i++) { const h = await gcHeap(); if (Math.abs(h - prev) <= 2) break; prev = h; } }
   const sel = 'input[placeholder*="Search company"]';
   const word = 'company 1234';
   let total = 0;

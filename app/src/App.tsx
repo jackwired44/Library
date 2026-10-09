@@ -104,7 +104,6 @@ const NAV_GROUPS: { title: string; items: { key: View; label: string }[] }[] = [
   { title: "Leads", items: [
     { key: "allleads", label: "All leads" },
     { key: "queue", label: "Apollo queue" },
-    { key: "campaigns", label: "Sequences" },
   ] },
   { title: "Archive", items: [
     { key: "lists", label: "Lists" },
@@ -197,7 +196,18 @@ export default function App() {
         setDispositions(disp);
         setCompanyProfiles(profiles);
         setRuleOverrides(rules);
-        setLeads(storedLeads);
+        // Clear the target sequences the old upload-time auto-router set.
+        // Only machine-made, never-exported plans: a plan set by hand, or
+        // one already exported, is real history and stays.
+        const autoQueued = storedLeads.filter((l) => l.plan?.by === "rule" && l.plan.status === "queued");
+        const cleaned = autoQueued.length
+          ? storedLeads.map((l) => (l.plan?.by === "rule" && l.plan.status === "queued" ? withPlan(l, null) : l))
+          : storedLeads;
+        if (autoQueued.length) {
+          const cleared = new Set(autoQueued.map((l) => l.key));
+          saveLeads(cleaned.filter((l) => cleared.has(l.key))).catch(() => {});
+        }
+        setLeads(cleaned);
         setFunnels(storedFunnels);
         setRouting(storedRouting);
         if (blocked.length) {
@@ -263,13 +273,19 @@ export default function App() {
     // file that is 342 leads which exist nowhere else in the app. Per
     // Jack, the Library shows "every lead filtered out".
     const scoredInputs = leadInputsFromResults(scanned);
-    const noSignalInputs = leadInputsFromNoSignal(dropped.noSignalRows ?? []);
+    // Every Main row id ends "<file>-<row>", so the raw CSV row behind a
+    // skipped or merged row can be found again for the raw store.
+    const rawOf = (id: string) => {
+      const m = id.match(/(\d+)-(\d+)$/);
+      return m ? parsedFiles[Number(m[1])]?.data[Number(m[2])] as Record<string, unknown> | undefined : undefined;
+    };
+    const noSignalInputs = leadInputsFromNoSignal(dropped.noSignalRows ?? [], rawOf);
     const batchKeys = new Set([...scoredInputs, ...noSignalInputs].map((i) => leadKeyOf(i.email, i.contact, i.company)));
     fileLeads([
       ...scoredInputs,
       ...noSignalInputs,
       // Repeats the scanner merged away still say which files a lead is on.
-      ...leadInputsFromDuplicates(dropped.duplicateRows ?? [], batchKeys),
+      ...leadInputsFromDuplicates(dropped.duplicateRows ?? [], batchKeys, rawOf),
     ]);
     // Which of this batch's companies still have no Apollo profile — the
     // list the "enrich now?" prompt is built from. Computed from the raw
@@ -312,21 +328,18 @@ export default function App() {
     // the lead record itself (see lib/rawNotes.ts).
     const uploadedAt = new Date().toISOString();
     appendRawNotes(kept
-      .filter((i) => (i.rawNotes || "").trim())
-      .map((i) => ({ key: leadKeyOf(i.email, i.contact, i.company), seg: { at: uploadedAt, file: i.sourceFile, text: i.rawNotes! } })),
+      .filter((i) => (i.rawNotes || "").trim() || i.rawFields)
+      .map((i) => ({
+        key: leadKeyOf(i.email, i.contact, i.company),
+        seg: { at: uploadedAt, file: i.sourceFile, text: i.rawNotes || "" },
+        ...(i.rawFields ? { fields: i.rawFields } : {}),
+      })),
     ).catch((e) => setError(`Raw notes could not be stored: ${e instanceof Error ? e.message : String(e)}`));
     setLeads((prev) => {
-      const { leads: merged, changed: mergedChanged } = mergeLeads(prev, kept);
-      // Route the leads this upload touched. Only those can have become
-      // newly eligible, and autoRoute never touches a lead that already
-      // has a plan — a re-upload cannot re-route anything.
-      const routed = autoRoute(
-        mergedChanged, routing,
-        buildSizeBands(mergedChanged, companyProfiles, MIN_EMPLOYEES),
-      );
-      const routedByKey = new Map(routed.map((l) => [l.key, l]));
-      const leads = routed.length ? merged.map((l) => routedByKey.get(l.key) ?? l) : merged;
-      const changed = mergedChanged.map((l) => routedByKey.get(l.key) ?? l);
+      // No auto-routing on upload. Per Jack: "im not assigning which
+      // sequence here … its which sequence is it in in apollo already".
+      // The sequence a lead shows comes from the Apollo sync only.
+      const { leads, changed } = mergeLeads(prev, kept);
       if (changed.length) {
         saveLeads(changed).catch((e) =>
           setError(`Leads were scanned, but could not be stored: ${e instanceof Error ? e.message : String(e)}`));
@@ -715,7 +728,7 @@ export default function App() {
               {g.items.map((item) => (
                 <button
                   key={item.key}
-                  className={`side-nav-btn${view === item.key || (item.key === "allleads" && view === "library") ? " active" : ""}`}
+                  className={`side-nav-btn${view === item.key || (item.key === "allleads" && view === "library") || (item.key === "queue" && view === "campaigns") ? " active" : ""}`}
                   onClick={() => setView(item.key)}
                 >
                   <span className="side-nav-label" style={{ flex: 1 }}>{item.label}</span>
@@ -792,6 +805,19 @@ export default function App() {
             onOpenStatus={(st) => { setLeadsStatusEntry(st); setLeadsSequenceEntry(""); setLeadsPresetEntry(""); setView("allleads"); }}
             onOpenPreset={(pr) => { setLeadsPresetEntry(pr); setLeadsStatusEntry(""); setLeadsSequenceEntry(""); setView("allleads"); }}
           />
+        )}
+        {(view === "queue" || view === "campaigns") && (
+          // Per Jack: "campaigns or sequences can be in apollo queue". The
+          // queue (where leads are headed) and the live sequences (how
+          // they are doing) are one place now.
+          <div className="seg" role="tablist" aria-label="Apollo queue view" style={{ marginBottom: 12 }}>
+            <button role="tab" aria-selected={view === "queue"} className={`seg-btn${view === "queue" ? " active" : ""}`} onClick={() => setView("queue")}>
+              Queue{queuedCount > 0 ? ` (${queuedCount.toLocaleString()})` : ""}
+            </button>
+            <button role="tab" aria-selected={view === "campaigns"} className={`seg-btn${view === "campaigns" ? " active" : ""}`} onClick={() => setView("campaigns")}>
+              Sequences{funnels.length > 0 ? ` (${funnels.length})` : ""}
+            </button>
+          </div>
         )}
         {view === "queue" && (
           <SequenceQueue

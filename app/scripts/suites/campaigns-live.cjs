@@ -21,7 +21,7 @@ const ok = (n, c, d = '') => { c ? pass++ : (fail++, console.log(`  FAIL ${n}${d
   const page = await (await b.newContext({ viewport: { width: 1500, height: 1000 } })).newPage();
   const errs = [];
   page.on('pageerror', e => errs.push(e.message));
-  const nav = async name => { await page.locator('.side-nav-btn', { hasText: name }).first().click(); await sleep(700); };
+  const nav = async name => { if (name === 'Sequences') { await page.locator('.side-nav-btn', { hasText: 'Apollo queue' }).first().click(); await sleep(400); await page.locator('.seg-btn', { hasText: 'Sequences' }).first().click(); } else { await page.locator('.side-nav-btn', { hasText: name }).first().click(); } await sleep(700); };
   const main = async () => (await page.locator('main').innerText()).replace(/\s+/g, ' ');
 
   await page.goto(BASE); await sleep(700);

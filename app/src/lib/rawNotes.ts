@@ -21,6 +21,48 @@ export interface RawNoteSegment {
 export interface RawNotes {
   key: string;
   segments: RawNoteSegment[];
+  /** Every other column of the CSV row, per upload. Per Jack: "their csv
+   *  upload data is attached to every lead". Optional: records written
+   *  before this carried notes only. */
+  rows?: RawRowRecord[];
+}
+
+/** One CSV row as it arrived, minus the notes column (that is a segment). */
+export interface RawRowRecord {
+  at: string;
+  file: string;
+  fields: Record<string, string>;
+}
+
+/** Distinct row versions kept per lead. */
+export const RAW_ROWS_MAX = 24;
+/** One cell's ceiling — a mis-mapped notes column must not bloat this. */
+export const RAW_CELL_MAX = 2_000;
+
+/** A CSV row reduced to what is worth keeping: real columns only (never
+ *  the app's own "__" fields), non-empty, minus the notes text that is
+ *  already stored as a segment, each cell capped. */
+export function rawFieldsOf(row: Record<string, unknown> | undefined, notesText = ""): Record<string, string> | undefined {
+  if (!row) return undefined;
+  const notes = norm(notesText);
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(row)) {
+    if (k.startsWith("__")) continue;
+    const t = String(v ?? "").trim();
+    if (!t || t.toUpperCase() === "NULL") continue;
+    if (notes && norm(t) === notes) continue;
+    out[k] = t.length > RAW_CELL_MAX ? `${t.slice(0, RAW_CELL_MAX)} …` : t;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+/** Add one upload's raw row. Same file with identical values is not kept
+ *  twice. Pure, for testing. */
+export function appendRow(prev: RawNotes | undefined, key: string, rec: RawRowRecord): RawNotes | null {
+  const rows = prev?.rows ?? [];
+  const sig = (r: RawRowRecord) => `${r.file}\u0001${JSON.stringify(r.fields)}`;
+  if (rows.some((r) => sig(r) === sig(rec))) return null;
+  return { key, segments: prev?.segments ?? [], rows: [rec, ...rows].slice(0, RAW_ROWS_MAX) };
 }
 
 /** One segment's ceiling. The real CSP file's longest note is ~40,000
@@ -47,24 +89,30 @@ export function appendSegment(prev: RawNotes | undefined, key: string, seg: RawN
     return null;
   }
   const next = [{ ...seg, text }, ...segments].slice(0, RAW_SEGMENTS_MAX);
-  return { key, segments: next };
+  return { key, segments: next, ...(prev?.rows ? { rows: prev.rows } : {}) };
 }
 
-/** Append this upload's raw notes for many leads in one transaction. */
-export async function appendRawNotes(entries: { key: string; seg: RawNoteSegment }[]): Promise<void> {
-  const byKey = new Map<string, RawNoteSegment[]>();
+/** Append this upload's raw notes and raw rows for many leads, in one
+ *  transaction. */
+export async function appendRawNotes(entries: { key: string; seg: RawNoteSegment; fields?: Record<string, string> }[]): Promise<void> {
+  const byKey = new Map<string, { seg: RawNoteSegment; fields?: Record<string, string> }[]>();
   for (const e of entries) {
-    if (!e.key || !String(e.seg.text || "").trim()) continue;
+    if (!e.key) continue;
+    if (!String(e.seg.text || "").trim() && !e.fields) continue;
     const list = byKey.get(e.key) ?? [];
-    list.push(e.seg);
+    list.push(e);
     byKey.set(e.key, list);
   }
   await dbUpdateMany<RawNotes>(STORE_RAW_NOTES, [...byKey.keys()], (key, existing) => {
     let cur = existing;
     let changed = false;
-    for (const seg of byKey.get(key)!) {
-      const next = appendSegment(cur, key, seg);
-      if (next) { cur = next; changed = true; }
+    for (const e of byKey.get(key)!) {
+      const next = appendSegment(cur, key, e.seg);
+      if (next) { cur = { ...next, rows: cur?.rows }; changed = true; }
+      if (e.fields) {
+        const withRow = appendRow(cur, key, { at: e.seg.at, file: e.seg.file, fields: e.fields });
+        if (withRow) { cur = withRow; changed = true; }
+      }
     }
     return changed ? cur! : null;
   });

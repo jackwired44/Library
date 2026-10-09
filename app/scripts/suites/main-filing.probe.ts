@@ -2,6 +2,7 @@
 // May-to-September backfill: "make sure the counts right and make sure they
 // are stored in all leads".
 import { receivedOnFromFileName, leadInputsFromDuplicates, NO_SIGNAL_TIER } from "../../src/lib/leadFiling";
+import { rawFieldsOf, appendRow, appendSegment } from "../../src/lib/rawNotes";
 import { mergeLeads, leadKeyOf, type LeadInput } from "../../src/lib/leadStore";
 
 let pass = 0, fail = 0;
@@ -65,6 +66,21 @@ m = mergeLeads([], [
   inp({ tier: NO_SIGNAL_TIER, sourceFile: "Book(5-7-26).csv", receivedOn: receivedOnFromFileName("Book(5-7-26).csv", now) }),
 ]);
 ok("received = earliest file date", m.leads[0].receivedOn === "2026-05-07", m.leads[0].receivedOn);
+
+// The CSV row behind every lead. Per Jack: "their csv upload data is
+// attached to every lead".
+const row = { fullname: "Dana Diaz", companyname: "Acme", Comments: "Wants Business Central", numberofemployees: "45", blank: "", nul: "NULL", __f: { x: 1 } };
+const f = rawFieldsOf(row, "Wants Business Central")!;
+ok("raw row keeps real columns", f.fullname === "Dana Diaz" && f.numberofemployees === "45");
+ok("raw row drops the notes column (already a segment)", !("Comments" in f));
+ok("raw row drops blanks, NULL and app fields", !("blank" in f) && !("nul" in f) && !("__f" in f));
+let rec = appendRow(undefined, "k", { at: "2026-10-09", file: "a.csv", fields: f })!;
+ok("first row stored", rec.rows!.length === 1);
+ok("identical row from the same file is not stored twice", appendRow(rec, "k", { at: "2026-10-10", file: "a.csv", fields: f }) === null);
+rec = appendRow(rec, "k", { at: "2026-10-10", file: "b.csv", fields: f })!;
+ok("same row from another file IS stored (which files it was on)", rec.rows!.length === 2);
+const withNote = appendSegment(rec, "k", { at: "2026-10-10", file: "b.csv", text: "new note" })!;
+ok("adding a note keeps the rows", withNote.rows?.length === 2 && withNote.segments.length === 1);
 
 console.log(`main-filing ${fail ? "FAIL" : "PASS"} ${pass}/${pass + fail}`);
 if (fail) process.exit(1);

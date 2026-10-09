@@ -201,6 +201,9 @@ export type LeadInput = Omit<
    *  Feeds the raw-note store and the note-date extraction; never stored on
    *  the lead itself. */
   rawNotes?: string;
+  /** The rest of the CSV row as it arrived — goes to the raw store, never
+   *  onto the lead record. */
+  rawFields?: Record<string, string>;
 };
 
 /** Keep an existing non-empty value; a later, sparser upload must never
@@ -432,7 +435,9 @@ export function mergeLeads(
       sourceFiles: inc.sourceFile && !prev.sourceFiles.includes(inc.sourceFile)
         ? [...prev.sourceFiles, inc.sourceFile]
         : prev.sourceFiles,
-      timesSeen: prev.timesSeen + 1,
+      // Counted per FILE, not per upload. Per Jack: "if i reupload the same
+      // csv i dont want the contact to consider it added more than once".
+      timesSeen: inc.sourceFile && prev.sourceFiles.includes(inc.sourceFile) ? prev.timesSeen : prev.timesSeen + 1,
       // The EARLIEST stated receipt across every file wins: that is when
       // the lead first arrived, and a later re-export restates it later.
       ...(earliest(prev.receivedOn, inc.receivedOn) ? { receivedOn: earliest(prev.receivedOn, inc.receivedOn) } : {}),

@@ -201,11 +201,16 @@ export default function AllLeads({
   const [filesF, setFilesF] = useState<FilesFilter>("all");
   const [fileNameF, setFileNameF] = useState("all");
   const [statusF, setStatusF] = useState<LeadStatus | "all">(initialStatus ?? "all");
-  const [contactF, setContactF] = useState<ContactState | "all">("all");
+  // "untouched" = no outreach on record at all: in Apollo with no call or
+  // email, OR never matched by any sync. Per Jack, the point of the store is
+  // to "filter down all never contacted leads and put them to action".
+  const [contactF, setContactF] = useState<ContactState | "all" | "untouched">("all");
   const [monthF, setMonthF] = useState("all");
   const [levelF, setLevelF] = useState<TitleLevel | "all">("all");
   const [fnF, setFnF] = useState<TitleFunction | "all">("all");
   const [dateF, setDateF] = useState<Derived["dateKind"] | "all">("all");
+  /** Per Jack: "if the company has more than one lead we have on file". */
+  const [companyF, setCompanyF] = useState<"all" | "multi" | "single">("all");
   const [bulkStatus, setBulkStatus] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -289,13 +294,19 @@ export default function AllLeads({
   const fromT = from ? Date.parse(`${from}T00:00:00`) : null;
   const toT = to ? Date.parse(`${to}T23:59:59.999`) : null;
 
-  type Key = "contact" | "level" | "fn" | "month" | "dates" | "status" | "search" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "plan" | "planSeq" | "files" | "fileName" | "date";
+  type Key = "company" | "contact" | "level" | "fn" | "month" | "dates" | "status" | "search" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "plan" | "planSeq" | "files" | "fileName" | "date";
   const tests = useMemo(() => {
     const t: Record<Key, (l: StoredLead, d: Derived) => boolean> = {
+      company: (_l, d) => {
+        if (companyF === "all") return true;
+        const n = d.companyKey ? companyStats.get(d.companyKey)?.contacts ?? 1 : 1;
+        return companyF === "multi" ? n > 1 : n <= 1;
+      },
       status: (_l, d) => statusF === "all" || d.status === statusF,
       month: (_l, d) => monthF === "all" || d.month === monthF,
       level: (_l, d) => levelF === "all" || d.level === levelF,
-      contact: (_l, d) => contactF === "all" || d.contact === contactF,
+      contact: (_l, d) => contactF === "all" || d.contact === contactF
+        || (contactF === "untouched" && (d.contact === "never" || d.contact === "unknown")),
       fn: (_l, d) => fnF === "all" || d.fn === fnF,
       dates: (_l, d) => dateF === "all" || d.dateKind === dateF,
       search: (_l, d) => !q || d.hay.includes(q),
@@ -329,7 +340,7 @@ export default function AllLeads({
       },
     };
     return t;
-  }, [contactF, levelF, fnF, monthF, dateF, statusF, q, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, planF, planSeqF, filesF, fileNameF, fromT, toT]);
+  }, [companyF, companyStats, contactF, levelF, fnF, monthF, dateF, statusF, q, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, planF, planSeqF, filesF, fileNameF, fromT, toT]);
 
   const passes = (l: StoredLead, skip?: Key) => {
     const d = derived.get(l.key)!;
@@ -446,9 +457,10 @@ export default function AllLeads({
 
   /* ---- active filter chips ---- */
   const chips: { label: string; clear: () => void }[] = [];
-  if (contactF !== "all") chips.push({ label: CONTACT_META[contactF].label, clear: () => setContactF("all") });
+  if (contactF !== "all") chips.push({ label: contactF === "untouched" ? "Never touched (no outreach on record)" : CONTACT_META[contactF].label, clear: () => setContactF("all") });
   if (levelF !== "all") chips.push({ label: `Position: ${LEVEL_META[levelF].label}`, clear: () => setLevelF("all") });
   if (fnF !== "all") chips.push({ label: FUNCTION_META[fnF].label, clear: () => setFnF("all") });
+  if (companyF !== "all") chips.push({ label: companyF === "multi" ? "2+ leads at the company" : "Only lead at the company", clear: () => setCompanyF("all") });
   if (monthF !== "all") chips.push({ label: `Received ${monthLabel(monthF)}`, clear: () => setMonthF("all") });
   if (dateF !== "all") chips.push({ label: DATE_LABEL[dateF], clear: () => setDateF("all") });
   if (statusF !== "all") chips.push({ label: `Status: ${STATUS_META[statusF].label}`, clear: () => setStatusF("all") });
@@ -661,10 +673,18 @@ export default function AllLeads({
             {tiers.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
           <select className="field" aria-label="Outreach" value={contactF}
-                  onChange={(e) => setContactF(e.target.value as ContactState | "all")}
+                  onChange={(e) => setContactF(e.target.value as ContactState | "all" | "untouched")}
                   title="Has anyone got through? Read from the Apollo sync.">
             <option value="all">Outreach: any</option>
+            <option value="untouched">Never touched — no outreach on record ({(contactCounts.never + contactCounts.unknown).toLocaleString()})</option>
             {CONTACT_ORDER.map((x) => <option key={x} value={x}>{CONTACT_META[x].label} ({contactCounts[x].toLocaleString()})</option>)}
+          </select>
+          <select className="field" aria-label="At company" value={companyF}
+                  onChange={(e) => setCompanyF(e.target.value as "all" | "multi" | "single")}
+                  title="How many leads we hold at this lead's company">
+            <option value="all">At company: any</option>
+            <option value="multi">2+ leads at the company</option>
+            <option value="single">Only lead at the company</option>
           </select>
           <select className="field" aria-label="Position" value={levelF}
                   onChange={(e) => setLevelF(e.target.value as TitleLevel | "all")}

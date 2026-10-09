@@ -97,27 +97,26 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await page.locator('button.sidebar-group', { hasText: 'Scanners' }).click(); await sleep(300);
   ok('expanding brings them back', (await navNames()).includes('CSP Scanner'));
 
-  console.log('\n== upload: qualified CSP leads route themselves ==');
+  console.log('\n== upload assigns NO sequence on its own ==');
+  // Per Jack: "im not assigning which sequence here … its which sequence
+  // is it in in apollo already". An upload stores leads; nothing is routed
+  // until a person asks for it.
   await upload('Main Scanner', MAIN_FILE);
   await upload('CSP Scanner', CSP_FILE);
   await nav('Apollo queue');
   t = await text();
-  ok('the CSP Leads sequence appears in the queue', /CSP Leads/.test(t), t.slice(0, 400));
-  const cspCard = card('CSP Leads');
-  const cspHead = (await cspCard.locator('.panel-head').innerText()).replace(/\s+/g, ' ');
-  ok('  with the qualified CSP lead queued', /[1-9]\d* queued/.test(cspHead), cspHead);
-  ok('  and the top CSP lead is the one in it', /CSP ALPHA CO/.test((await cspCard.innerText())), (await cspCard.innerText()).slice(0, 300));
-  ok('a Main lead with no rule is held, not routed', /Waiting on a rule\s*[1-9]/i.test(t) || /Qualified, waiting on a rule/.test(t), t.slice(0, 600));
+  ok('nothing is queued straight after an upload', !/[1-9]\d* queued/.test(t), t.slice(0, 400));
+  ok('  the qualified leads wait instead', /Waiting on a rule\s*[1-9]/i.test(t) || /Qualified, waiting on a rule/i.test(t) || /waiting/i.test(t), t.slice(0, 600));
 
-  console.log('\n== a routing rule queues the waiting leads ==');
+  console.log('\n== routing only happens on an explicit "route" ==');
   const rule = page.locator('input[aria-label="Sequence for Main · M365 / Azure"]');
   if (!(await rule.count())) { await page.locator('.panel-head', { hasText: 'Routing rules' }).click(); await sleep(300); }
   await page.fill('input[aria-label="Sequence for Main · M365 / Azure"]', 'Jack Main Sequence');
   await page.click('button:has-text("Save rules & route")'); await sleep(900);
   t = await text();
-  ok('saving the rule routes the waiting lead', /[1-9]\d* qualified leads? routed/.test(t), t.slice(0, 500));
-  ok('  into the named sequence', /Jack Main Sequence/.test(t));
-  ok('  and it is the Main lead', /MAIN ALPHA CO/.test(await card('Jack Main Sequence').innerText()));
+  ok('saving the rules routes the waiting leads', /[1-9]\d* qualified leads? routed/.test(t), t.slice(0, 500));
+  ok('  the CSP lead into CSP Leads', /CSP ALPHA CO/.test(await card('CSP Leads').innerText()));
+  ok('  and the Main lead into the named sequence', /MAIN ALPHA CO/.test(await card('Jack Main Sequence').innerText()));
 
   console.log('\n== export writes one Apollo file per sequence, then marks it sent ==');
   const [dl] = await Promise.all([

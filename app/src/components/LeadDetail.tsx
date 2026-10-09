@@ -201,6 +201,7 @@ export default function LeadDetail({
   const tone = TONE[flag.tone];
   const files = lead.fileSeen?.length ? lead.fileSeen : lead.sourceFiles.map((f) => ({ file: f, at: "" }));
   const rawSegs = raw && raw !== "loading" ? raw.segments : [];
+  const rawRows = raw && raw !== "loading" ? raw.rows ?? [] : [];
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(8,30,34,0.18)", zIndex: 60 }}>
@@ -311,6 +312,29 @@ export default function LeadDetail({
                     )}
                   </>
                 )}
+              {/* Every other column of the CSV, per file it arrived in. */}
+              {rawRows.length > 0 && (
+                <>
+                  <div style={{ fontSize: 11.5, ...muted, margin: "10px 0 4px" }}>
+                    CSV row{rawRows.length > 1 ? `s (${rawRows.length} uploads)` : ""} as uploaded
+                  </div>
+                  {rawRows.map((rw, i) => (
+                    <details key={i} open={i === 0} style={{ marginBottom: 6 }}>
+                      <summary style={{ fontSize: 11.5, cursor: "pointer", ...muted }}>{rw.at.slice(0, 10)} · {rw.file}</summary>
+                      <table className="viz-table" style={{ width: "100%", fontSize: 12, marginTop: 4 }}>
+                        <tbody>
+                          {Object.entries(rw.fields).map(([k, v]) => (
+                            <tr key={k}>
+                              <td style={{ ...muted, whiteSpace: "nowrap", paddingRight: 10, verticalAlign: "top" }}>{k}</td>
+                              <td style={{ wordBreak: "break-word" }}>{v}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </details>
+                  ))}
+                </>
+              )}
             </div>
 
             <div style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 12 }}>
