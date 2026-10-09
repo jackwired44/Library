@@ -39,6 +39,8 @@ const csv = [HEAD.join(',')].concat(rows.map((r, i) => [
 (async () => {
   const b = await chromium.launch({ executablePath: EXE });
   const page = await (await b.newContext({ viewport: { width: 1500, height: 1000 } })).newPage();
+  // Scan setup sits behind Details now; open it for this suite.
+  await page.addInitScript(() => { try { localStorage.setItem('scanDetailsOpen', '1'); } catch {} });
   const errs = [];
   page.on('pageerror', e => errs.push('PAGEERROR ' + e.message));
   page.on('console', m => { if (m.type() === 'error' && !/favicon|font|net::|googleapis|Failed to load/i.test(m.text())) errs.push('CONSOLE ' + m.text()); });
