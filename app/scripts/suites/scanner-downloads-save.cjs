@@ -93,7 +93,7 @@ const csv=[HEAD,...rows].join('\n');
    await page.fill('input[aria-label="Email"]','jack@wiredcio.com'); await page.fill('input[type=password]','changeme');
    await page.click('button:has-text("Unlock")');
  }
- await page.locator('.side-nav-btn:has-text("Lead library")').click(); await sleep(1200);
+ await page.locator('.side-nav-btn:has-text("All leads")').click(); await sleep(500); await page.locator('.seg-btn:has-text("Monthly files")').click(); await sleep(1200);
  const lib = await page.locator('main').innerText();
  ok('new folder persisted to the Lead Library', /Azure Push Q4/.test(lib), lib.slice(0,300));
 

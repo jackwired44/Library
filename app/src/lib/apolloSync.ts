@@ -24,14 +24,14 @@
 // numbers here or what sequence a lead is assigned to til i upload the
 // files going forward."
 import { guessColumn, type ParsedFile } from "./detection";
-import { leadKeyOf, type ApolloLeadState, type CallEvent, type StoredLead } from "./leadStore";
+import { leadKeyOf, type ApolloLeadState, type ApolloSequenceState, type CallEvent, type StoredLead, type TaskEvent } from "./leadStore";
 
 /** One contact's Apollo state, as it arrives in the sync file. */
 export interface ApolloSyncRow {
   email: string;
   contact: string;
   company: string;
-  sequences: { name: string; status: string; step: number | null }[];
+  sequences: ApolloSequenceState[];
   callCount: number;
   /** Emails sent. Absent when the file has no such column. */
   emailCount?: number;
@@ -40,6 +40,7 @@ export interface ApolloSyncRow {
   lastCallAt: string;
   /** Optional: a sync that carries only totals has none. */
   history?: CallEvent[];
+  tasks?: TaskEvent[];
 }
 
 /* --------------------------------------------------------------- format */
@@ -62,6 +63,7 @@ const COL = {
   // grabbed by — the email ADDRESS column.
   emailCount: ["emailssent", "emailsent", "emailcount", "numemails", "emailsdelivered", "totalemails"],
   history: ["callhistory", "dispositionhistory", "callog", "calllog", "history"],
+  tasks: ["tasks", "tasklog", "taskhistory", "sequencetasks"],
 };
 
 /**
@@ -86,8 +88,10 @@ export function parseHistoryCell(raw: unknown): CallEvent[] {
 }
 
 /**
- * Sequences arrive as `Name:status:step` joined by `;`, e.g.
- *   "Jack Main Sequence:active:3; Carly Outbound Emails:finished"
+ * Sequences arrive as `Name:status:step:added:lastDone` joined by `;`, e.g.
+ *   "Jack Main Sequence:active:3:2026-09-14:2026-10-02; Carly Outbound Emails:finished"
+ * The two trailing dates (YYYY-MM-DD) are optional; anything that is not a
+ * real day is ignored rather than stored.
  *
  * The step is optional because a finished enrolment has no meaningful
  * current step, and a plain sequence name with no status at all is read as
@@ -106,9 +110,33 @@ export function parseSequenceCell(raw: unknown): ApolloSyncRow["sequences"] {
     const status = (bits[1] || "active").toLowerCase();
     const stepRaw = bits[2];
     const step = stepRaw && /^\d+$/.test(stepRaw) ? Number(stepRaw) : null;
-    out.push({ name, status, step });
+    const isDay = (v?: string) => !!v && /^\d{4}-\d{2}-\d{2}$/.test(v);
+    out.push({
+      name, status, step,
+      ...(isDay(bits[3]) ? { addedAt: bits[3] } : {}),
+      ...(isDay(bits[4]) ? { lastDoneAt: bits[4] } : {}),
+    });
   }
   return out;
+}
+
+/**
+ * Tasks arrive as dated segments joined by `;`:
+ *   "2026-10-08 call completed @Jack Main Sequence:3; 2026-10-06 call skipped @Jack Main Sequence:1"
+ * A segment with no parseable date is skipped. Newest first.
+ */
+export function parseTaskCell(raw: unknown): TaskEvent[] {
+  const out: TaskEvent[] = [];
+  for (const chunk of String(raw || "").split(/[;|]/)) {
+    const m = chunk.trim().match(/^(\d{4}-\d{2}-\d{2})\s+(\S+)\s+(\S+)(?:\s*@\s*(.+?)(?::(\d+))?)?$/);
+    if (!m) continue;
+    out.push({
+      at: m[1], type: m[2], status: m[3].toLowerCase(),
+      ...(m[4] ? { sequence: m[4].trim() } : {}),
+      ...(m[5] ? { step: Number(m[5]) } : {}),
+    });
+  }
+  return out.sort((a, b) => b.at.localeCompare(a.at));
 }
 
 /**
@@ -156,6 +184,7 @@ export function parseApolloSync(files: ParsedFile[]): {
     const cContact = pick(COL.contact);
     const cCompany = pick(COL.company);
     const cHist = pick(COL.history);
+    const cTasks = pick(COL.tasks);
     const cSeq = pick(COL.sequences);
     const cCalls = pick(COL.callCount);
     const cOut = pick(COL.outcomes);
@@ -170,8 +199,11 @@ export function parseApolloSync(files: ParsedFile[]): {
       const email = get(r, cEmail);
       const contact = get(r, cContact);
       const company = get(r, cCompany);
-      // Unkeyable rows are counted, never silently dropped.
-      if (!leadKeyOf(email, contact, company)) { skipped++; continue; }
+      // Unkeyable rows are counted, never silently dropped. A name with no
+      // email and no company is kept: Apollo's task feed carries only the
+      // contact's name, and applyApolloSync matches it by name — but only
+      // when that name is unique in the store.
+      if (!leadKeyOf(email, contact, company) && !contact) { skipped++; continue; }
       const history = parseHistoryCell(get(r, cHist));
       // A file carrying only the dated history still answers "how many
       // calls" and "what happened" — tallied from it, never left at zero.
@@ -191,6 +223,7 @@ export function parseApolloSync(files: ParsedFile[]): {
         lastOutcome: get(r, cLastOut),
         lastCallAt: get(r, cLastAt),
         history,
+        tasks: parseTaskCell(get(r, cTasks)),
       });
     }
   }
@@ -215,27 +248,58 @@ export function applyApolloSync(
   leads: StoredLead[],
   rows: ApolloSyncRow[],
   syncedAt = new Date().toISOString(),
-): { leads: StoredLead[]; changed: StoredLead[]; matched: number; unmatched: ApolloSyncRow[] } {
+): {
+  leads: StoredLead[]; changed: StoredLead[]; matched: number; unmatched: ApolloSyncRow[];
+  /** How many of `matched` were matched on full name alone. */
+  matchedByName: number;
+  /** Rows whose name fits more than one stored lead — left unmatched. */
+  ambiguous: number;
+} {
   const byKey = new Map<string, StoredLead>();
   for (const l of leads) byKey.set(l.key, l);
+  // Full-name index for rows that carry nothing else. A name shared by two
+  // stored leads is marked ambiguous and never guessed between.
+  const byName = new Map<string, string | null>();
+  for (const l of leads) {
+    const n = normName(l.contact);
+    if (!n || !n.includes(" ")) continue;
+    byName.set(n, byName.has(n) ? null : l.key);
+  }
+  let matchedByName = 0;
+  let ambiguous = 0;
 
   const changed: StoredLead[] = [];
   const unmatched: ApolloSyncRow[] = [];
   let matched = 0;
 
   for (const r of rows) {
-    const key = leadKeyOf(r.email, r.contact, r.company);
-    const lead = key ? byKey.get(key) : undefined;
-    if (!lead) { unmatched.push(r); continue; }
+    let key = leadKeyOf(r.email, r.contact, r.company);
+    let lead = key ? byKey.get(key) : undefined;
+    if (!lead && !r.email && !r.company) {
+      const n = normName(r.contact);
+      const hit = byName.get(n);
+      if (hit === null) ambiguous++;
+      else if (hit) { key = hit; lead = byKey.get(hit); if (lead) matchedByName++; }
+    }
+    if (!lead || !key) { unmatched.push(r); continue; }
+    // A task-only sync (Apollo's task feed) carries sequences, tasks and a
+    // call count, but no outcomes, no call history and no email count.
+    // Absent is unknown, not zero, so those carry over from the last sync
+    // rather than being wiped by a file that never contained them.
+    const prev = lead.apollo;
+    const taskOnly = !!r.tasks?.length && Object.keys(r.outcomes).length === 0 && !r.history?.length;
+    const keep = taskOnly && prev;
     const apollo: ApolloLeadState = {
       syncedAt,
       sequences: r.sequences,
-      callCount: r.callCount,
-      ...(r.emailCount !== undefined ? { emailCount: r.emailCount } : {}),
-      outcomes: r.outcomes,
-      lastOutcome: r.lastOutcome || r.history?.[0]?.outcome || "",
-      lastCallAt: r.lastCallAt || r.history?.[0]?.at || "",
-      ...(r.history?.length ? { history: r.history } : {}),
+      callCount: keep ? Math.max(prev.callCount, r.callCount) : r.callCount,
+      ...(r.emailCount !== undefined ? { emailCount: r.emailCount }
+        : keep && prev.emailCount !== undefined ? { emailCount: prev.emailCount } : {}),
+      outcomes: keep ? prev.outcomes : r.outcomes,
+      lastOutcome: r.lastOutcome || r.history?.[0]?.outcome || (keep ? prev.lastOutcome : ""),
+      lastCallAt: r.lastCallAt || r.history?.[0]?.at || (keep ? prev.lastCallAt : ""),
+      ...(r.history?.length ? { history: r.history } : keep && prev.history ? { history: prev.history } : {}),
+      ...(r.tasks?.length ? { tasks: r.tasks } : {}),
     };
     const next = { ...lead, apollo };
     byKey.set(key, next);
@@ -243,8 +307,10 @@ export function applyApolloSync(
     matched++;
   }
 
-  return { leads: [...byKey.values()], changed, matched, unmatched };
+  return { leads: [...byKey.values()], changed, matched, unmatched, matchedByName, ambiguous };
 }
+
+const normName = (s: string) => s.toLowerCase().replace(/[^a-z\s'-]/g, " ").replace(/\s+/g, " ").trim();
 
 /* ------------------------------------------------------------ staleness */
 

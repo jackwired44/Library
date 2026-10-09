@@ -79,6 +79,13 @@ function Highlighted({ text, dates }: { text: string; dates: NoteDate[] }) {
 }
 
 /** A sequence's steps as a row of boxes: done, where they are, ahead. */
+const TASK_TYPE_LABEL: Record<string, string> = {
+  call: "Call", phone_call: "Call", outreach_manual_email: "Manual email",
+  action_item: "Action item", linkedin_step_connect: "LinkedIn connect",
+  linkedin_step_message: "LinkedIn message", linkedin_step_view_profile: "LinkedIn view",
+  linkedin_step_interact_post: "LinkedIn post",
+};
+
 function StepTrack({ funnel, step, status }: { funnel: ApolloFunnel | undefined; step: number | null; status: string }) {
   const steps = realSteps(funnel);
   if (!steps.length) {
@@ -385,6 +392,13 @@ export default function LeadDetail({
                             {sq.step != null ? ` · ${sq.status === "active" ? "on" : "stopped at"} step ${sq.step}` : ""}
                           </span>
                         </div>
+                        {(sq.addedAt || sq.lastDoneAt) && (
+                          <div style={{ fontSize: 12, ...muted }} title="Dated from Apollo task due dates — Apollo returns no separate enrolment or completion stamp.">
+                            {sq.addedAt && <>Added {sq.addedAt}</>}
+                            {sq.addedAt && sq.lastDoneAt && " · "}
+                            {sq.lastDoneAt && <>last task done {sq.lastDoneAt}</>}
+                          </div>
+                        )}
                         <StepTrack funnel={funnels.find((f) => f.name === sq.name)} step={sq.step} status={sq.status} />
                       </div>
                     ))}
@@ -421,6 +435,23 @@ export default function LeadDetail({
                     <div style={{ fontSize: 12, ...muted }}>
                       {a.callCount ? "The sync carried totals only, no dated call history." : "No calls to show."}
                     </div>
+                  )}
+                  {a.tasks && a.tasks.length > 0 && (
+                    <>
+                      <div style={{ fontSize: 12, fontWeight: 600, margin: "10px 0 4px" }} title="Dated by each task's due date; Apollo does not return when a task was actually completed.">
+                        Sequence tasks ({a.tasks.length})
+                      </div>
+                      <div style={{ maxHeight: 220, overflowY: "auto", borderLeft: "2px solid var(--border)", paddingLeft: 10 }}>
+                        {a.tasks.map((t, i) => (
+                          <div key={i} style={{ fontSize: 12.5, padding: "2px 0" }}>
+                            <span style={{ ...muted, fontVariantNumeric: "tabular-nums" }}>{t.at}</span>{" "}
+                            <b>{TASK_TYPE_LABEL[t.type] ?? t.type}</b>{" "}
+                            <span style={{ color: t.status === "completed" ? "var(--accent)" : "var(--muted)" }}>{t.status === "scheduled" ? "due" : t.status}</span>
+                            {t.sequence && <span style={muted}> · {t.sequence}{t.step != null ? ` step ${t.step}` : ""}</span>}
+                          </div>
+                        ))}
+                      </div>
+                    </>
                   )}
                 </div>
               </div>

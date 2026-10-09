@@ -41,7 +41,7 @@ export interface ApolloLeadState {
   /** Every sequence this contact is in, with where it stands. A contact
    *  can hold several at once — one real contact is `finished` in one
    *  sequence and `active` in another, which a single flag would hide. */
-  sequences: { name: string; status: string; step: number | null }[];
+  sequences: ApolloSequenceState[];
   /** Calls are AGGREGATED, not listed. Per Jack: "most people i call 5-20
    *  times each that doesnt matter … but it does for context of how many
    *  per person." 29,026 of 35,513 real calls are No Answer, so a per-call
@@ -58,6 +58,36 @@ export interface ApolloLeadState {
    *  a sync file that carries only totals still loads, it just has no
    *  timeline to show. */
   history?: CallEvent[];
+  /** Every sequence task Apollo holds for this contact, dated, newest
+   *  first. Per Jack: "see when a lead is added and when a task is
+   *  completed in a sequence". Optional: older sync files have none. */
+  tasks?: TaskEvent[];
+}
+
+/** One sequence enrolment. The two dates are optional because a sync that
+ *  only names sequences has neither, and a missing date must read as
+ *  unknown rather than as some default. */
+export interface ApolloSequenceState {
+  name: string;
+  status: string;
+  step: number | null;
+  /** When the contact entered the sequence. Read from the due date of its
+   *  FIRST task there: Apollo's task rows carry no enrolment stamp, and a
+   *  step-1 task is due the day the contact is added (wait 0). */
+  addedAt?: string;
+  /** The due date of the newest completed task in this sequence. */
+  lastDoneAt?: string;
+}
+
+/** One Apollo task. `at` is the task's DUE date — Apollo's task search
+ *  returns no completion timestamp, so a completed task is dated by when it
+ *  was due, which is when it is normally worked. Never presented as more. */
+export interface TaskEvent {
+  at: string;
+  type: string;
+  status: string;
+  sequence?: string;
+  step?: number | null;
 }
 
 export interface CallEvent {

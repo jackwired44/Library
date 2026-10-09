@@ -167,7 +167,7 @@ const csv = [
   await page.locator('.chip-btn:has-text("Any")').first().click(); await sleep(500);
 
   console.log('\n== isolation from Scanner 1 ==');
-  await page.locator('.side-nav-btn', { hasText: 'Lead library' }).first().click(); await sleep(900);
+  await page.locator('.side-nav-btn', { hasText: 'All leads' }).first().click(); await sleep(500); await page.locator('.seg-btn', { hasText: 'Monthly files' }).first().click(); await sleep(900);
   const lib = await txt();
   ok('nothing from the Custom Scanner reached the Lead library', !/Alpine Freight|Borden Labs/.test(lib));
   await page.locator('.side-nav-btn', { hasText: 'History' }).first().click(); await sleep(900);

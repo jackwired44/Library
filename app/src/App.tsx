@@ -107,7 +107,6 @@ const NAV_GROUPS: { title: string; items: { key: View; label: string }[] }[] = [
     { key: "campaigns", label: "Campaigns" },
   ] },
   { title: "Archive", items: [
-    { key: "library", label: "Lead library" },
     { key: "lists", label: "Lists" },
     { key: "history", label: "History" },
   ] },
@@ -409,13 +408,13 @@ export default function App() {
    */
   async function applySyncFiles(files: ParsedFile[]) {
     const { rows, unmapped, skipped } = parseApolloSync(files);
-    const { leads: next, changed, matched, unmatched } = applyApolloSync(leads, rows);
+    const { leads: next, changed, matched, unmatched, matchedByName, ambiguous } = applyApolloSync(leads, rows);
     setLeads(next);
     if (changed.length) {
       await saveLeads(changed).catch((e) =>
         setError(`Sync read, but could not be stored: ${e instanceof Error ? e.message : String(e)}`));
     }
-    return { rows: rows.length, matched, unmatched: unmatched.length, unmapped, skipped };
+    return { rows: rows.length, matched, unmatched: unmatched.length, unmapped, skipped, matchedByName, ambiguous };
   }
 
   /** Import Apollo's per-step funnel. Replaced per sequence, not merged —
@@ -711,7 +710,7 @@ export default function App() {
               {g.items.map((item) => (
                 <button
                   key={item.key}
-                  className={`side-nav-btn${view === item.key ? " active" : ""}`}
+                  className={`side-nav-btn${view === item.key || (item.key === "allleads" && view === "library") ? " active" : ""}`}
                   onClick={() => setView(item.key)}
                 >
                   <span className="side-nav-label" style={{ flex: 1 }}>{item.label}</span>
@@ -799,6 +798,21 @@ export default function App() {
             onSetPlan={setPlan}
             onMarkExported={markLeadsExported}
           />
+        )}
+        {(view === "allleads" || view === "library") && (
+          // The Lead library lives inside All leads now. Per Jack: "re do
+          // lead libary and build it into all leads". Every lead the
+          // Library ever filed is already in the lead store, so the table
+          // IS the library; the month files stay one tab over, unchanged,
+          // so nothing already filed or downloaded from them is stranded.
+          <div className="seg" role="tablist" aria-label="All leads view" style={{ marginBottom: 12 }}>
+            <button role="tab" aria-selected={view === "allleads"} className={`seg-btn${view === "allleads" ? " active" : ""}`} onClick={() => setView("allleads")}>
+              Leads{leads.length > 0 ? ` (${leads.length.toLocaleString()})` : ""}
+            </button>
+            <button role="tab" aria-selected={view === "library"} className={`seg-btn${view === "library" ? " active" : ""}`} onClick={() => setView("library")}>
+              Monthly files{libraryEntries.length > 0 ? ` (${libraryEntries.length})` : ""}
+            </button>
+          </div>
         )}
         {view === "allleads" && (
           <AllLeads

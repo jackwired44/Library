@@ -46,6 +46,7 @@ const PAGE_SIZES = [25, 100, 250, 500];
 
 export interface SyncReport {
   rows: number; matched: number; unmatched: number; unmapped: string[]; skipped: number;
+  matchedByName?: number; ambiguous?: number;
 }
 
 /* ----------------------------------------------------------- filter types */
@@ -77,7 +78,7 @@ const FILES_LABEL: Record<Exclude<FilesFilter, "all">, string> = {
   "3": "On 3+ files",
 };
 
-type SortKey = "last" | "first" | "company" | "files" | "score" | "calls" | "nextdate";
+type SortKey = "last" | "first" | "company" | "files" | "score" | "calls" | "nextdate" | "added" | "taskdone";
 const SORT_LABEL: Record<SortKey, string> = {
   last: "Last seen (newest)",
   first: "First seen (newest)",
@@ -86,6 +87,8 @@ const SORT_LABEL: Record<SortKey, string> = {
   score: "Highest score",
   calls: "Most calls",
   nextdate: "Soonest date in notes",
+  added: "Added to sequence (newest)",
+  taskdone: "Last task done (newest)",
 };
 
 /** Everything a filter, a facet count or a cell reads, resolved once. */
@@ -115,6 +118,10 @@ interface Derived {
   companyKey: string;
   /** How many dated notes the lead has combined across uploads. */
   segs: number;
+  /** Newest sequence enrolment date, from the Apollo task sync. "" if none. */
+  addedAt: string;
+  /** Newest completed task's due date. "" if none. */
+  taskDoneAt: string;
 }
 
 function dateKindOf(dates: NoteDate[] | undefined): Derived["dateKind"] {
@@ -254,6 +261,8 @@ export default function AllLeads({
         contact: contactStateOf(l),
         companyKey: ck,
         segs: noteSegments(l.notes).length,
+        addedAt: seqs.reduce((m, x) => (x.addedAt && x.addedAt > m ? x.addedAt : m), ""),
+        taskDoneAt: (a?.tasks ?? []).reduce((m, t) => (t.status === "completed" && t.at > m ? t.at : m), ""),
       });
     }
     return m;
@@ -344,6 +353,9 @@ export default function AllLeads({
       calls: (a, b) => d(b).calls - d(a).calls,
       // Leads with no upcoming date sink below every dated one.
       nextdate: (a, b) => (d(a).nextDate?.iso ?? "\uffff").localeCompare(d(b).nextDate?.iso ?? "\uffff"),
+      // Undated leads sink, never read as the oldest date.
+      added: (a, b) => (d(b).addedAt || "").localeCompare(d(a).addedAt || ""),
+      taskdone: (a, b) => (d(b).taskDoneAt || "").localeCompare(d(a).taskDoneAt || ""),
     };
     return out.sort(cmp[sort]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -560,7 +572,9 @@ export default function AllLeads({
             ) : (
               <>
                 <b>{syncReport.matched.toLocaleString()}</b> of {syncReport.rows.toLocaleString()} rows matched a stored lead.
+                {(syncReport.matchedByName ?? 0) > 0 && <> {syncReport.matchedByName!.toLocaleString()} of those on full name alone (the file carried no email or company).</>}
                 {syncReport.unmatched > 0 && <> {syncReport.unmatched.toLocaleString()} matched nobody here.</>}
+                {(syncReport.ambiguous ?? 0) > 0 && <> {syncReport.ambiguous!.toLocaleString()} left unmatched because the name fits more than one stored lead.</>}
                 {syncReport.skipped > 0 && <> {syncReport.skipped.toLocaleString()} could not be keyed.</>}
                 {syncReport.unmapped.length > 0 && <div style={{ color: "var(--muted)" }}>Unmapped: {syncReport.unmapped.join(", ")}</div>}
                 <button className="btn btn-sm btn-ghost" style={{ marginLeft: 6 }} onClick={() => setSyncReport(null)}>Dismiss</button>
@@ -874,6 +888,8 @@ export default function AllLeads({
               <th title="Has anyone got through? From the Apollo sync.">Outreach</th>
               <th>Status</th>
               <th title="The Apollo sequence this lead is in, from the last sync">Sequence</th>
+              <th title="When this lead was added to its newest Apollo sequence (the due date of its first task there)">Added</th>
+              <th title="Due date of the newest completed Apollo sequence task">Last task done</th>
               <th title="The sequence this lead is queued or exported for, from the Apollo queue">Headed for</th>
               <th className="num" title="Calls logged in Apollo">Calls</th>
               <th className="num" title="Emails Apollo sent this contact">Emails</th>
@@ -919,6 +935,8 @@ export default function AllLeads({
                           {a.sequences.length > 1 && <span className="muted"> +{a.sequences.length - 1}</span>}
                         </>}
                   </td>
+                  <td>{d.addedAt || <span className="muted">—</span>}</td>
+                  <td>{d.taskDoneAt || <span className="muted">—</span>}</td>
                   <td title={l.plan ? `${l.plan.sequence} · ${l.plan.status === "exported" ? `exported ${(l.plan.exportedAt || "").slice(0, 10)}` : "queued"}` : undefined}>
                     {!l.plan ? <span className="muted">—</span>
                       : <>{l.plan.sequence}<span className="muted">{l.plan.status === "exported" ? ` · exported ${(l.plan.exportedAt || "").slice(0, 10)}` : " · queued"}</span></>}
