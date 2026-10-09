@@ -74,7 +74,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('a chart switches to its table view', (await statusCard.locator('table.viz-table tbody tr').count()) === 11);
   await statusCard.locator('.viz-toggle', { hasText: 'Chart' }).click(); await sleep(300);
   // Hover tooltip.
-  await statusCard.locator('.viz-barrow:has(.viz-barlabel:text-is("Qualified"))').hover(); await sleep(200);
+  await statusCard.locator('.viz-barrow:has(.viz-barlabel:text-is("Strong Signal"))').hover(); await sleep(200);
   ok('hovering a bar shows a tooltip with its value', /\b3\b/.test(await statusCard.locator('[role=tooltip]').innerText().catch(() => '')));
 
   console.log('\n== sync, then the strong-signal views ==');

@@ -43,17 +43,18 @@ export const STATUS_META: Record<LeadStatus, {
     hint: "Exported from the Apollo queue. Waiting for a sync to show it in a sequence." },
   queued: { label: "Queued", stage: "placed", color: "#9A5B22", bg: "#FBF0E2",
     hint: "Assigned a target sequence in the Apollo queue, not exported yet." },
-  qualified: { label: "Qualified", stage: "intake", color: "#0E7A72", bg: "#E3F3F1",
-    hint: "Top tier on its scanner (High priority / Strong Signal), not placed yet." },
-  review: { label: "Needs review", stage: "intake", color: "#5C7379", bg: "#F1F5F5",
+  qualified: { label: "Strong Signal", stage: "intake", color: "#0E7A72", bg: "#E3F3F1",
+    hint: "Top tier on its scanner (Strong Signal / High priority), not worked yet." },
+  review: { label: "Needs Review", stage: "intake", color: "#5C7379", bg: "#F1F5F5",
     hint: "Scanned and stored, but not top tier. Worth a read before dropping." },
-  disqualified: { label: "Disqualified", stage: "intake", color: "#B5443B", bg: "#FBEAE8",
+  disqualified: { label: "Bad Lead", stage: "intake", color: "#B5443B", bg: "#FBEAE8",
     hint: "The scanner's Auto-DQ said no — a rule, not a low score." },
 };
 
 /** Pipeline order, left to right: how a lead moves. */
 export const STATUS_ORDER: LeadStatus[] = [
-  "review", "qualified", "disqualified",
+  // Intake in Jack's order: "strong signal, bad lead, needs review".
+  "qualified", "disqualified", "review",
   "queued", "sent",
   "in-sequence", "called", "reached", "finished",
   "meeting", "not-interested",
