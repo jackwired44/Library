@@ -134,3 +134,38 @@ export function countByStatus(leads: StoredLead[]): Record<LeadStatus, number> {
   for (const l of leads) out[statusOf(l)]++;
   return out;
 }
+
+/* ---------------------------------------------------------- contact state */
+
+/**
+ * Has anyone got through? One plain answer per lead, for scanning a list.
+ *
+ * Per Jack: "see if they have been attempted contact, contact made or
+ * contact never made." Narrower than status on purpose — it ignores the
+ * scan tier and the queue and answers only the outreach question, from the
+ * Apollo sync. An email counts as an attempt; only a call outcome counts as
+ * contact made, because a sent email says nothing about being reached.
+ */
+export type ContactState = "meeting" | "no" | "made" | "attempted" | "never" | "unknown";
+
+export const CONTACT_META: Record<ContactState, { label: string; color: string; bg: string; hint: string }> = {
+  meeting: { label: "Meeting booked", color: "#0A66C2", bg: "#EAF3FC", hint: "A call outcome says a meeting was booked." },
+  no: { label: "Not interested", color: "#B5443B", bg: "#FBEAE8", hint: "Reached, and said no (or do not contact)." },
+  made: { label: "Contact made", color: "#0E7A72", bg: "#E3F3F1", hint: "A real conversation is on record — not just no answer or voicemail." },
+  attempted: { label: "Attempted, not reached", color: "#9A5B22", bg: "#FBF0E2", hint: "Called or emailed, but every call was no answer, voicemail or gatekeeper." },
+  never: { label: "Never contacted", color: "#5C7379", bg: "#EEF1F2", hint: "In Apollo, with no call and no email logged." },
+  unknown: { label: "Not in Apollo", color: "#8A9A9D", bg: "#F5F7F7", hint: "No Apollo sync has matched this lead, so contact history is unknown — not the same as never contacted." },
+};
+
+export const CONTACT_ORDER: ContactState[] = ["never", "attempted", "made", "meeting", "no", "unknown"];
+
+export function contactStateOf(l: StoredLead): ContactState {
+  const a = l.apollo;
+  if (!a) return "unknown";
+  const names = Object.keys(a.outcomes);
+  if (names.some((n) => MEETING_RE.test(n) && a.outcomes[n] > 0)) return "meeting";
+  if (names.some((n) => NO_RE.test(n) && a.outcomes[n] > 0)) return "no";
+  if (wasReached(a)) return "made";
+  if (a.callCount > 0 || (a.emailCount ?? 0) > 0) return "attempted";
+  return "never";
+}

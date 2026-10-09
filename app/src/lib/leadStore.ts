@@ -47,6 +47,9 @@ export interface ApolloLeadState {
    *  per person." 29,026 of 35,513 real calls are No Answer, so a per-call
    *  list is fourteen identical rows per lead carrying no extra meaning. */
   callCount: number;
+  /** Emails Apollo sent this contact. Optional: older sync files carried
+   *  calls only, and a missing count must read as unknown, not zero. */
+  emailCount?: number;
   /** Outcome name -> how many times, e.g. {"No Answer": 14, "Left Voicemail": 2}. */
   outcomes: Record<string, number>;
   lastOutcome: string;

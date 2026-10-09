@@ -4,7 +4,7 @@ import { extractNoteDates, hasUpcomingDate, soonestUpcoming, isIntentDate } from
 import { appendSegment } from "../../src/lib/rawNotes";
 import { mergeLeads, type LeadInput } from "../../src/lib/leadStore";
 import { parseHistoryCell, parseApolloSync, applyApolloSync } from "../../src/lib/apolloSync";
-import { wasReached } from "../../src/lib/leadStatus";
+import { wasReached, contactStateOf } from "../../src/lib/leadStatus";
 
 let pass = 0, fail = 0;
 const ok = (n: string, c: boolean, d = "") => { c ? pass++ : (fail++, console.log(`  FAIL ${n}${d ? " — " + d : ""}`)); };
@@ -96,6 +96,30 @@ ok("  last outcome and date fall back to the newest call", applied.apollo?.lastO
 ok("  and the history is kept on the lead", applied.apollo?.history?.length === 3);
 ok("Info Requested counts as reached", wasReached(applied.apollo));
 ok("no-answers only does not", !wasReached({ ...applied.apollo!, outcomes: { "No Answer": 3, "Gatekeeper / Front Desk": 1 } }));
+
+// --- emails sent, and the column that must not be stolen
+const pf2 = { name: "s2.csv", fields: ["Work Email", "Emails Sent", "Name", "Company", "Call Count"], data: [
+  { "Work Email": "dana@acme.com", "Emails Sent": "4", Name: "Dana Reyes", Company: "Acme", "Call Count": "2" },
+] } as any;
+const p2 = parseApolloSync([pf2]);
+ok("the email ADDRESS is still read from 'Work Email'", p2.rows[0].email === "dana@acme.com", JSON.stringify(p2.rows[0]));
+ok("the email COUNT comes from 'Emails Sent'", p2.rows[0].emailCount === 4);
+const pf3 = { name: "s3.csv", fields: ["Email", "Name", "Company", "Call Count"], data: [
+  { Email: "dana@acme.com", Name: "Dana Reyes", Company: "Acme", "Call Count": "2" },
+] } as any;
+ok("no emails column -> emailCount unknown, not 0", parseApolloSync([pf3]).rows[0].emailCount === undefined);
+const withEmails = applyApolloSync(leads, p2.rows).leads[0];
+ok("emailCount lands on the lead", withEmails.apollo?.emailCount === 4);
+
+// --- contact state
+const ap = (o: any) => ({ ...leads[0], apollo: { syncedAt: "2026-10-08", sequences: [], callCount: 0, outcomes: {}, lastOutcome: "", lastCallAt: "", ...o } });
+ok("no Apollo record -> Not in Apollo (unknown, never 'never')", contactStateOf(leads[0]) === "unknown");
+ok("in Apollo, nothing logged -> never contacted", contactStateOf(ap({})) === "never");
+ok("emails only -> attempted", contactStateOf(ap({ emailCount: 3 })) === "attempted");
+ok("no-answers only -> attempted", contactStateOf(ap({ callCount: 4, outcomes: { "No Answer": 4 } })) === "attempted");
+ok("a real conversation -> contact made", contactStateOf(ap({ callCount: 2, outcomes: { "No Answer": 1, "Call Back Scheduled": 1 } })) === "made");
+ok("meeting booked", contactStateOf(ap({ callCount: 2, outcomes: { "Meeting Booked": 1 } })) === "meeting");
+ok("not interested", contactStateOf(ap({ callCount: 1, outcomes: { "Not interested": 1 } })) === "no");
 
 console.log(`lead-analysis ${fail ? "FAIL" : "PASS"} ${pass}/${pass + fail}`);
 if (fail) process.exit(1);

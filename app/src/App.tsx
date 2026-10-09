@@ -56,7 +56,7 @@ import {
 import { buildSizeBands } from "./lib/campaignExport";
 import { MIN_EMPLOYEES } from "./lib/leadQualify";
 import { leadInputsFromResults, leadInputsFromRows2, leadInputsFromNoSignal } from "./lib/leadFiling";
-import AllLeads from "./components/AllLeads";
+import AllLeads, { type LeadsPreset } from "./components/AllLeads";
 import {
   applyStickyState, attachScanResultsToContacts, loadContactsFromDB,
   mergeContactsFromParsedFiles, persistContact, type Contact,
@@ -155,6 +155,8 @@ export default function App() {
   const [leadsSequenceEntry, setLeadsSequenceEntry] = useState<string>("");
   /** Same idea, for Home's status links. */
   const [leadsStatusEntry, setLeadsStatusEntry] = useState<LeadStatus | "">("");
+  /** And for Home's named views ("Strong signal · never contacted" …). */
+  const [leadsPresetEntry, setLeadsPresetEntry] = useState<LeadsPreset | "">("");
   const [dispositions, setDispositions] = useState<CustomDisposition[]>([]);
   const [ruleOverrides, setRuleOverrides] = useState<RuleOverrides>(DEFAULT_RULE_OVERRIDES);
   const [loading, setLoading] = useState(true);
@@ -783,7 +785,8 @@ export default function App() {
             companyProfiles={companyProfiles}
             rules={routing}
             onNavigate={setView}
-            onOpenStatus={(st) => { setLeadsStatusEntry(st); setLeadsSequenceEntry(""); setView("allleads"); }}
+            onOpenStatus={(st) => { setLeadsStatusEntry(st); setLeadsSequenceEntry(""); setLeadsPresetEntry(""); setView("allleads"); }}
+            onOpenPreset={(pr) => { setLeadsPresetEntry(pr); setLeadsStatusEntry(""); setLeadsSequenceEntry(""); setView("allleads"); }}
           />
         )}
         {view === "queue" && (
@@ -799,12 +802,13 @@ export default function App() {
         )}
         {view === "allleads" && (
           <AllLeads
-            key={`leads-${leadsSequenceEntry}-${leadsStatusEntry}`}
+            key={`leads-${leadsSequenceEntry}-${leadsStatusEntry}-${leadsPresetEntry}`}
             leads={leads}
             companyProfiles={companyProfiles}
             onApplySync={applySyncFiles}
             initialSequence={leadsSequenceEntry}
             initialStatus={leadsStatusEntry || undefined}
+            initialPreset={leadsPresetEntry || undefined}
             sequenceNames={knownSequences}
             onSetPlan={setPlan}
             onSetStatus={setLeadStatus}
@@ -816,7 +820,7 @@ export default function App() {
             leads={leads}
             funnels={funnels}
             onImportFunnels={importFunnelFiles}
-            onOpenLeads={(name) => { setLeadsSequenceEntry(name); setLeadsStatusEntry(""); setView("allleads"); }}
+            onOpenLeads={(name) => { setLeadsSequenceEntry(name); setLeadsStatusEntry(""); setLeadsPresetEntry(""); setView("allleads"); }}
           />
         )}
 

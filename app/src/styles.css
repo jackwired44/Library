@@ -2181,3 +2181,148 @@ textarea:focus {
   background: none; border: none; padding: 0; font: inherit; font-size: 12px;
   color: var(--accent); text-decoration: underline; cursor: pointer;
 }
+
+/* ------------------------------------------------------------------ */
+/* Home dashboard charts (components/charts.tsx).                      */
+/* Series colours are the dataviz skill's validated palette, checked   */
+/* with its six-checks script against THIS app's card surfaces: white  */
+/* (light) and #152426 (dark). Dark is its own selected step of the    */
+/* same hues, not an automatic flip. Text never wears a series colour. */
+/* ------------------------------------------------------------------ */
+.viz-root {
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --viz-deemph: #c3cfd1;
+  --viz-surface: var(--bg-surface);
+  --viz-grid: #e8eeef;
+  --viz-axis: #c3cfd1;
+  --viz-ink-1: var(--ink-1);
+  --viz-ink-2: var(--ink-2);
+  --viz-ink-3: var(--ink-3);
+  --viz-tip-bg: #17272b;
+  --viz-tip-ink: #ffffff;
+}
+:root[data-theme="dark"] .viz-root {
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --viz-deemph: #3a5153;
+  --viz-grid: #22363a;
+  --viz-axis: #3a5153;
+  --viz-tip-bg: #e8efef;
+  --viz-tip-ink: #0e1a1c;
+}
+
+.viz-slicers {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: 10px 12px; margin-bottom: 14px;
+  background: var(--bg-surface); border: 1px solid var(--line); border-radius: 10px;
+}
+.viz-slicers .viz-slicer-label { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--viz-ink-3); margin-right: 2px; }
+.viz-seg-group { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.viz-seg-group button {
+  border: none; background: transparent; padding: 6px 11px; font-size: 13px; cursor: pointer;
+  color: var(--viz-ink-2); font-family: inherit;
+}
+.viz-seg-group button + button { border-left: 1px solid var(--line); }
+.viz-seg-group button[aria-pressed="true"] { background: var(--brand-subtle, #e3f3f1); color: var(--viz-ink-1); font-weight: 600; }
+
+.viz-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.viz-kpi {
+  text-align: left; font-family: inherit;
+  background: var(--bg-surface); border: 1px solid var(--line); border-radius: 10px;
+  padding: 14px 16px; min-width: 0; box-shadow: var(--sh-sm);
+}
+.viz-kpi.is-link { cursor: pointer; }
+.viz-kpi.is-link:hover { border-color: var(--line-strong, #c4d2d6); }
+.viz-kpi-label { font-size: 12px; font-weight: 600; color: var(--viz-ink-2); }
+.viz-kpi-value { font-size: 32px; font-weight: 650; line-height: 1.1; margin-top: 6px; color: var(--viz-ink-1); letter-spacing: -0.01em; }
+.viz-kpi-sub { font-size: 12.5px; color: var(--viz-ink-3); margin-top: 4px; }
+
+.viz-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); gap: 14px; }
+@media (max-width: 520px) { .viz-grid { grid-template-columns: 1fr; } }
+.viz-card {
+  background: var(--bg-surface); border: 1px solid var(--line); border-radius: 10px;
+  padding: 14px 16px 16px; min-width: 0; box-shadow: var(--sh-sm);
+}
+.viz-title { margin: 0; font-size: 15px; font-weight: 650; color: var(--viz-ink-1); }
+.viz-sub { font-size: 12.5px; color: var(--viz-ink-3); margin-top: 2px; }
+.viz-toggle {
+  border: 1px solid var(--line); background: transparent; border-radius: 6px;
+  padding: 3px 9px; font-size: 12px; color: var(--viz-ink-2); cursor: pointer; font-family: inherit;
+}
+.viz-toggle[aria-pressed="true"] { background: var(--bg-subtle, #f3f8f8); }
+.viz-empty { font-size: 13px; color: var(--viz-ink-3); padding: 18px 0; }
+
+.viz-barrow {
+  display: grid; grid-template-columns: minmax(110px, 38%) 1fr; align-items: center; gap: 10px;
+  width: 100%; padding: 4px 4px; border: none; background: transparent; text-align: left;
+  font-family: inherit; border-radius: 6px; min-height: 30px;
+}
+.viz-barrow.is-link { cursor: pointer; }
+.viz-barrow:hover, .viz-barrow:focus-visible { background: var(--bg-hover, #f3f8f8); }
+.viz-barlabel { font-size: 13px; color: var(--viz-ink-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.viz-bartrack { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.viz-bar { display: block; height: 14px; border-radius: 0 4px 4px 0; flex: none; max-width: calc(100% - 56px); }
+.viz-seg { display: block; height: 14px; min-width: 2px; }
+.viz-seg:last-child { border-radius: 0 4px 4px 0; }
+.viz-seg:focus-visible { outline: 2px solid var(--viz-ink-1); outline-offset: 1px; }
+.viz-barvalue { font-size: 13px; font-weight: 650; color: var(--viz-ink-1); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.viz-group { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--viz-ink-3); margin: 10px 0 2px; }
+.viz-group:first-child { margin-top: 0; }
+
+.viz-legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12.5px; color: var(--viz-ink-2); margin-bottom: 8px; }
+.viz-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.viz-legend-item i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
+.viz-tick { font-size: 11px; fill: var(--viz-ink-3); font-variant-numeric: tabular-nums; }
+.viz-collabel { font-size: 12px; font-weight: 650; fill: var(--viz-ink-1); }
+
+.viz-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.viz-table th { text-align: left; font-weight: 600; color: var(--viz-ink-2); border-bottom: 1px solid var(--line); padding: 5px 6px; }
+.viz-table td { padding: 5px 6px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; color: var(--viz-ink-1); }
+
+/* ------------------------------------------------------------------ */
+/* All leads: dense one-line rows, 50-100 visible per screen.          */
+/* Per Jack: "see at a high level like 50-100 on a screen at a time."  */
+/* Every cell is one line; the full value is on hover and in the       */
+/* lead's profile. The checkbox and company stay pinned while the      */
+/* table scrolls sideways.                                             */
+/* ------------------------------------------------------------------ */
+.dense-table { border-collapse: separate; border-spacing: 0; font-size: 12.5px; width: max-content; min-width: 100%; }
+.dense-table thead th {
+  position: sticky; top: 0; z-index: 3; background: var(--bg-surface);
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--ink-3); padding: 7px 8px; border-bottom: 1px solid var(--line-strong, #c4d2d6); white-space: nowrap;
+}
+.dense-table tbody td {
+  padding: 4px 8px; height: 30px; border-bottom: 1px solid var(--line);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 190px; color: var(--ink-1);
+}
+.dense-table tbody tr { cursor: pointer; }
+.dense-table tbody tr:hover td { background: var(--bg-hover, #f3f8f8); }
+.dense-table tbody tr.is-selected td { background: var(--bg-selected, #e6f3f1); }
+.dense-table .pin { position: sticky; background: var(--bg-surface); z-index: 2; }
+.dense-table thead .pin { z-index: 4; }
+.dense-table .pin-0 { left: 0; width: 30px; min-width: 30px; }
+.dense-table .pin-1 { left: 30px; min-width: 170px; max-width: 220px; box-shadow: 1px 0 0 var(--line); }
+.dense-table .strong { font-weight: 600; }
+.dense-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.dense-table .muted { color: var(--ink-3); }
+.dense-table .accent { color: var(--brand, #0e7a72); font-weight: 600; }
+.dense-table .pill { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+
+/* Render-review fixes for the dashboard (from screenshots, light + dark). */
+.viz-grid { align-items: start; }
+.viz-slicer { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; margin-right: 10px; }
+@media (min-width: 1100px) { .viz-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.viz-kpi-label { min-height: 32px; }
+.viz-table th { background: transparent; }
+.dense-table tbody td.wide { max-width: 280px; }
+/* KPI tiles are <button>s when clickable, and a button centres its content
+   vertically — so a tile with a sparkline pushed every other tile's value
+   down. Stack from the top instead, so values line up across the row. */
+.viz-kpi { display: flex; flex-direction: column; justify-content: flex-start; align-items: stretch; }

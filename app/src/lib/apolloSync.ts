@@ -33,6 +33,8 @@ export interface ApolloSyncRow {
   company: string;
   sequences: { name: string; status: string; step: number | null }[];
   callCount: number;
+  /** Emails sent. Absent when the file has no such column. */
+  emailCount?: number;
   outcomes: Record<string, number>;
   lastOutcome: string;
   lastCallAt: string;
@@ -55,6 +57,10 @@ const COL = {
   outcomes: ["outcomes", "calloutcomes", "dispositions", "outcome"],
   lastOutcome: ["lastoutcome", "lastdisposition", "latestoutcome"],
   lastCallAt: ["lastcall", "lastcallat", "lastcalled", "lastcalldate"],
+  // Exact names only, and claimed FIRST: the matcher falls back to "header
+  // contains candidate", so a loose "emails" here could grab — or be
+  // grabbed by — the email ADDRESS column.
+  emailCount: ["emailssent", "emailsent", "emailcount", "numemails", "emailsdelivered", "totalemails"],
   history: ["callhistory", "dispositionhistory", "callog", "calllog", "history"],
 };
 
@@ -145,6 +151,7 @@ export function parseApolloSync(files: ParsedFile[]): {
       if (col) taken.add(col);
       return col;
     };
+    const cEmails = pick(COL.emailCount);
     const cEmail = pick(COL.email);
     const cContact = pick(COL.contact);
     const cCompany = pick(COL.company);
@@ -178,6 +185,8 @@ export function parseApolloSync(files: ParsedFile[]): {
         email, contact, company,
         sequences: parseSequenceCell(get(r, cSeq)),
         callCount: Number.isFinite(statedCalls) && statedCalls > 0 ? statedCalls : summed,
+        ...(cEmails && get(r, cEmails) !== "" && Number.isFinite(Number(get(r, cEmails)))
+          ? { emailCount: Number(get(r, cEmails)) } : {}),
         outcomes,
         lastOutcome: get(r, cLastOut),
         lastCallAt: get(r, cLastAt),
@@ -222,6 +231,7 @@ export function applyApolloSync(
       syncedAt,
       sequences: r.sequences,
       callCount: r.callCount,
+      ...(r.emailCount !== undefined ? { emailCount: r.emailCount } : {}),
       outcomes: r.outcomes,
       lastOutcome: r.lastOutcome || r.history?.[0]?.outcome || "",
       lastCallAt: r.lastCallAt || r.history?.[0]?.at || "",

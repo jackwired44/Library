@@ -32,6 +32,7 @@ import LeadDetail from "./LeadDetail";
 import StatusPill from "./StatusPill";
 import {
   STAGE_META, STAGE_ORDER, STATUS_META, STATUS_ORDER, statusOf, wasReached,
+  CONTACT_META, CONTACT_ORDER, contactStateOf, type ContactState,
   type LeadStatus,
 } from "../lib/leadStatus";
 import { stepsInSequence, type ApolloFunnel } from "../lib/apolloFunnel";
@@ -110,6 +111,10 @@ interface Derived {
   nextDate: NoteDate | null;
   level: TitleLevel;
   fn: TitleFunction;
+  contact: ContactState;
+  companyKey: string;
+  /** How many dated notes the lead has combined across uploads. */
+  segs: number;
 }
 
 function dateKindOf(dates: NoteDate[] | undefined): Derived["dateKind"] {
@@ -130,6 +135,25 @@ const DATE_LABEL: Record<Derived["dateKind"], string> = {
 const monthLabel = (ym: string) =>
   new Date(`${ym}-15T12:00:00`).toLocaleDateString(undefined, { month: "long", year: "numeric" });
 
+/** A tier-filter value meaning "the top verdict on any scanner": High
+ *  priority (Main, CSP) or Strong Signal (Custom, older Main rows). */
+const TOP = "__top";
+const TOP_TIER_SET = new Set(["High priority", "Strong Signal"]);
+
+/** The two views Jack asked for by name: strong leads nobody has touched,
+ *  and strong leads someone tried but never got through to. */
+export type LeadsPreset = "top-uncontacted" | "top-unreached";
+const PRESET: Record<LeadsPreset, { label: string; apollo: ApolloFilter; hint: string }> = {
+  "top-uncontacted": {
+    label: "Strong signal · never contacted", apollo: "never-called",
+    hint: "Top tier on any scanner, with no call logged in Apollo. Includes leads Apollo has no record of — until a sync matches them, no call is known.",
+  },
+  "top-unreached": {
+    label: "Strong signal · tried, not reached", apollo: "never-reached",
+    hint: "Top tier on any scanner, called at least once in Apollo, never reached — only no answer, voicemail or gatekeeper.",
+  },
+};
+
 const NO_INDUSTRY = "(not enriched)";
 const NO_LINE = "(no product line)";
 
@@ -137,7 +161,7 @@ const NO_LINE = "(no product line)";
 
 export default function AllLeads({
   leads, companyProfiles = [], onApplySync, initialSequence = "",
-  sequenceNames = [], onSetPlan, onSetStatus, funnels = [], initialStatus,
+  sequenceNames = [], onSetPlan, onSetStatus, funnels = [], initialStatus, initialPreset,
 }: {
   leads: StoredLead[];
   companyProfiles?: CompanyProfile[];
@@ -154,20 +178,23 @@ export default function AllLeads({
   funnels?: ApolloFunnel[];
   /** Seeded once on mount, from a Home status link. */
   initialStatus?: LeadStatus;
+  /** Seeded once on mount, from a Home tile. */
+  initialPreset?: LeadsPreset;
 }) {
   const [search, setSearch] = useState("");
   const [sourceF, setSourceF] = useState<LeadSource | "all">("all");
-  const [tierF, setTierF] = useState("all");
+  const [tierF, setTierF] = useState(initialPreset ? TOP : "all");
   const [lineF, setLineF] = useState("all");
   const [industryF, setIndustryF] = useState("all");
   const [sizeF, setSizeF] = useState("all");
-  const [apolloF, setApolloF] = useState<ApolloFilter>("all");
+  const [apolloF, setApolloF] = useState<ApolloFilter>(initialPreset ? PRESET[initialPreset].apollo : "all");
   const [seqF, setSeqF] = useState(initialSequence || "all");
   const [planF, setPlanF] = useState<PlanFilter>("all");
   const [planSeqF, setPlanSeqF] = useState("all");
   const [filesF, setFilesF] = useState<FilesFilter>("all");
   const [fileNameF, setFileNameF] = useState("all");
   const [statusF, setStatusF] = useState<LeadStatus | "all">(initialStatus ?? "all");
+  const [contactF, setContactF] = useState<ContactState | "all">("all");
   const [monthF, setMonthF] = useState("all");
   const [levelF, setLevelF] = useState<TitleLevel | "all">("all");
   const [fnF, setFnF] = useState<TitleFunction | "all">("all");
@@ -224,27 +251,47 @@ export default function AllLeads({
         nextDate: soonestUpcoming(l.noteDates),
         level: titleLevel(l.title),
         fn: titleFunction(l.title),
+        contact: contactStateOf(l),
+        companyKey: ck,
+        segs: noteSegments(l.notes).length,
       });
     }
     return m;
   }, [leads, companyProfiles]);
+
+  /* ---- every contact stored at each company, and how far they got ---- */
+  const companyStats = useMemo(() => {
+    const m = new Map<string, { contacts: number; worked: number; made: number; names: string[] }>();
+    for (const l of leads) {
+      const d = derived.get(l.key)!;
+      if (!d.companyKey) continue;
+      let c = m.get(d.companyKey);
+      if (!c) { c = { contacts: 0, worked: 0, made: 0, names: [] }; m.set(d.companyKey, c); }
+      c.contacts++;
+      if (d.contact === "attempted" || d.contact === "made" || d.contact === "meeting" || d.contact === "no") c.worked++;
+      if (d.contact === "made" || d.contact === "meeting" || d.contact === "no") c.made++;
+      if (c.names.length < 12) c.names.push(`${l.contact || "—"} — ${CONTACT_META[d.contact].label}`);
+    }
+    return m;
+  }, [leads, derived]);
 
   /* ---- the predicates, one per filter, so each facet can skip its own ---- */
   const q = search.trim().toLowerCase();
   const fromT = from ? Date.parse(`${from}T00:00:00`) : null;
   const toT = to ? Date.parse(`${to}T23:59:59.999`) : null;
 
-  type Key = "level" | "fn" | "month" | "dates" | "status" | "search" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "plan" | "planSeq" | "files" | "fileName" | "date";
+  type Key = "contact" | "level" | "fn" | "month" | "dates" | "status" | "search" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "plan" | "planSeq" | "files" | "fileName" | "date";
   const tests = useMemo(() => {
     const t: Record<Key, (l: StoredLead, d: Derived) => boolean> = {
       status: (_l, d) => statusF === "all" || d.status === statusF,
       month: (_l, d) => monthF === "all" || d.month === monthF,
       level: (_l, d) => levelF === "all" || d.level === levelF,
+      contact: (_l, d) => contactF === "all" || d.contact === contactF,
       fn: (_l, d) => fnF === "all" || d.fn === fnF,
       dates: (_l, d) => dateF === "all" || d.dateKind === dateF,
       search: (_l, d) => !q || d.hay.includes(q),
       source: (l) => sourceF === "all" || l.source === sourceF,
-      tier: (l) => tierF === "all" || l.tier === tierF,
+      tier: (l) => tierF === "all" || (tierF === TOP ? TOP_TIER_SET.has(l.tier) : l.tier === tierF),
       line: (_l, d) => lineF === "all" || d.line === lineF,
       industry: (_l, d) => industryF === "all" || d.industry === industryF,
       size: (_l, d) => sizeF === "all" || d.sizeKey === sizeF,
@@ -273,7 +320,7 @@ export default function AllLeads({
       },
     };
     return t;
-  }, [levelF, fnF, monthF, dateF, statusF, q, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, planF, planSeqF, filesF, fileNameF, fromT, toT]);
+  }, [contactF, levelF, fnF, monthF, dateF, statusF, q, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, planF, planSeqF, filesF, fileNameF, fromT, toT]);
 
   const passes = (l: StoredLead, skip?: Key) => {
     const d = derived.get(l.key)!;
@@ -348,12 +395,32 @@ export default function AllLeads({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leads, derived, tests]);
 
+  const contactCounts = useMemo(() => {
+    const m = Object.fromEntries(CONTACT_ORDER.map((x) => [x, 0])) as Record<ContactState, number>;
+    for (const l of leads) if (passes(l, "contact")) m[derived.get(l.key)!.contact]++;
+    return m;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leads, derived, tests]);
+
   const levelCounts = useMemo(() => {
     const m = Object.fromEntries(LEVEL_ORDER.map((x) => [x, 0])) as Record<TitleLevel, number>;
     for (const l of leads) if (passes(l, "level")) m[derived.get(l.key)!.level]++;
     return m;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leads, derived, tests]);
+
+  const presetCounts = useMemo(() => {
+    const out: Record<LeadsPreset, number> = { "top-uncontacted": 0, "top-unreached": 0 };
+    for (const l of leads) {
+      if (!TOP_TIER_SET.has(l.tier)) continue;
+      const d = derived.get(l.key)!;
+      if (d.calls === 0) out["top-uncontacted"]++;
+      else if (!d.reached) out["top-unreached"]++;
+    }
+    return out;
+  }, [leads, derived]);
+  const activePreset = (Object.keys(PRESET) as LeadsPreset[])
+    .find((k) => tierF === TOP && apolloF === PRESET[k].apollo) ?? null;
 
   const tiers = useMemo(() => [...new Set(leads.map((l) => l.tier).filter(Boolean))].sort(), [leads]);
   const ageDays = useMemo(() => syncAgeDays(leads), [leads]);
@@ -367,13 +434,14 @@ export default function AllLeads({
 
   /* ---- active filter chips ---- */
   const chips: { label: string; clear: () => void }[] = [];
+  if (contactF !== "all") chips.push({ label: CONTACT_META[contactF].label, clear: () => setContactF("all") });
   if (levelF !== "all") chips.push({ label: `Position: ${LEVEL_META[levelF].label}`, clear: () => setLevelF("all") });
   if (fnF !== "all") chips.push({ label: FUNCTION_META[fnF].label, clear: () => setFnF("all") });
   if (monthF !== "all") chips.push({ label: `Received ${monthLabel(monthF)}`, clear: () => setMonthF("all") });
   if (dateF !== "all") chips.push({ label: DATE_LABEL[dateF], clear: () => setDateF("all") });
   if (statusF !== "all") chips.push({ label: `Status: ${STATUS_META[statusF].label}`, clear: () => setStatusF("all") });
   if (sourceF !== "all") chips.push({ label: LEAD_SOURCE_META[sourceF].label, clear: () => setSourceF("all") });
-  if (tierF !== "all") chips.push({ label: tierF, clear: () => setTierF("all") });
+  if (tierF !== "all") chips.push({ label: tierF === TOP ? "Top tier" : tierF, clear: () => setTierF("all") });
   if (lineF !== "all") chips.push({ label: lineF, clear: () => setLineF("all") });
   if (industryF !== "all") chips.push({ label: `Industry: ${industryF}`, clear: () => setIndustryF("all") });
   if (sizeF !== "all") chips.push({ label: `Employees: ${SIZE_BUCKETS.find((b) => b.key === sizeF)?.label ?? "unknown"}`, clear: () => setSizeF("all") });
@@ -541,6 +609,27 @@ export default function AllLeads({
         </div>
       </div>
 
+      {/* ---- the two views asked for by name, one click each ---- */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+        {(Object.keys(PRESET) as LeadsPreset[]).map((k) => {
+          const on = activePreset === k;
+          return (
+            <button
+              key={k}
+              className={`btn btn-sm ${on ? "btn-primary" : "btn-secondary"}`}
+              aria-pressed={on}
+              title={PRESET[k].hint}
+              onClick={() => {
+                if (on) { setTierF("all"); setApolloF("all"); }
+                else { setTierF(TOP); setApolloF(PRESET[k].apollo); }
+              }}
+            >
+              {PRESET[k].label} <b style={{ marginLeft: 4 }}>{presetCounts[k].toLocaleString()}</b>
+            </button>
+          );
+        })}
+      </div>
+
       {/* ---- toolbar: the basics in the open, everything else behind Filters ---- */}
       <div className="toolbar">
         <div className="toolbar-row">
@@ -554,7 +643,14 @@ export default function AllLeads({
           </select>
           <select className="field" aria-label="Tier" value={tierF} onChange={(e) => setTierF(e.target.value)}>
             <option value="all">Tier: any</option>
+            <option value={TOP}>Top tier (all scanners)</option>
             {tiers.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <select className="field" aria-label="Outreach" value={contactF}
+                  onChange={(e) => setContactF(e.target.value as ContactState | "all")}
+                  title="Has anyone got through? Read from the Apollo sync.">
+            <option value="all">Outreach: any</option>
+            {CONTACT_ORDER.map((x) => <option key={x} value={x}>{CONTACT_META[x].label} ({contactCounts[x].toLocaleString()})</option>)}
           </select>
           <select className="field" aria-label="Position" value={levelF}
                   onChange={(e) => setLevelF(e.target.value as TitleLevel | "all")}
@@ -764,122 +860,95 @@ export default function AllLeads({
 
       {/* ---- the table: one page at a time, scrolling inside its own box
              so the toolbar and filters stay in view ---- */}
-      <div className="table-card" style={{ maxHeight: "calc(100vh - 290px)", minHeight: 240, overflow: "auto" }}>
-        <table className="data-table">
-          <thead style={{ position: "sticky", top: 0, zIndex: 2, background: "var(--bg-surface, #fff)" }}>
+      <div className="table-card" style={{ maxHeight: "calc(100vh - 250px)", minHeight: 260, overflow: "auto" }}>
+        <table className="data-table dense-table">
+          <thead>
             <tr>
-              <th style={{ width: 28 }}>
+              <th className="pin pin-0" style={{ width: 30 }}>
                 <input type="checkbox" checked={allShownSelected} onChange={selectPage} aria-label="Select this page" />
               </th>
-              <th>Company</th><th>Contact</th><th>Status</th>
+              <th className="pin pin-1">Company</th>
+              <th>Contact</th>
+              <th>Position</th>
+              <th>Industry</th>
+              <th title="Has anyone got through? From the Apollo sync.">Outreach</th>
+              <th>Status</th>
               <th title="The Apollo sequence this lead is in, from the last sync">Sequence</th>
-              <th title="Calls logged in Apollo, from the last sync">Calls</th>
-              <th>Scan</th><th>Notes</th><th>Files · seen</th>
+              <th title="The sequence this lead is queued or exported for, from the Apollo queue">Headed for</th>
+              <th className="num" title="Calls logged in Apollo">Calls</th>
+              <th className="num" title="Emails Apollo sent this contact">Emails</th>
+              <th>Last outcome</th>
+              <th title="Every contact stored at this company, and how many have been worked">At company</th>
+              <th title="The soonest forward-looking date the notes mention">Next date</th>
+              <th>Received</th>
+              <th className="num">Files</th>
+              <th>Notes</th>
             </tr>
           </thead>
           <tbody>
             {shown.map((l) => {
               const d = derived.get(l.key)!;
               const a = l.apollo;
-              const segs = noteSegments(l.notes).length;
+              const co = companyStats.get(d.companyKey);
+              const cm = CONTACT_META[d.contact];
+              const seq = a?.sequences[0];
+              const total = seq ? stepsInSequence(funnels, seq.name) : null;
               return (
-                <tr key={l.key} style={{ cursor: "pointer", background: selected.has(l.key) ? "var(--bg-selected, #eef6f5)" : undefined }}
-                    onClick={() => setOpenKey(l.key)}>
-                  <td onClick={(e) => e.stopPropagation()}>
+                <tr key={l.key} className={selected.has(l.key) ? "is-selected" : undefined} onClick={() => setOpenKey(l.key)}>
+                  <td className="pin pin-0" onClick={(e) => e.stopPropagation()}>
                     <input type="checkbox" checked={selected.has(l.key)} onChange={() => toggle(l.key)} aria-label={`Select ${l.company}`} />
                   </td>
-                  <td style={{ minWidth: 160 }}>
-                    <b>{l.company || "—"}</b>
-                    <div style={{ fontSize: 11, color: "var(--muted)" }}>
-                      {d.industry === NO_INDUSTRY ? "industry —" : d.industry}
-                      {" · "}{d.employees === null ? "size —" : `${d.employees.toLocaleString()} emp`}
-                    </div>
+                  <td className="pin pin-1 strong" title={l.company}>{l.company || "—"}</td>
+                  <td title={[l.contact, l.email].filter(Boolean).join(" · ")}>{l.contact || "—"}</td>
+                  <td title={l.title || "no title"}>
+                    {d.level === "none" ? <span className="muted">—</span> : LEVEL_META[d.level].label}
                   </td>
-                  <td style={{ whiteSpace: "nowrap" }}>
-                    {l.contact || "—"}
-                    <div style={{ fontSize: 11, color: "var(--muted)" }}>
-                      {l.title || <i>no title</i>}
-                      {d.level !== "none" && d.level !== "staff" && (
-                        <span style={{ marginLeft: 6, fontSize: 10, padding: "0 5px", borderRadius: 4, background: "var(--surface-sunken)" }}>
-                          {LEVEL_META[d.level].label}
-                        </span>
-                      )}
-                    </div>
+                  <td title={d.industry}>{d.industry === NO_INDUSTRY ? <span className="muted">—</span> : d.industry}</td>
+                  <td title={cm.hint}>
+                    <span className="pill" style={{ color: cm.color, background: cm.bg }}>{cm.label}</span>
                   </td>
-                  {/* Status, then the two things Jack asked to see at a
-                      glance: which sequence they are in, and how many times
-                      they have been called. */}
-                  <td style={{ whiteSpace: "nowrap" }}>
-                    <StatusPill lead={l} />
-                    {l.plan && (
-                      <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
-                        → {l.plan.sequence}
-                        {l.plan.status === "exported" ? ` · exported ${(l.plan.exportedAt || "").slice(0, 10)}` : " · queued"}
-                      </div>
-                    )}
+                  <td><StatusPill lead={l} /></td>
+                  <td className="wide" title={a?.sequences.map((s) => `${s.name} · ${s.status}${s.step != null ? ` · step ${s.step}` : ""}`).join("\n")}>
+                    {!a ? <span className="muted">—</span>
+                      : !seq ? <span className="muted">none</span>
+                      : <>
+                          {seq.name}
+                          <span className={seq.status === "active" ? "accent" : "muted"}>
+                            {" · "}{seq.status}{seq.step != null ? ` · step ${seq.step}${total ? `/${total}` : ""}` : ""}
+                          </span>
+                          {a.sequences.length > 1 && <span className="muted"> +{a.sequences.length - 1}</span>}
+                        </>}
                   </td>
-                  <td style={{ fontSize: 12, minWidth: 150 }}>
-                    {!a ? <span style={{ color: "var(--muted)" }} title="No Apollo sync has matched this lead">—</span>
-                      : a.sequences.length === 0 ? <span style={{ color: "var(--muted)" }}>Not in a sequence</span>
-                      : (
-                        <>
-                          {a.sequences.slice(0, 2).map((s, i) => {
-                            const total = stepsInSequence(funnels, s.name);
-                            return (
-                              <div key={i} style={{ whiteSpace: "nowrap" }}>
-                                <b style={{ fontWeight: 600 }}>{s.name}</b>
-                                <div style={{ fontSize: 11, color: s.status === "active" ? "var(--accent)" : "var(--muted)" }}>
-                                  {s.status}
-                                  {s.step != null ? ` · step ${s.step}${total ? ` of ${total}` : ""}` : ""}
-                                </div>
-                              </div>
-                            );
-                          })}
-                          {a.sequences.length > 2 && (
-                            <div style={{ fontSize: 11, color: "var(--muted)" }} title={a.sequences.map((s) => s.name).join("\n")}>
-                              +{a.sequences.length - 2} more
-                            </div>
-                          )}
-                        </>
-                      )}
+                  <td title={l.plan ? `${l.plan.sequence} · ${l.plan.status === "exported" ? `exported ${(l.plan.exportedAt || "").slice(0, 10)}` : "queued"}` : undefined}>
+                    {!l.plan ? <span className="muted">—</span>
+                      : <>{l.plan.sequence}<span className="muted">{l.plan.status === "exported" ? ` · exported ${(l.plan.exportedAt || "").slice(0, 10)}` : " · queued"}</span></>}
                   </td>
-                  <td style={{ whiteSpace: "nowrap", fontSize: 12 }} title={a ? outcomeSummary(a) : undefined}>
-                    {!a ? <span style={{ color: "var(--muted)" }}>—</span>
-                      : a.callCount === 0 ? <span style={{ color: "var(--muted)" }}>Not called</span>
-                      : (
-                        <>
-                          <b style={{ fontSize: 14, fontVariantNumeric: "tabular-nums" }}>{a.callCount}</b>
-                          {" "}call{a.callCount === 1 ? "" : "s"}
-                          <div style={{ fontSize: 11, color: "var(--muted)" }}>
-                            {a.lastOutcome || "—"}{a.lastCallAt ? ` · ${a.lastCallAt.slice(0, 10)}` : ""}
-                          </div>
-                        </>
-                      )}
+                  <td className="num">{!a ? <span className="muted">—</span> : a.callCount}</td>
+                  <td className="num">{!a || a.emailCount === undefined ? <span className="muted">—</span> : a.emailCount}</td>
+                  <td title={a ? outcomeSummary(a) : undefined}>
+                    {!a || !a.lastOutcome ? <span className="muted">—</span>
+                      : <>{a.lastOutcome}{a.lastCallAt && <span className="muted"> · {a.lastCallAt.slice(0, 10)}</span>}</>}
                   </td>
-                  <td style={{ whiteSpace: "nowrap", fontSize: 12 }}>
-                    {LEAD_SOURCE_META[l.source].short} · {l.tier || "—"}
-                    <div style={{ fontSize: 11, color: "var(--muted)" }}>{l.productArea || "no product line"}</div>
+                  <td title={co ? co.names.join("\n") : undefined}>
+                    {!co || co.contacts < 2 ? <span className="muted">1</span>
+                      : <>{co.contacts}<span className="muted"> · {co.worked} worked{co.made ? ` · ${co.made} reached` : ""}</span></>}
                   </td>
-                  <td title={l.notes} style={{ maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12 }}>
-                    {d.nextDate && (
-                      <div style={{ fontSize: 11, color: "var(--accent)", fontWeight: 600 }}>
-                        📅 {d.nextDate.iso}{d.nextDate.about ? ` · ${d.nextDate.about}` : ""}
-                      </div>
-                    )}
+                  <td title={d.nextDate?.snippet}>
+                    {d.nextDate ? <span className="accent">📅 {d.nextDate.iso}</span> : <span className="muted">—</span>}
+                  </td>
+                  <td>{d.month}</td>
+                  <td className="num" title={`${l.sourceFiles.join("\n")}\nuploaded ${l.timesSeen} time${l.timesSeen === 1 ? "" : "s"}`}>
+                    {d.files}{l.timesSeen > d.files && <span className="muted"> ×{l.timesSeen}</span>}
+                  </td>
+                  <td data-col="notes" title={l.notes} style={{ maxWidth: 260 }}>
                     {newestNote(l.notes) || "—"}
-                    {segs > 1 && <span style={{ color: "var(--muted)", fontSize: 11 }}> +{segs - 1} earlier</span>}
-                  </td>
-                  <td title={l.sourceFiles.join("\n")} style={{ fontSize: 12, whiteSpace: "nowrap" }}>
-                    <b>{d.files}</b> file{d.files === 1 ? "" : "s"} · ×{l.timesSeen}
-                    <div style={{ fontSize: 11, color: "var(--muted)" }}>
-                      {l.firstSeenAt.slice(0, 10)}{l.lastSeenAt.slice(0, 10) !== l.firstSeenAt.slice(0, 10) ? ` → ${l.lastSeenAt.slice(0, 10)}` : ""}
-                    </div>
+                    {d.segs > 1 && <span className="muted"> +{d.segs - 1} earlier</span>}
                   </td>
                 </tr>
               );
             })}
             {shown.length === 0 && (
-              <tr><td colSpan={9} style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}>
+              <tr><td colSpan={17} style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}>
                 No leads match these filters. <button className="btn btn-sm btn-ghost" onClick={clearAll}>Clear all</button>
               </td></tr>
             )}
@@ -933,6 +1002,11 @@ export default function AllLeads({
             onNext={i >= 0 && i < filtered.length - 1 ? () => go(i + 1) : undefined}
             position={i >= 0 ? `${(i + 1).toLocaleString()} of ${filtered.length.toLocaleString()}` : undefined}
             funnels={funnels}
+            companyLeads={(() => {
+              const ck = derived.get(openLead.key)?.companyKey;
+              return ck ? leads.filter((x) => derived.get(x.key)?.companyKey === ck) : [openLead];
+            })()}
+            onOpenLead={setOpenKey}
           />
         );
       })()}

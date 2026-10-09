@@ -156,8 +156,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   console.log('\n== Home reflects the pipeline ==');
   await nav('Home');
   t = await text();
-  ok('Home counts leads stored', /Leads stored\s*5/i.test(t), t.slice(0, 400));
-  ok('  shows queued and exported', /Queued\s*[1-9]/i.test(t) && /Exported\s*[1-9]/i.test(t), t.slice(0, 500));
+  ok('Home counts leads stored', /\bLeads\s*5\b/i.test(t), t.slice(0, 400));
+  ok('  shows queued and exported', /Queued for Apollo\s*[1-9]/i.test(t) && /Sent to Apollo\s*[1-9]/i.test(t), t.slice(0, 500));
   ok('  and lists the queue by sequence', /CSP Leads/.test(t));
 
   console.log('\n== All leads shows where each lead is headed ==');
@@ -187,12 +187,12 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('the sync matches both leads', /\b2\b of 2 rows matched/.test(t), t.slice(0, 500));
   const rowOf = async (co) => (await page.locator('.data-table tbody tr', { hasText: co }).first().innerText()).replace(/\s+/g, ' ');
   let r = await rowOf('CSP ALPHA CO');
-  ok('Sequence column names the Apollo sequence with status and step', /CSP Leads active · step 2/.test(r), r);
-  ok('Calls column shows the count and the last outcome', /3 calls Meeting Booked · 2026-10-07/.test(r), r);
+  ok('Sequence column names the Apollo sequence with status and step', /CSP Leads · active · step 2/.test(r), r);
+  ok('Calls column shows the count and the last outcome', /\b3 — Meeting Booked · 2026-10-07/.test(r), r);
   ok('status reads Meeting booked', /Meeting booked/.test(r), r);
   r = await rowOf('MAIN ALPHA CO');
-  ok('a finished sequence shows where it stopped', /Jack Main Sequence finished · step 5/.test(r), r);
-  ok('dialled but never reached is NOT "contacted"', /Called, not reached/.test(r) && /4 calls/.test(r), r);
+  ok('a finished sequence shows where it stopped', /Jack Main Sequence · finished · step 5/.test(r), r);
+  ok('dialled but never reached is NOT "contacted"', /Attempted, not reached/.test(r) && /Called, not reached/.test(r) && /\b4 — No Answer/.test(r), r);
 
   console.log('\n== the status strip filters ==');
   await page.locator('button[aria-pressed]', { hasText: 'Meeting booked' }).click(); await sleep(500);
@@ -263,8 +263,10 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   console.log('\n== Home shows the status lifecycle ==');
   await nav('Home');
   t = await text();
-  ok('Home lists statuses by stage', /Lead status/.test(t) && /Meeting booked/.test(t) && /Called, not reached/.test(t), t.slice(0, 600));
-  await page.locator('main button', { hasText: 'Meeting booked' }).first().click(); await sleep(700);
+  ok('Home lists statuses by stage', /Where every lead stands/.test(t) && /Meeting booked/.test(t) && /Called, not reached/.test(t), t.slice(0, 600));
+  // The status bar specifically — "meeting booked" also appears in the
+  // Reached tile's subtitle, and a loose text match clicks that instead.
+  await page.locator('.viz-card', { hasText: 'Where every lead stands' }).locator('.viz-barrow', { hasText: 'Meeting booked' }).first().click(); await sleep(700);
   ok('a Home status opens Leads filtered to it', /Status: Meeting booked/.test(await text()) && /\b1 of 5\b/.test(await text()));
 
   console.log('\n== everything persists ==');

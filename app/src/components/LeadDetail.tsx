@@ -27,6 +27,7 @@ import { realSteps, type ApolloFunnel } from "../lib/apolloFunnel";
 import { isIntentDate, soonestUpcoming, type NoteDate } from "../lib/noteDates";
 import { loadRawNotes, type RawNotes } from "../lib/rawNotes";
 import { FUNCTION_META, LEVEL_META, titleFunction, titleLevel } from "../lib/titleLevel";
+import { CONTACT_META, contactStateOf } from "../lib/leadStatus";
 import {
   employeeCountOf, normalizeCompanyKey, profileForCompany, type CompanyProfile,
 } from "../lib/companyProfiles";
@@ -131,7 +132,7 @@ const TONE: Record<string, { color: string; bg: string }> = {
 
 export default function LeadDetail({
   lead, companyProfiles, onClose, sequenceNames = [], onSetPlan, onSetStatus,
-  onPrev, onNext, position, funnels = [],
+  onPrev, onNext, position, funnels = [], companyLeads = [], onOpenLead,
 }: {
   lead: StoredLead;
   companyProfiles: CompanyProfile[];
@@ -147,6 +148,10 @@ export default function LeadDetail({
   position?: string;
   /** For drawing each sequence's steps. */
   funnels?: ApolloFunnel[];
+  /** Every stored lead at the same company, this one included. */
+  companyLeads?: StoredLead[];
+  /** Open another lead's profile in place. */
+  onOpenLead?: (key: string) => void;
 }) {
   // Arrow keys step through the list, Escape closes.
   useEffect(() => {
@@ -386,6 +391,9 @@ export default function LeadDetail({
                 </div>
                 <div>
                   <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+                    Emails sent: {a.emailCount === undefined ? <span style={{ fontWeight: 400, ...muted }}>not in this sync</span> : a.emailCount}
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
                     Calls: {a.callCount === 0 ? "none" : a.callCount}
                     {a.lastCallAt && <span style={{ fontWeight: 400, ...muted }}> · last {a.lastCallAt.slice(0, 10)}</span>}
                   </div>
@@ -456,6 +464,47 @@ export default function LeadDetail({
               </>
             )}
           </Section>
+
+          {/* ---- everyone stored at this company ---- */}
+          {companyLeads.length > 1 && (() => {
+            const states = companyLeads.map((l) => contactStateOf(l));
+            const worked = states.filter((x) => x !== "never" && x !== "unknown").length;
+            const made = states.filter((x) => x === "made" || x === "meeting" || x === "no").length;
+            const calls = companyLeads.reduce((n, l) => n + (l.apollo?.callCount ?? 0), 0);
+            const emails = companyLeads.reduce((n, l) => n + (l.apollo?.emailCount ?? 0), 0);
+            return (
+              <Section
+                title={`At ${lead.company || "this company"}`}
+                sub={`${companyLeads.length} contacts · ${worked} worked · ${made} reached · ${calls} calls · ${emails} emails`}
+              >
+                <table className="viz-table" style={{ fontSize: 12.5 }}>
+                  <thead>
+                    <tr><th>Contact</th><th>Position</th><th>Contact</th><th>Sequence</th><th style={{ textAlign: "right" }}>Calls</th><th style={{ textAlign: "right" }}>Emails</th><th>Last outcome</th></tr>
+                  </thead>
+                  <tbody>
+                    {companyLeads.map((l, i) => {
+                      const cm = CONTACT_META[states[i]];
+                      const sq = l.apollo?.sequences[0];
+                      const me = l.key === lead.key;
+                      return (
+                        <tr key={l.key}
+                            onClick={() => !me && onOpenLead?.(l.key)}
+                            style={{ cursor: me || !onOpenLead ? "default" : "pointer", background: me ? "var(--bg-selected, #e6f3f1)" : undefined }}>
+                          <td><b>{l.contact || "—"}</b>{me && <span style={muted}> (this lead)</span>}</td>
+                          <td title={l.title}>{l.title || <span style={muted}>—</span>}</td>
+                          <td><span style={{ fontSize: 11, fontWeight: 600, padding: "1px 7px", borderRadius: 999, color: cm.color, background: cm.bg, whiteSpace: "nowrap" }}>{cm.label}</span></td>
+                          <td>{sq ? `${sq.name} · ${sq.status}${sq.step != null ? ` · step ${sq.step}` : ""}` : <span style={muted}>—</span>}</td>
+                          <td style={{ textAlign: "right" }}>{l.apollo ? l.apollo.callCount : "—"}</td>
+                          <td style={{ textAlign: "right" }}>{l.apollo?.emailCount ?? "—"}</td>
+                          <td>{l.apollo?.lastOutcome || <span style={muted}>—</span>}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </Section>
+            );
+          })()}
 
           {/* ---- company and contact ---- */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16 }}>
