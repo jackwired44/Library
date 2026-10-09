@@ -29,9 +29,9 @@ import {
   SIZE_BUCKETS, employeeCountOf, normalizeCompanyKey, profileForCompany, type CompanyProfile,
 } from "../lib/companyProfiles";
 import LeadDetail from "./LeadDetail";
-import StatusPill from "./StatusPill";
 import {
-  STAGE_META, STAGE_ORDER, STATUS_META, STATUS_ORDER, statusOf, wasReached,
+  STATUS_META, STATUS_ORDER, statusOf, wasReached,
+  VERDICT_META, VERDICT_ORDER, verdictOf, type Verdict,
   CONTACT_META, CONTACT_ORDER, contactStateOf, type ContactState,
   type LeadStatus,
 } from "../lib/leadStatus";
@@ -118,6 +118,7 @@ interface Derived {
   companyKey: string;
   /** How many dated notes the lead has combined across uploads. */
   segs: number;
+  verdict: Verdict;
   /** Newest sequence enrolment date, from the Apollo task sync. "" if none. */
   addedAt: string;
   /** Newest completed task's due date. "" if none. */
@@ -211,6 +212,8 @@ export default function AllLeads({
   const [dateF, setDateF] = useState<Derived["dateKind"] | "all">("all");
   /** Per Jack: "if the company has more than one lead we have on file". */
   const [companyF, setCompanyF] = useState<"all" | "multi" | "single">("all");
+  /** The vault's three buckets — see verdictOf. */
+  const [verdictF, setVerdictF] = useState<Verdict | "all">("all");
   const [bulkStatus, setBulkStatus] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -266,6 +269,7 @@ export default function AllLeads({
         contact: contactStateOf(l),
         companyKey: ck,
         segs: noteSegments(l.notes).length,
+        verdict: verdictOf(l.tier),
         addedAt: seqs.reduce((m, x) => (x.addedAt && x.addedAt > m ? x.addedAt : m), ""),
         taskDoneAt: (a?.tasks ?? []).reduce((m, t) => (t.status === "completed" && t.at > m ? t.at : m), ""),
       });
@@ -294,9 +298,10 @@ export default function AllLeads({
   const fromT = from ? Date.parse(`${from}T00:00:00`) : null;
   const toT = to ? Date.parse(`${to}T23:59:59.999`) : null;
 
-  type Key = "company" | "contact" | "level" | "fn" | "month" | "dates" | "status" | "search" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "plan" | "planSeq" | "files" | "fileName" | "date";
+  type Key = "verdict" | "company" | "contact" | "level" | "fn" | "month" | "dates" | "status" | "search" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "plan" | "planSeq" | "files" | "fileName" | "date";
   const tests = useMemo(() => {
     const t: Record<Key, (l: StoredLead, d: Derived) => boolean> = {
+      verdict: (_l, d) => verdictF === "all" || d.verdict === verdictF,
       company: (_l, d) => {
         if (companyF === "all") return true;
         const n = d.companyKey ? companyStats.get(d.companyKey)?.contacts ?? 1 : 1;
@@ -306,7 +311,9 @@ export default function AllLeads({
       month: (_l, d) => monthF === "all" || d.month === monthF,
       level: (_l, d) => levelF === "all" || d.level === levelF,
       contact: (_l, d) => contactF === "all" || d.contact === contactF
-        || (contactF === "untouched" && (d.contact === "never" || d.contact === "unknown")),
+        || (contactF === "untouched" && (d.contact === "never" || d.contact === "unknown"))
+        // "Contact made" means any real conversation, whatever its outcome.
+        || (contactF === "made" && (d.contact === "meeting" || d.contact === "no")),
       fn: (_l, d) => fnF === "all" || d.fn === fnF,
       dates: (_l, d) => dateF === "all" || d.dateKind === dateF,
       search: (_l, d) => !q || d.hay.includes(q),
@@ -340,7 +347,7 @@ export default function AllLeads({
       },
     };
     return t;
-  }, [companyF, companyStats, contactF, levelF, fnF, monthF, dateF, statusF, q, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, planF, planSeqF, filesF, fileNameF, fromT, toT]);
+  }, [verdictF, companyF, companyStats, contactF, levelF, fnF, monthF, dateF, statusF, q, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, planF, planSeqF, filesF, fileNameF, fromT, toT]);
 
   const passes = (l: StoredLead, skip?: Key) => {
     const d = derived.get(l.key)!;
@@ -409,11 +416,11 @@ export default function AllLeads({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtersOpen, leads, derived, tests]);
 
-  // The status strip is a facet like any other: each count is what that
-  // status would show given every OTHER filter.
-  const statusCounts = useMemo(() => {
-    const m = Object.fromEntries(STATUS_ORDER.map((x) => [x, 0])) as Record<LeadStatus, number>;
-    for (const l of leads) if (passes(l, "status")) m[derived.get(l.key)!.status]++;
+  // The verdict strip is a facet like any other: each count is what that
+  // bucket would show given every OTHER filter.
+  const verdictCounts = useMemo(() => {
+    const m: Record<Verdict, number> = { strong: 0, review: 0, bad: 0 };
+    for (const l of leads) if (passes(l, "verdict")) m[derived.get(l.key)!.verdict]++;
     return m;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leads, derived, tests]);
@@ -432,19 +439,6 @@ export default function AllLeads({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leads, derived, tests]);
 
-  const presetCounts = useMemo(() => {
-    const out: Record<LeadsPreset, number> = { "top-uncontacted": 0, "top-unreached": 0 };
-    for (const l of leads) {
-      if (!TOP_TIER_SET.has(l.tier)) continue;
-      const d = derived.get(l.key)!;
-      if (d.calls === 0) out["top-uncontacted"]++;
-      else if (!d.reached) out["top-unreached"]++;
-    }
-    return out;
-  }, [leads, derived]);
-  const activePreset = (Object.keys(PRESET) as LeadsPreset[])
-    .find((k) => tierF === TOP && apolloF === PRESET[k].apollo) ?? null;
-
   const tiers = useMemo(() => [...new Set(leads.map((l) => l.tier).filter(Boolean))].sort(), [leads]);
   const ageDays = useMemo(() => syncAgeDays(leads), [leads]);
 
@@ -460,6 +454,7 @@ export default function AllLeads({
   if (contactF !== "all") chips.push({ label: contactF === "untouched" ? "Never touched (no outreach on record)" : CONTACT_META[contactF].label, clear: () => setContactF("all") });
   if (levelF !== "all") chips.push({ label: `Position: ${LEVEL_META[levelF].label}`, clear: () => setLevelF("all") });
   if (fnF !== "all") chips.push({ label: FUNCTION_META[fnF].label, clear: () => setFnF("all") });
+  if (verdictF !== "all") chips.push({ label: VERDICT_META[verdictF].label, clear: () => setVerdictF("all") });
   if (companyF !== "all") chips.push({ label: companyF === "multi" ? "2+ leads at the company" : "Only lead at the company", clear: () => setCompanyF("all") });
   if (monthF !== "all") chips.push({ label: `Received ${monthLabel(monthF)}`, clear: () => setMonthF("all") });
   if (dateF !== "all") chips.push({ label: DATE_LABEL[dateF], clear: () => setDateF("all") });
@@ -596,64 +591,45 @@ export default function AllLeads({
         )}
       </div>
 
-      {/* ---- the status pipeline. Click a status to work just those leads;
-             click it again to clear. Grouped by stage, left to right, in
-             the order a lead moves. ---- */}
+      {/* ---- the vault at a glance: the three buckets, then who has been
+             reached. Click to filter, click again to clear. ---- */}
       <div className="panel" style={{ marginBottom: 10 }}>
-        <div className="panel-body" style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "flex-start" }}>
-          {STAGE_ORDER.map((stage) => (
-            <div key={stage} style={{ minWidth: 0 }}>
-              <div className="section-label" style={{ marginBottom: 4 }}>{STAGE_META[stage].label}</div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                {STATUS_ORDER.filter((x) => STATUS_META[x].stage === stage).map((x) => {
-                  const on = statusF === x;
-                  const m = STATUS_META[x];
-                  return (
-                    <button
-                      key={x}
-                      onClick={() => setStatusF(on ? "all" : x)}
-                      title={m.hint}
-                      aria-pressed={on}
-                      style={{
-                        border: `1px solid ${on ? m.color : "var(--border)"}`,
-                        background: on ? m.bg : "var(--bg-surface, #fff)",
-                        color: on ? m.color : "var(--ink, #081E22)",
-                        borderRadius: 8, padding: "5px 10px", cursor: "pointer", textAlign: "left",
-                        fontSize: 12, lineHeight: 1.25,
-                      }}
-                    >
-                      <div style={{ fontWeight: 600, fontVariantNumeric: "tabular-nums", fontSize: 15, color: m.color }}>
-                        {statusCounts[x].toLocaleString()}
-                      </div>
-                      {m.label}
-                    </button>
-                  );
-                })}
-              </div>
+        <div className="panel-body" style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "flex-start" }}>
+          <div>
+            <div className="section-label" style={{ marginBottom: 4 }}>Stored as</div>
+            <div style={{ display: "flex", gap: 6 }}>
+              {VERDICT_ORDER.map((v) => {
+                const on = verdictF === v; const m = VERDICT_META[v];
+                return (
+                  <button key={v} onClick={() => setVerdictF(on ? "all" : v)} title={m.hint} aria-pressed={on}
+                    className="vault-tile" style={{ borderColor: on ? m.color : undefined, background: on ? m.bg : undefined }}>
+                    <span className="vault-num" style={{ color: m.color }}>{verdictCounts[v].toLocaleString()}</span>
+                    <span>{m.label}</span>
+                  </button>
+                );
+              })}
             </div>
-          ))}
+          </div>
+          <div>
+            <div className="section-label" style={{ marginBottom: 4 }} title="From the Apollo sync only. A lead no sync has matched counts as never touched.">Outreach (from Apollo)</div>
+            <div style={{ display: "flex", gap: 6 }}>
+              {([
+                ["untouched", "Never touched", contactCounts.never + contactCounts.unknown, "No call or email on record — in Apollo untouched, or not in Apollo at all."],
+                ["attempted", "Attempted, not reached", contactCounts.attempted, "Called or emailed; every call was no answer, voicemail or gatekeeper."],
+                ["made", "Contact made", contactCounts.made + contactCounts.meeting + contactCounts.no, "A real conversation is on record, whatever the outcome."],
+              ] as const).map(([k, label, n, hint]) => {
+                const on = contactF === k;
+                return (
+                  <button key={k} onClick={() => setContactF(on ? "all" : k)} title={hint} aria-pressed={on}
+                    className="vault-tile" style={{ borderColor: on ? "var(--accent)" : undefined }}>
+                    <span className="vault-num">{n.toLocaleString()}</span>
+                    <span>{label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
-      </div>
-
-      {/* ---- the two views asked for by name, one click each ---- */}
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-        {(Object.keys(PRESET) as LeadsPreset[]).map((k) => {
-          const on = activePreset === k;
-          return (
-            <button
-              key={k}
-              className={`btn btn-sm ${on ? "btn-primary" : "btn-secondary"}`}
-              aria-pressed={on}
-              title={PRESET[k].hint}
-              onClick={() => {
-                if (on) { setTierF("all"); setApolloF("all"); }
-                else { setTierF(TOP); setApolloF(PRESET[k].apollo); }
-              }}
-            >
-              {PRESET[k].label} <b style={{ marginLeft: 4 }}>{presetCounts[k].toLocaleString()}</b>
-            </button>
-          );
-        })}
       </div>
 
       {/* ---- toolbar: the basics in the open, everything else behind Filters ---- */}
@@ -903,21 +879,14 @@ export default function AllLeads({
               </th>
               <th className="pin pin-1">Company</th>
               <th>Contact</th>
-              <th>Position</th>
-              <th>Industry</th>
+              <th title="Strong Signal, Needs Review or Bad Lead — from the scanner that stored it">Stored as</th>
+              <th>Product line</th>
+              <th title="The date the file states, or the upload date if it states none">Received</th>
+              <th className="num" title="How many different CSV files this lead was in">Uploads</th>
+              <th title="Every lead we hold at this company">At company</th>
               <th title="Has anyone got through? From the Apollo sync.">Outreach</th>
-              <th>Status</th>
+              <th title="The latest call disposition in Apollo">Disposition</th>
               <th title="The Apollo sequence this lead is in, from the last sync">Sequence</th>
-              <th title="When this lead was added to its newest Apollo sequence (the due date of its first task there)">Added</th>
-              <th title="Due date of the newest completed Apollo sequence task">Last task done</th>
-              <th title="The sequence this lead is queued or exported for, from the Apollo queue">Headed for</th>
-              <th className="num" title="Calls logged in Apollo">Calls</th>
-              <th className="num" title="Emails Apollo sent this contact">Emails</th>
-              <th>Last outcome</th>
-              <th title="Every contact stored at this company, and how many have been worked">At company</th>
-              <th title="The soonest forward-looking date the notes mention">Next date</th>
-              <th>Received</th>
-              <th className="num">Files</th>
               <th>Notes</th>
             </tr>
           </thead>
@@ -935,16 +904,25 @@ export default function AllLeads({
                     <input type="checkbox" checked={selected.has(l.key)} onChange={() => toggle(l.key)} aria-label={`Select ${l.company}`} />
                   </td>
                   <td className="pin pin-1 strong" title={l.company}>{l.company || "—"}</td>
-                  <td title={[l.contact, l.email].filter(Boolean).join(" · ")}>{l.contact || "—"}</td>
-                  <td title={l.title || "no title"}>
-                    {d.level === "none" ? <span className="muted">—</span> : LEVEL_META[d.level].label}
+                  <td title={[l.contact, l.title, l.email].filter(Boolean).join(" · ")}>{l.contact || "—"}</td>
+                  <td title={`${VERDICT_META[d.verdict].hint}\nScanner's word: ${l.tier || "—"}`}>
+                    <span className="pill" style={{ color: VERDICT_META[d.verdict].color, background: VERDICT_META[d.verdict].bg }}>{VERDICT_META[d.verdict].label}</span>
                   </td>
-                  <td title={d.industry}>{d.industry === NO_INDUSTRY ? <span className="muted">—</span> : d.industry}</td>
-                  <td title={cm.hint}>
+                  <td>{d.line === NO_LINE ? <span className="muted">—</span> : d.line}</td>
+                  <td>{d.month}</td>
+                  <td className="num" title={l.sourceFiles.join("\n")}>{d.files}</td>
+                  <td title={co ? co.names.join("\n") : undefined}>
+                    {!co || co.contacts < 2 ? <span className="muted">1</span>
+                      : <>{co.contacts}<span className="muted"> · {co.worked} worked</span></>}
+                  </td>
+                  <td title={`${cm.hint}${a ? `\n${a.callCount} call${a.callCount === 1 ? "" : "s"}${a.emailCount !== undefined ? ` · ${a.emailCount} email${a.emailCount === 1 ? "" : "s"}` : ""}` : ""}`}>
                     <span className="pill" style={{ color: cm.color, background: cm.bg }}>{cm.label}</span>
                   </td>
-                  <td><StatusPill lead={l} /></td>
-                  <td className="wide" title={a?.sequences.map((s) => `${s.name} · ${s.status}${s.step != null ? ` · step ${s.step}` : ""}`).join("\n")}>
+                  <td title={a ? outcomeSummary(a) : undefined}>
+                    {!a || !a.lastOutcome ? <span className="muted">—</span>
+                      : <>{a.lastOutcome}{a.lastCallAt && <span className="muted"> · {a.lastCallAt.slice(0, 10)}</span>}</>}
+                  </td>
+                  <td className="wide" title={a?.sequences.map((s) => `${s.name} · ${s.status}${s.step != null ? ` · step ${s.step}` : ""}${s.addedAt ? ` · added ${s.addedAt}` : ""}`).join("\n")}>
                     {!a ? <span className="muted">—</span>
                       : !seq ? <span className="muted">none</span>
                       : <>
@@ -955,29 +933,6 @@ export default function AllLeads({
                           {a.sequences.length > 1 && <span className="muted"> +{a.sequences.length - 1}</span>}
                         </>}
                   </td>
-                  <td>{d.addedAt || <span className="muted">—</span>}</td>
-                  <td>{d.taskDoneAt || <span className="muted">—</span>}</td>
-                  <td title={l.plan ? `${l.plan.sequence} · ${l.plan.status === "exported" ? `exported ${(l.plan.exportedAt || "").slice(0, 10)}` : "queued"}` : undefined}>
-                    {!l.plan ? <span className="muted">—</span>
-                      : <>{l.plan.sequence}<span className="muted">{l.plan.status === "exported" ? ` · exported ${(l.plan.exportedAt || "").slice(0, 10)}` : " · queued"}</span></>}
-                  </td>
-                  <td className="num">{!a ? <span className="muted">—</span> : a.callCount}</td>
-                  <td className="num">{!a || a.emailCount === undefined ? <span className="muted">—</span> : a.emailCount}</td>
-                  <td title={a ? outcomeSummary(a) : undefined}>
-                    {!a || !a.lastOutcome ? <span className="muted">—</span>
-                      : <>{a.lastOutcome}{a.lastCallAt && <span className="muted"> · {a.lastCallAt.slice(0, 10)}</span>}</>}
-                  </td>
-                  <td title={co ? co.names.join("\n") : undefined}>
-                    {!co || co.contacts < 2 ? <span className="muted">1</span>
-                      : <>{co.contacts}<span className="muted"> · {co.worked} worked{co.made ? ` · ${co.made} reached` : ""}</span></>}
-                  </td>
-                  <td title={d.nextDate?.snippet}>
-                    {d.nextDate ? <span className="accent">📅 {d.nextDate.iso}</span> : <span className="muted">—</span>}
-                  </td>
-                  <td>{d.month}</td>
-                  <td className="num" title={`${l.sourceFiles.join("\n")}\nuploaded ${l.timesSeen} time${l.timesSeen === 1 ? "" : "s"}`}>
-                    {d.files}{l.timesSeen > d.files && <span className="muted"> ×{l.timesSeen}</span>}
-                  </td>
                   <td data-col="notes" title={l.notes} style={{ maxWidth: 260 }}>
                     {newestNote(l.notes) || "—"}
                     {d.segs > 1 && <span className="muted"> +{d.segs - 1} earlier</span>}
@@ -986,7 +941,7 @@ export default function AllLeads({
               );
             })}
             {shown.length === 0 && (
-              <tr><td colSpan={17} style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}>
+              <tr><td colSpan={12} style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}>
                 No leads match these filters. <button className="btn btn-sm btn-ghost" onClick={clearAll}>Clear all</button>
               </td></tr>
             )}

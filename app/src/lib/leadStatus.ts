@@ -78,6 +78,29 @@ const NO_RE = /not\s*interested|do\s*not\s*contact/i;
 /** Outcomes that mean the phone rang and nobody real picked up. */
 const NOT_REACHED_RE = /no\s*answer|no\s*disposition|left\s*voicemail|voicemail|wrong\s*number|gatekeeper/i;
 
+/* ----------------------------------------------------------------- verdict */
+
+/**
+ * The vault's three buckets. Per Jack: "store them as strong bad or needs
+ * review". Each scanner keeps its own word on the record (High priority,
+ * Strong Signal, Medium priority, No signal…); this folds them into the
+ * three the vault is organised by. Anything that is neither top tier nor a
+ * rule-based no is Needs Review — including No signal, which was never
+ * scored and so has not earned either of the other two.
+ */
+export type Verdict = "strong" | "review" | "bad";
+export const VERDICT_META: Record<Verdict, { label: string; color: string; bg: string; hint: string }> = {
+  strong: { label: "Strong Signal", color: "#0E7A72", bg: "#E3F3F1", hint: "Top tier on its scanner: Strong Signal or High priority." },
+  review: { label: "Needs Review", color: "#9A5B22", bg: "#FBF0E2", hint: "Stored but not top tier: Medium / Low priority, Needs Review, or No signal." },
+  bad: { label: "Bad Lead", color: "#B5443B", bg: "#FBEAE8", hint: "A scanner rule said no (Auto-DQ). Still stored and reversible." },
+};
+export const VERDICT_ORDER: Verdict[] = ["strong", "review", "bad"];
+export function verdictOf(tier: string): Verdict {
+  if (TOP_TIERS.has(tier)) return "strong";
+  if (BAD_TIERS.has(tier)) return "bad";
+  return "review";
+}
+
 export interface StatusOverride {
   status: LeadStatus;
   at: string;

@@ -922,6 +922,16 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
   const [maxScore, setMaxScore] = useState(100);
   const [minValue, setMinValue] = useState(0);
   const [filtersOpen, setFiltersOpen] = useState(true);
+  // The scan's fine print — setup sentence, reconciliation, renewal and
+  // phone coverage, download notes — starts folded. Per Jack: "too much
+  // going on right after scanned". A per-viewer display preference.
+  const [showDetails, setShowDetailsState] = useState(() => {
+    try { return localStorage.getItem("scanDetailsOpen") === "1"; } catch { return false; }
+  });
+  const setShowDetails = (v: boolean) => {
+    setShowDetailsState(v);
+    try { localStorage.setItem("scanDetailsOpen", v ? "1" : "0"); } catch { /* preference only */ }
+  };
   // High priority gets CALLED, and reachability is only a small share of the
   // score — so the top of a score-sorted list skews email-only. This is the
   // one-click answer: only leads you can actually dial.
@@ -1733,7 +1743,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
       {/* One line of setup, not three panels. The rule in force is the
           part worth reading every time, so it stays visible; the editors
           for it sit behind the toggle. */}
-      {result && (
+      {result && showDetails && (
         <div className="dl-strip">
           <span className="dl-title">Scan setup</span>
           <span
@@ -1843,6 +1853,15 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
                 </span>
               </>
             )}
+            {isCsp && renewalCounts.any > 0 && (
+              <>{" · "}<strong>{renewalCounts.any.toLocaleString()}</strong> state a renewal date
+                {renewalCounts.pin > 0 && <> (<strong>{renewalCounts.pin}</strong> {OPEN_RENEWAL_MARK} open lane)</>}</>
+            )}
+            <button className="btn btn-sm btn-ghost" aria-label="Scan details" aria-expanded={showDetails}
+                    style={{ marginLeft: 8 }} onClick={() => setShowDetails(!showDetails)}>
+              {showDetails ? "▾ Hide details" : "▸ Details"}
+            </button>
+            {showDetails && (<>
             {isCsp ? " · overridden " : " · curated "}
             <strong>{curationCounts.keep}</strong> {cMeta.keep.label.toLowerCase()}{" / "}
             <strong>{curationCounts.maybe}</strong> {cMeta.maybe.label.toLowerCase()}{" / "}
@@ -1860,6 +1879,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
                 {result.rows.length.toLocaleString()} rows name no person in the file
               </span>
             )}
+            </>)}
           </div>
 
           {/* Renewal coverage. Per Jack this is the most important thing on a
@@ -1868,7 +1888,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
               column — every date here was read out of the seller notes — so
               the honest number is per-upload and belongs on screen rather
               than buried in each row's note. */}
-          {isCsp && (
+          {isCsp && showDetails && (
             <div className="scan-note" aria-label="Renewal coverage">
               <strong>⏰ Renewal dates</strong>{" · "}
               {renewalCounts.any === 0 ? (
@@ -1976,7 +1996,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
               <strong>Edit setup</strong> to see which column each field is reading and how full it is.
             </div>
           )}
-          {isCsp && callReadiness.mangledPhones > 0 && (
+          {isCsp && showDetails && callReadiness.mangledPhones > 0 && (
             <div
               role="status"
               aria-label="Mangled phones"
@@ -1987,7 +2007,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
               They are left blank rather than exported as a wrong number. To get them back, re-export the file with the phone column formatted as <strong>Text</strong>.
             </div>
           )}
-          <div className="dl-hint" style={{ margin: "-6px 0 12px" }}>
+          {showDetails && <div className="dl-hint" style={{ margin: "-6px 0 12px" }}>
             {isCsp
               ? "In the Main Scanner's Apollo import format, best score first. These follow the filters below, so narrow the view first and each button gives you that slice."
               : "In the Main Scanner's Apollo import format, within the filters you have set below \u2014 the priority tab and the product-line chips excepted, since the button picks those. Low priority is never downloaded."}
@@ -2020,7 +2040,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
                 )}
               </>
             )}
-          </div>
+          </div>}
 
           {!isCsp && (
           <div className="toolbar">

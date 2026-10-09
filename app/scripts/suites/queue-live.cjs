@@ -159,14 +159,17 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('  shows queued and exported', /Queued for Apollo\s*[1-9]/i.test(t) && /Sent to Apollo\s*[1-9]/i.test(t), t.slice(0, 500));
   ok('  and lists the queue by sequence', /CSP Leads/.test(t));
 
-  console.log('\n== All leads shows where each lead is headed ==');
+  console.log('\n== All leads is the vault: no "Headed for" column ==');
+  // Per Jack: the sequence shown on a lead is the one Apollo says it is in,
+  // never a target assigned here. The queue still has the plan.
   await nav('All leads');
   t = await text();
-  ok('the Headed for column names the sequence', /CSP Leads/.test(t) && /exported \d{4}-\d{2}-\d{2}/.test(t), t.slice(0, 600));
+  const heads = (await page.locator('.data-table thead th').allInnerTexts()).join('|');
+  ok('the table carries no Headed for column', !/Headed for/i.test(heads), heads);
   await page.locator('button.filter-btn').first().click(); await sleep(400);
   await page.selectOption('select[aria-label="Queue status"]', 'exported'); await sleep(500);
   t = await text();
-  ok('filtering by "Exported to Apollo" narrows to the exported leads', /\b[1-9] of 5\b/.test(t) && /exported \d{4}/.test(t), t.slice(0, 300));
+  ok('filtering by "Exported to Apollo" narrows to the exported leads', /\b[1-9] of 5\b/.test(t), t.slice(0, 300));
   await page.selectOption('select[aria-label="Queue status"]', 'none'); await sleep(500);
   ok('  and "Not queued" shows the rest', /\b[1-9] of 5\b/.test(await text()));
 
@@ -187,18 +190,26 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   const rowOf = async (co) => (await page.locator('.data-table tbody tr', { hasText: co }).first().innerText()).replace(/\s+/g, ' ');
   let r = await rowOf('CSP ALPHA CO');
   ok('Sequence column names the Apollo sequence with status and step', /CSP Leads · active · step 2/.test(r), r);
-  ok('Calls column shows the count and the last outcome', /\b3 — Meeting Booked · 2026-10-07/.test(r), r);
-  ok('status reads Meeting booked', /Meeting booked/.test(r), r);
+  const titleOf = async (co, i) => (await page.locator('.data-table tbody tr', { hasText: co }).first().locator('td').nth(i).getAttribute('title')) || '';
+  const outreachIdx = (await page.locator('.data-table thead th').allInnerTexts()).findIndex(h => /Outreach/i.test(h));
+  ok('Disposition column shows the last outcome and its date', /Meeting Booked · 2026-10-07/.test(r), r);
+  ok('  the call count rides on the Outreach cell', /\b3 calls\b/.test(await titleOf('CSP ALPHA CO', outreachIdx)), await titleOf('CSP ALPHA CO', outreachIdx));
+  ok('outreach reads Meeting booked', /Meeting booked/.test(r), r);
   r = await rowOf('MAIN ALPHA CO');
   ok('a finished sequence shows where it stopped', /Jack Main Sequence · finished · step 5/.test(r), r);
-  ok('dialled but never reached is NOT "contacted"', /Attempted, not reached/.test(r) && /Called, not reached/.test(r) && /\b4 — No Answer/.test(r), r);
+  ok('dialled but never reached is NOT "contacted"', /Attempted, not reached/.test(r) && /No Answer/.test(r) && /\b4 calls\b/.test(await titleOf('MAIN ALPHA CO', outreachIdx)), r);
 
-  console.log('\n== the status strip filters ==');
-  await page.locator('button[aria-pressed]', { hasText: 'Meeting booked' }).click(); await sleep(500);
+  console.log('\n== the vault strip filters ==');
+  // The pipeline strip gave way to Stored as / Outreach tiles.
+  await page.locator('button.vault-tile', { hasText: 'Contact made' }).click(); await sleep(500);
   t = await text();
-  ok('clicking Meeting booked narrows to that lead', /\b1 of 5\b/.test(t) && /CSP ALPHA CO/.test(t), t.slice(0, 300));
-  await page.locator('button[aria-pressed]', { hasText: 'Meeting booked' }).click(); await sleep(400);
+  ok('clicking Contact made narrows to the lead with a real conversation', /\b1 of 5\b/.test(t) && /CSP ALPHA CO/.test(t), t.slice(0, 300));
+  await page.locator('button.vault-tile', { hasText: 'Contact made' }).click(); await sleep(400);
   ok('clicking again clears it', /\b5 of 5\b/.test(await text()));
+  await page.locator('button.vault-tile', { hasText: 'Strong Signal' }).click(); await sleep(400);
+  t = await text();
+  ok('Stored as: Strong Signal narrows the table', /\b[1-4] of 5\b/.test(t), t.slice(0, 300));
+  await page.locator('button.vault-tile', { hasText: 'Strong Signal' }).click(); await sleep(400);
 
   console.log('\n== a hand-set status sticks ==');
   await page.locator('.data-table tbody tr', { hasText: 'MAIN BETA CO' }).first().click(); await sleep(500);
@@ -214,7 +225,9 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await upload('Main Scanner', MAIN_FILE);
   await nav('All leads');
   r = await rowOf('MAIN BETA CO');
-  ok('the hand-set status survives a re-upload', /Not interested ✎/.test(r), r);
+  await page.locator('.data-table tbody tr', { hasText: 'MAIN BETA CO' }).first().click(); await sleep(500);
+  ok('the hand-set status survives a re-upload', /Not interested ✎/.test(await page.locator('[role=dialog]').innerText()), r);
+  await page.keyboard.press('Escape'); await sleep(300);
 
   console.log('\n== the lead record: before and after ==');
   const dialog = () => page.locator('[role=dialog]');
@@ -235,8 +248,10 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('a date the notes mention is pulled out', /Dates in the notes.*2027-03-31/i.test(dt), dt.match(/Dates in the notes.{0,200}/i)?.[0]);
   ok('  and marked in the raw note', (await dialog().locator('mark', { hasText: 'March 2027' }).count()) > 0);
   await page.keyboard.press('Escape'); await sleep(300);
-  const mainRow = await rowOf('MAIN ALPHA CO');
-  ok('the Leads row shows the next date in the notes', /📅 2027-03-31/.test(mainRow), mainRow);
+  await page.selectOption('select[aria-label="Sort"]', 'nextdate'); await sleep(400);
+  const firstRow = (await page.locator('.data-table tbody tr').first().innerText()).replace(/\s+/g, ' ');
+  ok('sorting by the soonest date in the notes puts that lead first', /MAIN ALPHA CO/.test(firstRow), firstRow);
+  await page.selectOption('select[aria-label="Sort"]', 'last'); await sleep(300);
 
   console.log('\n== filter by dates in notes, received month, never reached ==');
   await page.locator('button.filter-btn').first().click(); await sleep(400);

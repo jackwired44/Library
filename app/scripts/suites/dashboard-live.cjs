@@ -86,26 +86,34 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await page.locator('.viz-kpi', { hasText: 'tried, not reached' }).click(); await sleep(800);
   let t = await text();
   ok('the tile opens Leads on that exact view', /\b1 of 4\b/.test(t) && /NORTHWIND CO/.test(t) && /Ada Brant/.test(t), t.slice(0, 400));
-  ok('  with the view button shown as active', (await page.locator('button[aria-pressed="true"]', { hasText: 'tried, not reached' }).count()) === 1);
-  await page.locator('button[aria-pressed="true"]', { hasText: 'tried, not reached' }).click(); await sleep(400);
-  await page.locator('button', { hasText: 'Strong signal · never contacted' }).click(); await sleep(400);
+  // The preset buttons are gone (the vault strip replaced them); the view
+  // still lands, and says so as filter chips.
+  ok('  with the view stated as filter chips', /Called, never reached/.test(t) && /Top tier/i.test(t), t.slice(0, 600));
+  await page.locator('button', { hasText: 'Clear all' }).first().click(); await sleep(400);
+  await page.locator('button.vault-tile', { hasText: 'Strong Signal' }).click(); await sleep(300);
+  await page.locator('button.vault-tile', { hasText: 'Never touched' }).click(); await sleep(400);
   t = await text();
-  ok('"Strong signal · never contacted" finds Ben', /\b1 of 4\b/.test(t) && /Ben Cole/.test(t), t.slice(0, 400));
-  await page.locator('button[aria-pressed="true"]', { hasText: 'never contacted' }).click(); await sleep(400);
+  ok('Strong Signal + Never touched finds Ben, not Ada', /Ben Cole/.test(t) && !/Ada Brant/.test(t), t.slice(0, 400));
+  await page.locator('button', { hasText: 'Clear all' }).first().click(); await sleep(400);
 
   console.log('\n== the dense table ==');
   const rowH = await page.locator('.dense-table tbody tr').first().evaluate((el) => el.getBoundingClientRect().height);
   ok('rows are one line (~30px), so 50-100 fit a scroll', rowH <= 36, String(rowH));
   ok('100 rows per page by default', (await page.locator('select:has(option[value="500"])').inputValue()) === '100');
   const row = async (name) => (await page.locator('.dense-table tbody tr', { hasText: name }).first().innerText()).replace(/\s+/g, ' ');
+  // Calls and emails ride on the Outreach cell's tooltip now.
+  const oIdx = (await page.locator('.dense-table thead th').allInnerTexts()).findIndex(h => /Outreach/i.test(h));
+  const tip = async (name) => (await page.locator('.dense-table tbody tr', { hasText: name }).first().locator('td').nth(oIdx).getAttribute('title')) || '';
   let r = await row('Ada Brant');
-  ok('Ada: attempted, 5 calls, 2 emails, in Jack Main at step 3', /Attempted, not reached/.test(r) && /Jack Main Sequence · active · step 3/.test(r) && /\b5 2 No Answer/.test(r), r);
+  ok('Ada: attempted, 5 calls, 2 emails, in Jack Main at step 3', /Attempted, not reached/.test(r) && /Jack Main Sequence · active · step 3/.test(r) && /No Answer/.test(r) && /5 calls · 2 emails/.test(await tip('Ada Brant')), r);
   ok('  her company shows both contacts, one worked', /\b2 · 1 worked\b/.test(r), r);
   r = await row('Cy Webb');
-  ok('Cy: contact made (a call back is a real conversation), 4 emails', /Contact made/.test(r) && /\b3 4 Call Back Scheduled/.test(r), r);
+  ok('Cy: contact made (a call back is a real conversation), 4 emails', /Contact made/.test(r) && /Call Back Scheduled/.test(r) && /3 calls · 4 emails/.test(await tip('Cy Webb')), r);
   r = await row('Di Park');
   ok('Di: no Apollo record reads as Not in Apollo, never as never-contacted', /Not in Apollo/.test(r), r);
-  ok('the position column reads the title', /Owner \/ C-suite/.test(r), r);
+  await page.selectOption('select[aria-label="Position"]', 'csuite'); await sleep(400);
+  ok('the Position filter reads the title (Di is C-suite)', /Di Park/.test(await text()));
+  await page.selectOption('select[aria-label="Position"]', 'all'); await sleep(300);
   await page.selectOption('select[aria-label="Outreach"]', 'attempted'); await sleep(400);
   ok('the Contact filter narrows to the attempted lead', /\b1 of 4\b/.test(await text()) && /Ada Brant/.test(await text()));
   await page.selectOption('select[aria-label="Outreach"]', 'all'); await sleep(300);

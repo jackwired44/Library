@@ -32,6 +32,9 @@ const csv = ['companyname,description,campaignidname,emailaddress1,fullname']
 (async () => {
   const b = await chromium.launch({ executablePath: EXE });
   const page = await (await b.newContext({ viewport: { width: 1500, height: 950 } })).newPage();
+  // Scanner2 folds its fine print behind Details; open it so this suite
+  // can read the reconciliation, renewal and phone lines it checks.
+  await page.addInitScript(() => { try { localStorage.setItem('scanDetailsOpen', '1'); } catch {} });
   const errs = [];
   page.on('pageerror', e => errs.push('PAGEERROR ' + e.message));
   page.on('console', m => { if (m.type() === 'error' && !/favicon|font|net::|googleapis|Failed to load/i.test(m.text())) errs.push('CONSOLE ' + m.text()); });
