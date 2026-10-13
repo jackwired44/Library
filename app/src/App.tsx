@@ -81,6 +81,7 @@ import {
   upsertProfileFromApollo, type CompanyProfile,
 } from "./lib/companyProfiles";
 import { enrichCompaniesViaApollo, type CompanyEnrichOutcome } from "./lib/apolloEnrich";
+import { pullTeamUploads, type PullProgress } from "./lib/apolloLive";
 import "./styles.css";
 
 export interface UploadedFile {
@@ -153,6 +154,20 @@ export default function App() {
   /** Every lead ever scanned, all three scanners. See lib/leadStore.ts. */
   const [leads, setLeads] = useState<StoredLead[]>([]);
   const apolloIndex = useMemo(() => buildRosterIndex(apolloRoster, leads), [apolloRoster, leads]);
+  const rosterPulledAt = useMemo(
+    () => apolloRoster.reduce((m, r) => (r.uploadedAt && r.syncedAt > m ? r.syncedAt : m), ""), [apolloRoster]);
+
+  /** Pull Jack and Carly's recent Apollo CSV uploads into the roster. Each
+   *  page is stored as it lands, so Stop keeps what was read. */
+  async function pullApollo(months: number, onProgress: (p: PullProgress) => void, signal: AbortSignal) {
+    return pullTeamUploads({
+      months, onProgress, signal,
+      onEntries: async (entries) => {
+        setApolloRoster((prev) => mergeRoster(prev, entries));
+        await saveApolloRoster(entries);
+      },
+    });
+  }
   /** What the qualification gate just threw away. Transient by necessity —
    *  a discarded lead is never stored, so this is the only record of it. */
   const [lastDiscards, setLastDiscards] =
@@ -896,6 +911,9 @@ export default function App() {
             leads={leads}
             companyProfiles={companyProfiles}
             onApplySync={applySyncFiles}
+            apolloIndex={apolloIndex}
+            rosterPulledAt={rosterPulledAt}
+            onPullApollo={pullApollo}
             initialSequence={leadsSequenceEntry}
             initialStatus={leadsStatusEntry || undefined}
             initialPreset={leadsPresetEntry || undefined}

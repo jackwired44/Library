@@ -2333,3 +2333,6 @@ textarea:focus {
   color: var(--ink); font-size: 12px; cursor: pointer; text-align: left; }
 .vault-tile:hover { border-color: var(--border-strong, var(--border)); }
 .vault-num { font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.2; }
+
+/* Two lines of a long cell, the rest on hover (All leads' raw note). */
+.clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }

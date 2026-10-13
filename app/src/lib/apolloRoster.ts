@@ -31,6 +31,11 @@ export interface ApolloRosterEntry {
   sequences: string[];
   /** When the sync that last mentioned this person was imported. */
   syncedAt: string;
+  /** Every address Apollo holds for them (a pulled contact can have
+   *  several). Each one matches. */
+  emails?: string[];
+  /** When the contact was uploaded into Apollo — from a live pull only. */
+  uploadedAt?: string;
 }
 
 export type ApolloHow = "email" | "name";
@@ -38,6 +43,7 @@ export interface ApolloHit {
   how: ApolloHow;
   name: string;
   sequences: string[];
+  uploadedAt?: string;
 }
 
 export const normPersonName = (s: unknown) =>
@@ -86,11 +92,12 @@ export function buildRosterIndex(roster: ApolloRosterEntry[], leads: StoredLead[
   const byEmail = new Map<string, ApolloHit>();
   const byName = new Map<string, ApolloHit | null>();
   const people = new Set<string>();
-  const add = (email: string, name: string, sequences: string[]) => {
+  const add = (email: string, name: string, sequences: string[], uploadedAt?: string, more: string[] = []) => {
     const e = normEmail(email);
     const n = normPersonName(name);
-    const hit = { name, sequences };
+    const hit = { name, sequences, ...(uploadedAt ? { uploadedAt } : {}) };
     if (e.includes("@")) { byEmail.set(e, { how: "email", ...hit }); people.add(`e:${e}`); }
+    for (const x of more.map(normEmail)) if (x.includes("@") && !byEmail.has(x)) byEmail.set(x, { how: "email", ...hit });
     if (n.includes(" ")) {
       const prev = byName.get(n);
       // Same person seen twice (same email, or no email) is not ambiguity.
@@ -99,7 +106,7 @@ export function buildRosterIndex(roster: ApolloRosterEntry[], leads: StoredLead[
       if (!e.includes("@")) people.add(`x:${n}`);
     }
   };
-  for (const r of roster) add(r.email, r.name, r.sequences);
+  for (const r of roster) add(r.email, r.name, r.sequences, r.uploadedAt, r.emails);
   for (const l of leads) {
     if (!l.apollo) continue;
     add(l.email, l.contact, sequenceLabels(l.apollo.sequences));

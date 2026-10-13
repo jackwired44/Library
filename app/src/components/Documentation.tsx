@@ -2,7 +2,7 @@ import { useState } from "react";
 import { EXPORT_LABELS, TOP_PRIORITY_META, TOP_PRIORITY_ORDER, QUALIFY_THRESHOLD, PRIORITY_META, CATEGORY_META, ACTIVE_CATEGORY_KEYS, DQ_RULES } from "../lib/detection";
 import { SCANNER2_EXPORT_LABELS, CSP_EXPORT_LABELS } from "../lib/scanner2";
 import { BILLING_META, POSTURE_META, DEFAULT_CSP_RULES, DEFAULT_CSP_WEIGHTS, WEIGHT_META, DEAD_PATTERNS, MOTION_PATTERNS, MOTION_WEIGHT, CSP_COLUMN_HINTS, WANTS_PARTNER_LABEL, OPEN_RENEWAL_MARK, RENEWAL_SOON_DAYS, RENEWAL_BONUS_MAX, CSP_NOTE_MAX_WORDS } from "../lib/cspRenewal";
-import { SMC_PRODUCTS, DEFAULT_SMC_SCORE_RULES, DEFAULT_SMC_WEIGHTS, SMC_FACTOR_META, SMC_PARTNER_META, RUNS_MAX } from "../lib/smcLead";
+import { SMC_PRODUCTS, DEFAULT_SMC_SCORE_RULES, DEFAULT_SMC_WEIGHTS, SMC_FACTOR_META, SMC_PARTNER_META } from "../lib/smcLead";
 
 /**
  * The reference for the whole platform: what each scanner reads, what it
@@ -406,14 +406,12 @@ export default function Documentation() {
           </p>
           <H>What the note tells the rep</H>
           <p style={{ margin: 0 }}>
-            The Notes column is the call note, and it names <b>one area</b> so the call has a direction rather
-            than a summary. It opens with the instruction &mdash; <b>Pitch</b> a product they do not run,
-            <b> Expand</b> one they do &mdash; then the evidence for it: a <b>stated need quoted verbatim</b> when
-            a human wrote one, otherwise Cloud Ascent&rsquo;s own stage and fit. A stated need picks the area
-            outright, ahead of the propensity ranking, because a human wrote it about this account. After that
-            come up to {RUNS_MAX} products they already run (closest to the pitch first), the band and score, and
-            who holds the account. A second, competing product is never named, and a product they already run is
-            never pitched to them.
+            The Notes column reads like the Main Scanner&rsquo;s: <b>what they run today</b>, then <b>what they are
+            looking at</b> &mdash; e.g. &ldquo;Runs O365 and M365. Looking at Azure (Act Now, High fit).&rdquo; It
+            names <b>one area</b>. A <b>stated need is quoted verbatim</b> when a human wrote one, and picks the
+            area outright ahead of the propensity ranking; otherwise Cloud Ascent&rsquo;s own stage and fit back it
+            up. When they already run that exact product it reads &ldquo;Room to grow&rdquo; instead. Then the
+            band and score, and who holds the account. A second, competing product is never named.
           </p>
         </>
       ), `Scored 0–100 across six factors plus a ±${DEFAULT_SMC_SCORE_RULES.partnerAdjust} partner lane; High at ${DEFAULT_SMC_SCORE_RULES.strongAt}+`)}

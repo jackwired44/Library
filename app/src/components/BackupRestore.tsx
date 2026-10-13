@@ -126,7 +126,7 @@ export default function BackupRestore({ libraryEntries, libraryGroups, historyEn
       {notice && <span style={{ fontSize: 12, color: "var(--accent)", fontWeight: 600 }}>{notice}</span>}
       {needsReload && (
         <button onClick={() => window.location.reload()} style={{ ...btn, borderColor: "var(--accent)", color: "var(--accent)" }}>
-          ↻ Reload to see restored contacts, tasks & sequences
+          ↻ Reload to see restored leads, contacts & sequences
         </button>
       )}
       {error && <span style={{ fontSize: 12, color: "#B5443B", fontWeight: 600 }}>{error}</span>}

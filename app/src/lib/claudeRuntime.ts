@@ -13,7 +13,7 @@ export interface ClaudeDownloadsNamespace {
 }
 export interface ClaudeMcpNamespace {
   listTools(): Promise<{ servers: { server: string; authStatus: string; tools: { name: string }[] }[] }>;
-  callTool(server: string, tool: string, input?: unknown): Promise<{ payload?: unknown }>;
+  callTool(server: string, tool: string, input?: unknown, options?: { cache?: false; signal?: AbortSignal }): Promise<{ payload?: unknown }>;
 }
 declare global {
   interface Window {

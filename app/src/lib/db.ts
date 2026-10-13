@@ -208,6 +208,20 @@ export async function dbBulkPut<T>(storeName: string, entries: T[]): Promise<voi
   });
 }
 
+/** Many records by key in ONE transaction, in the order asked. */
+export async function dbGetMany<T>(storeName: string, keys: string[]): Promise<(T | undefined)[]> {
+  if (keys.length === 0) return [];
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readonly");
+    const store = tx.objectStore(storeName);
+    const out: (T | undefined)[] = new Array(keys.length);
+    keys.forEach((k, i) => { const r = store.get(k); r.onsuccess = () => { out[i] = r.result as T | undefined; }; });
+    tx.oncomplete = () => { db.close(); resolve(out); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
+  });
+}
+
 /** One record by key, or undefined. */
 export async function dbGet<T>(storeName: string, key: string): Promise<T | undefined> {
   const db = await openDB();

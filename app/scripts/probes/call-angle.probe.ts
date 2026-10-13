@@ -34,10 +34,10 @@ const JACK = parseSmcLead("Company Name: Acme " + PROP + JACK_OWNS
   + "Budget:30000 Authority Joseph Hickey Need: Copilot + EntraID P2 + Microsoft 365 E3 Timeline: 11/2/2026 ");
 const jack = callAngle(JACK);
 console.log("  " + jack);
-ok("opens with the instruction, not a stage word", /^Pitch M365 /.test(jack), jack);
+ok("opens with what they run, then where they are headed", /^Runs Azure\. Looking at M365: /.test(jack), jack);
 ok("the stated need picks the area, not the model", !/Azure \(/.test(jack), jack);
-ok("quotes the need verbatim", /stated need: "Copilot \+ EntraID P2 \+ Microsoft 365 E3"/.test(jack), jack);
-ok("says what they run", /runs Azure/.test(jack), jack);
+ok("quotes the need verbatim", /Looking at M365: "Copilot \+ EntraID P2 \+ Microsoft 365 E3"\./.test(jack), jack);
+ok("says what they run", /^Runs Azure\./.test(jack), jack);
 ok("names no second product", !/ · then /.test(jack), jack);
 ok("is under 120 characters", jack.length < 120, String(jack.length));
 
@@ -59,16 +59,16 @@ const long = callAngle(parseSmcLead("Company Name: Acme " + PROP + OWNS + "Need:
 ok("keeps far more than a one-line clip would", long.length > 200, String(long.length));
 ok("still cannot reproduce the 2,010-char note", long.length < 400, String(long.length));
 ok("a clip is visibly elliptical", !/…/.test(long) || /…"/.test(long), long.slice(-60));
-ok("the instruction still comes before the quote", long.indexOf("stated need") > 0 && /^(Pitch|Expand) /.test(long), long.slice(0, 40));
+ok("what they run still comes before the quote", /^Runs O365 and M365\. Looking at M365: "/.test(long), long.slice(0, 60));
 
 console.log("\n== no stated need: the honest why-now, per Jack ==");
 // "state the buy signal and what they already run on."
 const bare = callAngle(parseSmcLead("Company Name: Acme " + PROP + OWNS));
 console.log("  " + bare);
-ok("one area, named, with the buy signal behind it", /^Pitch Azure \(Act Now, High fit\)/.test(bare), bare);
-ok("what they run", /runs O365, M365/.test(bare), bare);
+ok("one area, named, with the buy signal behind it", /Looking at Azure \(Act Now, High fit\)\.$/.test(bare), bare);
+ok("what they run, first", /^Runs O365 and M365\. /.test(bare), bare);
 ok("no competing second product", !/D365 Sales Pro/.test(bare), bare);
-ok("invents no pain", !/stated need/.test(bare), bare);
+ok("invents no pain", !/"/.test(bare), bare);
 ok("is under 90 characters", bare.length < 90, String(bare.length));
 
 // The three defects measured on the real 13,106-row export, each now an
@@ -78,33 +78,31 @@ const OWNS_M365 = "Product Ownership Details: - Has O365: Yes - Has M365: Yes - 
 const M365_ONLY = "Product Propensity Details: - M365: Act Now (High Fit; High Prioritization Index) ";
 const ownIt = callAngle(parseSmcLead("Company Name: Acme " + M365_ONLY + OWNS_M365));
 console.log("  " + ownIt);
-ok("an owned area is an expand, not a pitch", /^Expand M365 /.test(ownIt), ownIt);
-ok("and it is not also listed under runs", !/runs[^·]*M365/.test(ownIt), ownIt);
+ok("an owned area is room to grow, not a pitch", /Room to grow M365 /.test(ownIt) && !/Looking at M365/.test(ownIt), ownIt);
+ok("and what they run is still stated", /^Runs O365, M365 and Azure\./.test(ownIt), ownIt);
 
 console.log("\n== 'Has D365' is one flag over three products, so it is never an expand ==");
 const OWNS_D365 = "Product Ownership Details: - Has O365: Yes - Has D365: Yes ";
 const BC_ONLY = "Product Propensity Details: - D365 BC: Act Now (High Fit; High Prioritization Index) ";
 const bc = callAngle(parseSmcLead("Company Name: Acme " + BC_ONLY + OWNS_D365));
 console.log("  " + bc);
-ok("a D365 owner is still new to Business Central", /^Pitch D365 BC /.test(bc), bc);
-ok("the Dynamics they do run is stated instead", /runs .*D365/.test(bc), bc);
+ok("a D365 owner is still new to Business Central", /Looking at D365 BC /.test(bc) && !/Room to grow/.test(bc), bc);
+ok("the Dynamics they do run is stated, on its line first", /^Runs D365 and O365\./.test(bc), bc);
 
 console.log("\n== the stated need outranks the model, but only for a line we sell ==");
 const wantBC = callAngle(parseSmcLead("Company Name: Acme " + PROP + OWNS
   + "Need: Looking at Business Central to replace our ERP "));
-ok("a named product wins over the propensity rank", /^Pitch D365 BC /.test(wantBC), wantBC);
+ok("a named product wins over the propensity rank", /Looking at D365 BC: /.test(wantBC), wantBC);
 const wantFnO = callAngle(parseSmcLead("Company Name: Acme " + PROP + OWNS
   + "Need: supply chain planning overhaul "));
-ok("a product on a line we do not sell falls back to the model", /^Pitch Azure /.test(wantFnO), wantFnO);
+ok("a product on a line we do not sell falls back to the model", /Looking at Azure /.test(wantFnO), wantFnO);
+ok("and the need is never pinned to a product it did not name", !/Azure: "/.test(wantFnO) && /Stated need: "supply chain/.test(wantFnO), wantFnO);
 
-console.log("\n== the owned list is capped, never a four-product inventory ==");
+console.log("\n== what they run lists every product reported, the pitched line first ==");
 const ALL = "Product Ownership Details: - Has O365: Yes - Has M365: Yes - Has Azure: Yes - Has D365: Yes ";
 const capped = callAngle(parseSmcLead("Company Name: Acme " + BC_ONLY + ALL));
 console.log("  " + capped);
-const runsList = (/runs ([^·]+)/.exec(capped)?.[1] ?? "").trim().split(", ");
-ok("at most two products listed", runsList.length <= 2, runsList.join("|"));
-ok("the one on the pitched line comes first", runsList[0] === "D365", runsList.join("|"));
-
+ok("D365 leads when the pitch is Dynamics", /^Runs D365, O365, M365 and Azure\./.test(capped), capped);
 
 // Per Jack, on a Copilot/automation lead: "this is not strong for dynamics."
 // productLineFor read the propensity matrix alone, with Dynamics winning any

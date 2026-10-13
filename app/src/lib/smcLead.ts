@@ -586,51 +586,48 @@ export function callAngle(lead: SmcLead, rules?: SmcRules): string {
       || (INDEX_FRACTION[b.index] - INDEX_FRACTION[a.index])
       || (Number(a.owned) - Number(b.owned)))[0]?.product
     ?? null;
-  const area = (need ? productFromNeed(need, r) : null) ?? modelled;
+  const needArea = need ? productFromNeed(need, r) : null;
+  const area = needArea ?? modelled;
+
+  // Per Jack: "make notes a bit more like the others — what they are on
+  // today and what they are looking at." Same shape as the Main Scanner's
+  // brief: what they run, then where they are headed, as two sentences.
+  const areaLine = area ? PRODUCT_LINE_OF[area] : null;
+  const runs = OWNED_ORDER
+    .filter((k) => lead.owns[k] === true)
+    .sort((a, b) => Number(LINE_OF_OWNED[b] === areaLine) - Number(LINE_OF_OWNED[a] === areaLine));
+  if (runs.length) bits.push(`Runs ${joinAnd(runs)}.`);
 
   if (area) {
-    // Pitch vs expand. Cloud Ascent reporting Act Now on something they
-    // already run is real headroom - more seats, a higher SKU - so the
-    // direction is to grow it, not to sell it in.
     // Ownership is only reported exactly for Azure and M365. "Has D365" is
     // one flag across Business Central, F&O and Sales Pro, so a D365 owner
-    // running Sales Pro is a NEW customer for Business Central - calling
-    // that an expand would overclaim. Those stay a pitch, and the D365 they
-    // do run is listed under "runs" instead, which is all the row states.
+    // is still NEW to Business Central — never told "grow", only "looking at".
     const flag = ownedFlagFor(area);
     const ownsExactly = flag === (area as string) && lead.owns[flag] === true;
-    const verb = ownsExactly ? "Expand" : "Pitch";
-    // Evidence for the direction, when the model has a row for that exact
-    // area. A need-picked area the model says nothing about carries none
-    // rather than borrowing another product's stage.
+    // Evidence, when the model has a row for that exact area. A need-picked
+    // area the model says nothing about carries none rather than borrowing
+    // another product's stage.
     const op = ops.find((o) => o.product === area);
-    const evidence = need
-      ? ` — stated need: "${need}"`
-      : op ? ` (${op.stage}, ${op.fit} fit)` : "";
-    bits.push(`${verb} ${area}${evidence}`);
+    if (needArea) bits.push(`Looking at ${area}: "${need}".`);
+    else {
+      bits.push(`${ownsExactly ? "Room to grow" : "Looking at"} ${area}${op ? ` (${op.stage}, ${op.fit} fit)` : ""}.`);
+      // A need naming nothing we sell is still what a human wrote — kept,
+      // but as its own sentence, never pinned to a product it didn't name.
+      if (need) bits.push(`Stated need: "${need}".`);
+    }
   } else if (need) {
     // Nothing modelled and the need names no product: the need IS the note.
-    bits.push(`Stated need: "${need}"`);
+    bits.push(`Looking at: "${need}".`);
   }
 
-  // WHAT THEY RUN, as the way in - capped, because a four-product inventory
-  // only says "Microsoft shop", which is true of every row in the file. The
-  // area is already named above, so it never repeats here, and whatever
-  // sits on the same line as the pitch is listed first.
-  const areaLine = area ? PRODUCT_LINE_OF[area] : null;
-  const areaFlag = area && ownedFlagFor(area) === (area as string) ? ownedFlagFor(area) : null;
-  const runs = OWNED_ORDER
-    .filter((k) => lead.owns[k] === true && k !== areaFlag)
-    .sort((a, b) => Number(LINE_OF_OWNED[b] === areaLine) - Number(LINE_OF_OWNED[a] === areaLine))
-    .slice(0, RUNS_MAX);
-  if (runs.length) bits.push(`runs ${runs.join(", ")}`);
-
-  return bits.join(" · ");
+  return bits.join(" ");
 }
 
-/** At most this many owned products get listed. Two is enough to place the
- *  account; the third and fourth were noise on 789 real rows. */
-export const RUNS_MAX = 2;
+/** "a", "a and b", "a, b and c". */
+function joinAnd(xs: string[]): string {
+  return xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`;
+}
+
 
 type OwnedKey = keyof SmcLead["owns"];
 const OWNED_ORDER: OwnedKey[] = ["O365", "M365", "Azure", "D365"];

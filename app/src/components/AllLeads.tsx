@@ -15,7 +15,7 @@
 //   - The table renders one page at a time, at most 500 rows. 77,500 DOM
 //     nodes is what an unpaginated Contacts table measured at 3,000 rows.
 //   - Selection is a Set of keys, so it survives paging and refiltering.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   LEAD_SOURCE_META, newestNote, noteSegments, outcomeSummary,
   type LeadSource, type StoredLead,
@@ -36,6 +36,9 @@ import {
   type LeadStatus,
 } from "../lib/leadStatus";
 import { stepsInSequence, type ApolloFunnel } from "../lib/apolloFunnel";
+import { apolloHitFor, type ApolloHit, type RosterIndex } from "../lib/apolloRoster";
+import { DEFAULT_PULL_MONTHS, type PullProgress } from "../lib/apolloLive";
+import { loadRawNotesMany, newestRaw } from "../lib/rawNotes";
 import { isIntentDate, soonestUpcoming, type NoteDate } from "../lib/noteDates";
 import {
   FUNCTION_META, LEVEL_META, LEVEL_ORDER, titleFunction, titleLevel,
@@ -71,10 +74,11 @@ const PLAN_LABEL: Record<Exclude<PlanFilter, "all">, string> = {
   exported: "Exported to Apollo",
 };
 
-type FilesFilter = "all" | "1" | "2" | "3";
+type FilesFilter = "all" | "1" | "2" | "2c" | "3";
 const FILES_LABEL: Record<Exclude<FilesFilter, "all">, string> = {
   "1": "On 1 file",
   "2": "On 2+ files",
+  "2c": "On 2+ files, notes changed",
   "3": "On 3+ files",
 };
 
@@ -123,7 +127,12 @@ interface Derived {
   addedAt: string;
   /** Newest completed task's due date. "" if none. */
   taskDoneAt: string;
+  /** In Apollo already: matched by a sync, or found among the uploads
+   *  pulled from Apollo. Null when neither knows them. */
+  inApollo: ApolloHit | { how: "sync"; name: string; sequences: string[]; uploadedAt?: string } | null;
 }
+
+type InApolloFilter = "all" | "not" | "in";
 
 function dateKindOf(dates: NoteDate[] | undefined): Derived["dateKind"] {
   if (!dates?.length) return "none";
@@ -170,7 +179,13 @@ const NO_LINE = "(no product line)";
 export default function AllLeads({
   leads, companyProfiles = [], onApplySync, initialSequence = "",
   sequenceNames = [], onSetPlan, onSetStatus, funnels = [], initialStatus, initialPreset,
+  apolloIndex = null, rosterPulledAt = "", onPullApollo,
 }: {
+  /** Everyone known to be in Apollo — see lib/apolloRoster.ts. */
+  apolloIndex?: RosterIndex | null;
+  /** When Apollo uploads were last pulled. "" if never. */
+  rosterPulledAt?: string;
+  onPullApollo?: (months: number, onProgress: (p: PullProgress) => void, signal: AbortSignal) => Promise<PullProgress>;
   leads: StoredLead[];
   companyProfiles?: CompanyProfile[];
   onApplySync?: (files: ParsedFile[]) => Promise<SyncReport>;
@@ -227,6 +242,12 @@ export default function AllLeads({
   const [exporting, setExporting] = useState(false);
   const [syncReport, setSyncReport] = useState<SyncReport | string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  /** Per Jack: never re-upload someone already in Apollo. */
+  const [inApolloF, setInApolloF] = useState<InApolloFilter>("all");
+  const [pull, setPull] = useState<PullProgress | null>(null);
+  const [pullError, setPullError] = useState("");
+  const [pullMonths, setPullMonths] = useState(DEFAULT_PULL_MONTHS);
+  const pullAbort = useRef<AbortController | null>(null);
 
   /* ---- derived, once per lead set ---- */
   const derived = useMemo(() => {
@@ -272,10 +293,12 @@ export default function AllLeads({
         verdict: verdictOf(l.tier),
         addedAt: seqs.reduce((m, x) => (x.addedAt && x.addedAt > m ? x.addedAt : m), ""),
         taskDoneAt: (a?.tasks ?? []).reduce((m, t) => (t.status === "completed" && t.at > m ? t.at : m), ""),
+        inApollo: apolloHitFor({ email: l.email, contact: l.contact }, apolloIndex)
+          ?? (a ? { how: "sync" as const, name: l.contact, sequences: seqs.map((x) => (x.status === "active" ? `${x.name} (active)` : x.name)) } : null),
       });
     }
     return m;
-  }, [leads, companyProfiles]);
+  }, [leads, companyProfiles, apolloIndex]);
 
   /* ---- every contact stored at each company, and how far they got ---- */
   const companyStats = useMemo(() => {
@@ -298,9 +321,10 @@ export default function AllLeads({
   const fromT = from ? Date.parse(`${from}T00:00:00`) : null;
   const toT = to ? Date.parse(`${to}T23:59:59.999`) : null;
 
-  type Key = "verdict" | "company" | "contact" | "level" | "fn" | "month" | "dates" | "status" | "search" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "plan" | "planSeq" | "files" | "fileName" | "date";
+  type Key = "inApollo" | "verdict" | "company" | "contact" | "level" | "fn" | "month" | "dates" | "status" | "search" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "plan" | "planSeq" | "files" | "fileName" | "date";
   const tests = useMemo(() => {
     const t: Record<Key, (l: StoredLead, d: Derived) => boolean> = {
+      inApollo: (_l, d) => inApolloF === "all" || (inApolloF === "in" ? !!d.inApollo : !d.inApollo),
       verdict: (_l, d) => verdictF === "all" || d.verdict === verdictF,
       company: (_l, d) => {
         if (companyF === "all") return true;
@@ -338,7 +362,8 @@ export default function AllLeads({
       plan: (l) => planF === "all"
         || (planF === "none" ? !l.plan : l.plan?.status === planF),
       planSeq: (l) => planSeqF === "all" || l.plan?.sequence === planSeqF,
-      files: (_l, d) => filesF === "all" || d.files >= Number(filesF) && (filesF !== "1" || d.files === 1),
+      files: (_l, d) => filesF === "all"
+        || (filesF === "2c" ? d.files >= 2 && d.segs > 1 : d.files >= Number(filesF) && (filesF !== "1" || d.files === 1)),
       fileName: (l) => fileNameF === "all" || l.sourceFiles.includes(fileNameF),
       date: (l) => {
         if (fromT === null && toT === null) return true;
@@ -347,7 +372,7 @@ export default function AllLeads({
       },
     };
     return t;
-  }, [verdictF, companyF, companyStats, contactF, levelF, fnF, monthF, dateF, statusF, q, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, planF, planSeqF, filesF, fileNameF, fromT, toT]);
+  }, [inApolloF, verdictF, companyF, companyStats, contactF, levelF, fnF, monthF, dateF, statusF, q, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, planF, planSeqF, filesF, fileNameF, fromT, toT]);
 
   const passes = (l: StoredLead, skip?: Key) => {
     const d = derived.get(l.key)!;
@@ -407,7 +432,7 @@ export default function AllLeads({
       seq: facet("seq", (l) => (l.apollo?.sequences ?? []).map((x) => x.name)),
       plan: facet("plan", (l) => (l.plan ? l.plan.status : "none")),
       planSeq: facet("planSeq", (l) => (l.plan ? [l.plan.sequence] : [])),
-      files: facet("files", (_l, d) => [d.files === 1 ? "1" : "", d.files >= 2 ? "2" : "", d.files >= 3 ? "3" : ""].filter(Boolean)),
+      files: facet("files", (_l, d) => [d.files === 1 ? "1" : "", d.files >= 2 ? "2" : "", d.files >= 2 && d.segs > 1 ? "2c" : "", d.files >= 3 ? "3" : ""].filter(Boolean)),
       fileName: facet("fileName", (l) => l.sourceFiles),
       month: facet("month", (_l, d) => d.month),
       fn: facet("fn", (_l, d) => d.fn),
@@ -439,6 +464,13 @@ export default function AllLeads({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leads, derived, tests]);
 
+  const inApolloCounts = useMemo(() => {
+    const m = { in: 0, not: 0 };
+    for (const l of leads) if (passes(l, "inApollo")) m[derived.get(l.key)!.inApollo ? "in" : "not"]++;
+    return m;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leads, derived, tests]);
+
   const tiers = useMemo(() => [...new Set(leads.map((l) => l.tier).filter(Boolean))].sort(), [leads]);
   const ageDays = useMemo(() => syncAgeDays(leads), [leads]);
 
@@ -446,11 +478,22 @@ export default function AllLeads({
 
   const pages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const shown = filtered.slice((page - 1) * pageSize, page * pageSize);
+  const [rawByKey, setRawByKey] = useState<Map<string, string>>(new Map());
+  const shownKeys = shown.map((l) => l.key).join("\u0001");
+  useEffect(() => {
+    let live = true;
+    const keys = shownKeys ? shownKeys.split("\u0001") : [];
+    loadRawNotesMany(keys)
+      .then((m) => { if (live) setRawByKey(new Map([...m].map(([k, r]) => [k, newestRaw(r)]))); })
+      .catch(() => { if (live) setRawByKey(new Map()); });
+    return () => { live = false; };
+  }, [shownKeys]);
   const allShownSelected = shown.length > 0 && shown.every((l) => selected.has(l.key));
   const selectedLeads = useMemo(() => leads.filter((l) => selected.has(l.key)), [leads, selected]);
 
   /* ---- active filter chips ---- */
   const chips: { label: string; clear: () => void }[] = [];
+  if (inApolloF !== "all") chips.push({ label: inApolloF === "in" ? "Already in Apollo" : "Not in Apollo", clear: () => setInApolloF("all") });
   if (contactF !== "all") chips.push({ label: contactF === "untouched" ? "Never touched (no outreach on record)" : CONTACT_META[contactF].label, clear: () => setContactF("all") });
   if (levelF !== "all") chips.push({ label: `Position: ${LEVEL_META[levelF].label}`, clear: () => setLevelF("all") });
   if (fnF !== "all") chips.push({ label: FUNCTION_META[fnF].label, clear: () => setFnF("all") });
@@ -485,10 +528,30 @@ export default function AllLeads({
     });
   }
 
+  /** Per Jack: "make sure i am not reuploading leads that have already been
+   *  uploaded in apollo". Anyone already in Apollo is left out of every
+   *  export, and the button says how many. */
+  const notInApollo = (set: StoredLead[]) => set.filter((l) => !derived.get(l.key)?.inApollo);
   async function exportSet(set: StoredLead[], label: string) {
-    if (!set.length || exporting) return;
+    const clean = notInApollo(set);
+    if (!clean.length || exporting) return;
     setExporting(true);
-    try { await downloadCampaignCSV(set, companyProfiles, label); } finally { setExporting(false); }
+    try { await downloadCampaignCSV(clean, companyProfiles, label); } finally { setExporting(false); }
+  }
+
+  async function runPull() {
+    if (!onPullApollo || pull && !pull.done) return;
+    const ac = new AbortController();
+    pullAbort.current = ac;
+    setPullError("");
+    setPull({ pages: 0, scanned: 0, kept: 0, reachedDate: "", done: false, hitCeiling: false });
+    try {
+      const p = await onPullApollo(pullMonths, (x) => setPull(x), ac.signal);
+      setPull({ ...p, done: true });
+    } catch (e) {
+      setPullError(e instanceof Error ? e.message : String(e));
+      setPull((x) => (x ? { ...x, done: true } : x));
+    } finally { pullAbort.current = null; }
   }
 
   async function exportLookupList() {
@@ -561,6 +624,22 @@ export default function AllLeads({
           {onApplySync && (
             <>
               <div className="toolbar-spacer" />
+              {onPullApollo && (
+                <>
+                  <select className="field" aria-label="How far back" value={pullMonths}
+                          onChange={(e) => setPullMonths(Number(e.target.value))} disabled={!!pull && !pull.done}>
+                    {[1, 2, 3, 4, 6].map((m) => <option key={m} value={m}>Last {m} month{m === 1 ? "" : "s"}</option>)}
+                  </select>
+                  {pull && !pull.done ? (
+                    <button className="btn btn-sm btn-secondary" onClick={() => pullAbort.current?.abort()}>Stop</button>
+                  ) : (
+                    <button className="btn btn-sm btn-primary" onClick={runPull}
+                            title="Read the CSV uploads you made into Apollo for you and Carly, and check every lead here against them. Read-only — nothing is written to Apollo.">
+                      ⟳ Pull Apollo uploads
+                    </button>
+                  )}
+                </>
+              )}
               <button className="btn btn-sm btn-ghost" onClick={exportLookupList}
                       title="Download the people to look up in Apollo: email, name, company.">⬇ Lookup list</button>
               <label className="btn btn-sm btn-ghost" style={{ cursor: syncing ? "default" : "pointer" }}
@@ -572,6 +651,26 @@ export default function AllLeads({
             </>
           )}
         </div>
+        {(pull || pullError || apolloIndex) && (
+          <div className="panel-body" style={{ paddingTop: 0, fontSize: 12 }} aria-label="Apollo uploads">
+            {pull && !pull.done && (
+              <>Reading Apollo… {pull.scanned.toLocaleString()} contacts read, back to {pull.reachedDate || "—"} ·{" "}
+                <b>{pull.kept.toLocaleString()}</b> uploaded by you or Carly kept.</>
+            )}
+            {pull && pull.done && !pullError && (
+              <>Pulled <b>{pull.kept.toLocaleString()}</b> Apollo uploads from {pull.reachedDate ? `${pull.reachedDate} on` : "the window"}.
+                {pull.hitCeiling && " Apollo's 50,000-contact limit stopped it early — pick a shorter window."}{" "}</>
+            )}
+            {pullError && <span style={{ color: "#B5443B" }}>Apollo pull stopped: {pullError} </span>}
+            {(!pull || pull.done) && apolloIndex && apolloIndex.size > 0 && (
+              <span style={{ color: "var(--muted)" }}>
+                {apolloIndex.size.toLocaleString()} people known to be in Apollo
+                {rosterPulledAt ? ` · uploads last pulled ${rosterPulledAt.slice(0, 10)}` : " · uploads not pulled yet"}
+                {" · "}<b style={{ color: "var(--ink)" }}>{inApolloCounts.in.toLocaleString()}</b> of the leads here are already in Apollo.
+              </span>
+            )}
+          </div>
+        )}
         {syncReport && (
           <div className="panel-body" style={{ paddingTop: 0, fontSize: 12 }}>
             {typeof syncReport === "string" ? (
@@ -655,6 +754,13 @@ export default function AllLeads({
             <option value="untouched">Never touched — no outreach on record ({(contactCounts.never + contactCounts.unknown).toLocaleString()})</option>
             {CONTACT_ORDER.map((x) => <option key={x} value={x}>{CONTACT_META[x].label} ({contactCounts[x].toLocaleString()})</option>)}
           </select>
+          <select className="field" aria-label="In Apollo" value={inApolloF}
+                  onChange={(e) => setInApolloF(e.target.value as InApolloFilter)}
+                  title="Already a contact in Apollo — from your pulled uploads or a sync">
+            <option value="all">Apollo: any</option>
+            <option value="not">Not in Apollo — safe to upload ({inApolloCounts.not.toLocaleString()})</option>
+            <option value="in">Already in Apollo ({inApolloCounts.in.toLocaleString()})</option>
+          </select>
           <select className="field" aria-label="At company" value={companyF}
                   onChange={(e) => setCompanyF(e.target.value as "all" | "multi" | "single")}
                   title="How many leads we hold at this lead's company">
@@ -680,11 +786,17 @@ export default function AllLeads({
           <span style={{ fontSize: 12, color: "var(--muted)" }}>
             <b>{filtered.length.toLocaleString()}</b> of {leads.length.toLocaleString()}
           </span>
-          <button className="btn btn-sm btn-primary" disabled={!filtered.length || exporting}
-                  onClick={() => exportSet(filtered, filterLabel)}
-                  title="Download every lead matching these filters as an Apollo import CSV. A file only — nothing is pushed to Apollo.">
-            {exporting ? "Preparing…" : `⬇ Export ${filtered.length.toLocaleString()} for Apollo`}
-          </button>
+          {(() => {
+            const clean = notInApollo(filtered).length;
+            const left = filtered.length - clean;
+            return (
+              <button className="btn btn-sm btn-primary" disabled={!clean || exporting}
+                      onClick={() => exportSet(filtered, filterLabel)}
+                      title={`Download the leads matching these filters as an Apollo import CSV. Anyone already in Apollo is left out${left ? ` (${left.toLocaleString()} here)` : ""}. A file only — nothing is pushed to Apollo.`}>
+                {exporting ? "Preparing…" : `⬇ Export ${clean.toLocaleString()} for Apollo${left ? ` · ${left.toLocaleString()} already in Apollo left out` : ""}`}
+              </button>
+            );
+          })()}
         </div>
       </div>
 
@@ -863,8 +975,9 @@ export default function AllLeads({
           </>
         )}
         <button className="btn btn-sm btn-ghost" disabled={!selected.size || exporting}
-                onClick={() => exportSet(selectedLeads, "selection")}>
-          ⬇ Export selection
+                onClick={() => exportSet(selectedLeads, "selection")}
+                title="Anyone already in Apollo is left out">
+          ⬇ Export selection{selected.size ? ` (${notInApollo(selectedLeads).length.toLocaleString()} not in Apollo)` : ""}
         </button>
       </div>
 
@@ -884,10 +997,12 @@ export default function AllLeads({
               <th title="The date the file states, or the upload date if it states none">Received</th>
               <th className="num" title="How many different CSV files this lead was in">Uploads</th>
               <th title="Every lead we hold at this company">At company</th>
+              <th title="Already a contact in Apollo — from your pulled uploads or a sync">In Apollo</th>
               <th title="Has anyone got through? From the Apollo sync.">Outreach</th>
               <th title="The latest call disposition in Apollo">Disposition</th>
               <th title="The Apollo sequence this lead is in, from the last sync">Sequence</th>
-              <th>Notes</th>
+              <th title="The note the scanner wrote">Scanned note</th>
+              <th title="The note exactly as it came in the CSV, newest upload">Raw note</th>
             </tr>
           </thead>
           <tbody>
@@ -910,10 +1025,17 @@ export default function AllLeads({
                   </td>
                   <td>{d.line === NO_LINE ? <span className="muted">—</span> : d.line}</td>
                   <td>{d.month}</td>
-                  <td className="num" title={l.sourceFiles.join("\n")}>{d.files}</td>
+                  <td className="num" title={l.sourceFiles.join("\n")}>
+                    {d.files}{d.files > 1 && d.segs > 1 && <span className="muted" title="The notes differ between these uploads"> · changed</span>}
+                  </td>
                   <td title={co ? co.names.join("\n") : undefined}>
                     {!co || co.contacts < 2 ? <span className="muted">1</span>
                       : <>{co.contacts}<span className="muted"> · {co.worked} worked</span></>}
+                  </td>
+                  <td title={d.inApollo ? [`Matched by ${d.inApollo.how === "sync" ? "an Apollo sync" : d.inApollo.how}`, d.inApollo.uploadedAt ? `Uploaded to Apollo ${d.inApollo.uploadedAt}` : "", ...d.inApollo.sequences].filter(Boolean).join("\n") : "Not found among your Apollo uploads"}>
+                    {d.inApollo
+                      ? <span className="pill" style={{ color: "#0A66C2", background: "#EAF3FC" }}>In Apollo{d.inApollo.uploadedAt ? ` · ${d.inApollo.uploadedAt}` : ""}</span>
+                      : <span className="muted">No</span>}
                   </td>
                   <td title={`${cm.hint}${a ? `\n${a.callCount} call${a.callCount === 1 ? "" : "s"}${a.emailCount !== undefined ? ` · ${a.emailCount} email${a.emailCount === 1 ? "" : "s"}` : ""}` : ""}`}>
                     <span className="pill" style={{ color: cm.color, background: cm.bg }}>{cm.label}</span>
@@ -923,7 +1045,9 @@ export default function AllLeads({
                       : <>{a.lastOutcome}{a.lastCallAt && <span className="muted"> · {a.lastCallAt.slice(0, 10)}</span>}</>}
                   </td>
                   <td className="wide" title={a?.sequences.map((s) => `${s.name} · ${s.status}${s.step != null ? ` · step ${s.step}` : ""}${s.addedAt ? ` · added ${s.addedAt}` : ""}`).join("\n")}>
-                    {!a ? <span className="muted">—</span>
+                    {!a ? (d.inApollo?.sequences.length
+                        ? <>{d.inApollo.sequences[0]}{d.inApollo.sequences.length > 1 && <span className="muted"> +{d.inApollo.sequences.length - 1}</span>}</>
+                        : d.inApollo ? <span className="muted">none</span> : <span className="muted">—</span>)
                       : !seq ? <span className="muted">none</span>
                       : <>
                           {seq.name}
@@ -937,11 +1061,14 @@ export default function AllLeads({
                     {newestNote(l.notes) || "—"}
                     {d.segs > 1 && <span className="muted"> +{d.segs - 1} earlier</span>}
                   </td>
+                  <td data-col="raw" title={rawByKey.get(l.key) || undefined} style={{ maxWidth: 300 }}>
+                    <span className="clamp-2">{rawByKey.get(l.key) || <span className="muted">—</span>}</span>
+                  </td>
                 </tr>
               );
             })}
             {shown.length === 0 && (
-              <tr><td colSpan={12} style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}>
+              <tr><td colSpan={14} style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}>
                 No leads match these filters. <button className="btn btn-sm btn-ghost" onClick={clearAll}>Clear all</button>
               </td></tr>
             )}

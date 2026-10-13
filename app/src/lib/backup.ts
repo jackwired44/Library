@@ -15,7 +15,7 @@ import { normalizeGroup } from "./library";
 import type { HistoryEntry } from "./history";
 import {
   dbGetAll,
-  dbPut,
+
   STORE_RULE_OVERRIDES,
   STORE_TASKS,
   STORE_CONTACTS,
@@ -31,6 +31,15 @@ import {
   STORE_DISPOSITIONS,
   STORE_COMPANY_PROFILES,
   STORE_OUTREACH_ATTEMPTS,
+  STORE_LEADS,
+  STORE_RAW_NOTES,
+  STORE_APOLLO_ROSTER,
+  STORE_APOLLO_FUNNELS,
+  STORE_ROUTING,
+  STORE_SCANNER2_RULESETS,
+  STORE_SCANNER2_RUNS,
+  STORE_SCANNER2_CURATION,
+  dbBulkPut,
 } from "./db";
 
 // Every store BEYOND the three v1 already carried, with the key each one
@@ -52,6 +61,17 @@ export const EXTRA_STORES: { store: string; key: string; label: string }[] = [
   { store: STORE_PLATFORM_NOTES, key: "id", label: "Platform notes" },
   { store: STORE_PROFILE, key: "id", label: "Profile" },
   { store: STORE_RULE_OVERRIDES, key: "id", label: "Rule overrides" },
+  // The lead vault itself. Missing until 2026-10-13, so a backup taken in
+  // Chrome and restored anywhere else (the published page keeps its own
+  // storage) arrived with an empty All leads — the one thing that matters.
+  { store: STORE_LEADS, key: "key", label: "All leads" },
+  { store: STORE_RAW_NOTES, key: "key", label: "Raw notes and CSV rows" },
+  { store: STORE_APOLLO_ROSTER, key: "key", label: "Apollo roster" },
+  { store: STORE_APOLLO_FUNNELS, key: "name", label: "Apollo sequences" },
+  { store: STORE_ROUTING, key: "id", label: "Sequence routing" },
+  { store: STORE_SCANNER2_RULESETS, key: "id", label: "Scanner rule sets" },
+  { store: STORE_SCANNER2_RUNS, key: "id", label: "Scanner runs" },
+  { store: STORE_SCANNER2_CURATION, key: "key", label: "Scanner curation" },
 ];
 
 export type StoreRows = Record<string, unknown[]>;
@@ -151,6 +171,8 @@ export function countIncoming(incoming: IncomingBackup): number {
 // Writes the non-v1 stores back. dbPut is an upsert keyed by that store's
 // own keyPath, so this is the same merge contract as mergeById below:
 // anything already in the browser and absent from the file is untouched.
+const RESTORE_CHUNK = 2000;
+
 export async function restoreExtraStores(stores: StoreRows): Promise<{ written: number; failed: string[] }> {
   let written = 0;
   const failed: string[] = [];
@@ -158,9 +180,12 @@ export async function restoreExtraStores(stores: StoreRows): Promise<{ written: 
     const rows = stores[store];
     if (!Array.isArray(rows) || rows.length === 0) continue;
     try {
-      for (const row of rows) {
-        await dbPut(store, row);
-        written += 1;
+      // One transaction per chunk, not one connection per row: a vault of
+      // 20,000 leads plus their raw notes took minutes row by row.
+      for (let i = 0; i < rows.length; i += RESTORE_CHUNK) {
+        const chunk = rows.slice(i, i + RESTORE_CHUNK);
+        await dbBulkPut(store, chunk);
+        written += chunk.length;
       }
     } catch {
       failed.push(store);

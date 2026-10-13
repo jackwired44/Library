@@ -9,7 +9,7 @@
 // lead at a time, only when its record is opened. Additive across uploads:
 // a new upload adds a segment, an identical one is not stored twice, and
 // nothing here is ever rewritten by a scan.
-import { STORE_RAW_NOTES, dbGet, dbUpdateMany } from "./db";
+import { STORE_RAW_NOTES, dbGet, dbGetMany, dbUpdateMany } from "./db";
 
 export interface RawNoteSegment {
   /** When this text arrived (the upload time). */
@@ -120,4 +120,18 @@ export async function appendRawNotes(entries: { key: string; seg: RawNoteSegment
 
 export async function loadRawNotes(key: string): Promise<RawNotes | undefined> {
   return dbGet<RawNotes>(STORE_RAW_NOTES, key);
+}
+
+/** Raw notes for a page of leads at once, keyed. One transaction. */
+export async function loadRawNotesMany(keys: string[]): Promise<Map<string, RawNotes>> {
+  const got = await dbGetMany<RawNotes>(STORE_RAW_NOTES, keys);
+  const m = new Map<string, RawNotes>();
+  got.forEach((r, i) => { if (r) m.set(keys[i], r); });
+  return m;
+}
+
+/** The newest raw note text for a lead, or "". */
+export function newestRaw(r: RawNotes | undefined): string {
+  if (!r?.segments.length) return "";
+  return [...r.segments].sort((a, b) => b.at.localeCompare(a.at))[0].text;
 }
