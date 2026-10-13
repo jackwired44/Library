@@ -4744,6 +4744,30 @@ rather than trusting memory of it.
 
 ## Working style
 
+- **HubSpot means DEALS, never CONTACTS. Jack's standing rule, stated twice
+  and then a third time to be saved here.** Any time the question is "do we
+  already have a relationship with this lead", "has this been worked", "is
+  this already in HubSpot", "has a meeting been logged", or anything that
+  decides whether a lead gets EXCLUDED from a sequence or a batch — the
+  answer comes from HubSpot **deals** and the companies that carry them.
+  Never from the HubSpot contact record.
+  - **Why it matters, concretely**: a lead sitting in HubSpot as lifecycle
+    stage `lead` with no deal attached is NOT an existing relationship —
+    it's just a record someone imported. Excluding those would strip
+    perfectly good prospects out of a campaign. This was reproduced live:
+    a batch of 851 showed **11 contact-level matches and 0 deal matches**,
+    and all 11 were correctly left in.
+  - **How to run it** (2 calls, then local matching, takes a couple of
+    minutes): `search_crm_objects` on `COMPANY` filtered
+    `num_associated_deals GT 0` (~180 today) for the deal-bearing
+    companies, plus `DEAL` for the deal names. Match each lead on **email
+    domain first**, normalized company name as fallback — never on a
+    person's name, and never on first name alone (that produced four
+    bogus "Mark" matches across four unrelated companies).
+  - The `MEETING` object is permission-blocked on this HubSpot connection
+    (`crm.objects.meetings.read` not granted), and `hs_latest_meeting_activity`
+    on CONTACT is the wrong source per this rule anyway. "A meeting was
+    logged" is answered through the deal, not the contact.
 - Don't ask permission for routine implementation choices; do ask before any
   decision that's actually a product decision in disguise (changing what
   counts as a duplicate, widening data sharing, adding a network dependency,
