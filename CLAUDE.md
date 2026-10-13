@@ -6188,3 +6188,25 @@ rather than trusting memory of it.
   crossed-out and disposition sticky per-person across uploads") — the
   most recent commit at the time Jack asked for this, covering everything
   built up through the sticky-crossed-out/disposition feature.
+
+### 2026-10-13: Main Scanner Google, Dynamics and Sales rules (scanner-platform-v29)
+
+These supersede the older "Google → Microsoft" and "Sales / CRM view" notes above.
+- **Google is a lead whenever the company is on Google** (per Jack: "if they're
+  on google thats a lead"): moving off Google Workspace / G Suite / Gmail to
+  Microsoft, interested in leaving it, or simply running on it. Strong Signal,
+  Google tab, pinned. Excluded: a reverse move, one already made, "found us on
+  Google", Google Ads/Analytics/Cloud, @gmail.com addresses. `googleMoveIn()`
+  in `lib/detection.ts`; suite `google-migration`.
+- **Dynamics category is tighter**: customer service, field service, human
+  resources, supply chain, customer engagement need a Dynamics prefix.
+- **Sales / CRM tab = a sales platform** (D365 Sales, Sales Hub, CRM, Customer
+  Insights), never bare "sales", never a row naming Field Service, F&O,
+  BC/ERP or supply chain. Note opens "Sales platform:". F&O is not BC even
+  when it says ERP. Suite `dynamics-views`.
+- **Dynamics user count** also reads "30-person", "12 reps", "30 techs",
+  "8 agents", "user count: 22" (`dynamicsHeadcountIn`, display/ranking only).
+  Suite `dynamics-count`.
+- **The Apollo pull reads only Jack and Carly's CSV uploads** in the last N months
+  (`lib/apolloLive.ts`), into the roster. All leads exports leave out anyone in Apollo.
+- **Backup now covers All leads**, raw notes, roster and scanner stores.
