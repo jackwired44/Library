@@ -82,6 +82,7 @@ import {
 } from "./lib/companyProfiles";
 import { enrichCompaniesViaApollo, type CompanyEnrichOutcome } from "./lib/apolloEnrich";
 import { pullTeamUploads, type PullProgress } from "./lib/apolloLive";
+import type { SaveReport } from "./lib/saveReport";
 import "./styles.css";
 
 export interface UploadedFile {
@@ -124,7 +125,7 @@ export default function App() {
   useEffect(() => { loadApolloRoster().then(setApolloRoster).catch(() => { /* empty roster is fine */ }); }, []);
   // The Main Scanner batch on screen, waiting for Save, and what Save did.
   const [pendingMain, setPendingMain] = useState<LeadInput[] | null>(null);
-  const [mainSaved, setMainSaved] = useState<{ stored: number; discarded: number } | null>(null);
+  const [mainSaved, setMainSaved] = useState<SaveReport | null>(null);
   // Sidebar scanner section. A per-viewer display preference, so browser
   // storage is the right home for it — wrapped, since storage can throw.
   const [scannersOpen, setScannersOpen] = useState(() => {
@@ -352,8 +353,9 @@ export default function App() {
    * a cycle of the real files is ~37,000 rows and a per-row dbPut would
    * open 37,000 connections.
    */
-  function fileLeads(inputs: LeadInput[]): { stored: number; discarded: number } {
-    if (inputs.length === 0) return { stored: 0, discarded: 0 };
+  function fileLeads(inputs: LeadInput[]): SaveReport {
+    const empty = { rows: inputs.length, stored: 0, repeats: 0, unkeyable: 0, added: 0, updated: 0, discarded: 0 };
+    if (inputs.length === 0) return empty;
     // The qualification gate, BEFORE anything is written. Per Jack an IT /
     // MSP / Microsoft-partner company and a confirmed sub-10-employee
     // company are "automatically excluded from being stored" — discarded
@@ -373,7 +375,7 @@ export default function App() {
         ...d.input!, tier: "Bad Lead", notFit: `${d.reason}${d.detail ? ` — ${d.detail}` : ""}`,
       })),
     ];
-    if (kept.length === 0) return { stored: 0, discarded: discarded.length };
+    if (kept.length === 0) return { ...empty, discarded: discarded.length };
     // The raw note, exactly as the file had it — the "before" beside the
     // scanner's "after". Its own store, written once per upload; never on
     // the lead record itself (see lib/rawNotes.ts).
@@ -397,7 +399,21 @@ export default function App() {
       }
       return leads;
     });
-    return { stored: new Set(kept.map((k) => leadKeyOfInput(k)).filter(Boolean)).size, discarded: discarded.length };
+    // Account for every row — see lib/saveReport.ts.
+    const keys = kept.map((k) => leadKeyOfInput(k));
+    const unique = new Set(keys.filter(Boolean));
+    const had = new Set(leads.map((l) => l.key));
+    let updated = 0;
+    for (const k of unique) if (had.has(k)) updated++;
+    return {
+      rows: inputs.length,
+      stored: unique.size,
+      unkeyable: keys.filter((k) => !k).length,
+      repeats: keys.filter(Boolean).length - unique.size,
+      added: unique.size - updated,
+      updated,
+      discarded: discarded.length,
+    };
   }
 
   /** The Main Scanner's Save button. */

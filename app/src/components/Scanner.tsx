@@ -1,3 +1,4 @@
+import { saveReportText, type SaveReport } from "../lib/saveReport";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ACTIVE_CATEGORY_KEYS,
@@ -132,7 +133,7 @@ interface ScannerProps {
   /** Rows waiting for Save, 0 when nothing is pending. */
   saveCount?: number;
   /** What the last Save stored, or null before one. */
-  savedReport?: { stored: number; discarded: number } | null;
+  savedReport?: SaveReport | null;
   onSaveLeads?: () => void;
   /** Who is already in Apollo, from imported syncs. See lib/apolloRoster. */
   apolloIndex?: RosterIndex | null;
@@ -1231,8 +1232,7 @@ export default function Scanner({
           {/* Nothing in this upload is in the platform until Save. */}
           {savedReport ? (
             <span style={{ fontSize: 12.5, color: "var(--muted)" }} aria-live="polite">
-              ✓ Saved {savedReport.stored.toLocaleString()} lead{savedReport.stored === 1 ? "" : "s"} to All leads
-              {savedReport.discarded > 0 && ` · ${savedReport.discarded} of them marked Bad Lead (not a fit)`}
+              {saveReportText(savedReport)}
             </span>
           ) : saveCount > 0 && onSaveLeads ? (
             <button className="btn btn-primary" aria-label="Save to platform" onClick={onSaveLeads}

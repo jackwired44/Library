@@ -1,3 +1,4 @@
+import { saveReportText, type SaveReport } from "../lib/saveReport";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apolloHitFor, type ApolloHit, type RosterIndex } from "../lib/apolloRoster";
 import { parseCSVFile, toCSV, downloadBlob } from "../lib/csv";
@@ -855,7 +856,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
    *  records counts and filenames, never rows, so a 9,265-row scan was
    *  gone on Start over unless the CSV had been downloaded. */
   /** Stores a batch in All leads. Called only by the Save button. */
-  onStoreLeads?: (rows: Row2[], kind: ScannerKind) => { stored: number; discarded: number } | void;
+  onStoreLeads?: (rows: Row2[], kind: ScannerKind) => SaveReport | void;
   onAddToList?: (
     rows: { row: Scanner2ExportRow; scanner: "main" | "smc" | "csp"; band?: string; score?: number }[],
     opts: { existingId?: string; newName?: string },
@@ -927,7 +928,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
   const [minValue, setMinValue] = useState(0);
   const [filtersOpen, setFiltersOpen] = useState(true);
   /** What Save stored for the batch on screen; null until it is clicked. */
-  const [savedReport, setSavedReport] = useState<{ stored: number; discarded: number } | null>(null);
+  const [savedReport, setSavedReport] = useState<SaveReport | null>(null);
   // Rows whose person is already in Apollo — hidden from the table and the
   // downloads by default, so the file going back to Apollo is new people.
   const [hideInApollo, setHideInApollo] = useState(true);
@@ -944,7 +945,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
   function saveBatch() {
     if (!result || !onStoreLeads) return;
     const r = onStoreLeads(result.rows, kind);
-    setSavedReport(r || { stored: result.rows.length, discarded: 0 });
+    setSavedReport(r || { rows: result.rows.length, stored: result.rows.length, repeats: 0, unkeyable: 0, added: result.rows.length, updated: 0, discarded: 0 });
   }
   // The scan's fine print — setup sentence, reconciliation, renewal and
   // phone coverage, download notes — starts folded. Per Jack: "too much
@@ -1761,8 +1762,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             {savedReport ? (
               <span style={{ fontSize: 12.5, color: "var(--muted)" }} aria-live="polite">
-                ✓ Saved {savedReport.stored.toLocaleString()} lead{savedReport.stored === 1 ? "" : "s"} to All leads
-                {savedReport.discarded > 0 && ` · ${savedReport.discarded} of them marked Bad Lead (not a fit)`}
+                {saveReportText(savedReport)}
               </span>
             ) : onStoreLeads ? (
               <button className="btn btn-primary" aria-label="Save to platform" onClick={saveBatch}

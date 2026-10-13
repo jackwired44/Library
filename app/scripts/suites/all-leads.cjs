@@ -88,7 +88,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('  and the scanner offers Save for every row', /Save \d[\d,]* rows to All leads/.test(await page.locator('main').innerText()));
   // Nothing is stored until Save (per Jack: a save option on every upload).
   await page.locator('button[aria-label="Save to platform"]').first().click(); await sleep(900);
-  ok('  Save confirms what it stored', /✓ Saved \d[\d,]* leads? to All leads/.test(await page.locator('main').innerText()));
+  ok('  Save confirms what it stored', /✓ \d[\d,]* rows → \d[\d,]* leads? in All leads · \d[\d,]* new/.test(await page.locator('main').innerText()));
   await nav('All leads');
   const afterMain = await allLeadsText();
   ok('all three Main rows are stored', /3 leads stored/.test(afterMain), afterMain.slice(0, 200));
