@@ -160,5 +160,18 @@ ok("Dynamics 365 Human Resources under PA 'Dynamics CRM' is not Sales / CRM", ta
 const locked = scanPA("Dynamics CRM", "f1Locked out of teams");
 ok("a login problem beside a phone number is not a Strong Dynamics lead", locked?.tier !== "signal", `${locked?.tier} ${locked?.dqReasons}`);
 
+console.log("\n== Strong Dynamics has to be about a new platform ==");
+for (const [note, want] of [
+  ["Customer is evaluating Dynamics 365 Business Central to replace QuickBooks.", "signal"],
+  ["Service - Dynamics 365 Business Central - 20 users", "signal"],
+  ["Lead ID: 7-3X Products: Dynamics 365 Business Central, budget approved this year. Customer POC: Isaac Smith", "signal"],
+  ["Also on file for the tenant: Business Premium (63), Dynamics 365 Business Central Essentials (9). Budget approved this year for a Copilot pilot.", "mention"],
+  ["Most-used applications: Outlook, Excel and Business Central. Interested in a Copilot rollout plan with a partner, budget this year.", "mention"],
+  ["2026-09-25 14:52:46 PDT : Need help with Dynamics 365, budget this year", "mention"],
+] as [string, string][]) {
+  const r = scan([note])[0];
+  ok(`${want.padEnd(7)} <- ${note.slice(0, 60)}`, r?.category === "dynamics365" && r?.tier === want, `${r?.category} ${r?.tier}`);
+}
+
 console.log(`\n${pass}/${pass + fail} checks passed`);
 if (fail) process.exit(1);

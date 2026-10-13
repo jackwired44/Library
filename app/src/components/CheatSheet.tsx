@@ -179,6 +179,11 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
             Dynamics 365/D365/CRM/AX/NAV/GP, Business Central, Finance and Operations, Customer Engagement, Supply Chain
             Management, bare "ERP". Strong Signal if ERP+CRM are mentioned together, OR a specific product/module is named
             with a real or estimated count, OR any generic trigger word is present, OR a bare number sits next to the match.
+            On top of that, a Dynamics lead is Strong only when the notes show it is about a <em>new platform</em>: a
+            move word (evaluating, implementing, replacing, moving to, demo, pricing, alternative to…) in the same sentence
+            as the platform, a booking or lead record whose subject is the platform ("Products: Dynamics 365 Business
+            Central"), or the inbound form line naming the product with a user count. Microsoft&apos;s scorecard never
+            counts. Without one it stays in Dynamics as Needs Review.
             Ranked greatest-to-smallest by stated seat count once scanned — Business Central/ERP leads first, then Sales/
             CRM leads, then everything else, each block ranked by count within itself.
             <KeywordEditor category="dynamics365" ruleOverrides={ruleOverrides} onChangeRuleOverrides={onChangeRuleOverrides} />

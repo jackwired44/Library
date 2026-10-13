@@ -1019,6 +1019,79 @@ export function stripScorecard(text: string): string {
  *  and filed a "Dynamics 365 Finance" lead under Business Central). */
 const DYNAMICS_MODULE_NAMED_RE =
   /\b(?:business\s*central|finance\s*(?:and|&)\s*operations|f\s*&\s*o|supply\s*chain|field\s*service|project\s*operations|human\s*resources|customer\s*(?:insights?|engagement|service)|contact\s*center|dataverse|power\s*(?:apps|automate|platform|pages)|navision|great\s*plains|axapta|(?:dynamics\s*(?:365\s*)?|d\s*365\s*)(?:finance|commerce|marketing|sales|bc|crm|erp)|dynamics\s*(?:crm|erp|gp|nav|ax|sl)|dynamic\s*crm|dynamics\s*\(\s*bc)\b/i;
+/**
+ * What a Dynamics lead is looking for, said in plain words rather than by
+ * product name: a sales platform / CRM, accounting / ERP, project
+ * management, or customer insights. Lets a Product Area code count when
+ * the notes describe the need without naming Dynamics.
+ */
+const PLATFORM_SALES_RE =
+  /\b(?:crm|sales\s*(?:platform|system|tool|software|pipeline|process|team\s*(?:tool|system))|pipeline\s*(?:management|tracking)|track(?:ing)?\s*(?:leads|deals|opportunities|customers)|contact\s*management|customer\s*relationship|salesforce|hubspot|zoho)\b/i;
+const PLATFORM_ACCOUNTING_RE =
+  /\b(?:erp|accounting\s*(?:system|software|platform|package|tool)?|financials?\s*(?:system|software|platform)|general\s*ledger|bookkeeping|accounts\s*(?:payable|receivable)|inventory\s*(?:management|system)|order\s*management|quickbooks|netsuite|sage|xero|great\s*plains|business\s*central)\b/i;
+const PLATFORM_PROJECT_RE =
+  /\b(?:project\s*(?:management|accounting|tracking|operations)|resource\s*(?:planning|scheduling|management)|time\s*(?:and|&)\s*expense|professional\s*services\s*automation|psa\b)/i;
+const PLATFORM_INSIGHTS_RE =
+  /\b(?:customer\s*(?:insights?|data\s*platform|journeys?|360)|marketing\s*automation|customer\s*segmentation|unified\s*customer\s*(?:view|profile))\b/i;
+/** The notes back a Dynamics code: they say Dynamics, or describe one of
+ *  the platforms Dynamics is. Scorecard text never counts. */
+export function dynamicsBackedByNotes(notes: unknown): boolean {
+  const t = stripScorecard(String(notes ?? ""));
+  return /\b(?:dynamics|d\s*365)\b/i.test(t) || PLATFORM_SALES_RE.test(t) || PLATFORM_ACCOUNTING_RE.test(t) ||
+    PLATFORM_PROJECT_RE.test(t) || PLATFORM_INSIGHTS_RE.test(t);
+}
+/**
+ * Is this note about a NEW platform? Per Jack, a Dynamics lead has to be.
+ * Any one of:
+ *  - a move word (evaluating, implementing, replacing, moving to, demo,
+ *    pricing, quote, new CRM/ERP, alternative to …) in the SAME sentence as,
+ *    and right beside, a platform — a Dynamics product, or one described
+ *    (CRM, ERP, accounting system, project management, customer insights);
+ *  - a booking or lead record whose subject is the platform ("Service
+ *    Name: Dynamics CRM and ERP", "Products: Dynamics 365 Business Central");
+ *  - the CRM's inbound form line, "Service - D365 Sales - 50 users": a
+ *    short request naming the product it wants.
+ * Microsoft's scorecard is removed first and never counts. A note that is
+ * only about a platform they already run, or names Dynamics in passing,
+ * does not qualify.
+ */
+const NEW_MOVE_RE =
+  /\b(?:evaluat\w*|looking\s*(?:at|for|into|to)|consider\w*|interest\w*\s*in|explor\w*|implement\w*|deploy\w*|roll(?:ing)?[\s-]*out|go[\s-]*live|replac\w*|switch\w*|mov(?:e|ing)\s*(?:to|off|from|away|onto)|migrat\w*\s*(?:to|onto|off|from)|transition\w*\s*(?:to|onto)|upgrad\w*|moderni[sz]\w*|standardi[sz]\w*\s*on|build\w*\s*(?:internal\s*)?apps|consolidat\w*\s*(?:data\s*)?into|new\s*(?:crm|erp|system|platform|accounting|software|solution)|need\w*\s*(?:a|an)\s*(?:new\s*)?(?:crm|erp|system|platform|solution|accounting)|demo\w*|quote\w*|pricing|proposal|purchas\w*|buy\w*|outgr\w*|select\w*|rfp|wants?\s*(?:to\s*)?(?:get|use|start|move|buy|implement)|would\s*like\s*to\s*(?:get|use|start|move|implement|have)|alternative\s*to)\b/i;
+/** The platforms Jack means — sales/CRM, accounting/ERP, project
+ *  management, customer insights — plus the legacy Dynamics ERPs and Power
+ *  Platform, which the Dynamics bucket has always sold through (the
+ *  qualification suite holds a partner-led Power Platform build as Strong).
+ *  Copilot Studio is not a platform here. */
+const PLATFORM_WORD_RE =
+  /\b(?:dynamics(?!\s*365\s*(?:copilot))|d\s*365|business\s*central|finance\s*(?:and|&)\s*operations|f\s*&\s*o|customer\s*(?:insights?|engagement)|field\s*service|project\s*operations|power\s*(?:apps|automate|platform|pages)|powerapps|dataverse|great\s*plains|navision|axapta|crm|erp|accounting\s*(?:system|software|platform|package)|project\s*management\s*(?:system|software|platform|tool)|customer\s*data\s*platform|marketing\s*automation|sales\s*platform)\b/gi;
+/** A booking or lead record whose subject IS the platform:
+ *  "Service Name: Dynamics CRM and ERP", "Products: Dynamics 365 Business
+ *  Central", "Scope: Dynamics". */
+const LABELLED_PLATFORM_RE =
+  /\b(?:service\s*name|scope|products?(?:\s*of\s*interest)?|interest(?:ed)?\s*in|need)\s*[:?]+\s*(?:microsoft\s*)?(?:dynamics|d\s*365|business\s*central|crm\b|erp\b)/i;
+export function newPlatformSignal(notes: unknown): boolean {
+  const t = stripScorecard(String(notes ?? "")).replace(/\s+/g, " ").trim();
+  if (!t) return false;
+  const hasPlatform = (x: string) => { PLATFORM_WORD_RE.lastIndex = 0; const r = PLATFORM_WORD_RE.test(x); PLATFORM_WORD_RE.lastIndex = 0; return r; };
+  // The inbound form line: "Service - D365 Sales - 50 users".
+  // The number must be a quantity, not a timestamp ("2026-09-25 … Need help
+  // with Dynamics 365" is a question, not a request for seats).
+  if (t.length <= 140 && hasPlatform(t) &&
+      (formLineCount(t) != null || /\b\d{1,5}\s*(?:users?|seats?|licen[cs]es?)\b|\b(?:users?|seats?)\s*[:\-–]?\s*\d{1,5}\b/i.test(t))) return true;
+  if (LABELLED_PLATFORM_RE.test(t)) return true;
+  // Sentence by sentence: the move has to be about the platform, not about
+  // something else the same paragraph mentions.
+  const sentences = t.split(/(?<=[.!?;])\s+|\s+-\s+|\s*\?{2,}\s*|\s\*\s|\s•\s/);
+  for (const sen of sentences) {
+    PLATFORM_WORD_RE.lastIndex = 0;
+    for (let m = PLATFORM_WORD_RE.exec(sen); m; m = PLATFORM_WORD_RE.exec(sen)) {
+      const near = sen.slice(Math.max(0, m.index - 90), m.index + m[0].length + 50);
+      if (NEW_MOVE_RE.test(near)) { PLATFORM_WORD_RE.lastIndex = 0; return true; }
+    }
+  }
+  PLATFORM_WORD_RE.lastIndex = 0;
+  return false;
+}
 const BUSINESS_CENTRAL_ONLY_RE = /\b(?:business\s*central|d\s*365\s*bc|dynamics\s*(?:365\s*)?\(?\s*bc)\b/i;
 
 function hasBareTrailingCount(afterText: string) {
@@ -1628,7 +1701,12 @@ export function scanRowPlatform(
       hits.push({
         category: cat.label,
         snippet: cleanText(paText),
-        hasTrigger: paSupported,
+        // A Dynamics Product Area code is Strong only when the notes back it:
+        // they mention Dynamics, or they describe the kind of platform
+        // Dynamics is (sales/CRM, accounting/ERP, project management,
+        // customer insights). Per Jack, after a Dynamics CRM code sat on a
+        // note about AI agent architecture and came out Strong Sales/CRM.
+        hasTrigger: paSupported && (cat.label !== "Dynamics 365" || dynamicsBackedByNotes(paComments)),
         fromProductArea: true,
         moduleTier: cat.label === "Dynamics 365" ? (DYNAMICS_ERP_RE.test(paText) ? 0 : DYNAMICS_CRM_RE.test(paText) ? 1 : 2) : undefined,
         isGoogleToMicrosoft:
@@ -1685,8 +1763,18 @@ export function scanRowPlatform(
   // When the notes themselves name a module, the tab follows the notes.
   const notes = stripScorecard(String(commentsValue ?? ""));
   const notesNameModule = DYNAMICS_MODULE_NAMED_RE.test(notes);
-  const bcSaid = notesNameModule ? BUSINESS_CENTRAL_RE.test(notes) : hits.some((h) => h.isBusinessCentral);
-  const salesSaid = notesNameModule ? SALES_CRM_RE.test(notes) : hits.some((h) => h.isSalesCrm);
+  // No module named, but the need is described: accounting/ERP points at
+  // Business Central, sales/CRM or customer insights at Sales / CRM, and
+  // project management at neither. Only then does the Product Area code
+  // get the casting vote.
+  const wantsAccounting = PLATFORM_ACCOUNTING_RE.test(notes);
+  const wantsSales = PLATFORM_SALES_RE.test(notes) || PLATFORM_INSIGHTS_RE.test(notes);
+  const wantsProject = PLATFORM_PROJECT_RE.test(notes);
+  const described = wantsAccounting || wantsSales || wantsProject;
+  const bcSaid = notesNameModule ? BUSINESS_CENTRAL_RE.test(notes)
+    : described ? wantsAccounting : hits.some((h) => h.isBusinessCentral);
+  const salesSaid = notesNameModule ? SALES_CRM_RE.test(notes)
+    : described ? wantsSales && !wantsAccounting : hits.some((h) => h.isSalesCrm);
   const otherModuleOnly = /\b(?:field\s*service|project\s*operations|human\s*resources|(?:dynamics\s*(?:365\s*)?|d\s*365\s*)(?:commerce|customer\s*service|sales|marketing))\b/i.test(notes) &&
     !BUSINESS_CENTRAL_ONLY_RE.test(notes) && !/\bdynamics\s*erp\b/i.test(notes);
   const isBusinessCentral = !supplyChainOnly && !fnoOnly && !otherModuleOnly && bcSaid;
@@ -2186,6 +2274,11 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
   // the tier down for the licensing case.
   const subThreshold = !!(licensing && licensing.status === "dq");
   if (tier === "signal" && subThreshold) tier = "mention";
+  // Per Jack: "dynamics leads have to have a signal indicating it is truly
+  // about a new platform". A Dynamics lead stays Strong only when the notes
+  // show they are moving onto a platform — see newPlatformSignal. Without
+  // one it is Needs Review: still visible, still filed under Dynamics.
+  if (tier === "signal" && autoCategory === "dynamics365" && !newPlatformSignal(resolved.comments)) tier = "mention";
   // Personal-email carve-out: if the ONLY DQ reason is a free/personal
   // email domain AND the row already cleared Strong Signal on its own
   // content, don't DQ it — tag it PERSONAL_PROSPECT_LABEL and let it

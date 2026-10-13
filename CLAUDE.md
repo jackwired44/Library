@@ -6214,3 +6214,25 @@ These supersede the older "Google → Microsoft" and "Sales / CRM view" notes ab
 - **The Apollo pull reads only Jack and Carly's CSV uploads** in the last N months
   (`lib/apolloLive.ts`), into the roster. All leads exports leave out anyone in Apollo.
 - **Backup now covers All leads**, raw notes, roster and scanner stores.
+
+### 2026-10-13: Dynamics must be about a new platform (scanner-platform-v29)
+
+Per Jack: "dynamics leads have to have a signal indicating it is truly about a
+new platform", and a Product Area Dynamics code only counts when the notes back
+it ("infer that they are looking at microsoft for a sales or accounting or
+project management customer insights platform").
+- `newPlatformSignal()` (`lib/detection.ts`): a Dynamics lead is Strong only
+  with a move word (evaluating, implementing, replacing, moving to, demo,
+  pricing, alternative to, modernize…) in the SAME sentence as, and right
+  beside, a platform word; or a booking/lead record whose subject is the
+  platform ("Products: Dynamics 365 Business Central"); or the short inbound
+  form line naming the product with a quantity. Scorecard text never counts.
+  Otherwise Needs Review, still filed under Dynamics.
+- `dynamicsBackedByNotes()`: a Product Area Dynamics code promotes only when
+  the notes mention Dynamics or describe a sales/CRM, accounting/ERP, project
+  management or customer-insights platform; the described need also picks the
+  tab when no module is named.
+- Power Platform / Dataverse / legacy GP, NAV, AX, Great Plains count as
+  platforms for this test (the qualification suite holds a partner-led Power
+  Platform build as Strong). Copilot Studio does not.
+- Book9-30.csv: 101 Dynamics leads, 59 Strong (was 71).
