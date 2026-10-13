@@ -79,6 +79,10 @@ function todayKey(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+// Sentinel for the "no Apollo owner on file" bucket. A literal that can
+// never collide with a real owner name.
+const UNASSIGNED = "\u0000unassigned";
+
 export default function Contacts({ contacts, loading, error, tasks, onAddContactTask, onToggleTask, onDeleteTask, onUpdateContact, users, leadLists, sequences, enrollments, dispositions, onManageDispositions, initialSearch, initialTier, initialWorkedFilter, attempts, onLogAttempt, onRemoveAttempt }: ContactsProps) {
   // One index pass, not a filter per rendered row — the Reached cell is
   // computed for every visible contact.
@@ -109,6 +113,16 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
   // gap Jack asked to surface, filterable so it can be worked, not just
   // counted. Reads hasLeadData; adds no field of its own.
   const [leadDataFilter, setLeadDataFilter] = useState<"all" | "has" | "none">("all");
+  // Who the lead is assigned to in Apollo, and which Apollo sequence(s)
+  // it sits in — per Jack: "view through the lead list by who in apollo it
+  // is assigned to ... so she can see every lead she has ever worked on or
+  // been assigned, with the note," plus "filter by sequences shes working
+  // on." Both read fields carried in on the upload (Contact.apolloOwner /
+  // Contact.sequences); neither adds a store or a scan input. Owner is
+  // single-select (a lead has one owner), sequences multi-select (a lead
+  // accumulates every sequence it has ever been in).
+  const [ownerFilter, setOwnerFilter] = useState<string>("all");
+  const [sequenceFilter, setSequenceFilter] = useState<Set<string>>(new Set());
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -271,10 +285,45 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
     // stamp, so a contact merged at 8pm Central on the 8th reads as the
     // 9th in UTC and used to fall outside a "to the 8th" filter — every
     // evening upload landed outside its own day.
+    if (ownerFilter !== "all") {
+      list = ownerFilter === UNASSIGNED
+        ? list.filter((c) => !(c.apolloOwner || "").trim())
+        : list.filter((c) => (c.apolloOwner || "").trim() === ownerFilter);
+    }
+    // A lead matches if it is in ANY of the checked sequences — the
+    // question being asked is "what is in the sequences I work," not
+    // "what is in all of them at once."
+    if (sequenceFilter.size > 0) list = list.filter((c) => (c.sequences || []).some((q) => sequenceFilter.has(q)));
     if (dateFrom) list = list.filter((c) => localDayKeyFromIso(c.lastSeenAt) >= dateFrom);
     if (dateTo) list = list.filter((c) => localDayKeyFromIso(c.lastSeenAt) <= dateTo);
     return list;
-  }, [searched, dispositionFilter, tierFilter, workedFilter, leadDataFilter, dateFrom, dateTo]);
+  }, [searched, dispositionFilter, tierFilter, workedFilter, leadDataFilter, ownerFilter, sequenceFilter, dateFrom, dateTo]);
+
+  // Options come from the data actually present, not a hardcoded roster —
+  // a rep who shows up in a later export becomes filterable with no code
+  // change, and one who never appears is never offered as a dead option.
+  const ownerOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    let unassigned = 0;
+    searched.forEach((c) => {
+      const o = (c.apolloOwner || "").trim();
+      if (!o) { unassigned += 1; return; }
+      counts.set(o, (counts.get(o) || 0) + 1);
+    });
+    const list = Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([name, n]) => ({ key: name, label: name, count: n }));
+    if (unassigned) list.push({ key: UNASSIGNED, label: "Unassigned", count: unassigned });
+    return list;
+  }, [searched]);
+
+  const sequenceOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    searched.forEach((c) => (c.sequences || []).forEach((q) => counts.set(q, (counts.get(q) || 0) + 1)));
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([name, n]) => ({ key: name, label: name, count: n }));
+  }, [searched]);
 
   const workedCounts = useMemo(() => {
     let worked = 0;
@@ -312,7 +361,7 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
   // Any filter/search/sort change puts you back on page 1 — otherwise
   // narrowing 3,000 contacts down to 12 while sitting on page 40 shows an
   // empty table rather than the results.
-  useEffect(() => { setPage(1); }, [search, sort, dispositionFilter, tierFilter, workedFilter, dateFrom, dateTo]);
+  useEffect(() => { setPage(1); }, [search, sort, dispositionFilter, tierFilter, workedFilter, ownerFilter, sequenceFilter, dateFrom, dateTo]);
 
   // Aggregate outreach summary for whichever bucket is currently selected
   // — per Jack: "know where a lead stands, how many times they've been
@@ -335,8 +384,11 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
   }, [searched]);
 
   const activeFilterCount =
-    (tierFilter !== "all" ? 1 : 0) + dispositionFilter.size + (dateFrom || dateTo ? 1 : 0) + (workedFilter !== "all" ? 1 : 0) + (leadDataFilter !== "all" ? 1 : 0);
+    (tierFilter !== "all" ? 1 : 0) + dispositionFilter.size + (dateFrom || dateTo ? 1 : 0) + (workedFilter !== "all" ? 1 : 0) + (leadDataFilter !== "all" ? 1 : 0) +
+    (ownerFilter !== "all" ? 1 : 0) + sequenceFilter.size;
   function clearAllFilters() {
+    setOwnerFilter("all");
+    setSequenceFilter(new Set());
     setTierFilter("all");
     setWorkedFilter("all");
     setLeadDataFilter("all");
@@ -455,6 +507,45 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
                     </label>
                   ))}
                 </div>
+                {ownerOptions.length > 0 && (
+                  <div className="filter-group">
+                    <div className="filter-group-title">Assigned to (Apollo)</div>
+                    <label className="filter-opt">
+                      <input type="radio" name="apolloOwner" checked={ownerFilter === "all"} onChange={() => setOwnerFilter("all")} />
+                      All owners
+                      <span className="filter-opt-count">{searched.length}</span>
+                    </label>
+                    {ownerOptions.map((o) => (
+                      <label key={o.key} className="filter-opt">
+                        <input type="radio" name="apolloOwner" checked={ownerFilter === o.key} onChange={() => setOwnerFilter(o.key)} />
+                        {o.label}
+                        <span className="filter-opt-count">{o.count}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+                {sequenceOptions.length > 0 && (
+                  <div className="filter-group">
+                    <div className="filter-group-title">Sequence</div>
+                    {sequenceOptions.map((o) => (
+                      <label key={o.key} className="filter-opt">
+                        <input
+                          type="checkbox"
+                          checked={sequenceFilter.has(o.key)}
+                          onChange={(e) => {
+                            setSequenceFilter((prev) => {
+                              const next = new Set(prev);
+                              if (e.target.checked) next.add(o.key); else next.delete(o.key);
+                              return next;
+                            });
+                          }}
+                        />
+                        {o.label}
+                        <span className="filter-opt-count">{o.count}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
                 <div className="filter-group">
                   <div className="filter-group-title">Last seen</div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -492,6 +583,21 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
           {workedFilter !== "all" && (
             <span className="chip">{WORKED_LABEL[workedFilter]}<button onClick={() => setWorkedFilter("all")} title="Remove">✕</button></span>
           )}
+          {ownerFilter !== "all" && (
+            <span className="chip">
+              {ownerFilter === UNASSIGNED ? "Unassigned" : ownerFilter}
+              <button onClick={() => setOwnerFilter("all")} title="Remove">✕</button>
+            </span>
+          )}
+          {Array.from(sequenceFilter).map((q) => (
+            <span className="chip" key={q}>
+              {q}
+              <button
+                onClick={() => setSequenceFilter((prev) => { const next = new Set(prev); next.delete(q); return next; })}
+                title="Remove"
+              >✕</button>
+            </span>
+          ))}
           {(dateFrom || dateTo) && (
             <span className="chip">
               Seen {dateFrom || "any"} to {dateTo || "any"}
@@ -668,6 +774,7 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
                 <th style={{ padding: "9px 12px" }}>Contact</th>
                 <th style={{ padding: "9px 12px" }}>Company</th>
                 <th style={{ padding: "9px 12px" }}>Title</th>
+                <th style={{ padding: "9px 12px" }} title="Who owns this lead in Apollo, and the Apollo sequences it has appeared in">Assigned</th>
                 <th style={{ padding: "9px 12px" }}>Email</th>
                 <th style={{ padding: "9px 12px" }}>Phone</th>
                 <th style={{ padding: "9px 12px" }} title="Their current local time — from a manual override or the phone's area code">Local time</th>
@@ -714,6 +821,29 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
                       <div>{c.company || "—"}</div>
                     </td>
                     <td style={{ padding: "9px 12px", color: "var(--muted)" }}>{c.title || "—"}</td>
+                    <td style={{ padding: "9px 12px", maxWidth: 170 }}>
+                      {c.apolloOwner ? (
+                        <div style={{ fontSize: 12.5 }}>{c.apolloOwner}</div>
+                      ) : (
+                        <div style={{ fontSize: 12.5, color: "var(--muted)" }}>—</div>
+                      )}
+                      {(c.sequences || []).length > 0 && (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginTop: 3 }}>
+                          {(c.sequences || []).map((q) => (
+                            <span
+                              key={q}
+                              title={q}
+                              style={{
+                                fontSize: 10.5, padding: "1px 5px", borderRadius: 6,
+                                background: "var(--surface-sunken)", color: "var(--ink-3)",
+                                border: "1px solid var(--border)", whiteSpace: "nowrap",
+                                maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis",
+                              }}
+                            >{q}</span>
+                          ))}
+                        </div>
+                      )}
+                    </td>
                     <td style={{ padding: "9px 12px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                         <span>{c.email || "—"}</span>
@@ -825,7 +955,7 @@ export default function Contacts({ contacts, loading, error, tasks, onAddContact
                   </tr>
                   {addingForId === c.id && (
                     <tr style={{ background: "var(--bg)" }}>
-                      <td colSpan={14} style={{ padding: "10px 12px" }}>
+                      <td colSpan={15} style={{ padding: "10px 12px" }}>
                         <AddContactTaskForm contact={c} onSubmit={(date, priority, note, time) => submitContactTask(c, date, priority, note, time)} onCancel={() => setAddingForId(null)} />
                       </td>
                     </tr>

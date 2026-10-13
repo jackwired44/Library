@@ -118,6 +118,55 @@ export interface Contact {
   // re-contacting. Optional, so every contact captured before the import
   // existed simply reads blank.
   crmStage?: string;
+  // Who owns this lead in Apollo, verbatim from the export's own "Contact
+  // Owner" column. Deliberately NOT the same thing as ownerId above:
+  // ownerId points at a PlatformUser in this app's own roster and is set
+  // only by hand, while this is whatever Apollo says, carried in on the
+  // upload. Keeping them separate means an Apollo reassignment can never
+  // silently overwrite an attribution someone made here on purpose, and a
+  // rep with no PlatformUser record is still filterable.
+  //
+  // Unlike almost every other merged field this one PREFERS the newer
+  // value (see preferNew below) rather than fill-blank: a reassignment in
+  // Apollo is exactly the kind of change a later export is meant to carry,
+  // so letting the first-ever value win would pin every lead to whoever
+  // happened to own it on the day it was first uploaded.
+  apolloOwner?: string;
+  // Every Apollo sequence this lead has ever appeared in, accumulated as a
+  // union across uploads and never pruned -- per Jack, the point is "every
+  // lead she has ever worked on," which a snapshot of current enrollment
+  // would not answer once a sequence finishes someone.
+  sequences?: string[];
+}
+
+// Multiple sequences arrive in one cell separated by ";" -- a comma would
+// be eaten by the CSV itself.
+const SEQUENCE_SPLIT_RE = /\s*;\s*/;
+export function parseSequenceCell(raw: unknown): string[] {
+  return String(raw || "")
+    .split(SEQUENCE_SPLIT_RE)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+// Union of what is already on file with what this upload carries, order
+// preserved, case-insensitively deduped so "Carly Main" and "carly main"
+// do not both end up as separate filter options.
+function mergeSequences(existing: string[] | undefined, incoming: string[]): string[] | undefined {
+  const out = [...(existing || [])];
+  const seen = new Set(out.map((s) => s.toLowerCase()));
+  incoming.forEach((s) => {
+    if (seen.has(s.toLowerCase())) return;
+    seen.add(s.toLowerCase());
+    out.push(s);
+  });
+  return out.length ? out : undefined;
+}
+// Newer value wins when it has one, but a blank never erases what is
+// already on file -- the opposite precedence to fillBlank, used only
+// where a later export is genuinely more current than an earlier one.
+function preferNew(oldVal: string | undefined, newVal: unknown): string | undefined {
+  const next = String(newVal || "").trim();
+  return next || oldVal || undefined;
 }
 
 // Per Jack: "set a rule to use the email domain to figure that out and map
@@ -379,6 +428,8 @@ export function mergeContactInputs(existing: Contact[], inputs: ContactInput[]):
         mobilePhone: fillBlank(match.mobilePhone, f.mobilePhone),
         employees: fillBlank(match.employees, f.employees),
         productArea: fillBlank(match.productArea, f.productArea),
+        apolloOwner: preferNew(match.apolloOwner, f.owner),
+        sequences: mergeSequences(match.sequences, parseSequenceCell(f.sequence)),
         sourceFiles: match.sourceFiles.includes(sourceFile) ? match.sourceFiles : [...match.sourceFiles, sourceFile],
         companyWebsite: match.companyWebsite || deriveCompanyWebsite(email) || undefined,
         lastSeenAt: now,
@@ -401,6 +452,8 @@ export function mergeContactInputs(existing: Contact[], inputs: ContactInput[]):
         mobilePhone: String(f.mobilePhone || "").trim(),
         employees: String(f.employees || "").trim(),
         productArea: String(f.productArea || "").trim(),
+        apolloOwner: preferNew(undefined, f.owner),
+        sequences: mergeSequences(undefined, parseSequenceCell(f.sequence)),
         sourceFiles: [sourceFile],
         companyWebsite: deriveCompanyWebsite(email) || undefined,
         firstSeenAt: now,
@@ -589,6 +642,8 @@ function foldContact(keep: Contact, dup: Contact): Contact {
     mobilePhone: fillBlank(keep.mobilePhone, dup.mobilePhone),
     employees: fillBlank(keep.employees, dup.employees),
     productArea: fillBlank(keep.productArea, dup.productArea),
+    apolloOwner: keep.apolloOwner || dup.apolloOwner,
+    sequences: mergeSequences(keep.sequences, dup.sequences || []),
     sourceFiles: Array.from(new Set([...keep.sourceFiles, ...dup.sourceFiles])),
     firstSeenAt: keep.firstSeenAt < dup.firstSeenAt ? keep.firstSeenAt : dup.firstSeenAt,
     lastSeenAt: keep.lastSeenAt > dup.lastSeenAt ? keep.lastSeenAt : dup.lastSeenAt,

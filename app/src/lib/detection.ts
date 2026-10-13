@@ -986,6 +986,13 @@ export interface ResolvedFields {
   employees?: string;
   productArea?: string;
   comments?: string;
+  // Who this lead is assigned to in Apollo, and which Apollo sequence(s)
+  // it sits in. Both come straight off an Apollo export's own columns --
+  // see FIELD_DEFS below. They are NOT detection inputs: nothing in the
+  // scan reads them, they exist so the Contacts directory can answer
+  // "show me every lead assigned to Carly, in the sequences she works."
+  owner?: string;
+  sequence?: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1224,6 +1231,15 @@ export const FIELD_DEFS: FieldDef[] = [
     candidates: ["mspsolutionareaname", "productarea", "solutionarea", "primaryproductcodename"],
   },
   { key: "comments", label: "Notes", candidates: ["notes", "comments", "notessummary", "description", "callnotes", "background", "details", "summary", "message", "about", "bio"] },
+  // "contactowner" is listed before the bare "owner" deliberately:
+  // guessColumn tries each candidate to exhaustion (exact match, then
+  // substring) before moving to the next, so an export carrying BOTH
+  // "Contact Owner" and "Account Owner" resolves to the contact's own
+  // owner rather than whichever column happens to come first.
+  { key: "owner", label: "Owner", candidates: ["contactowner", "leadowner", "assignedto", "assignee", "owner", "salesrep", "repname"] },
+  // Multiple sequences on one row separate with ";" -- a comma would
+  // collide with the CSV itself. See SEQUENCE_SPLIT_RE in lib/contacts.ts.
+  { key: "sequence", label: "Sequence", candidates: ["sequence", "sequences", "sequencename", "emailercampaign", "campaignname"] },
 ];
 export const PHONE_LIKE_RE = /phone|mobile|\bcell\b|\btel\b|direct\s*dial/i;
 export const EXPORT_LABELS = ["First Name", "Last Name", "Title", "Company Name", "Email", "Work Direct Phone", "Mobile Phone", "Number of Employees", "Product Area", "Notes"] as const;
