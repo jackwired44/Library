@@ -486,8 +486,40 @@ const TENANT_SUPPORT_LABEL = "Tenant Support";
 const MIGRATION_LABEL = "Migration / Modernization";
 // Shared with TENANT_SUPPORT_LABEL's Strong Signal boost below — see
 // GOOGLE_TO_MICROSOFT_RE/ONGOING_PARTNER_RE.
+// Google -> Microsoft. Per Jack, a Google Workspace move is a top-priority
+// pin. Measured 2026-10-13 against 23 realistic phrasings, the old pattern
+// missed 11 of 16 real moves ("G-Suite" with a hyphen, Gmail -> Outlook,
+// Google Drive -> SharePoint, "Google to M365", "moving off Google
+// Workspace") and pinned 3 that were not moves to Microsoft (the reverse
+// direction, and one done two years ago). Direction matters, so:
+//   1. a Google product, then "to / onto / into …" a Microsoft destination
+//      (a bare mention of both — "emailed from Gmail, asked about Outlook" —
+//      is not a move);
+//   2. a Microsoft product that REPLACES / is chosen INSTEAD OF / moves FROM Google;
+//   3. a move verb pointed straight at Google ("migrate off Google",
+//      "leaving Google", "moving from GSuite");
+//   4. "Google to Microsoft/M365/O365/Office 365".
+// A bare "Google" is never a source on its own — "found us on Google",
+// Google Analytics and Google Ads are not a mailbox. A move already made
+// is excluded separately (GOOGLE_MOVE_DONE_RE, googleMoveIn).
+const G_SRC = "(?:google\\s*workspaces?|g[\\s-]?suite|google\\s*apps|gmail|google\\s*(?:mail|drive|docs|sheets|calendar|meet))";
+const MS_DST = "(?:microsoft(?:\\s*365)?|office\\s*365|o365|m365|outlook|exchange(?:\\s*online)?|sharepoint|one\\s*drive|ms\\s*teams)";
 const GOOGLE_TO_MICROSOFT_SRC =
-  "\\b(google\\s*workspace|g\\s*suite|gmail\\s*for\\s*(?:work|business))\\b.{0,60}\\b(microsoft(?:\\s*365)?|office\\s*365|m365)\\b|\\b(microsoft(?:\\s*365)?|office\\s*365|m365)\\b.{0,60}\\b(google\\s*workspace|g\\s*suite)\\b|\\bgoogle\\s*to\\s*microsoft\\b|\\bmigrat\\w*\\s*(?:off|from|away\\s*from)?\\s*google\\b";
+  `\\b${G_SRC}\\b.{0,120}?\\b(?:to|onto|into|towards?|over\\s*to|for|with)\\s*(?:the\\s*|a\\s*)?(?:\\w+\\s*){0,2}?${MS_DST}\\b` +
+  `|\\b${MS_DST}\\b.{0,60}?\\b(?:replac\\w*|instead\\s*of|away\\s*from|off\\s*of|from)\\b.{0,20}?\\b${G_SRC}\\b` +
+  `|\\b(?:migrat\\w*|mov(?:e|es|ed|ing)|switch\\w*|transition\\w*|leav\\w*|get(?:ting)?)\\s*(?:\\w+\\s*){0,2}?(?:off(?:\\s*of)?|from|away\\s*from)\\s*(?:of\\s*)?(?:google|${G_SRC})\\b` +
+  `|\\bleav(?:e|es|ing)\\s*(?:google|${G_SRC})\\b` +
+  `|\\bgoogle\\s*(?:to|->|→)\\s*(?:microsoft|m365|o365|office\\s*365)\\b` +
+  // 5. Simply ON Google. Per Jack: "if a company is on google looking to
+  //    move over thats a lead, if they are interested thats a lead, if
+  //    theyre on google thats a lead." Google's business suite named
+  //    outright, or "on / uses / runs" Gmail, Google mail or Drive. A bare
+  //    "on Google" is not enough: "found us on Google" is a search. Not Google
+  //    Ads, Analytics, Search, Maps, reviews or Cloud, and not an
+  //    @gmail.com address (the lookbehind) — none of those is a mailbox
+  //    platform the company runs on.
+  `|(?<!@)\\b(?:google\\s*workspaces?|g[\\s-]?suite|google\\s*apps\\s*(?:for\\s*(?:work|business))?)\\b` +
+  `|\\b(?:on|uses?|using|runs?|running)\\s+(?:gmail|google\\s*(?:mail|drive|email)|google\\s+for\\s+(?:their\\s+)?(?:e-?mail|mail))\\b(?!\\s*(?:ads|analytics|search|maps|reviews?|cloud|my\\s*business|business\\s*profile))`;
 const ONGOING_PARTNER_SRC =
   "\\b(msp|managed\\s*(?:it\\s*)?services?|managed\\s*service\\s*providers?|co-?managed\\s*it|outsourced?\\s*it|it\\s*outsourcing|long[\\s-]?term\\s*(?:partner|relationship)|ongoing\\s*(?:it\\s*)?support|dedicated\\s*(?:it\\s*)?partner|trusted\\s*(?:it\\s*)?partner|strategic\\s*(?:it\\s*)?partner|extension\\s*of\\s*(?:our|their|my)\\s*team|third[\\s-]?party\\s*(?:support|help|it)|3rd[\\s-]?party\\s*(?:support|help|it)|committed\\s*(?:it\\s*)?relationship|(?:full|deep)\\s*(?:partner\\s*)?engagement|partner\\s*engagement)\\b";
 // Security design/hardening work — hot per Jack's ask, part of the
@@ -568,6 +600,39 @@ const GROWTH_OVERLOAD_RE =
 // desk" mention (still part of the category match above, just not
 // promoted to Strong Signal by itself).
 const GOOGLE_TO_MICROSOFT_RE = new RegExp(GOOGLE_TO_MICROSOFT_SRC, "i");
+/** A Google move that already happened — "migrated from Google Workspace
+ *  two years ago", "moved off Gmail last year", "already on Microsoft 365
+ *  since leaving Google". Not a project to call about. */
+const GOOGLE_MOVE_DONE_RE =
+  /\b(?:migrated|moved|switched|transitioned|converted)\b[^.;]{0,100}\b(?:ago|last\s*year|previously|already|back\s*in|in\s*20\d\d|years?\s*back)\b|\balready\s*(?:on|migrated|moved|using)\b[^.;]{0,40}\b(?:microsoft|m365|o365|office\s*365)\b/i;
+/**
+ * A Dynamics user count written the way people actually write one. Per
+ * Jack: "make sure dynamics leads always include the user count if there is
+ * one noted." The shared count reader only knows users / seats / licenses /
+ * employees, so "a 30-person sales team", "12 reps", "30 techs", "8 agents"
+ * and "user count: 22" were dropped from the note. Dynamics-only and
+ * display/ranking-only: it never feeds the licensing threshold.
+ */
+const DYN_HEADCOUNT_RE =
+  /\b(\d{1,5})(?:\s*\+)?[\s-]*(?:person|people|reps?|sales\s*reps?|agents?|techs?|technicians?|staff|employees|users?|named\s*users?|seats?|licen[cs]es?)\b|\b(?:user|seat|licen[cs]e)\s*count\s*(?:is|of)?\s*[:\-–]?\s*(\d{1,5})\b/i;
+export function dynamicsHeadcountIn(text: string): number | null {
+  const m = DYN_HEADCOUNT_RE.exec(text);
+  if (!m) return null;
+  const n = Number(m[1] ?? m[2]);
+  // A year is never a headcount.
+  if (!n || (n >= 1900 && n <= 2100)) return null;
+  return n;
+}
+
+/** Going the OTHER way — Microsoft onto Google. Not a lead for us. */
+const GOOGLE_REVERSE_RE = new RegExp(
+  `\\b${MS_DST}\\b.{0,60}?\\b(?:to|onto|into|over\\s*to)\\s*(?:the\\s*)?${G_SRC}\\b` +
+  `|\\b(?:mov\\w*|switch\\w*|migrat\\w*|transition\\w*)\\s*(?:over\\s*)?(?:to|onto)\\s*${G_SRC}\\b`, "i");
+/** A Google lead: on Google Workspace, interested in leaving it, or moving
+ *  to Microsoft — and not a move already made or one going the other way. */
+export function googleMoveIn(text: string): boolean {
+  return GOOGLE_TO_MICROSOFT_RE.test(text) && !GOOGLE_MOVE_DONE_RE.test(text) && !GOOGLE_REVERSE_RE.test(text);
+}
 export const ONGOING_PARTNER_RE = new RegExp(ONGOING_PARTNER_SRC, "i");
 // Security design/hardening work is also a Strong Signal boost, same
 // footing as the Google->Microsoft/ongoing-partner language above.
@@ -1376,7 +1441,7 @@ export function scanRowPlatform(
           (cat.label !== TENANT_SUPPORT_LABEL && TRIGGER_WORDS_RE.test(win)) ||
           LICENSE_COUNT_RE.test(win) ||
           (cat.label === TENANT_SUPPORT_LABEL &&
-            (GROWTH_OVERLOAD_RE.test(win) || GOOGLE_TO_MICROSOFT_RE.test(win) || ONGOING_PARTNER_RE.test(win) || PARTNER_ENGAGEMENT_RE.test(win) || SECURITY_DESIGN_RE.test(win))) ||
+            (GROWTH_OVERLOAD_RE.test(win) || googleMoveIn(win) || ONGOING_PARTNER_RE.test(win) || PARTNER_ENGAGEMENT_RE.test(win) || SECURITY_DESIGN_RE.test(win))) ||
           // The "bare number sits next to the match" rule is Dynamics-365-
           // specific by design (see CLAUDE.md) — it used to run for every
           // category, so a support-ticket number, a software version
@@ -1400,7 +1465,9 @@ export function scanRowPlatform(
         // Same seat/user/license number extraction the licensing engine
         // uses, reused here so a Dynamics lead's real count (not just
         // "a count was mentioned") survives into the result for ranking.
-        seatCount: cat.label === "Dynamics 365" ? extractCountNear(combined, masked, m.index, m[0].length).count : null,
+        seatCount: cat.label === "Dynamics 365"
+          ? extractCountNear(combined, masked, m.index, m[0].length).count ?? dynamicsHeadcountIn(win)
+          : null,
         moduleTier: cat.label === "Dynamics 365" ? (DYNAMICS_ERP_RE.test(win) ? 0 : DYNAMICS_CRM_RE.test(win) ? 1 : 2) : undefined,
         // Per Jack: the Google->Microsoft tab should also pick up any
         // other migration-flavored lead that's already qualifying as
@@ -1410,10 +1477,10 @@ export function scanRowPlatform(
         // Azure's own on-prem-to-cloud migration hits specifically (not
         // Azure hits that qualified via billing/partner language instead).
         isGoogleToMicrosoft:
-          (cat.label === TENANT_SUPPORT_LABEL && GOOGLE_TO_MICROSOFT_RE.test(win)) ||
+          (cat.label === TENANT_SUPPORT_LABEL && googleMoveIn(win)) ||
           cat.label === MIGRATION_LABEL ||
           (cat.label === "Azure" && AZURE_MIGRATION_OVERRIDE_RE.test(win)),
-        isGoogleWorkspaceMigration: cat.label === TENANT_SUPPORT_LABEL && GOOGLE_TO_MICROSOFT_RE.test(win),
+        isGoogleWorkspaceMigration: cat.label === TENANT_SUPPORT_LABEL && googleMoveIn(win),
         isPartnerSeeking: partnerAskConfirmed(win),
         isBusinessCentral: cat.label === "Dynamics 365" && BUSINESS_CENTRAL_RE.test(win),
         isSalesCrm: cat.label === "Dynamics 365" && SALES_CRM_RE.test(win),
@@ -1459,10 +1526,10 @@ export function scanRowPlatform(
         fromProductArea: true,
         moduleTier: cat.label === "Dynamics 365" ? (DYNAMICS_ERP_RE.test(paText) ? 0 : DYNAMICS_CRM_RE.test(paText) ? 1 : 2) : undefined,
         isGoogleToMicrosoft:
-          (cat.label === TENANT_SUPPORT_LABEL && GOOGLE_TO_MICROSOFT_RE.test(paText)) ||
+          (cat.label === TENANT_SUPPORT_LABEL && googleMoveIn(paText)) ||
           cat.label === MIGRATION_LABEL ||
           (cat.label === "Azure" && AZURE_MIGRATION_OVERRIDE_RE.test(paText)),
-        isGoogleWorkspaceMigration: cat.label === TENANT_SUPPORT_LABEL && GOOGLE_TO_MICROSOFT_RE.test(paText),
+        isGoogleWorkspaceMigration: cat.label === TENANT_SUPPORT_LABEL && googleMoveIn(paText),
         isPartnerSeeking: partnerAskConfirmed(paText),
         isBusinessCentral: cat.label === "Dynamics 365" && BUSINESS_CENTRAL_RE.test(paText),
         isSalesCrm: cat.label === "Dynamics 365" && SALES_CRM_RE.test(paText),
