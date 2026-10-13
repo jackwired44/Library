@@ -843,6 +843,7 @@ export default function AllLeads({
                 <option value="all">Any</option>{opts(facets.seq)}
               </select>
             </label>
+            {onSetPlan && (<>
             <label>
               <div className="section-label">Queue status</div>
               <select className="field" style={{ width: "100%" }} aria-label="Queue status" value={planF} onChange={(e) => setPlanF(e.target.value as PlanFilter)}>
@@ -858,6 +859,7 @@ export default function AllLeads({
                 <option value="all">Any</option>{opts(facets.planSeq)}
               </select>
             </label>
+            </>)}
             <label>
               <div className="section-label">How many files</div>
               <select className="field" style={{ width: "100%" }} aria-label="File count" value={filesF} onChange={(e) => setFilesF(e.target.value as FilesFilter)}>

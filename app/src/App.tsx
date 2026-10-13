@@ -50,12 +50,10 @@ import Campaigns from "./components/Campaigns";
 import Overview from "./components/Overview";
 import { appendRawNotes } from "./lib/rawNotes";
 import { withStatusOverride, type LeadStatus } from "./lib/leadStatus";
-import SequenceQueue from "./components/SequenceQueue";
+import ApolloStatus from "./components/ApolloStatus";
 import {
-  DEFAULT_ROUTING, autoRoute, loadRouting, markExported, saveRouting, withPlan, type RoutingRules,
+  DEFAULT_ROUTING, loadRouting, withPlan, type RoutingRules,
 } from "./lib/sequenceRouting";
-import { buildSizeBands } from "./lib/campaignExport";
-import { MIN_EMPLOYEES } from "./lib/leadQualify";
 import { leadInputsFromResults, leadInputsFromRows2, leadInputsFromNoSignal, leadInputsFromDuplicates } from "./lib/leadFiling";
 import AllLeads, { type LeadsPreset } from "./components/AllLeads";
 import {
@@ -106,7 +104,7 @@ const SCANNER_NAV: { key: View; label: string }[] = [
 const NAV_GROUPS: { title: string; items: { key: View; label: string }[] }[] = [
   { title: "Leads", items: [
     { key: "allleads", label: "All leads" },
-    { key: "queue", label: "Apollo queue" },
+    { key: "queue", label: "In Apollo" },
   ] },
   { title: "Archive", items: [
     { key: "lists", label: "Lists" },
@@ -444,36 +442,12 @@ export default function App() {
     });
   }
 
-  const setPlan = (keys: string[], sequence: string | null) =>
-    updateLeads(keys, (l) => withPlan(l, sequence));
-  const markLeadsExported = (keys: string[]) => updateLeads(keys, (l) => markExported(l));
   /** Hand-set a status, or null to give it back to the evidence. */
   const setLeadStatus = (keys: string[], status: LeadStatus | null) =>
     updateLeads(keys, (l) => withStatusOverride(l, status));
 
-  /** Save the routing rules, then route every stored, un-planned lead that
-   *  is now eligible. Returns how many were routed, for the notice. */
-  async function saveRoutingRules(next: RoutingRules) {
-    setRouting(next);
-    await saveRouting(next).catch((e) =>
-      setError(`Could not save routing rules: ${e instanceof Error ? e.message : String(e)}`));
-    const routed = autoRoute(leads, next, buildSizeBands(leads, companyProfiles, MIN_EMPLOYEES));
-    if (routed.length) {
-      const byKey = new Map(routed.map((l) => [l.key, l]));
-      setLeads((prev) => prev.map((l) => (l.plan ? l : byKey.get(l.key) ?? l)));
-      await saveLeads(routed).catch((e) =>
-        setError(`Rules saved, but routed leads could not be stored: ${e instanceof Error ? e.message : String(e)}`));
-    }
-    return routed.length;
-  }
-
   /** Every sequence name worth offering in a picker: imported funnels,
    *  routing rules, and any plan already on a lead. */
-  const queuedCount = useMemo(
-    () => leads.reduce((a, l) => a + (l.plan?.status === "queued" ? 1 : 0), 0),
-    [leads],
-  );
-
   const knownSequences = useMemo(() => {
     const set = new Set<string>();
     for (const f of funnels) set.add(f.name);
@@ -815,9 +789,6 @@ export default function App() {
                   {item.key === "allleads" && leads.length > 0 && (
                     <span className="side-nav-count">{leads.length.toLocaleString()}</span>
                   )}
-                  {item.key === "queue" && queuedCount > 0 && (
-                    <span className="side-nav-count">{queuedCount.toLocaleString()}</span>
-                  )}
                 </button>
               ))}
             </div>
@@ -877,6 +848,7 @@ export default function App() {
             historyEntries={historyEntries}
             companyProfiles={companyProfiles}
             rules={routing}
+            apolloIndex={apolloIndex}
             onNavigate={setView}
             onOpenStatus={(st) => { setLeadsStatusEntry(st); setLeadsSequenceEntry(""); setLeadsPresetEntry(""); setView("allleads"); }}
             onOpenPreset={(pr) => { setLeadsPresetEntry(pr); setLeadsStatusEntry(""); setLeadsSequenceEntry(""); setView("allleads"); }}
@@ -886,9 +858,9 @@ export default function App() {
           // Per Jack: "campaigns or sequences can be in apollo queue". The
           // queue (where leads are headed) and the live sequences (how
           // they are doing) are one place now.
-          <div className="seg" role="tablist" aria-label="Apollo queue view" style={{ marginBottom: 12 }}>
+          <div className="seg" role="tablist" aria-label="Apollo view" style={{ marginBottom: 12 }}>
             <button role="tab" aria-selected={view === "queue"} className={`seg-btn${view === "queue" ? " active" : ""}`} onClick={() => setView("queue")}>
-              Queue{queuedCount > 0 ? ` (${queuedCount.toLocaleString()})` : ""}
+              Leads in Apollo
             </button>
             <button role="tab" aria-selected={view === "campaigns"} className={`seg-btn${view === "campaigns" ? " active" : ""}`} onClick={() => setView("campaigns")}>
               Sequences{funnels.length > 0 ? ` (${funnels.length})` : ""}
@@ -896,15 +868,10 @@ export default function App() {
           </div>
         )}
         {view === "queue" && (
-          <SequenceQueue
-            leads={leads}
-            companyProfiles={companyProfiles}
-            rules={routing}
-            knownSequences={knownSequences}
-            onSaveRules={saveRoutingRules}
-            onSetPlan={setPlan}
-            onMarkExported={markLeadsExported}
-          />
+          // Per Jack: "the apollo queue isnt what i want … i want to be able
+          // to see if a lead is active in apollo from here and if so which
+          // sequence", and "i dont want to push the leads over". Read-only.
+          <ApolloStatus leads={leads} apolloIndex={apolloIndex} rosterPulledAt={rosterPulledAt} onPullApollo={pullApollo} />
         )}
         {(view === "allleads" || view === "library") && (
           // The Lead library lives inside All leads now. Per Jack: "re do
@@ -934,7 +901,6 @@ export default function App() {
             initialStatus={leadsStatusEntry || undefined}
             initialPreset={leadsPresetEntry || undefined}
             sequenceNames={knownSequences}
-            onSetPlan={setPlan}
             onSetStatus={setLeadStatus}
             funnels={funnels}
           />

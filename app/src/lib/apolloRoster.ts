@@ -144,3 +144,15 @@ export function mergeRoster(prev: ApolloRosterEntry[], next: ApolloRosterEntry[]
   for (const e of next) m.set(e.key, e);
   return [...m.values()];
 }
+
+/** The Apollo sequences a stored lead is in, as far as anything here knows:
+ *  an imported sync first (it carries status), else the pulled uploads.
+ *  null = not known to be in Apollo at all. */
+export function apolloSequencesFor(
+  l: StoredLead, index: RosterIndex | null,
+): { name: string; active: boolean }[] | null {
+  if (l.apollo) return l.apollo.sequences.map((s) => ({ name: s.name, active: s.status === "active" }));
+  const hit = apolloHitFor({ email: l.email, contact: l.contact }, index);
+  if (!hit) return null;
+  return hit.sequences.map((label) => ({ name: label.replace(/\s*\(active\)$/, ""), active: /\(active\)$/.test(label) }));
+}

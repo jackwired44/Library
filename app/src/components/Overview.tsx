@@ -13,7 +13,7 @@
 // as fresh as the last sync, so the sync's age is stated beside them.
 import { useEffect, useMemo, useState } from "react";
 import { LEAD_SOURCE_META, hasActiveSequence, type LeadSource, type StoredLead } from "../lib/leadStore";
-import { TOP_TIERS, groupByPlan, holdReason, type RoutingRules } from "../lib/sequenceRouting";
+import { TOP_TIERS, holdReason, type RoutingRules } from "../lib/sequenceRouting";
 import { buildSizeBands } from "../lib/campaignExport";
 import { MIN_EMPLOYEES } from "../lib/leadQualify";
 import { syncAgeDays, SYNC_STALE_DAYS } from "../lib/apolloSync";
@@ -33,6 +33,7 @@ import {
   BarList, ChartCard, ColumnChart, KpiTile, StackedBars, compact, type BarRow,
 } from "./charts";
 import type { LeadsPreset } from "./AllLeads";
+import { apolloSequencesFor, type RosterIndex } from "../lib/apolloRoster";
 
 const DAY = 86_400_000;
 
@@ -93,8 +94,10 @@ function Seg<T extends string>({ label, value, options, onChange }: {
 interface UploadRow { at: string; source: LeadSource; files: string; rows: number; top: number }
 
 export default function Overview({
-  leads, funnels, historyEntries, companyProfiles, rules, onNavigate, onOpenStatus, onOpenPreset,
+  leads, funnels, historyEntries, companyProfiles, rules, onNavigate, onOpenStatus, onOpenPreset, apolloIndex = null,
 }: {
+  /** Who is in Apollo (sync + pulled uploads) — see lib/apolloRoster.ts. */
+  apolloIndex?: RosterIndex | null;
   leads: StoredLead[];
   funnels: ApolloFunnel[];
   historyEntries: HistoryEntry[];
@@ -189,9 +192,21 @@ export default function Overview({
     return { status, contact, bySource, industries, levels, top, active, reached, meetings, waitingRule, notEnriched, months, topUncontacted, topUnreached };
   }, [scoped, companyProfiles, rules, sizeBands]);
 
-  const groups = useMemo(() => groupByPlan(scoped), [scoped]);
-  const queued = groups.reduce((a, g) => a + g.queued.length, 0);
-  const exported = groups.reduce((a, g) => a + g.exported.length, 0);
+  // Per Jack: "see if a lead is active in apollo from here and if so which
+  // sequence". Replaces the old queue numbers — he doesn't push leads from
+  // here.
+  const inApollo = useMemo(() => {
+    let found = 0, active = 0;
+    const bySeq = new Map<string, number>();
+    for (const l of scoped) {
+      const seqs = apolloSequencesFor(l, apolloIndex);
+      if (!seqs) continue;
+      found++;
+      if (seqs.some((x) => x.active)) active++;
+      for (const x of seqs) if (x.active) bySeq.set(x.name, (bySeq.get(x.name) || 0) + 1);
+    }
+    return { found, active, bySeq: [...bySeq.entries()].sort((a, b) => b[1] - a[1]) };
+  }, [scoped, apolloIndex]);
 
   // 12 weeks of arrivals, ending this week.
   const weeks = useMemo(() => {
@@ -247,7 +262,6 @@ export default function Overview({
   }));
   const LINE_SERIES = ["Dynamics 365", "M365 / Azure", "No product line"];
 
-  const queueRows = groups.slice(0, 8).map((g) => ({ key: g.sequence, label: g.sequence, parts: [g.queued.length, g.exported.length] }));
 
   const liveSeq: BarRow[] = funnels
     .filter((f) => f.live !== false)
@@ -292,9 +306,7 @@ export default function Overview({
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <button className="btn btn-sm btn-secondary" onClick={() => onNavigate("scanner")}>⬆ Upload leads</button>
-          <button className="btn btn-sm btn-primary" onClick={() => onNavigate(queued ? "queue" : "allleads")}>
-            {queued ? `Apollo queue (${queued.toLocaleString()}) →` : "All leads →"}
-          </button>
+          <button className="btn btn-sm btn-primary" onClick={() => onNavigate("allleads")}>All leads →</button>
         </div>
       </div>
 
@@ -330,10 +342,10 @@ export default function Overview({
             <KpiTile label="Strong signal · tried, not reached" value={synced ? compact(m.topUnreached) : "—"} tone={synced ? undefined : "muted"}
                      sub={synced ? "called, only no answer / voicemail" : "needs an Apollo sync"}
                      onClick={() => onOpenPreset("top-unreached")} />
-            <KpiTile label="Queued for Apollo" value={compact(queued)}
-                     sub={m.waitingRule ? `${m.waitingRule.toLocaleString()} more waiting on a rule` : `across ${groups.filter((g) => g.queued.length).length} sequences`}
+            <KpiTile label="Active in Apollo" value={compact(inApollo.active)}
+                     sub={`in a live sequence · across ${inApollo.bySeq.length} sequence${inApollo.bySeq.length === 1 ? "" : "s"}`}
                      onClick={() => onNavigate("queue")} />
-            <KpiTile label="Sent to Apollo" value={compact(exported)} sub="exported in a file" onClick={() => onNavigate("queue")} />
+            <KpiTile label="In Apollo" value={compact(inApollo.found)} sub="a contact there, any sequence state" onClick={() => onNavigate("queue")} />
             <KpiTile label="In a sequence now" value={synced ? compact(m.active) : "—"} tone={synced ? undefined : "muted"}
                      sub={synced ? "active in Apollo" : "needs an Apollo sync"} onClick={() => onOpenStatus("in-sequence")} />
             <KpiTile label="Reached" value={synced ? compact(m.reached) : "—"} tone={synced ? undefined : "muted"}
@@ -375,13 +387,13 @@ export default function Overview({
             </ChartCard>
 
             <ChartCard
-              title="Apollo queue by sequence"
-              sub={groups.length ? "Queued to export vs already sent" : "Nothing routed yet — set a rule in the Apollo queue"}
-              table={{ head: ["Sequence", "Queued", "Sent"], rows: groups.map((g) => [g.sequence, g.queued.length, g.exported.length]) }}
+              title="Active in Apollo, by sequence"
+              sub="Leads live in each Apollo sequence right now · from your pulled uploads and syncs"
+              table={{ head: ["Sequence", "Active leads"], rows: inApollo.bySeq.map(([n, c]) => [n, c]) }}
               action={<button className="viz-toggle" onClick={() => onNavigate("queue")}>Open</button>}
             >
-              {queueRows.length ? <StackedBars rows={queueRows} series={["Queued", "Sent to Apollo"]} />
-                : <div className="viz-empty">No leads queued yet.</div>}
+              {inApollo.bySeq.length ? <BarList rows={inApollo.bySeq.slice(0, 8).map(([n, c]) => ({ key: n, label: n, value: c }))} />
+                : <div className="viz-empty">No lead here is active in an Apollo sequence yet — pull your Apollo uploads under In Apollo.</div>}
             </ChartCard>
 
             <ChartCard

@@ -349,35 +349,37 @@ export default function LeadDetail({
                 <StatusPill lead={lead} />
                 {lead.statusOverride && <span style={{ fontSize: 11.5, ...muted }}> set by hand {lead.statusOverride.at.slice(0, 10)}</span>}
               </Row>
+              {onSetPlan && (
               <Row label="Headed for">
-                {lead.plan ? (
-                  <>
-                    <b>{lead.plan.sequence}</b>
-                    <span style={{ fontSize: 12, ...muted }}>
-                      {" · "}{lead.plan.status === "exported"
-                        ? `exported ${(lead.plan.exportedAt || "").slice(0, 10)}`
-                        : `queued ${lead.plan.by === "manual" ? "by hand" : "by rule"} ${lead.plan.assignedAt.slice(0, 10)}`}
-                    </span>
-                  </>
-                ) : <span style={muted}>not queued</span>}
-                {onSetPlan && (
-                  <div>
-                    <select
-                      className="field" style={{ width: 230, fontSize: 12, marginTop: 4 }} value=""
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        if (v === "__remove") onSetPlan(null);
-                        else if (v) onSetPlan(v);
-                      }}
-                      aria-label="Set the sequence this lead is headed for"
-                    >
-                      <option value="">{lead.plan ? "Move to…" : "Queue into…"}</option>
-                      {sequenceNames.filter((n) => n !== lead.plan?.sequence).map((n) => <option key={n} value={n}>{n}</option>)}
-                      {lead.plan && <option value="__remove">Remove from queue</option>}
-                    </select>
-                  </div>
-                )}
-              </Row>
+                  {lead.plan ? (
+                    <>
+                      <b>{lead.plan.sequence}</b>
+                      <span style={{ fontSize: 12, ...muted }}>
+                        {" · "}{lead.plan.status === "exported"
+                          ? `exported ${(lead.plan.exportedAt || "").slice(0, 10)}`
+                          : `queued ${lead.plan.by === "manual" ? "by hand" : "by rule"} ${lead.plan.assignedAt.slice(0, 10)}`}
+                      </span>
+                    </>
+                  ) : <span style={muted}>not queued</span>}
+                  {onSetPlan && (
+                    <div>
+                      <select
+                        className="field" style={{ width: 230, fontSize: 12, marginTop: 4 }} value=""
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (v === "__remove") onSetPlan(null);
+                          else if (v) onSetPlan(v);
+                        }}
+                        aria-label="Set the sequence this lead is headed for"
+                      >
+                        <option value="">{lead.plan ? "Move to…" : "Queue into…"}</option>
+                        {sequenceNames.filter((n) => n !== lead.plan?.sequence).map((n) => <option key={n} value={n}>{n}</option>)}
+                        {lead.plan && <option value="__remove">Remove from queue</option>}
+                      </select>
+                    </div>
+                  )}
+                </Row>
+              )}
               <div style={{ fontSize: 11.5, ...muted, margin: "8px 0 4px" }}>
                 Scanned note{scanned.length > 1 ? `s (${scanned.length}, newest first)` : ""}
               </div>
