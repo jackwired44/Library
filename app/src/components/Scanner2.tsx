@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { apolloHitFor, type ApolloHit, type RosterIndex } from "../lib/apolloRoster";
 import { parseCSVFile, toCSV, downloadBlob } from "../lib/csv";
 import {
   scan2, profileColumns, reconciles, emptyRuleSet, makeRule, guessFieldMapping,
@@ -846,7 +847,7 @@ const { persist, rescan, profiles, result, showRules, setShowRules } = ctx;
  * Shares nothing with Scanner 1 but the CSV parser, the download helper
  * and the stylesheet. See lib/scanner2.ts for why.
  */
-export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStoreLeads, onStartOver }: {
+export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStoreLeads, onStartOver, apolloIndex = null }: {
   kind?: ScannerKind;
   lists?: LeadList[];
   /** Store every scanned lead in the Library's source of truth.
@@ -867,6 +868,8 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
    *  — so Start over discards the fiber rather than trying to out-clear
    *  React's own cache. */
   onStartOver?: () => void;
+  /** Who is already in Apollo, from imported syncs. See lib/apolloRoster. */
+  apolloIndex?: RosterIndex | null;
 }) {
   const isCsp = kind === "csp";
   // Selection is by row id, so it survives paging, re-sorting and filtering
@@ -925,6 +928,19 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
   const [filtersOpen, setFiltersOpen] = useState(true);
   /** What Save stored for the batch on screen; null until it is clicked. */
   const [savedReport, setSavedReport] = useState<{ stored: number; discarded: number } | null>(null);
+  // Rows whose person is already in Apollo — hidden from the table and the
+  // downloads by default, so the file going back to Apollo is new people.
+  const [hideInApollo, setHideInApollo] = useState(true);
+  const apolloHits = useMemo(() => {
+    const m = new Map<string, ApolloHit>();
+    if (!result || !apolloIndex) return m;
+    for (const r of result.rows) {
+      const hit = apolloHitFor({ email: r.lead.email, contact: r.lead.contact }, apolloIndex);
+      if (hit) m.set(r.id, hit);
+    }
+    return m;
+  }, [result, apolloIndex]);
+  const apolloByEmail = useMemo(() => [...apolloHits.values()].filter((h) => h.how === "email").length, [apolloHits]);
   function saveBatch() {
     if (!result || !onStoreLeads) return;
     const r = onStoreLeads(result.rows, kind);
@@ -1277,6 +1293,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
   const tests = useMemo(() => {
     return {
       bucket: (r: Row2) => bucketFilter === "all" || effBucket(r) === bucketFilter,
+      apollo: (r: Row2) => !hideInApollo || !apolloHits.has(r.id),
       curation: (r: Row2) => {
         const d = r.leadKey ? curation[r.leadKey]?.decision : undefined;
         if (curationFilter === "all") return true;
@@ -1352,7 +1369,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
       },
       search: (r: Row2) => searchHits === null || searchHits.has(r.id),
     };
-  }, [bucketFilter, curationFilter, searchHits, curation, productFilter, gapsOnly, callableOnly, smcRules, fromDate, toDate, postureFilter, billingFilter, minScore, maxScore, minValue, lineFilter, effBucket, isCsp, phoneOnly, partnerFilter, smcPostureFilter, renewalFilter]);
+  }, [hideInApollo, apolloHits, bucketFilter, curationFilter, searchHits, curation, productFilter, gapsOnly, callableOnly, smcRules, fromDate, toDate, postureFilter, billingFilter, minScore, maxScore, minValue, lineFilter, effBucket, isCsp, phoneOnly, partnerFilter, smcPostureFilter, renewalFilter]);
 
   type FilterKey = keyof typeof tests;
 
@@ -1867,6 +1884,27 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
           </div>
           )}
 
+          {apolloHits.size > 0 && (
+            <div className="scan-note" aria-label="Already in Apollo" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <span>
+                <strong>{apolloHits.size.toLocaleString()}</strong> of these rows {apolloHits.size === 1 ? "is" : "are"} already in Apollo
+                <span style={{ color: "var(--muted)" }}>
+                  {" "}({apolloByEmail.toLocaleString()} by email
+                  {apolloHits.size - apolloByEmail > 0 && `, ${(apolloHits.size - apolloByEmail).toLocaleString()} by name only`})
+                </span>
+              </span>
+              <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12.5 }}
+                     title="Leave them out of the table and every download, so the CSV you take to Apollo is only new people. They are still saved to All leads when you click Save.">
+                <input type="checkbox" checked={hideInApollo} onChange={(e) => { setHideInApollo(e.target.checked); setPage(1); setSelected(new Set()); }} />
+                Hide them from the table and downloads
+              </label>
+            </div>
+          )}
+          {apolloIndex && apolloIndex.size === 0 && (
+            <div className="scan-note" style={{ color: "var(--muted)" }}>
+              Not checked against Apollo yet: import an Apollo sync in All leads and every upload is checked against it.
+            </div>
+          )}
           <div className="scan-note">
             <strong>{result.rowsRead.toLocaleString()}</strong> read
             {" · "}<strong>{result.rows.length.toLocaleString()}</strong> processed
@@ -2470,6 +2508,12 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
                           <>
                             <td style={{ fontWeight: 600, minWidth: 104, maxWidth: 130, ...strike }}>
                               {name || dash}
+                              {apolloHits.get(r.id) && (
+                                <span className="pill" style={{ marginLeft: 6, fontSize: 11, fontWeight: 500, color: "#9A5B22", background: "#FBF0E2" }}
+                                      title={`Already in Apollo (matched by ${apolloHits.get(r.id)!.how === "email" ? "email" : "name only — check"})${apolloHits.get(r.id)!.sequences.length ? `\n${apolloHits.get(r.id)!.sequences.join("\n")}` : ""}`}>
+                                  In Apollo{apolloHits.get(r.id)!.how === "name" ? "?" : ""}
+                                </span>
+                              )}
                               {(r.smc?.contacts.length ?? 0) > 1 && (
                                 <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 400 }} title={r.smc!.contacts.map((c) => `${c.firstName} ${c.lastName} — ${c.title}`).join("\n")}>
                                   +{r.smc!.contacts.length - 1} more

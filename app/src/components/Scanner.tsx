@@ -37,6 +37,7 @@ import { downloadCSV, parseCSVFile, parseCSVText } from "../lib/csv";
 import type { LeadList } from "../lib/leadLists";
 import BookedStamp from "./BookedStamp";
 import OnCrmBadge from "./OnCrmBadge";
+import { apolloHitFor, type ApolloHit, type RosterIndex } from "../lib/apolloRoster";
 import TopPriorityBadge from "./TopPriorityBadge";
 import {
   getMonthOptionsForFiling,
@@ -87,6 +88,8 @@ interface Facets {
   dupOnly: boolean;
   prioOnly: boolean;
   q: string;
+  /** Rows to leave out — the ones already in Apollo, when hidden. */
+  excludeIds?: Set<string>;
 }
 
 function applyFacets(rows: ResultRow[], f: Facets): ResultRow[] {
@@ -107,6 +110,7 @@ function applyFacets(rows: ResultRow[], f: Facets): ResultRow[] {
   }
   if (f.dupOnly) list = list.filter((r) => r.isDuplicate);
   if (f.prioOnly) list = list.filter((r) => r.priority);
+  if (f.excludeIds?.size) list = list.filter((r) => !f.excludeIds!.has(r.id));
   const q = f.q.trim().toLowerCase();
   if (q) {
     list = list.filter((r) => {
@@ -130,6 +134,8 @@ interface ScannerProps {
   /** What the last Save stored, or null before one. */
   savedReport?: { stored: number; discarded: number } | null;
   onSaveLeads?: () => void;
+  /** Who is already in Apollo, from imported syncs. See lib/apolloRoster. */
+  apolloIndex?: RosterIndex | null;
   results: ResultRow[] | null;
   setResults: React.Dispatch<React.SetStateAction<ResultRow[] | null>>;
   uploadedFiles: UploadedFile[];
@@ -221,6 +227,7 @@ export default function Scanner({
   saveCount = 0,
   savedReport = null,
   onSaveLeads,
+  apolloIndex = null,
   loadedDropped,
   onSyncToHistory,
   allHistory,
@@ -651,6 +658,23 @@ export default function Scanner({
     (o) => !libraryGroups.some((g) => g.name === monthLabelFromKey(o.key))
   );
 
+  // Per Jack: "see if any of those have been added in apollo already so i
+  // can remove them from the csv". Checked once per batch, against the
+  // Apollo roster; hidden from the table and every download by default.
+  const [hideInApollo, setHideInApollo] = useState(true);
+  const apolloHits = useMemo(() => {
+    const m = new Map<string, ApolloHit>();
+    if (!results || !apolloIndex) return m;
+    for (const r of results) {
+      const f = r.row.__f;
+      const hit = apolloHitFor({ email: f.email, contact: getFullName(f) }, apolloIndex);
+      if (hit) m.set(r.id, hit);
+    }
+    return m;
+  }, [results, apolloIndex]);
+  const apolloIds = useMemo(() => new Set(apolloHits.keys()), [apolloHits]);
+  const apolloByEmail = useMemo(() => [...apolloHits.values()].filter((h) => h.how === "email").length, [apolloHits]);
+
   const facets: Facets = {
     tier: tierFilter,
     category: categoryFilter,
@@ -659,6 +683,7 @@ export default function Scanner({
     dupOnly: duplicatesOnly,
     prioOnly: priorityOnly,
     q: search,
+    excludeIds: hideInApollo ? apolloIds : undefined,
   };
 
   const filtered = useMemo(() => {
@@ -688,7 +713,7 @@ export default function Scanner({
     // never overlap - a Google lead is always M365/Azure).
     return sortTopPriorityFirst(ranked);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [results, tierFilter, categoryFilter, duplicatesOnly, priorityOnly, search, dynamicsSortDesc, sortBy, m365SubView, dynamicsSubView]);
+  }, [results, tierFilter, categoryFilter, duplicatesOnly, priorityOnly, search, dynamicsSortDesc, sortBy, m365SubView, dynamicsSubView, hideInApollo, apolloIds]);
 
   // Every count badge is computed with EVERY OTHER active filter applied,
   // but not its own — so the number on a button is exactly how many rows
@@ -1335,6 +1360,28 @@ export default function Scanner({
       </div>
       )}
 
+      {apolloHits.size > 0 && (
+        <div className="scan-note" aria-label="Already in Apollo" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <span>
+            <strong>{apolloHits.size.toLocaleString()}</strong> of these rows {apolloHits.size === 1 ? "is" : "are"} already in Apollo
+            <span style={{ color: "var(--muted)" }}>
+              {" "}({apolloByEmail.toLocaleString()} by email
+              {apolloHits.size - apolloByEmail > 0 && `, ${(apolloHits.size - apolloByEmail).toLocaleString()} by name only`})
+            </span>
+          </span>
+          <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12.5 }}
+                 title="Leave them out of the table and every download, so the CSV you take to Apollo is only new people. They are still saved to All leads when you click Save.">
+            <input type="checkbox" checked={hideInApollo} onChange={(e) => { setHideInApollo(e.target.checked); setPage(1); setSelected(new Set()); }} />
+            Hide them from the table and downloads
+          </label>
+        </div>
+      )}
+      {apolloIndex && apolloIndex.size === 0 && (
+        <div className="scan-note" style={{ color: "var(--muted)" }}>
+          Not checked against Apollo yet: import an Apollo sync in All leads and every upload is checked against it.
+        </div>
+      )}
+
       <div className="kpi-row">
         {[
           { label: "Rows scanned", value: lastScanStats?.rowsScanned ?? results.length, color: "var(--ink)" },
@@ -1730,6 +1777,12 @@ export default function Scanner({
                     </td>
                     <td style={{ padding: "10px 11px", minWidth: 104, whiteSpace: "nowrap", ...strike }}>
                       {getFullName(f) || f.email || "—"} {matchedContact?.onCrm && <OnCrmBadge />}
+                      {apolloHits.get(r.id) && (
+                        <span className="pill" style={{ marginLeft: 6, fontSize: 11, color: "#9A5B22", background: "#FBF0E2" }}
+                              title={`Already in Apollo (matched by ${apolloHits.get(r.id)!.how === "email" ? "email" : "name only — check"})${apolloHits.get(r.id)!.sequences.length ? `\n${apolloHits.get(r.id)!.sequences.join("\n")}` : ""}`}>
+                          In Apollo{apolloHits.get(r.id)!.how === "name" ? "?" : ""}
+                        </span>
+                      )}
                     </td>
                     <td style={{ padding: "10px 11px" }}>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>

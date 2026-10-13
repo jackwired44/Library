@@ -42,6 +42,7 @@ import {
   qualifyLeadInputs, requalifyStoredLeads, summarizeDiscards, type DiscardedLead,
 } from "./lib/leadQualify";
 import { parseApolloSync, applyApolloSync } from "./lib/apolloSync";
+import { loadApolloRoster, saveApolloRoster, rosterFromSync, mergeRoster, buildRosterIndex, type ApolloRosterEntry } from "./lib/apolloRoster";
 import {
   loadFunnels, saveFunnels, parseFunnelCSV, realSteps, type ApolloFunnel,
 } from "./lib/apolloFunnel";
@@ -115,6 +116,11 @@ export default function App() {
   const [unlocked, setUnlockedState] = useState(isUnlocked());
   const [view, setView] = useState<View>("home");
   const [showDiscardNames, setShowDiscardNames] = useState(false);
+  // Everyone the Apollo syncs have named — what a new upload is checked
+  // against. Per Jack: "see if any of those have been added in apollo
+  // already so i can remove them from the csv".
+  const [apolloRoster, setApolloRoster] = useState<ApolloRosterEntry[]>([]);
+  useEffect(() => { loadApolloRoster().then(setApolloRoster).catch(() => { /* empty roster is fine */ }); }, []);
   // The Main Scanner batch on screen, waiting for Save, and what Save did.
   const [pendingMain, setPendingMain] = useState<LeadInput[] | null>(null);
   const [mainSaved, setMainSaved] = useState<{ stored: number; discarded: number } | null>(null);
@@ -146,6 +152,7 @@ export default function App() {
   const [leadLists, setLeadLists] = useState<LeadList[]>([]);
   /** Every lead ever scanned, all three scanners. See lib/leadStore.ts. */
   const [leads, setLeads] = useState<StoredLead[]>([]);
+  const apolloIndex = useMemo(() => buildRosterIndex(apolloRoster, leads), [apolloRoster, leads]);
   /** What the qualification gate just threw away. Transient by necessity —
    *  a discarded lead is never stored, so this is the only record of it. */
   const [lastDiscards, setLastDiscards] =
@@ -465,6 +472,11 @@ export default function App() {
     const { rows, unmapped, skipped } = parseApolloSync(files);
     const { leads: next, changed, matched, unmatched, matchedByName, ambiguous } = applyApolloSync(leads, rows);
     setLeads(next);
+    // Every person in the file joins the roster, matched or not.
+    const fresh = rosterFromSync(rows);
+    setApolloRoster((prev) => mergeRoster(prev, fresh));
+    await saveApolloRoster(fresh).catch((e) =>
+      setError(`Sync read, but the Apollo roster could not be stored: ${e instanceof Error ? e.message : String(e)}`));
     if (changed.length) {
       await saveLeads(changed).catch((e) =>
         setError(`Sync read, but could not be stored: ${e instanceof Error ? e.message : String(e)}`));
@@ -902,8 +914,8 @@ export default function App() {
           />
         )}
 
-        {view === "scanner2" && <Scanner2 key={`smc-${scanEpoch}`} kind="smc" lists={leadLists} onAddToList={addExportRowsToLists} onStoreLeads={(rows, k) => fileLeads(leadInputsFromRows2(rows, k))} onStartOver={() => setScanEpoch((n) => n + 1)} />}
-        {view === "scanner3" && <Scanner2 key={`csp-${scanEpoch}`} kind="csp" lists={leadLists} onAddToList={addExportRowsToLists} onStoreLeads={(rows, k) => fileLeads(leadInputsFromRows2(rows, k))} onStartOver={() => setScanEpoch((n) => n + 1)} />}
+        {view === "scanner2" && <Scanner2 key={`smc-${scanEpoch}`} kind="smc" apolloIndex={apolloIndex} lists={leadLists} onAddToList={addExportRowsToLists} onStoreLeads={(rows, k) => fileLeads(leadInputsFromRows2(rows, k))} onStartOver={() => setScanEpoch((n) => n + 1)} />}
+        {view === "scanner3" && <Scanner2 key={`csp-${scanEpoch}`} kind="csp" apolloIndex={apolloIndex} lists={leadLists} onAddToList={addExportRowsToLists} onStoreLeads={(rows, k) => fileLeads(leadInputsFromRows2(rows, k))} onStartOver={() => setScanEpoch((n) => n + 1)} />}
 
         {view === "scanner" && (
           <>
@@ -918,6 +930,7 @@ export default function App() {
               libraryGroups={libraryGroups}
               setLibraryGroups={setLibraryGroups}
               onRecordHistory={recordHistory}
+              apolloIndex={apolloIndex}
               saveCount={pendingMain ? pendingMain.length : 0}
               savedReport={mainSaved}
               onSaveLeads={saveMainBatch}
