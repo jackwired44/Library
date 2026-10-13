@@ -241,27 +241,33 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
             <strong>Four tabs, always: All Dynamics 365 · Business Central / ERP · Sales / CRM · Everything else.</strong>
             <br />
             <strong>Business Central / ERP</strong> — a row mentions "Business Central" or bare "ERP." This is the same
-            tier-0 module ranking (highest-priority Dynamics leads, always shown first).
+            tier-0 module ranking (highest-priority Dynamics leads, always shown first). A Finance and Operations lead is
+            not Business Central, even when it says "ERP" — it goes to Everything else.
             <br />
-            <strong>Sales / CRM</strong> — a row mentions "Sales" or "CRM" and does <em>not</em> also hit Business
-            Central/ERP — the two tabs are mutually exclusive; BC/ERP always wins if a row hits both.
+            <strong>Sales / CRM</strong> — a <em>sales platform</em>: Dynamics 365 Sales (Pro / Enterprise / Premium),
+            Sales Hub, Dynamics CRM or a CRM, or Customer Insights. A sales <em>team</em> is not a sales platform, and a
+            row naming Field Service, F&amp;O, Business Central / ERP or supply chain never lands here. The note on a Sales
+            lead opens with "Sales platform:".
             <br />
             <strong>Everything else</strong> — every other Dynamics hit: Finance and Operations, Supply Chain Management,
-            Customer Engagement/Insights, Field Service, Marketing, Project Operations, Human Resources, and anything with
-            no specific module named.
+            Customer Engagement, Field Service, Marketing, Project Operations, Human Resources, and anything with no
+            specific module named.
             <br />
-            <strong>Supply Chain Management always lands in Everything else</strong>, even though a supply-chain note
-            usually carries the word "ERP" and manufacturing/distribution wording ("Sales/distribution") trips the bare
-            "Sales" keyword. The one exception: a row that names <em>Business Central</em> outright stays under Business
-            Central / ERP. This decides the tab only — SCM still ranks in the tier-0 block and still downloads in the
-            Dynamics 365 file.
+            <strong>Supply Chain Management always lands in Everything else</strong>, unless the row names
+            <em> Business Central</em> outright. This decides the tab only — SCM still ranks in the tier-0 block and still
+            downloads in the Dynamics 365 file.
+            <br />
+            <strong>Everyday words don't make a Dynamics lead.</strong> "Customer service," "field service," "human
+            resources," "supply chain" and "customer engagement" only count with a Dynamics prefix — "our customer service
+            team" is not a Dynamics lead.
           </CategoryDetail>
           <CategoryDetail k="m365Tenant">
             <strong>Four tabs, always: All M365/Azure · Google → Microsoft · Migrations · Everything else.</strong>
             <br />
-            <strong>Google → Microsoft</strong> — literal Google Workspace / G Suite / Gmail-for-business moving to
-            Microsoft 365, and nothing else. These are also pinned to the top of the results table and of every
-            download as top priority.
+            <strong>Google → Microsoft</strong> — any company on Google: moving off Google Workspace / G Suite / Gmail to
+            Microsoft, interested in leaving it, or simply running on it today. Each is a Strong Signal lead, pinned to
+            the top of the results table and of every download. Not counted: a move the other way, one already made,
+            "found us on Google," Google Ads / Analytics / Cloud, or an @gmail.com address.
             <br />
             <strong>Migrations</strong> — every other migration: Migration/Modernization-category hits (which already
             require partner-engagement language to count at all, so they are already Strong Signal) and Azure hits

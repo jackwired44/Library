@@ -550,7 +550,16 @@ const PLATFORM_CATALOGUE: { label: string; pattern: RegExp }[] = [
       // at all. Legacy product names (Navision/Great Plains/Axapta) are
       // what an older shop actually calls its ERP, and Power Platform is
       // the same implementation practice Jack sells Dynamics through.
-      /\b(dynamics\s*365|d\s*365|dyn\s*365|dynamics\s*crm|dynamics\s*ax|dynamics\s*nav|dynamics\s*gp|business\s*central|finance\s*(?:and|&)\s*operations|customer\s*engagement|customer\s*insights?|customer\s*service|field\s*service|project\s*operations|human\s*resources|supply\s*chain(?:\s*management)?|erp|navision|great\s*plains|axapta|power\s*apps|power\s*automate|power\s*platform|power\s*pages|dataverse|common\s*data\s*service)\b/i,
+      //
+      // Per Jack, "dynamics filtering needs to be more specific … it is
+      // loose": module names that are also everyday English — customer
+      // service, field service, human resources, supply chain, customer
+      // engagement — only count WITH a Dynamics prefix. "Our customer
+      // service team" or "the supply chain team" is not a Dynamics lead. Product names that only mean the
+      // product (Business Central, Finance and Operations, Customer
+      // Insights, Project Operations, Dataverse, the legacy names) still
+      // count on their own.
+      /\b(dynamics\s*365|d\s*365|dyn\s*365|dynamics\s*crm|dynamics\s*ax|dynamics\s*nav|dynamics\s*gp|business\s*central|finance\s*(?:and|&)\s*operations|customer\s*insights?|project\s*operations|(?:microsoft\s*)?dynamics\s*(?:customer\s*(?:engagement|service)|field\s*service|human\s*resources|supply\s*chain(?:\s*management)?|sales)|erp|navision|great\s*plains|axapta|power\s*apps|power\s*automate|power\s*platform|power\s*pages|dataverse|common\s*data\s*service)\b/i,
   },
   {
     label: "Power BI",
@@ -940,7 +949,22 @@ const BUSINESS_CENTRAL_RE = /\b(business\s*central|erp)\b/i;
 // Operations/Human Resources) — a lead that only says "Customer
 // Engagement" with no bare "Sales" or "CRM" wording doesn't trigger this
 // tab, even though it shares the same module-tier ranking block.
-const SALES_CRM_RE = /\b(sales|crm)\b/i;
+//
+// Tightened per Jack: "for sales it should have a note about a sales
+// platform — Microsoft Dynamics Sales or Customer Insights — not Field
+// Service, F&O or BC." A bare "sales" matched any sales team, sales stage
+// or sales/distribution line, which is what made this tab loose. Now it
+// takes a SALES PLATFORM: Dynamics 365 Sales (Pro / Enterprise / Premium),
+// Sales Hub, Dynamics CRM or a CRM, or Customer Insights.
+const SALES_CRM_RE =
+  /\b(?:(?:microsoft\s*)?(?:dynamics(?:\s*365)?|d\s*365)\s*(?:for\s*)?sales(?:\s*(?:pro(?:fessional)?|enterprise|premium|hub))?|sales\s*(?:pro(?:fessional)?|hub)|dynamics\s*crm|crm|customer\s*insights?)\b/i;
+/** Not a sales-platform conversation, per Jack: Field Service, F&O, BC/ERP,
+ *  supply chain. A row naming one of these never lands in Sales / CRM. */
+const NOT_SALES_RE =
+  /\b(?:field\s*service|finance\s*(?:and|&)\s*operations|f\s*&\s*o|fin\s*ops|business\s*central|erp|supply\s*chain)\b/i;
+/** Finance and Operations named, Business Central not — an F&O lead is
+ *  not a Business Central lead, even when it says "ERP". */
+const FNO_RE = /\b(?:finance\s*(?:and|&)\s*operations|f\s*&\s*o|fin\s*ops)\b/i;
 // Supply Chain Management, per Jack: it "always goes with everything else
 // for dynamics view." Its own D365 module and its own sales motion — not a
 // Business Central conversation, and not Sales/CRM. Kept separate from
@@ -1574,8 +1598,9 @@ export function scanRowPlatform(
   // Central" belongs in the BC tab whatever else the note mentions —
   // same precedence idea as BC beating Sales/CRM directly below.
   const supplyChainOnly = SUPPLY_CHAIN_RE.test(combined) && !BUSINESS_CENTRAL_ONLY_RE.test(combined);
-  const isBusinessCentral = !supplyChainOnly && hits.some((h) => h.isBusinessCentral);
-  const isSalesCrm = !supplyChainOnly && !isBusinessCentral && hits.some((h) => h.isSalesCrm);
+  const fnoOnly = FNO_RE.test(combined) && !BUSINESS_CENTRAL_ONLY_RE.test(combined);
+  const isBusinessCentral = !supplyChainOnly && !fnoOnly && hits.some((h) => h.isBusinessCentral);
+  const isSalesCrm = !supplyChainOnly && !isBusinessCentral && !NOT_SALES_RE.test(combined) && hits.some((h) => h.isSalesCrm);
   const dynamicsCounts = hits.filter((h) => h.category === "Dynamics 365" && h.seatCount != null).map((h) => h.seatCount as number);
   const dynamicsSeatCount = dynamicsCounts.length ? Math.max(...dynamicsCounts) : null;
   const dynamicsModuleTiers = hits.filter((h) => h.category === "Dynamics 365" && h.moduleTier != null).map((h) => h.moduleTier as number);
@@ -2696,8 +2721,15 @@ function buildDynamicsBrief(
   const anchorText = dynHit?.snippet ?? "";
   const parts: string[] = [];
 
-  // 1. THE PLATFORM. The row's own longest wording for it.
-  parts.push(longestDynamicsProduct(anchorText, fullText) || "Dynamics 365");
+  // 1. THE PLATFORM. The row's own longest wording for it. A Sales / CRM
+  //    lead says so up front, per Jack: "for sales it should have a note
+  //    about a sales platform".
+  const product = longestDynamicsProduct(anchorText, fullText) || "Dynamics 365";
+  if (platform?.isSalesCrm) {
+    const said = SALES_CRM_RE.exec(fullText)?.[0]?.trim() ?? "";
+    const named = /sales|insights/i.test(product) ? product : said && !/^crm$/i.test(said) ? said : "Dynamics 365 Sales / CRM";
+    parts.push(`Sales platform: ${named}`);
+  } else parts.push(product);
 
   // 2. THE USER COUNT, only when stated. A missing count is simply absent:
   //    saying "no seat count stated" spends a clause to say nothing.

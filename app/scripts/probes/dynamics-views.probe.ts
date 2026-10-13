@@ -51,7 +51,9 @@ for (const note of [
   "Supply Chain Management is the ERP piece we need, 80 users.",
   // Manufacturing/distribution language trips the bare `sales` keyword —
   // 10 real rows sat in Sales / CRM on this alone.
-  "Manufacturing Sales/distribution Warehousing — supply chain management for 80 users.",
+  // Prefixed now: a bare "supply chain management" no longer makes a row
+  // Dynamics at all (see the looseness section below).
+  "Manufacturing Sales/distribution Warehousing — Dynamics 365 supply chain management for 80 users.",
   "Interested in D365 SCM for 80 users.",
   "Dynamics 365 supply chain mgmt, 80 seats.",
 ]) {
@@ -78,19 +80,48 @@ ok("a BC lead and an SCM lead download in the same category",
    bcRow?.category === scmRow?.category, `${bcRow?.category} vs ${scmRow?.category}`);
 
 console.log("\n== the rule is scoped to the Dynamics tabs, nothing else ==");
-// "Supply chain" is itself a Dynamics ERP keyword (DYNAMICS_ERP_RE), so a
-// note mentioning it files as Dynamics 365 whatever else it says, and
-// Dynamics wins CATEGORY_PRIORITY. That is pre-existing and correct —
-// asserted here so a future reader does not mistake it for fallout of the
-// SCM tab rule.
+// Per Jack, "dynamics filtering … is loose": a bare "supply chain team" used
+// to make this a Dynamics 365 lead and pull it out of M365/Azure. Everyday
+// module words now need a Dynamics prefix, so it files where it belongs.
 const mixed = scan(["Moving off Google Workspace to Microsoft 365 for our supply chain team, 80 users."])[0];
-ok("a note naming supply chain files as Dynamics 365", mixed?.category === "dynamics365", String(mixed?.category));
-ok("...and lands in Everything else, not BC/ERP", tabOf(mixed) === "Everything else", tabOf(mixed));
+ok("a note mentioning a supply chain TEAM is not a Dynamics lead", mixed?.category === "m365Tenant", String(mixed?.category));
 // A real M365/Azure lead is untouched by any of this.
 const m365 = scan(["Moving off Google Workspace to Microsoft 365 for 80 staff."])[0];
 ok("a real M365/Azure lead still files as M365/Azure", m365?.category === "m365Tenant", String(m365?.category));
 ok("and carries no Dynamics tab flags", m365?.isBusinessCentral === false && m365?.isSalesCrm === false);
 ok("and keeps its own Google sub-view", m365?.isGoogleWorkspaceMigration === true, String(m365?.isGoogleWorkspaceMigration));
+
+console.log("\n== Sales / CRM is a sales platform, per Jack ==");
+for (const [note, want] of [
+  ["Evaluating Dynamics 365 Customer Insights for 30 users.", "Sales / CRM"],
+  ["Want Dynamics 365 Sales Professional for 12 reps.", "Sales / CRM"],
+  ["Need a CRM — looking at Dynamics 365, 20 users.", "Sales / CRM"],
+  // A sales TEAM is not a sales platform.
+  ["Dynamics 365 Business Central for our sales team, 25 users.", "Business Central / ERP"],
+  ["Dynamics 365 Field Service for 30 techs, the sales team wants a CRM too.", "Everything else"],
+  ["Rolling out Dynamics 365 Finance and Operations, sales and CRM later.", "Everything else"],
+  ["Dynamics 365 for our sales and distribution business, 40 users.", "Everything else"],
+] as [string, string][]) {
+  const got = tabOf(scan([note])[0]);
+  ok(`${want.padEnd(23)} <- ${note.slice(0, 52)}`, got === want, `got ${got}`);
+}
+const salesNote = scan(["Need a CRM — looking at Dynamics 365, 20 users."])[0];
+ok("a Sales / CRM lead's note names the sales platform", /^Sales platform: /.test(salesNote?.notesSummary ?? ""), salesNote?.notesSummary);
+
+console.log("\n== F&O is not Business Central, even when it says ERP ==");
+const fno = scan(["Dynamics 365 Finance and Operations is the ERP we want, 120 users."])[0];
+ok("F&O + ERP lands in Everything else", tabOf(fno) === "Everything else", tabOf(fno));
+
+console.log("\n== everyday words are not Dynamics leads on their own ==");
+for (const note of [
+  "Our customer service team handles all calls.",
+  "Field service techs need laptops.",
+  "Human resources is moving offices.",
+  "Supply chain management is their core business.",
+]) {
+  const r = scan([note])[0];
+  ok(`not Dynamics <- ${note.slice(0, 50)}`, !r || r.category !== "dynamics365", r ? `${r.category}` : "no row");
+}
 
 console.log(`\n${pass}/${pass + fail} checks passed`);
 if (fail) process.exit(1);
