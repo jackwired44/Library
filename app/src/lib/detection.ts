@@ -287,6 +287,15 @@ const CHIP_COUNT_REACH = 60;
 /** `masked` is maskAll(full text) — see extractCountNear on why the mask
  *  must come before the slice, never after. */
 function countWrittenBeside(masked: string, matchIndex: number, matchLength: number): number | null {
+  // A number written directly in front of the product IS its count:
+  // "55 Business Standard and 26 Business Premium licenses". Without this
+  // both chips read 26 — the pattern scan only knows counts that carry a
+  // unit word, and the one unit word in that sentence belongs to Premium.
+  const lead = /(?:^|[^\d.,$])(\d{1,6})\s*[x×]?\s*$/.exec(masked.slice(Math.max(0, matchIndex - 10), matchIndex));
+  if (lead) {
+    const n = parseInt(lead[1], 10);
+    if (n > 0 && !(n >= 1900 && n <= 2100)) return n;
+  }
   const start = Math.max(0, matchIndex - CHIP_COUNT_REACH);
   const end = Math.min(masked.length, matchIndex + matchLength + CHIP_COUNT_REACH);
   const win = masked.slice(start, end);
@@ -1124,7 +1133,7 @@ function normalizeSentence(s: string) {
  * note and must not be shown.
  */
 const REVERSAL_RE =
-  /\b(but|however|although|though|unfortunately|instead|declin(?:e|ed|es|ing)|cancel(?:led|ed|s|ling)?|not\s+(?:to\s+)?(?:proceed|move|moving|go|going|interested|looking|pursu\w*|happening)|no\s+longer|never|won'?t|will\s+not|decided\s+(?:against|not)|passed\s+on|put\s+on\s+hold|on\s+hold|pushed\s+(?:back|out)|went\s+with|chose\s+\w+\s+instead|stay(?:ing)?\s+(?:on|with)|renew(?:ed|ing)\s+with|opted\s+(?:not|out)|backed\s+out|fell\s+through|dead|lost)\b/i;
+  /\b(but|however|although|though|unfortunately|instead|declin(?:e|ed|es|ing)|cancel(?:led|ed|s|ling)?|not\s+(?:to\s+)?(?:proceed|move|moving|go|going|interested|looking(?!\s+for\s+anything\b)|pursu\w*|happening)|no\s+longer|never|won'?t|will\s+not|decided\s+(?:against|not)|passed\s+on|put\s+on\s+hold|on\s+hold|pushed\s+(?:back|out)|went\s+with|chose\s+\w+\s+instead|stay(?:ing)?\s+(?:on|with)|renew(?:ed|ing)\s+with|opted\s+(?:not|out)|backed\s+out|fell\s+through|dead|lost)\b/i;
 
 /**
  * Truncate a quote without lying by omission.
@@ -1271,6 +1280,10 @@ function summarizeFromSnippets(snippets: string[], categories: string[], facts =
 
 interface PlatformHit {
   category: string;
+  /** A Dynamics hit on nothing but the bare word "ERP" or "CRM" — no
+   *  Dynamics product named. Loses the category tie to a real M365/Azure
+   *  hit (see autoCategory). */
+  genericDynamics?: boolean;
   snippet: string;
   hasTrigger: boolean;
   fromProductArea?: boolean;
@@ -1380,6 +1393,14 @@ export function scanRowPlatform(
     const re = new RegExp(cat.pattern.source, cat.pattern.flags.includes("g") ? cat.pattern.flags : cat.pattern.flags + "g");
     let m: RegExpExecArray | null;
     while ((m = re.exec(combined)) !== null) {
+      // "No ERP", "no separate database platform, no ERP", "without a CRM":
+      // a bare ERP/CRM the row says they DON'T have is not a Dynamics lead.
+      // Found on a real Azure-migration row that filed as Dynamics 365 off
+      // "no ERP; CRM is Zoho".
+      if (cat.label === "Dynamics 365" && /^(?:erp|crm)$/i.test(m[0]) &&
+          /\b(?:no|not|without|don'?t\s+have|doesn'?t\s+have|lack(?:s|ing)?)\s+(?:an?\s+|any\s+|separate\s+)?$/i.test(combined.slice(Math.max(0, m.index - 30), m.index))) {
+        continue;
+      }
       let start = Math.max(0, m.index - SIGNAL_WINDOW);
       let end = Math.min(combined.length, m.index + m[0].length + SIGNAL_WINDOW);
       let extended = 0;
@@ -1508,6 +1529,7 @@ export function scanRowPlatform(
         isPartnerSeeking: partnerAskConfirmed(win),
         isBusinessCentral: cat.label === "Dynamics 365" && BUSINESS_CENTRAL_RE.test(win),
         isSalesCrm: cat.label === "Dynamics 365" && SALES_CRM_RE.test(win),
+        genericDynamics: cat.label === "Dynamics 365" && /^(?:erp|crm)$/i.test(m[0]),
       });
       if (m.index === re.lastIndex) re.lastIndex++;
     }
@@ -1980,7 +2002,15 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
   }
   if (categorySet.size === 0) return null;
   const categories = [...categorySet];
-  const autoCategory = CATEGORY_PRIORITY.find((k) => categorySet.has(k)) || categories[0];
+  // Dynamics wins a tie — but not on a bare "ERP"/"CRM" alone. Per Jack's
+  // real row: an Azure migration lead whose note also said "CRM is Zoho"
+  // filed as Dynamics 365. When every Dynamics hit is just the generic word
+  // and the row has a real M365/Azure hit, M365/Azure is the lead.
+  const dynHits = platform?.hits.filter((h) => h.category === "Dynamics 365") ?? [];
+  const genericDynOnly = dynHits.length > 0 && dynHits.every((h) => h.genericDynamics);
+  const autoCategory = genericDynOnly && categorySet.has("m365Tenant")
+    ? "m365Tenant"
+    : CATEGORY_PRIORITY.find((k) => categorySet.has(k)) || categories[0];
   let tier: Tier = (platform && platform.tier === "signal") || licensingTier === "signal" ? "signal" : "mention";
 
   // The hardest evidence available, stated as fact rather than as intent:
@@ -2367,7 +2397,7 @@ function nearestIn(text: string, around: string, re: RegExp): string {
  *  SAP", "...staying on CrowdStrike") whenever a "but" happened to sit
  *  earlier in the same window. */
 const SUBSTANTIVE_REVERSAL_RE =
-  /\b(declin(?:e|ed|es|ing)|cancel(?:led|ed|s|ling)?|not\s+(?:to\s+)?(?:proceed|move|moving|go|going|interested|looking|pursu\w*|happening)|no\s+longer|won'?t|will\s+not|decided\s+(?:against|not)|passed\s+on|put\s+on\s+hold|on\s+hold|pushed\s+(?:back|out)|went\s+with|chose\s+\w+\s+instead|stay(?:ing)?\s+(?:on|with)|renew(?:ed|ing)\s+with|opted\s+(?:not|out)|backed\s+out|fell\s+through|dead|lost)\b/i;
+  /\b(declin(?:e|ed|es|ing)|cancel(?:led|ed|s|ling)?|not\s+(?:to\s+)?(?:proceed|move|moving|go|going|interested|looking(?!\s+for\s+anything\b)|pursu\w*|happening)|no\s+longer|won'?t|will\s+not|decided\s+(?:against|not)|passed\s+on|put\s+on\s+hold|on\s+hold|pushed\s+(?:back|out)|went\s+with|chose\s+\w+\s+instead|stay(?:ing)?\s+(?:on|with)|renew(?:ed|ing)\s+with|opted\s+(?:not|out)|backed\s+out|fell\s+through|dead|lost)\b/i;
 function reversalClause(text: string): string {
   // Search the whole row, not just the anchor window: a verdict is often
   // written in a later sentence than the product it reverses.

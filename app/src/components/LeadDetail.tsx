@@ -31,6 +31,8 @@ import { CONTACT_META, contactStateOf } from "../lib/leadStatus";
 import {
   employeeCountOf, normalizeCompanyKey, profileForCompany, type CompanyProfile,
 } from "../lib/companyProfiles";
+import { VERDICT_META, verdictOf } from "../lib/leadStatus";
+import { apolloSequencesFor, type RosterIndex } from "../lib/apolloRoster";
 
 const muted = { color: "var(--muted)" } as const;
 const dash = <span style={muted}>&mdash;</span>;
@@ -44,15 +46,17 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-function Section({ title, sub, children }: { title: string; sub?: string; children: React.ReactNode }) {
+/** A folded section: the summary card up top says what matters, these
+ *  hold the detail for when it is wanted. */
+function Section({ title, sub, children, open }: { title: string; sub?: string; children: React.ReactNode; open?: boolean }) {
   return (
-    <div style={{ marginTop: 16 }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
-        <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 600, ...muted }}>{title}</div>
-        {sub && <div style={{ fontSize: 11.5, ...muted }}>{sub}</div>}
-      </div>
-      {children}
-    </div>
+    <details open={open} style={{ marginTop: 10, borderTop: "1px solid var(--border)", paddingTop: 8 }}>
+      <summary style={{ cursor: "pointer", display: "flex", alignItems: "baseline", gap: 8 }}>
+        <span style={{ fontSize: 13, fontWeight: 600 }}>{title}</span>
+        {sub && <span style={{ fontSize: 11.5, ...muted }}>{sub}</span>}
+      </summary>
+      <div style={{ marginTop: 6 }}>{children}</div>
+    </details>
   );
 }
 
@@ -117,30 +121,12 @@ function StepTrack({ funnel, step, status }: { funnel: ApolloFunnel | undefined;
   );
 }
 
-/** The one line that says whether anyone has ever got through. */
-function contactFlag(lead: StoredLead): { label: string; tone: "bad" | "warn" | "good" | "none"; sub: string } {
-  const a = lead.apollo;
-  const s = statusOf(lead);
-  if (!a) return { label: "Not checked against Apollo", tone: "none", sub: "No sync has matched this lead yet, so contact history is unknown." };
-  if (s === "meeting") return { label: "Meeting booked", tone: "good", sub: `${a.callCount} call${a.callCount === 1 ? "" : "s"} logged.` };
-  if (s === "not-interested") return { label: "Reached — not interested", tone: "bad", sub: `${a.callCount} call${a.callCount === 1 ? "" : "s"} logged.` };
-  if (s === "reached") return { label: "Reached", tone: "good", sub: `A real conversation is on record across ${a.callCount} call${a.callCount === 1 ? "" : "s"}.` };
-  if (a.callCount > 0) return { label: "Never reached", tone: "warn", sub: `Called ${a.callCount} time${a.callCount === 1 ? "" : "s"} — no answer, voicemail or gatekeeper every time.` };
-  if (a.sequences.length) return { label: "Never called", tone: "warn", sub: "In Apollo and in a sequence, but no call has been logged." };
-  return { label: "Never contacted", tone: "warn", sub: "In Apollo, never in a sequence, never called." };
-}
-
-const TONE: Record<string, { color: string; bg: string }> = {
-  good: { color: "#0A66C2", bg: "#EAF3FC" },
-  bad: { color: "#B5443B", bg: "#FBEAE8" },
-  warn: { color: "#9A5B22", bg: "#FBF0E2" },
-  none: { color: "#5C7379", bg: "#F1F5F5" },
-};
-
 export default function LeadDetail({
   lead, companyProfiles, onClose, sequenceNames = [], onSetPlan, onSetStatus,
-  onPrev, onNext, position, funnels = [], companyLeads = [], onOpenLead,
+  onPrev, onNext, position, funnels = [], companyLeads = [], onOpenLead, apolloIndex = null,
 }: {
+  /** Who is in Apollo (sync + pulled uploads), for the summary's Apollo line. */
+  apolloIndex?: RosterIndex | null;
   lead: StoredLead;
   companyProfiles: CompanyProfile[];
   onClose: () => void;
@@ -197,8 +183,6 @@ export default function LeadDetail({
   const intentDates = dates.filter(isIntentDate);
   const loggedDates = dates.filter((d) => !isIntentDate(d));
   const next = soonestUpcoming(dates);
-  const flag = contactFlag(lead);
-  const tone = TONE[flag.tone];
   const files = lead.fileSeen?.length ? lead.fileSeen : lead.sourceFiles.map((f) => ({ file: f, at: "" }));
   const rawSegs = raw && raw !== "loading" ? raw.segments : [];
   const rawRows = raw && raw !== "loading" ? raw.rows ?? [] : [];
@@ -253,21 +237,77 @@ export default function LeadDetail({
                 )}
               </div>
             </div>
-            {/* The outcome first: has anyone ever got through? */}
-            <div style={{ minWidth: 240, maxWidth: 340, padding: "8px 12px", borderRadius: 10, background: tone.bg, borderLeft: `3px solid ${tone.color}` }}>
-              <div style={{ fontWeight: 700, color: tone.color }}>{flag.label}</div>
-              <div style={{ fontSize: 12, marginTop: 2 }}>{flag.sub}</div>
-              {next && (
-                <div style={{ fontSize: 12, marginTop: 6 }}>
-                  📅 Next date in the notes: <b>{next.iso}</b>{next.about ? ` (${next.about})` : ""}
-                </div>
-              )}
-            </div>
           </div>
         </div>
 
         <div style={{ overflowY: "auto", flex: 1, padding: "4px 18px 24px" }}>
-          {/* ---- BEFORE → AFTER ---- */}
+          {/* ---- THE SUMMARY. Per Jack: "much more straight forward high
+               level — raw note hidden and new summarized note to read from,
+               the date it was uploaded and name of the csv file, the signal
+               indication and where it stands in apollo in a sequence or no." */}
+          {(() => {
+            const v = VERDICT_META[verdictOf(lead.tier)];
+            const seqs = apolloSequencesFor(lead, apolloIndex);
+            const live = (seqs ?? []).filter((x) => x.active);
+            const ended = (seqs ?? []).filter((x) => !x.active);
+            const apolloLine = !seqs ? { text: "Not in Apollo", sub: "Not found in an Apollo sync or your pulled uploads.", color: "var(--muted)" }
+              : live.length ? { text: `Active in ${live.map((x) => x.name).join(", ")}`, sub: ended.length ? `Also finished: ${ended.map((x) => x.name).join(", ")}` : "", color: "#0A66C2" }
+              : ended.length ? { text: "In Apollo — sequence ended", sub: ended.map((x) => x.name).join(", "), color: "#5B3FC4" }
+              : { text: "In Apollo — not in a sequence", sub: "", color: "#4C6167" };
+            const note = scanned[0]?.text || lead.notes || "";
+            const lastFile = files.length ? files[files.length - 1] : null;
+            const fact = (label: string, body: React.ReactNode) => (
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 600, ...muted }}>{label}</div>
+                <div style={{ fontSize: 13.5, marginTop: 2 }}>{body}</div>
+              </div>
+            );
+            return (
+              <div aria-label="Lead summary" style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 14, marginTop: 12 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 14 }}>
+                  {fact("Signal", <>
+                    <span className="pill" style={{ color: v.color, background: v.bg }}>{v.label}</span>
+                    <div style={{ fontSize: 12, ...muted, marginTop: 3 }}>
+                      {[lead.productArea, lead.score !== null ? `score ${lead.score}` : ""].filter(Boolean).join(" · ") || LEAD_SOURCE_META[lead.source].label}
+                    </div>
+                  </>)}
+                  {fact("Apollo", <>
+                    <b style={{ color: apolloLine.color }}>{apolloLine.text}</b>
+                    {apolloLine.sub && <div style={{ fontSize: 12, ...muted }}>{apolloLine.sub}</div>}
+                    {a && (
+                      <div style={{ fontSize: 12, marginTop: 2 }}>
+                        Calls: {a.callCount} · Emails sent: {a.emailCount ?? "—"}
+                        {a.lastOutcome && <span style={muted}> · last: {a.lastOutcome}</span>}
+                      </div>
+                    )}
+                  </>)}
+                  {fact("Uploaded", lastFile ? <>
+                    <b>{(lastFile.at || lead.firstSeenAt).slice(0, 10)}</b>
+                    <div style={{ fontSize: 12, wordBreak: "break-word" }} title={files.map((f) => f.file).join("\n")}>
+                      {lastFile.file}{files.length > 1 && <span style={muted}> +{files.length - 1} more file{files.length > 2 ? "s" : ""}</span>}
+                    </div>
+                  </> : dash)}
+                  {fact("Received", lead.receivedOn
+                    ? <><b>{lead.receivedOn}</b><div style={{ fontSize: 12, ...muted }}>the file's own date</div></>
+                    : <span style={muted}>no date in the file</span>)}
+                </div>
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 600, ...muted }}>Summary</div>
+                  <div style={{ fontSize: 14, lineHeight: 1.5, marginTop: 3 }}>{note || <span style={muted}>No summary for this lead.</span>}</div>
+                  {next && <div style={{ fontSize: 12.5, marginTop: 6 }}>📅 Next date in the notes: <b>{next.iso}</b>{next.about ? ` (${next.about})` : ""}</div>}
+                </div>
+                <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 10, fontSize: 12.5 }}>
+                  {lead.email && <a href={`mailto:${lead.email}`}>{lead.email}</a>}
+                  {lead.phone && <span>{lead.phone}</span>}
+                  {lead.mobilePhone && <span>{lead.mobilePhone} <span style={muted}>mobile</span></span>}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* ---- everything else, folded away ---- */}
+          <details style={{ marginTop: 14, borderTop: "1px solid var(--border)", paddingTop: 8 }}>
+            <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 600 }}>Raw note, CSV rows and every scanned version</summary>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 16, marginTop: 12 }}>
             <div style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 12 }}>
               <div style={{ fontWeight: 700, fontSize: 13 }}>Before</div>
@@ -392,6 +432,8 @@ export default function LeadDetail({
             </div>
           </div>
 
+          </details>
+
           {/* ---- Apollo: sequences step by step, calls, dispositions ---- */}
           <Section
             title="Apollo"
@@ -399,8 +441,7 @@ export default function LeadDetail({
           >
             {!a ? (
               <div style={{ fontSize: 13, ...muted }}>
-                No Apollo sync has matched this lead. That is not the same as never contacted — import a sync on
-                All leads to fill this in.
+                No call or task history on file for this lead — that comes from an Apollo sync.
               </div>
             ) : (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16 }}>
@@ -531,6 +572,7 @@ export default function LeadDetail({
             const emails = companyLeads.reduce((n, l) => n + (l.apollo?.emailCount ?? 0), 0);
             return (
               <Section
+                open
                 title={`At ${lead.company || "this company"}`}
                 sub={`${companyLeads.length} contacts · ${worked} worked · ${made} reached · ${calls} calls · ${emails} emails`}
               >

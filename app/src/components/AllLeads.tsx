@@ -1115,6 +1115,7 @@ export default function AllLeads({
         return (
           <LeadDetail
             lead={openLead}
+            apolloIndex={apolloIndex}
             companyProfiles={companyProfiles}
             onClose={() => setOpenKey(null)}
             sequenceNames={sequenceNames}

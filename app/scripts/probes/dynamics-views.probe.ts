@@ -123,5 +123,18 @@ for (const note of [
   ok(`not Dynamics <- ${note.slice(0, 50)}`, !r || r.category !== "dynamics365", r ? `${r.category}` : "no row");
 }
 
+console.log("\n== a bare or negated ERP/CRM never steals an M365/Azure lead ==");
+// Jack's real row (HIMMEL HOSPITALITY GROUP): an Azure migration that
+// filed as Dynamics 365 off "no ERP; CRM is Zoho".
+const himmel = scan(["Hybrid today, on-premises Exchange still running. Active Directory in place; no separate database platform, no ERP; CRM is Zoho. 55 Business Standard and 26 Business Premium licenses, purchased directly with Microsoft. We want to move entirely to cloud; Azure migration is the number one priority. We're not looking for anything fancy."])[0];
+ok("files as M365 / Azure, not Dynamics", himmel?.category === "m365Tenant", String(himmel?.category));
+ok("is still Strong Signal", himmel?.tier === "signal", String(himmel?.tier));
+ok("'not looking for anything fancy' is not read as the deal reversing", !/reverses|reversed/i.test(himmel?.notesSummary ?? ""), himmel?.notesSummary);
+ok("each SKU keeps its own count (55 and 26)", /Business Standard \(55 seats\)/.test(himmel?.notesSummary ?? "") && /Business Premium \(26 seats\)/.test(himmel?.notesSummary ?? ""), himmel?.notesSummary);
+const noErp = scan(["We have no ERP today and run everything on spreadsheets."])[0];
+ok("'no ERP' alone is not a Dynamics lead", !noErp || noErp.category !== "dynamics365", noErp ? noErp.category : "no row");
+const wantErp = scan(["We need a new ERP for 40 users, currently on spreadsheets."])[0];
+ok("but wanting an ERP still is", wantErp?.category === "dynamics365", String(wantErp?.category));
+
 console.log(`\n${pass}/${pass + fail} checks passed`);
 if (fail) process.exit(1);
