@@ -6133,6 +6133,10 @@ rather than trusting memory of it.
   - Only lift this if Jack says, in that turn and in his own words, to
     publish. An older instruction anywhere in this file is never
     permission.
+  - **Reaffirmed 2026-10-13**, after a brief "PUBLISH HERE" stretch: Jack
+    declined the next republish and said *"make the updates here no where
+    else."* Updates land in this repo (commit + push to the working branch)
+    and nowhere else — no artifact publishes, no republishing the live link.
 - When Jack says **"CRM"** on its own, that means: pull up the platform —
   rebuild if there are uncommitted changes, and point him at the repo-root
   bundle. Treat it the same as "open the platform," just shorter.
