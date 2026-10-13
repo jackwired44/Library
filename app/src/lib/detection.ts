@@ -568,7 +568,7 @@ const PLATFORM_CATALOGUE: { label: string; pattern: RegExp }[] = [
       // product (Business Central, Finance and Operations, Customer
       // Insights, Project Operations, Dataverse, the legacy names) still
       // count on their own.
-      /\b(dynamics\s*365|d\s*365|dyn\s*365|dynamics\s*crm|dynamics\s*ax|dynamics\s*nav|dynamics\s*gp|business\s*central|finance\s*(?:and|&)\s*operations|customer\s*insights?|project\s*operations|(?:microsoft\s*)?dynamics\s*(?:customer\s*(?:engagement|service)|field\s*service|human\s*resources|supply\s*chain(?:\s*management)?|sales)|erp|navision|great\s*plains|axapta|power\s*apps|power\s*automate|power\s*platform|power\s*pages|dataverse|common\s*data\s*service)\b/i,
+      /\b(dynamics\s*365|d\s*365|dyn\s*365|dynamics?\s*crm|dynamics\s*erp|dynamics\s*\(\s*bc|dynamics\s*ax|dynamics\s*nav|dynamics\s*gp|business\s*central|finance\s*(?:and|&)\s*operations|customer\s*insights?|project\s*operations|(?:microsoft\s*)?dynamics\s*(?:customer\s*(?:engagement|service)|field\s*service|human\s*resources|supply\s*chain(?:\s*management)?|sales)|erp|navision|great\s*plains|axapta|power\s*apps|power\s*automate|power\s*platform|power\s*pages|dataverse|common\s*data\s*service)\b/i,
   },
   {
     label: "Power BI",
@@ -632,7 +632,24 @@ const GOOGLE_MOVE_DONE_RE =
  * display/ranking-only: it never feeds the licensing threshold.
  */
 const DYN_HEADCOUNT_RE =
-  /\b(\d{1,5})(?:\s*\+)?[\s-]*(?:person|people|reps?|sales\s*reps?|agents?|techs?|technicians?|staff|employees|users?|named\s*users?|seats?|licen[cs]es?)\b|\b(?:user|seat|licen[cs]e)\s*count\s*(?:is|of)?\s*[:\-–]?\s*(\d{1,5})\b/i;
+  /\b(\d{1,5})(?:\s*\+)?[\s-]*(?:person|people|reps?|sales\s*reps?|agents?|techs?|technicians?|consultants?|engineers?|workers?|members?|staff|employees|users?|named\s*users?|seats?|licen[cs]es?)\b|\b(?:(?:user|seat|licen[cs]e)\s*count\s*(?:is|of)?|users?|seats?|licen[cs]es?)\s*[:\-–]?\s*(\d{1,5})\b(?!\s*[-/.]\s*\d)/i;
+/**
+ * The CRM's one-line form entry: "Service Industry - D365 Sales - 50",
+ * "service - dynamics 365 - Transformational Health Network - 5". The
+ * number closing a short line like that IS the user count — it is the
+ * form's quantity field — but it carries no unit word, so every other
+ * reader missed it. Short lines only (a long note ending in a number is a
+ * date, a ticket or a phone), and the line must name a Dynamics product.
+ */
+export function formLineCount(notes: string): number | null {
+  const t = String(notes || "").replace(/\s+/g, " ").trim();
+  if (!t || t.length > 140) return null;
+  const m = /[-–:,]\s*(\d{1,5})\s*(?:users?|seats?|licen[cs]es?)?\s*\.?$/i.exec(t);
+  if (!m) return null;
+  const n = Number(m[1]);
+  if (!n || (n >= 1900 && n <= 2100)) return null;
+  return n;
+}
 export function dynamicsHeadcountIn(text: string): number | null {
   const m = DYN_HEADCOUNT_RE.exec(text);
   if (!m) return null;
@@ -950,7 +967,7 @@ const DYNAMICS_MULTI_MODULE_RE = /\berp\b.{0,30}\bcrm\b|\bcrm\b.{0,30}\berp\b/i;
 // "Business Central view"), same pattern as isGoogleToMicrosoft within
 // M365/Azure — this is one of a growing set of these keyword-triggered
 // sub-filters, meant to make filed leads easier to slice once stored.
-const BUSINESS_CENTRAL_RE = /\b(business\s*central|erp)\b/i;
+const BUSINESS_CENTRAL_RE = /\b(business\s*central|erp|d\s*365\s*bc|dynamics\s*(?:365\s*)?\(?\s*bc)\b/i;
 // Sales / CRM tab trigger — same pattern, exactly three keywords per
 // Jack: "Sales," "CRM," "crm" (the last two just case variants). Also
 // narrower than the full DYNAMICS_CRM_RE tier (which also covers Customer
@@ -966,14 +983,14 @@ const BUSINESS_CENTRAL_RE = /\b(business\s*central|erp)\b/i;
 // takes a SALES PLATFORM: Dynamics 365 Sales (Pro / Enterprise / Premium),
 // Sales Hub, Dynamics CRM or a CRM, or Customer Insights.
 const SALES_CRM_RE =
-  /\b(?:(?:microsoft\s*)?(?:dynamics(?:\s*365)?|d\s*365)\s*(?:for\s*)?sales(?:\s*(?:pro(?:fessional)?|enterprise|premium|hub))?|sales\s*(?:pro(?:fessional)?|hub)|dynamics\s*crm|crm|customer\s*insights?)\b/i;
+  /\b(?:(?:microsoft\s*)?(?:dynamics(?:\s*365)?|d\s*365)\s*(?:for\s*)?sales(?:\s*(?:pro(?:fessional)?|enterprise|premium|hub))?|sales\s*(?:pro(?:fessional)?|hub)|dynamics?\s*crm|crm|customer\s*insights?)\b/i;
 /** Not a sales-platform conversation, per Jack: Field Service, F&O, BC/ERP,
  *  supply chain. A row naming one of these never lands in Sales / CRM. */
 const NOT_SALES_RE =
-  /\b(?:field\s*service|finance\s*(?:and|&)\s*operations|f\s*&\s*o|fin\s*ops|business\s*central|erp|supply\s*chain)\b/i;
+  /\b(?:field\s*service|human\s*resources|project\s*operations|(?:dynamics\s*(?:365\s*)?|d\s*365\s*)(?:finance|commerce)|finance\s*(?:and|&)\s*operations|f\s*&\s*o|fin\s*ops|business\s*central|erp|supply\s*chain)\b/i;
 /** Finance and Operations named, Business Central not — an F&O lead is
  *  not a Business Central lead, even when it says "ERP". */
-const FNO_RE = /\b(?:finance\s*(?:and|&)\s*operations|f\s*&\s*o|fin\s*ops)\b/i;
+const FNO_RE = /\b(?:finance\s*(?:and|&)\s*operations|f\s*&\s*o|fin\s*ops|(?:dynamics\s*(?:365\s*)?|d\s*365\s*)finance)\b/i;
 // Supply Chain Management, per Jack: it "always goes with everything else
 // for dynamics view." Its own D365 module and its own sales motion — not a
 // Business Central conversation, and not Sales/CRM. Kept separate from
@@ -983,7 +1000,26 @@ const SUPPLY_CHAIN_RE = /\bsupply\s*chain(?:\s*mgmt|\s*management)?\b|\b(?:d|dyn
 // The one thing that outranks it: naming Business Central outright.
 // Deliberately NOT BUSINESS_CENTRAL_RE — that one also accepts a bare
 // "ERP", which is exactly the word a supply-chain note always carries.
-const BUSINESS_CENTRAL_ONLY_RE = /\bbusiness\s*central\b/i;
+/**
+ * Microsoft's propensity scorecard lists every product with the model's
+ * verdict ("D365 F&O: Unknown (Unknown Fit; …)", "Has D365: No"). None of it
+ * is the customer talking, and it names F&O, BC and Sales Pro on nearly every
+ * row that carries one — so reading it for the View tabs blocked every real
+ * BC lead with a scorecard (F&O "wins") and every Sales lead too. The tab
+ * tests read the row with the scorecard taken out.
+ */
+const SCORECARD_ENTRY_RE =
+  /[\w\s/&.+-]{0,30}:\s*(?:act\s+now|evaluate|nurture|educate|unknown)\s*\([^)]{0,80}\)|\bhas\s+[\w\s]{1,12}:\s*(?:yes|no)\b/gi;
+export function stripScorecard(text: string): string {
+  return text.replace(SCORECARD_ENTRY_RE, " ");
+}
+/** A Dynamics module named by name — what the NOTES say the lead wants.
+ *  When the notes name one, the View tab follows the notes, not the
+ *  Product Area code ("Dynamics ERP"/"Dynamics CRM" is a product family,
+ *  and filed a "Dynamics 365 Finance" lead under Business Central). */
+const DYNAMICS_MODULE_NAMED_RE =
+  /\b(?:business\s*central|finance\s*(?:and|&)\s*operations|f\s*&\s*o|supply\s*chain|field\s*service|project\s*operations|human\s*resources|customer\s*(?:insights?|engagement|service)|contact\s*center|dataverse|power\s*(?:apps|automate|platform|pages)|navision|great\s*plains|axapta|(?:dynamics\s*(?:365\s*)?|d\s*365\s*)(?:finance|commerce|marketing|sales|bc|crm|erp)|dynamics\s*(?:crm|erp|gp|nav|ax|sl)|dynamic\s*crm|dynamics\s*\(\s*bc)\b/i;
+const BUSINESS_CENTRAL_ONLY_RE = /\b(?:business\s*central|d\s*365\s*bc|dynamics\s*(?:365\s*)?\(?\s*bc)\b/i;
 
 function hasBareTrailingCount(afterText: string) {
   const snippet = afterText.slice(0, 80);
@@ -1389,6 +1425,20 @@ export function scanRowPlatform(
   const combined = fields.join("   ");
   const masked = maskAll(combined);
   const hits: PlatformHit[] = matchCustomKeywords(combined, customKeywords);
+  // Where each column sits inside `combined`, so a match can be read within
+  // its own cell. Two leaks this closes, both found on a real row whose
+  // notes said only "Locked out of teams":
+  //  - The Product Area cell was matched HERE as well as by its own gated
+  //    path below, so a bare product code skipped the "needs real notes"
+  //    gate entirely.
+  //  - The bare-number rule read across cell boundaries, so the PHONE
+  //    column beside it ("15307032113") counted as a seat number.
+  const spans: [number, number][] = [];
+  { let at = 0; for (const f of fields) { spans.push([at, at + f.length]); at += f.length + 3; } }
+  const cellOf = (i: number): [number, number] => spans.find(([a, b]) => i >= a && i < b) ?? [0, combined.length];
+  const paStr = String(productAreaValue ?? "").trim();
+  const paIdx = paStr ? fields.findIndex((f) => f.trim() === paStr) : -1;
+  const paSpan = paIdx >= 0 ? spans[paIdx] : null;
   for (const cat of PLATFORM_CATALOGUE) {
     const re = new RegExp(cat.pattern.source, cat.pattern.flags.includes("g") ? cat.pattern.flags : cat.pattern.flags + "g");
     let m: RegExpExecArray | null;
@@ -1401,6 +1451,8 @@ export function scanRowPlatform(
           /\b(?:no|not|without|don'?t\s+have|doesn'?t\s+have|lack(?:s|ing)?)\s+(?:an?\s+|any\s+|separate\s+)?$/i.test(combined.slice(Math.max(0, m.index - 30), m.index))) {
         continue;
       }
+      if (paSpan && m.index >= paSpan[0] && m.index < paSpan[1]) continue;
+      const [cellStart, cellEnd] = cellOf(m.index);
       let start = Math.max(0, m.index - SIGNAL_WINDOW);
       let end = Math.min(combined.length, m.index + m[0].length + SIGNAL_WINDOW);
       let extended = 0;
@@ -1464,6 +1516,12 @@ export function scanRowPlatform(
       // A product named inside a Microsoft campaign identifier is the
       // campaign's own wording, not the customer's — see insideCampaignCode.
       const campaignOnly = insideCampaignCode(combined, m.index);
+      // The match IS a scorecard entry ("D365 Sales Pro: Educate (…)"), not
+      // just near one — the narrower test, so a real sentence that happens
+      // to sit beside a scorecard keeps its product line and its tab.
+      const hasFlag = /\bhas\s+$/i.test(combined.slice(Math.max(0, m.index - 6), m.index)) &&
+        /^\s*:\s*(?:yes|no)\b/i.test(combined.slice(m.index + m[0].length, m.index + m[0].length + 8));
+      const weakDyn = (paVerdict !== null && !paVerdict.hot) || campaignOnly || hasFlag;
       hits.push({
         category: cat.label,
         snippet: win,
@@ -1505,8 +1563,8 @@ export function scanRowPlatform(
               ONGOING_PARTNER_RE.test(win) ||
               DYNAMICS_MULTI_MODULE_RE.test(win) ||
               (DYNAMICS_SPECIFIC_INSTANCE_RE.test(win) && (LICENSE_COUNT_RE.test(win) || DYNAMICS_ESTIMATED_COUNT_RE.test(win))) ||
-              hasBareTrailingCount(combined.slice(m.index + m[0].length, m.index + m[0].length + 80)) ||
-              hasBareLeadingCount(combined.slice(Math.max(0, m.index - 80), m.index))))),
+              hasBareTrailingCount(combined.slice(m.index + m[0].length, Math.min(cellEnd, m.index + m[0].length + 80))) ||
+              hasBareLeadingCount(combined.slice(Math.max(cellStart, m.index - 80), m.index))))),
         // Same seat/user/license number extraction the licensing engine
         // uses, reused here so a Dynamics lead's real count (not just
         // "a count was mentioned") survives into the result for ranking.
@@ -1527,9 +1585,11 @@ export function scanRowPlatform(
           (cat.label === "Azure" && AZURE_MIGRATION_OVERRIDE_RE.test(win)),
         isGoogleWorkspaceMigration: cat.label === TENANT_SUPPORT_LABEL && googleMoveIn(win),
         isPartnerSeeking: partnerAskConfirmed(win),
-        isBusinessCentral: cat.label === "Dynamics 365" && BUSINESS_CENTRAL_RE.test(win),
-        isSalesCrm: cat.label === "Dynamics 365" && SALES_CRM_RE.test(win),
-        genericDynamics: cat.label === "Dynamics 365" && /^(?:erp|crm)$/i.test(m[0]),
+        isBusinessCentral: cat.label === "Dynamics 365" && !weakDyn && BUSINESS_CENTRAL_RE.test(stripScorecard(win)),
+        isSalesCrm: cat.label === "Dynamics 365" && !weakDyn && SALES_CRM_RE.test(stripScorecard(win)),
+        // Weak: the bare word, Microsoft's scorecard, or a campaign name —
+        // none of them is the customer asking for Dynamics.
+        genericDynamics: cat.label === "Dynamics 365" && (/^(?:erp|crm)$/i.test(m[0]) || weakDyn),
       });
       if (m.index === re.lastIndex) re.lastIndex++;
     }
@@ -1619,12 +1679,23 @@ export function scanRowPlatform(
   // Business Central. 127 real rows say both, and "we want Business
   // Central" belongs in the BC tab whatever else the note mentions —
   // same precedence idea as BC beating Sales/CRM directly below.
-  const supplyChainOnly = SUPPLY_CHAIN_RE.test(combined) && !BUSINESS_CENTRAL_ONLY_RE.test(combined);
-  const fnoOnly = FNO_RE.test(combined) && !BUSINESS_CENTRAL_ONLY_RE.test(combined);
-  const isBusinessCentral = !supplyChainOnly && !fnoOnly && hits.some((h) => h.isBusinessCentral);
-  const isSalesCrm = !supplyChainOnly && !isBusinessCentral && !NOT_SALES_RE.test(combined) && hits.some((h) => h.isSalesCrm);
+  const said = stripScorecard(combined);
+  const supplyChainOnly = SUPPLY_CHAIN_RE.test(said) && !BUSINESS_CENTRAL_ONLY_RE.test(said);
+  const fnoOnly = FNO_RE.test(said) && !BUSINESS_CENTRAL_ONLY_RE.test(said);
+  // When the notes themselves name a module, the tab follows the notes.
+  const notes = stripScorecard(String(commentsValue ?? ""));
+  const notesNameModule = DYNAMICS_MODULE_NAMED_RE.test(notes);
+  const bcSaid = notesNameModule ? BUSINESS_CENTRAL_RE.test(notes) : hits.some((h) => h.isBusinessCentral);
+  const salesSaid = notesNameModule ? SALES_CRM_RE.test(notes) : hits.some((h) => h.isSalesCrm);
+  const otherModuleOnly = /\b(?:field\s*service|project\s*operations|human\s*resources|(?:dynamics\s*(?:365\s*)?|d\s*365\s*)(?:commerce|customer\s*service|sales|marketing))\b/i.test(notes) &&
+    !BUSINESS_CENTRAL_ONLY_RE.test(notes) && !/\bdynamics\s*erp\b/i.test(notes);
+  const isBusinessCentral = !supplyChainOnly && !fnoOnly && !otherModuleOnly && bcSaid;
+  const isSalesCrm = !supplyChainOnly && !isBusinessCentral && !NOT_SALES_RE.test(said) && salesSaid;
   const dynamicsCounts = hits.filter((h) => h.category === "Dynamics 365" && h.seatCount != null).map((h) => h.seatCount as number);
-  const dynamicsSeatCount = dynamicsCounts.length ? Math.max(...dynamicsCounts) : null;
+  const hasDynamics = hits.some((h) => h.category === "Dynamics 365");
+  const dynamicsSeatCount = dynamicsCounts.length
+    ? Math.max(...dynamicsCounts)
+    : hasDynamics ? formLineCount(notes) ?? dynamicsHeadcountIn(notes) : null;
   const dynamicsModuleTiers = hits.filter((h) => h.category === "Dynamics 365" && h.moduleTier != null).map((h) => h.moduleTier as number);
   const dynamicsModuleTier = dynamicsModuleTiers.length ? Math.min(...dynamicsModuleTiers) : 2;
   return { categories, tier, snippet: bestHit.snippet, notesSummary, hits, dynamicsSeatCount, dynamicsModuleTier, isGoogleToMicrosoft, isGoogleWorkspaceMigration, isPartnerSeeking, isBusinessCentral, isSalesCrm };
@@ -1679,7 +1750,7 @@ export const DQ_RULES: { label: string; pattern: RegExp }[] = [
   {
     label: "Basic support / login issue",
     pattern:
-      /\bpassword\s*reset\b|\bforgot(?:ten)?\s*(?:my\s*)?password\b|\bcan'?t\s*log\s*in\b|\bcannot\s*log\s*in\b|\blocked\s*out\s*of\s*(?:my|our|their)?\s*account\b|\blog-?in\s*(?:issue|problem|trouble)\b|\busername\s*(?:issue|problem|reset|recovery)\b|\baccount\s*login\b|\bhow\s*do\s*i\s*(?:log\s*in|reset\s*my\s*password)\b/i,
+      /\bpassword\s*reset\b|\bforgot(?:ten)?\s*(?:my\s*)?password\b|\bcan'?t\s*log\s*in\b|\bcannot\s*log\s*in\b|\blocked\s*out\b|\blog-?in\s*(?:issue|problem|trouble)\b|\busername\s*(?:issue|problem|reset|recovery)\b|\baccount\s*login\b|\bhow\s*do\s*i\s*(?:log\s*in|reset\s*my\s*password)\b/i,
   },
   {
     label: "Wants direct Microsoft support",
@@ -1735,8 +1806,14 @@ const CRM_METADATA_TOKEN_RE =
 // A real note runs longer than a field label; this cap keeps the rule off
 // genuine prose even if every word in it happened to be on the list above.
 const CRM_METADATA_MAX_LEN = 60;
-export function isCrmMetadataOnly(text: unknown): boolean {
-  const trimmed = String(text || "").trim();
+export function isCrmMetadataOnly(text: unknown, company?: unknown): boolean {
+  let trimmed = String(text || "").trim();
+  // "F1 / US-Rx Care Tenant Partner" — the form drops the customer's own
+  // name into the label, which is still only a label. Taken out first.
+  const co = String(company || "").trim();
+  if (trimmed && co.length >= 3) {
+    trimmed = trimmed.replace(new RegExp(co.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), " ").trim();
+  }
   // Empty comments aren't this rule's business — a row can legitimately
   // qualify off a product-area column with no notes at all.
   if (!trimmed) return false;
@@ -1897,7 +1974,7 @@ function getDQReasons(combinedText: string, resolved: ResolvedFields): string[] 
   if (resolved.email && PLACEHOLDER_EMAIL_RE.test(String(resolved.email).trim())) reasons.push("Placeholder/invalid email");
   const emailDomain = getEmailDomain(resolved.email);
   if (emailDomain && isFreeEmailDomain(emailDomain)) reasons.push(PERSONAL_EMAIL_DQ_LABEL);
-  if (isCrmMetadataOnly(resolved.comments)) reasons.push(CRM_METADATA_ONLY_DQ_LABEL);
+  if (isCrmMetadataOnly(resolved.comments, resolved.company)) reasons.push(CRM_METADATA_ONLY_DQ_LABEL);
   // Company-NAME signal only. The far more reliable industry signal needs
   // an enriched profile, which detection has no access to — see
   // applyCompetitorDQ, run right after a scan and again after enrichment.
@@ -2321,8 +2398,11 @@ const DYNAMICS_PRODUCT_RE = new RegExp(
     // product when the row actually prefixed them: a bare "Sales" matched
     // "Sales Stage: Qualify" and rendered "15 seats on Sales".
     String.raw`(?:dynamics\s*365\s*|d365\s*)(?:customer\s*service|field\s*service|project\s*operations|human\s*resources|marketing|sales)`,
-    String.raw`dynamics\s*(?:ax|nav|gp)`,
-    String.raw`dynamics\s*crm`,
+    String.raw`(?:dynamics\s*365\s*|d\s*365\s*)(?:finance|commerce|business\s*central\s*premium|sales\s*(?:enterprise|professional|pro|premium))`,
+    String.raw`d\s*365\s*bc|dynamics\s*\(\s*bc|(?:dynamics\s*365\s*|d\s*365\s*)(?:f\s*&\s*o|fin\s*ops)`,
+    String.raw`dynamics\s*(?:ax|nav|gp|sl|erp|mrp)`,
+    String.raw`dynamics?\s*crm`,
+    String.raw`power\s*(?:apps|automate|pages|platform)(?:\s*premium)?|powerapps|dataverse`,
     String.raw`dynamics\s*365`,
     String.raw`d365`,
   ].map((p) => `\\b(?:${p})\\b`).join("|"),
@@ -2333,6 +2413,33 @@ const DYNAMICS_PRODUCT_RE = new RegExp(
  *  "Dynamics 365 Business Central" down to "Dynamics 365" and the note then
  *  dropped the module Jack specifically asked it to name. Same
  *  longest-form-wins rule the SKU chips already follow. */
+/** Every Dynamics product the NOTES name, in reading order, longest
+ *  wording kept and anything contained in another dropped — so a row
+ *  asking for "Business Central Premium + Supply Chain Management" names
+ *  both instead of whichever phrase happened to be longer. Microsoft's
+ *  scorecard is removed first: "D365 BC: Nurture (Low Fit)" is the model,
+ *  not the lead. At most `max`, since past that it is an inventory. */
+export function dynamicsProductsNamed(text: string, max = 2): string[] {
+  const t = stripScorecard(String(text || ""));
+  const found: { at: number; s: string }[] = [];
+  DYNAMICS_PRODUCT_RE.lastIndex = 0;
+  for (let m = DYNAMICS_PRODUCT_RE.exec(t); m; m = DYNAMICS_PRODUCT_RE.exec(t)) {
+    found.push({ at: m.index, s: m[0].replace(/\s+/g, " ").replace(/\(\s*bc$/i, "BC").trim() });
+  }
+  // Compared without the "Dynamics 365"/"D365" prefix, so "Dynamics 365
+  // Sales" and "D365 Sales" are one product, not two.
+  const core = (x: string) => x.toLowerCase().replace(/^(?:microsoft\s*)?(?:dynamics\s*365|d\s*365)\s*/, "").trim() || x.toLowerCase();
+  const out: { at: number; s: string }[] = [];
+  for (const f of found) {
+    const k = core(f.s);
+    if (out.some((o) => core(o.s).includes(k))) continue;
+    for (let i = out.length - 1; i >= 0; i--) if (k.includes(core(out[i].s))) out.splice(i, 1);
+    out.push(f);
+  }
+  // A bare "Dynamics 365"/"D365" adds nothing beside a named module.
+  const named = out.filter((o) => !/^(?:dynamics\s*365|d\s*365)$/i.test(o.s));
+  return (named.length ? named : out).sort((a, b) => a.at - b.at).slice(0, max).map((o) => o.s);
+}
 function longestDynamicsProduct(...texts: string[]): string {
   let best = "";
   for (const t of texts) {
@@ -2367,6 +2474,22 @@ function longestDynamicsProduct(...texts: string[]): string {
  *  two would assert something the row never wrote. Same rule the licensing
  *  path already follows when no single SKU carried the count.
  */
+const HEADCOUNT_RE =
+  /\b(\d{1,3}(?:,\d{3})+|\d{1,6})\s*\+?\s*(?:named\s*|full[- ]time\s*|active\s*|licensed\s*)?(users?|seats?|licen[cs]es?|employees?|staff|people)\b/gi;
+/** The first user count and the first employee count the notes write —
+ *  company size and seats are different facts, so each is kept apart. */
+function statedHeadcount(fullText: string): { users: number | null; employees: number | null } {
+  const masked = maskAll(stripScorecard(String(fullText || "")));
+  const out = { users: null as number | null, employees: null as number | null };
+  HEADCOUNT_RE.lastIndex = 0;
+  for (let m = HEADCOUNT_RE.exec(masked); m; m = HEADCOUNT_RE.exec(masked)) {
+    const n = Number(m[1].replace(/,/g, ""));
+    if (!n || n < 2 || (n >= 1900 && n <= 2100)) continue;
+    if (/employ|staff|people/i.test(m[2])) out.employees ??= n;
+    else out.users ??= n;
+  }
+  return out;
+}
 function seatsStatedInRow(platform: PlatformResult | null, fullText: string): number | null {
   const text = platform?.hits[0]?.snippet || fullText;
   if (!text) return null;
@@ -2754,17 +2877,20 @@ function buildDynamicsBrief(
   // 1. THE PLATFORM. The row's own longest wording for it. A Sales / CRM
   //    lead says so up front, per Jack: "for sales it should have a note
   //    about a sales platform".
-  const product = longestDynamicsProduct(anchorText, fullText) || "Dynamics 365";
+  const product = dynamicsProductsNamed(fullText).join(" + ") || longestDynamicsProduct(anchorText) || "Dynamics 365";
   if (platform?.isSalesCrm) {
     const said = SALES_CRM_RE.exec(fullText)?.[0]?.trim() ?? "";
-    const named = /sales|insights/i.test(product) ? product : said && !/^crm$/i.test(said) ? said : "Dynamics 365 Sales / CRM";
+    const named = /sales|insights|crm|engagement/i.test(product) ? product : said && !/^crm$/i.test(said) ? said : "Dynamics 365 Sales / CRM";
     parts.push(`Sales platform: ${named}`);
   } else parts.push(product);
 
   // 2. THE USER COUNT, only when stated. A missing count is simply absent:
   //    saying "no seat count stated" spends a clause to say nothing.
   const seats = platform?.dynamicsSeatCount ?? null;
-  if (seats != null && seats > 0) parts.push(`${seats} seats`);
+  if (seats != null && seats > 0) {
+    const asEmployees = new RegExp(`\\b${seats}\\b\\s*\\+?\\s*(?:full[- ]time\\s*)?(?:employees?|staff|people|person)\\b(?!\\s*(?:will|would|who|that)?\\s*(?:use|using|need|be\\s*using|on\\s*it))`, "i").test(fullText);
+    parts.push(asEmployees ? `${seats} employees` : `${seats} seats`);
+  }
 
   // 3. WHO HANDLES IT. Only a value that is actually a partner or
   //    Microsoft-direct — a segment label like "Baseline" or "Growth" is
@@ -2896,7 +3022,7 @@ export function buildCallBrief(
   const runsProduct = runsList.join(" and ");
   const withSeats = (name: string) => {
     const h = hits.find((x) => x.matched === name && x.count != null && x.count > 0);
-    return h ? `${name} (${h.count} seats)` : name;
+    return h ? `${name} (${h.count} ${h.count === 1 ? "seat" : "seats"})` : name;
   };
   const runs = runsList.length
     ? `Runs ${runsList.map(withSeats).join(runsList.length === 2 ? " and " : ", ")}.`
@@ -2909,7 +3035,7 @@ export function buildCallBrief(
   // installed base — a Dynamics lead is usually evaluating it, not running
   // it. Per Jack: "if dynamics be about dynamics and what platform theyre
   // on today anf the pain theyre epxerincing".
-  const what = dynamics
+  const whatBase = dynamics
     ? (seats != null && seats > 0
         ? `${seats} seats on ${product}.`
         // The row stated a count but no single product carried it, so the
@@ -2928,6 +3054,20 @@ export function buildCallBrief(
       // row, with the same masked window the licensing engine uses so a
       // product's own digits can never be mistaken for a headcount.
       || (platformSeats != null ? `${platformSeats} seats stated.` : "");
+  // Per Jack: "make sure we are not missing any user count or employee
+  // count if listed in the raw notes". When nothing above carried a number,
+  // the first count the notes state rides along, worded as what it is —
+  // users or employees — and never attached to a product it wasn't
+  // written beside. Read off the masked text, so "Microsoft 365" is never
+  // 365 people.
+  // "Microsoft 365 E5" has digits but no count — test for a count clause.
+  const hc = dynamics ? { users: null, employees: null } : statedHeadcount(fullText);
+  const hasCount = /\b\d+ (?:seats?|users)\b/.test(whatBase);
+  const headcount = [
+    !hasCount && hc.users != null ? `${hc.users} users stated.` : "",
+    hc.employees != null && !new RegExp(`\\b${hc.employees}\\b`).test(whatBase) ? `${hc.employees} employees.` : "",
+  ].filter(Boolean).join(" ");
+  const what = [whatBase, headcount].filter(Boolean).join(" ");
   // Arithmetic on a number the row stated — not a judgement about the
   // customer. Only above a threshold, so it means something when it shows.
   const size = seats != null && seats >= LARGE_ESTATE_SEATS ? " Large estate." : "";

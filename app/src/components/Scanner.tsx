@@ -1734,7 +1734,7 @@ export default function Scanner({
               <th>Company</th>
               <th>Contact</th>
               <th>Detected</th>
-              <th>Matched snippet</th>
+              <th>Notes</th>
               <th>Tier</th>
               <th>Priority</th>
               <th>Product line</th>
@@ -2042,7 +2042,7 @@ function NonRelevantTable({ rows }: { rows: NoSignalRow[] }) {
               <th>Title</th>
               <th>Email</th>
               <th>Phone</th>
-              <th>Matched snippet</th>
+              <th>Notes</th>
               <th>Source file</th>
             </tr>
           </thead>

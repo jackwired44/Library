@@ -136,5 +136,29 @@ ok("'no ERP' alone is not a Dynamics lead", !noErp || noErp.category !== "dynami
 const wantErp = scan(["We need a new ERP for 40 users, currently on spreadsheets."])[0];
 ok("but wanting an ERP still is", wantErp?.category === "dynamics365", String(wantErp?.category));
 
+console.log("\n== Microsoft's scorecard is not the lead (Book9-30) ==");
+const SC = "Product Propensity Details: - M365: Act Now (High Fit; High Prioritization Index) - D365 BC: Nurture (Low Fit; High Prioritization Index) - D365 F&O: Unknown (Unknown Fit; Unknown Prioritization Index) - D365 Sales Pro: Educate (Very Low Fit; Very Low Prioritization Index) - Has O365: Yes - Has D365: No. ";
+const copilot = scan([SC + "Customer wants to bring in a partner to roll out Microsoft 365 Copilot."])[0];
+ok("a Copilot lead with a scorecard files M365, not Dynamics", copilot?.category === "m365Tenant", String(copilot?.category));
+const bcSc = scan([SC + "Evaluating Dynamics 365 Business Central for 20 users."])[0];
+ok("a real BC lead with a scorecard keeps the BC tab (scorecard F&O ignored)", tabOf(bcSc) === "Business Central / ERP", tabOf(bcSc));
+const salesSc = scan([SC + "Evaluating Dynamics 365 Sales for 25 users."])[0];
+ok("a real Sales lead with a scorecard keeps the Sales tab (scorecard BC ignored)", tabOf(salesSc) === "Sales / CRM", tabOf(salesSc));
+const darcy = scan(["The Dynamics (BC) project has not been approved yet. Need: Dynamics ERP & CRM."])[0];
+ok('"Dynamics (BC)" is a Dynamics lead on the BC tab', darcy?.category === "dynamics365" && tabOf(darcy) === "Business Central / ERP", `${darcy?.category} ${tabOf(darcy)}`);
+
+console.log("\n== the notes, not the Product Area code, pick the tab ==");
+function scanPA(pa: string, note: string) {
+  const csv = ["Company,Full Name,Title,Email,Phone,msp_primaryproductcodename,Comments",
+    ["Acme", "Pat Vale", "CFO", "pat@acme.com", "3125550100", pa, note].map(q).join(",")].join("\n");
+  return scanParsedFiles([parseCSVText("t.csv", csv)]).results[0];
+}
+const fin = scanPA("Dynamics ERP", "Service: Dynamics 365 Finance - 13 users");
+ok("Dynamics 365 Finance under PA 'Dynamics ERP' is not Business Central", tabOf(fin) === "Everything else", tabOf(fin));
+const hr = scanPA("Dynamics CRM", "service - Microsoft Dynamics 365 Human Resources - 5 users");
+ok("Dynamics 365 Human Resources under PA 'Dynamics CRM' is not Sales / CRM", tabOf(hr) === "Everything else", tabOf(hr));
+const locked = scanPA("Dynamics CRM", "f1Locked out of teams");
+ok("a login problem beside a phone number is not a Strong Dynamics lead", locked?.tier !== "signal", `${locked?.tier} ${locked?.dqReasons}`);
+
 console.log(`\n${pass}/${pass + fail} checks passed`);
 if (fail) process.exit(1);

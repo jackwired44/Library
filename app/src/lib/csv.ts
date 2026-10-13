@@ -119,7 +119,12 @@ function stripGluedNull(v: unknown): unknown {
   // workload.NULL"), not just a bare word ("usersNULL"). `(?<=\S)` catches
   // both instead of only `[A-Za-z0-9]`; found because those rows still
   // rendered a literal "NULL." as their entire matched-snippet/notes text.
-  return v.replace(/\bNULL(?=[A-Za-z])/g, "").replace(/(?<=\S)NULL\b/g, "");
+  // A queue code glued onto the start of the cell — "f1Locked out of
+  // teams", "1C1E2026-09-25 …" — hides the first word from every rule
+  // (the login-issue DQ never saw "Locked"). Only when glued; "F1 / …"
+  // with a space is a label and the metadata DQ reads it as one.
+  return v.replace(/^(\s*)(?:1C[01]E|f1)(?=[A-Za-z]|\d{4}-)/i, "$1")
+    .replace(/\bNULL(?=[A-Za-z])/g, "").replace(/(?<=\S)NULL\b/g, "");
 }
 // Mojibake repair. A Dynamics/Excel export that lost its encoding on the
 // way out writes U+FFFD (the replacement character) where a smart quote or
