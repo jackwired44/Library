@@ -14,19 +14,19 @@
 import { useMemo, useRef, useState } from "react";
 import type { StoredLead } from "../lib/leadStore";
 import { apolloHitFor, type RosterIndex } from "../lib/apolloRoster";
-import { DEFAULT_PULL_MONTHS, type PullProgress } from "../lib/apolloLive";
-import { VERDICT_META, verdictOf } from "../lib/leadStatus";
+import { DEFAULT_PULL_MONTHS, type PullProgress, type CheckProgress } from "../lib/apolloLive";
+import { VERDICT_META, VERDICT_ORDER, verdictOf, type Verdict } from "../lib/leadStatus";
 
 type Status = "active" | "finished" | "none" | "out";
 const STATUS_META: Record<Status, { label: string; hint: string; color: string; bg: string }> = {
   active: { label: "Active in a sequence", hint: "In Apollo and live in at least one sequence right now.", color: "#0A66C2", bg: "#EAF3FC" },
   finished: { label: "In Apollo, sequence ended", hint: "In Apollo; every sequence they were in has finished, paused or stopped.", color: "#5B3FC4", bg: "#EEEAFC" },
   none: { label: "In Apollo, no sequence", hint: "A contact in Apollo, never put in a sequence.", color: "#4C6167", bg: "#EEF1F2" },
-  out: { label: "Not in Apollo", hint: "Not found in an Apollo sync or your pulled uploads.", color: "#4C6167", bg: "transparent" },
+  out: { label: "Not in Apollo", hint: "Not found by the Apollo check, a sync or your pulled uploads. \"Matched by\" says whether it was actually looked up.", color: "#4C6167", bg: "transparent" },
 };
 const STATUS_ORDER: Status[] = ["active", "finished", "none", "out"];
 
-interface Seq { name: string; active: boolean; status: string; step: number | null; addedAt: string }
+interface Seq { name: string; active: boolean; status: string; step: number | null; addedAt: string; steps?: number; finishedAt?: string; reason?: string }
 interface Row { lead: StoredLead; status: Status; seqs: Seq[]; how: string }
 
 const PAGE = 100;
@@ -35,11 +35,18 @@ function rowFor(l: StoredLead, index: RosterIndex | null): Row {
   if (l.apollo) {
     const seqs = l.apollo.sequences.map((s) => ({
       name: s.name, active: s.status === "active", status: s.status, step: s.step, addedAt: s.addedAt ?? "",
+      steps: s.steps, finishedAt: s.finishedAt, reason: s.reason,
     }));
-    return { lead: l, seqs, how: "Apollo sync", status: seqs.some((s) => s.active) ? "active" : seqs.length ? "finished" : "none" };
+    const lv = l.apollo.live;
+    const how = lv
+      ? [`Apollo check ${l.apollo.syncedAt.slice(0, 10)}`, lv.owner && `owner ${lv.owner}`, lv.lastActivityAt && `last activity ${lv.lastActivityAt}`].filter(Boolean).join(" · ")
+      : "Apollo sync";
+    return { lead: l, seqs, how, status: seqs.some((s) => s.active) ? "active" : seqs.length ? "finished" : "none" };
   }
   const hit = apolloHitFor({ email: l.email, contact: l.contact }, index);
-  if (!hit) return { lead: l, seqs: [], how: "", status: "out" };
+  if (!hit) return l.apolloCheckedAt
+    ? { lead: l, seqs: [], how: `Apollo check ${l.apolloCheckedAt.slice(0, 10)}`, status: "out" }
+    : { lead: l, seqs: [], how: "not checked yet", status: "out" };
   const seqs = hit.sequences.map((label) => {
     const active = /\(active\)$/.test(label);
     return { name: label.replace(/\s*\(active\)$/, ""), active, status: active ? "active" : "ended", step: null, addedAt: "" };
@@ -51,14 +58,21 @@ function rowFor(l: StoredLead, index: RosterIndex | null): Row {
 }
 
 export default function ApolloStatus({
-  leads, apolloIndex, rosterPulledAt = "", onPullApollo,
+  leads, apolloIndex, rosterPulledAt = "", onPullApollo, onCheckLeads,
 }: {
   leads: StoredLead[];
   apolloIndex: RosterIndex | null;
   rosterPulledAt?: string;
   onPullApollo?: (months: number, onProgress: (p: PullProgress) => void, signal: AbortSignal) => Promise<PullProgress>;
+  onCheckLeads?: (leads: StoredLead[], onProgress: (p: CheckProgress) => void, signal: AbortSignal) => Promise<CheckProgress>;
 }) {
+  // Per Jack: "the contacts in the all leads here for strong signal only".
+  const [verdictF, setVerdictF] = useState<Verdict | "all">("strong");
   const [statusF, setStatusF] = useState<Status | "all">("active");
+  const [check, setCheck] = useState<CheckProgress | null>(null);
+  const [checkError, setCheckError] = useState("");
+  const [recheck, setRecheck] = useState(false);
+  const checkAbort = useRef<AbortController | null>(null);
   const [seqF, setSeqF] = useState("all");
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
@@ -67,7 +81,33 @@ export default function ApolloStatus({
   const [months, setMonths] = useState(DEFAULT_PULL_MONTHS);
   const abort = useRef<AbortController | null>(null);
 
-  const rows = useMemo(() => leads.map((l) => rowFor(l, apolloIndex)), [leads, apolloIndex]);
+  const rows = useMemo(() => leads
+    .filter((l) => verdictF === "all" || verdictOf(l.tier) === verdictF)
+    .map((l) => rowFor(l, apolloIndex)), [leads, apolloIndex, verdictF]);
+
+  // The check runs over Strong Signal leads only. Leads looked up in the
+  // last 7 days are skipped unless "re-check" is ticked, so a stopped run
+  // picks up where it left off.
+  const strong = useMemo(() => leads.filter((l) => verdictOf(l.tier) === "strong"), [leads]);
+  const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString();
+  const toCheck = useMemo(() => recheck ? strong : strong.filter((l) => !(l.apolloCheckedAt && l.apolloCheckedAt > weekAgo)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [strong, recheck]);
+
+  async function runCheck() {
+    if (!onCheckLeads || (check && !check.finished) || !toCheck.length) return;
+    const ac = new AbortController();
+    checkAbort.current = ac;
+    setCheckError("");
+    setCheck({ total: toCheck.length, done: 0, found: 0, notFound: 0, skipped: 0, errors: 0, finished: false });
+    try {
+      const p = await onCheckLeads(toCheck, setCheck, ac.signal);
+      setCheck({ ...p, finished: true });
+    } catch (e) {
+      setCheckError(e instanceof Error ? e.message : String(e));
+      setCheck((x) => (x ? { ...x, finished: true } : x));
+    } finally { checkAbort.current = null; }
+  }
 
   const counts = useMemo(() => {
     const m: Record<Status, number> = { active: 0, finished: 0, none: 0, out: 0 };
@@ -119,6 +159,39 @@ export default function ApolloStatus({
           <p className="page-sub">Whether each lead here is in Apollo, and which sequence they're active in.</p>
         </div>
       </div>
+
+      {onCheckLeads && (
+        <div className="panel" style={{ marginBottom: 10 }}>
+          <div className="panel-body" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", fontSize: 12.5 }}>
+            <span style={{ color: "var(--muted)" }}>
+              Look up each <b style={{ color: "var(--ink)" }}>Strong Signal</b> lead in Apollo — sequence, step, finished and why.
+              Free and read-only; nothing is written to Apollo.
+            </span>
+            <div className="toolbar-spacer" />
+            <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>
+              <input type="checkbox" checked={recheck} disabled={!!check && !check.finished} onChange={(e) => setRecheck(e.target.checked)} />
+              Re-check ones done this week
+            </label>
+            {check && !check.finished
+              ? <button className="btn btn-sm btn-secondary" onClick={() => checkAbort.current?.abort()}>Stop</button>
+              : <button className="btn btn-sm btn-primary" disabled={!toCheck.length} onClick={runCheck}
+                        title="One Apollo contact search per lead, by email (or full name + company). Free, read-only.">
+                  Check {toCheck.length.toLocaleString()} Strong Signal lead{toCheck.length === 1 ? "" : "s"}
+                </button>}
+          </div>
+          {(check || checkError) && (
+            <div className="panel-body" style={{ paddingTop: 0, fontSize: 12 }} aria-label="Apollo check">
+              {check && <>
+                {check.finished ? "Checked" : "Checking…"} <b>{check.done.toLocaleString()}</b> of {check.total.toLocaleString()}
+                {" · "}<b>{check.found.toLocaleString()}</b> in Apollo · {check.notFound.toLocaleString()} not in Apollo
+                {check.skipped > 0 && <> · {check.skipped.toLocaleString()} skipped (no email or full name)</>}
+                {check.errors > 0 && <span style={{ color: "#B5443B" }}> · {check.errors} failed{check.lastError ? `: ${check.lastError}` : ""}</span>}
+              </>}
+              {checkError && <span style={{ color: "#B5443B" }}> Apollo check stopped: {checkError}</span>}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="panel" style={{ marginBottom: 10 }}>
         <div className="panel-body" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", fontSize: 12.5 }}>
@@ -186,6 +259,10 @@ export default function ApolloStatus({
         <div className="toolbar-row">
           <input className="field" placeholder="Search company, contact, email…" value={q}
                  onChange={(e) => { setQ(e.target.value); setPage(1); }} style={{ flex: 1, minWidth: 220, maxWidth: 360 }} />
+          <select className="field" aria-label="Stored as" value={verdictF} onChange={(e) => { setVerdictF(e.target.value as Verdict | "all"); setPage(1); }}>
+            <option value="all">Stored as: any</option>
+            {VERDICT_ORDER.map((v) => <option key={v} value={v}>{VERDICT_META[v].label}</option>)}
+          </select>
           <select className="field" aria-label="Sequence" value={seqF} onChange={(e) => { setSeqF(e.target.value); setPage(1); }}>
             <option value="all">Sequence: any</option>
             {allSeqs.map(([n, c]) => <option key={n} value={n}>{n} ({c.toLocaleString()})</option>)}
@@ -224,7 +301,11 @@ export default function ApolloStatus({
                       <div key={`${s.name}-${i}`} style={{ color: s.active ? "var(--ink)" : "var(--muted)" }}>
                         {s.active && <b style={{ color: "#0A66C2" }}>● </b>}{s.name}
                         <span className="muted">
-                          {" · "}{s.active ? "active" : s.status}{s.step != null ? ` · step ${s.step}` : ""}{s.addedAt ? ` · added ${s.addedAt}` : ""}
+                          {" · "}{s.active ? "active" : s.status}
+                          {s.step != null ? ` · step ${s.step}${s.steps ? ` of ${s.steps}` : ""}` : ""}
+                          {s.addedAt ? ` · added ${s.addedAt}` : ""}
+                          {s.finishedAt ? ` · ended ${s.finishedAt}` : ""}
+                          {s.reason ? ` · "${s.reason}"` : ""}
                         </span>
                       </div>
                     ))}

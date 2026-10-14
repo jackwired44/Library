@@ -15,7 +15,7 @@
 // App.tsx rather than rewritten, so behaviour cannot drift — the only
 // edit was removing the two finishTerminalEnrollments() calls, which
 // belonged to sequences that do not exist here.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Scanner from "./components/Scanner";
 import LibraryView from "./components/Library";
 import HistoryView from "./components/History";
@@ -79,7 +79,7 @@ import {
   upsertProfileFromApollo, type CompanyProfile,
 } from "./lib/companyProfiles";
 import { enrichCompaniesViaApollo, type CompanyEnrichOutcome } from "./lib/apolloEnrich";
-import { pullTeamUploads, type PullProgress } from "./lib/apolloLive";
+import { pullTeamUploads, checkLeadsInApollo, applyCheckResults, type PullProgress, type CheckProgress } from "./lib/apolloLive";
 import type { SaveReport } from "./lib/saveReport";
 import "./styles.css";
 
@@ -153,6 +153,8 @@ export default function App() {
   /** Every lead ever scanned, all three scanners. See lib/leadStore.ts. */
   const [leads, setLeads] = useState<StoredLead[]>([]);
   const apolloIndex = useMemo(() => buildRosterIndex(apolloRoster, leads), [apolloRoster, leads]);
+  const leadsRef = useRef(leads);
+  leadsRef.current = leads;
   const rosterPulledAt = useMemo(
     () => apolloRoster.reduce((m, r) => (r.uploadedAt && r.syncedAt > m ? r.syncedAt : m), ""), [apolloRoster]);
 
@@ -164,6 +166,23 @@ export default function App() {
       onEntries: async (entries) => {
         setApolloRoster((prev) => mergeRoster(prev, entries));
         await saveApolloRoster(entries);
+      },
+    });
+  }
+  /** Look every given lead up in Apollo, one free read-only search each,
+   *  and write where they stand onto the lead. Saved in batches as they
+   *  land, so Stop keeps what was read. */
+  async function checkLeadsLive(targets: StoredLead[], onProgress: (p: CheckProgress) => void, signal: AbortSignal) {
+    return checkLeadsInApollo({
+      leads: targets, onProgress, signal,
+      onResults: async (results) => {
+        // Saved from the ref, never from inside the updater: an updater's
+        // side effects are not guaranteed to have run by the next line
+        // (see CLAUDE.md, mutateResults).
+        const { changed } = applyCheckResults(leadsRef.current, results);
+        setLeads((prev) => applyCheckResults(prev, results).leads);
+        if (changed.length) await saveLeads(changed).catch((e) =>
+          setError(`Apollo results could not be stored: ${e instanceof Error ? e.message : String(e)}`));
       },
     });
   }
@@ -871,7 +890,7 @@ export default function App() {
           // Per Jack: "the apollo queue isnt what i want … i want to be able
           // to see if a lead is active in apollo from here and if so which
           // sequence", and "i dont want to push the leads over". Read-only.
-          <ApolloStatus leads={leads} apolloIndex={apolloIndex} rosterPulledAt={rosterPulledAt} onPullApollo={pullApollo} />
+          <ApolloStatus leads={leads} apolloIndex={apolloIndex} rosterPulledAt={rosterPulledAt} onPullApollo={pullApollo} onCheckLeads={checkLeadsLive} />
         )}
         {(view === "allleads" || view === "library") && (
           // The Lead library lives inside All leads now. Per Jack: "re do

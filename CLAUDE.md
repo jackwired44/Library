@@ -6236,3 +6236,22 @@ project management customer insights platform").
   platforms for this test (the qualification suite holds a partner-led Power
   Platform build as Strong). Copilot Studio does not.
 - Book9-30.csv: 101 Dynamics leads, 59 Strong (was 71).
+
+### 2026-10-14: Live Apollo check for Strong Signal leads (scanner-platform-v29)
+
+Per Jack: "pull in apollo data for any lead here and see if they are in a
+sequence finished or where it [is]", scoped to "the contacts in the all leads
+here for strong signal only".
+- In Apollo view: "Check N Strong Signal leads" runs one free, read-only
+  `contacts_search` per lead (email exact; else full name with the company
+  required to agree, never guessed between two). Leads checked in the last 7
+  days are skipped unless "Re-check" is ticked, so a stopped run resumes.
+- Results write `lead.apollo` (sequences with status, step N of M from
+  `emailer_campaigns_search`'s `emailer_steps`, added/finished dates, Apollo's
+  own `inactive_reason`), plus `apollo.live` (owner, last activity) and
+  `lead.apolloCheckedAt`. A miss sets only `apolloCheckedAt` and never erases
+  an earlier sync record. Call counts are unknown on a live record
+  (`callsUnknown`); `neverContacted` then reads sequences instead.
+- Because the result lands on `lead.apollo`, everything that already reads it
+  (status, All leads, the export exclusion) picks it up. Nothing writes to
+  Apollo. Suite: `apollo-check-live` (fake connector, 15 checks).

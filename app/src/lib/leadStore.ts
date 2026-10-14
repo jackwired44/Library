@@ -62,6 +62,11 @@ export interface ApolloLeadState {
    *  first. Per Jack: "see when a lead is added and when a task is
    *  completed in a sequence". Optional: older sync files have none. */
   tasks?: TaskEvent[];
+  /** Set when this record came from a live Apollo lookup rather than a
+   *  sync file. A live lookup reads sequences, not calls, so the call
+   *  numbers here are unknown rather than zero — see neverContacted. */
+  live?: { owner?: string; lastActivityAt?: string; uploadedAt?: string };
+  callsUnknown?: boolean;
 }
 
 /** One sequence enrolment. The two dates are optional because a sync that
@@ -77,6 +82,12 @@ export interface ApolloSequenceState {
   addedAt?: string;
   /** The due date of the newest completed task in this sequence. */
   lastDoneAt?: string;
+  /** Live check only (lib/apolloLive.ts checkLeadsInApollo): how many steps
+   *  the sequence has, when it finished, and Apollo's own reason it ended
+   *  ("talked on phone", "replied" …) — quoted, never interpreted. */
+  steps?: number;
+  finishedAt?: string;
+  reason?: string;
 }
 
 /** One Apollo task. `at` is the task's DUE date — Apollo's task search
@@ -130,6 +141,9 @@ export interface StoredLead {
    *  it. Carried through every re-upload by mergeLeads' `...prev`, and
    *  never overwritten by a rule — see lib/sequenceRouting.ts. */
   plan?: SequencePlan;
+  /** When a live Apollo lookup last checked this lead — set whether or not
+   *  Apollo had them, so "not in Apollo" is a checked fact, not a gap. */
+  apolloCheckedAt?: string;
   /** A person's hand-set status. Wins over the derived one until cleared;
    *  absent means "let the evidence decide" — see lib/leadStatus.ts. */
   statusOverride?: StatusOverride;
@@ -211,7 +225,7 @@ export function leadKeyOfInput(i: { email?: unknown; contact?: unknown; company?
 /** A lead as a scanner hands it over, before it is keyed or merged. */
 export type LeadInput = Omit<
   StoredLead,
-  "key" | "firstSeenAt" | "lastSeenAt" | "sourceFiles" | "timesSeen" | "apollo" | "plan" | "statusOverride" | "fileSeen" | "noteDates"
+  "key" | "firstSeenAt" | "lastSeenAt" | "sourceFiles" | "timesSeen" | "apollo" | "plan" | "statusOverride" | "fileSeen" | "noteDates" | "apolloCheckedAt"
 > & {
   sourceFile: string;
   /** The note exactly as the CSV had it, before any scanner summarised it.
@@ -529,6 +543,9 @@ export function hasFinishedSequence(l: StoredLead): boolean {
  * this way, so the view must show the sync age beside it.
  */
 export function neverContacted(l: StoredLead): boolean {
+  // A live lookup knows sequences but not calls: anyone placed in one has
+  // been worked, so only an unsequenced contact still reads as untouched.
+  if (l.apollo?.callsUnknown) return l.apollo.callCount === 0 && l.apollo.sequences.length === 0;
   return (l.apollo?.callCount ?? 0) === 0;
 }
 
