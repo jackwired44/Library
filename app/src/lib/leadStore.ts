@@ -63,8 +63,9 @@ export interface ApolloLeadState {
    *  completed in a sequence". Optional: older sync files have none. */
   tasks?: TaskEvent[];
   /** Set when this record came from a live Apollo lookup rather than a
-   *  sync file. A live lookup reads sequences, not calls, so the call
-   *  numbers here are unknown rather than zero — see neverContacted. */
+   *  sync file. A live lookup reads sequences, not calls. Per Jack ("no
+   *  calls or downloads") it changes neither the call numbers nor what a
+   *  download leaves out — see buildRosterIndex and AllLeads' exportBlocked. */
   live?: { owner?: string; lastActivityAt?: string; uploadedAt?: string };
   callsUnknown?: boolean;
 }
@@ -543,9 +544,6 @@ export function hasFinishedSequence(l: StoredLead): boolean {
  * this way, so the view must show the sync age beside it.
  */
 export function neverContacted(l: StoredLead): boolean {
-  // A live lookup knows sequences but not calls: anyone placed in one has
-  // been worked, so only an unsequenced contact still reads as untouched.
-  if (l.apollo?.callsUnknown) return l.apollo.callCount === 0 && l.apollo.sequences.length === 0;
   return (l.apollo?.callCount ?? 0) === 0;
 }
 

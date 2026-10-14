@@ -130,6 +130,8 @@ interface Derived {
   /** In Apollo already: matched by a sync, or found among the uploads
    *  pulled from Apollo. Null when neither knows them. */
   inApollo: ApolloHit | { how: "sync"; name: string; sequences: string[]; uploadedAt?: string } | null;
+  /** Left out of downloads: pulled uploads or an imported sync only. */
+  exportBlocked: boolean;
 }
 
 type InApolloFilter = "all" | "not" | "in";
@@ -295,6 +297,9 @@ export default function AllLeads({
         taskDoneAt: (a?.tasks ?? []).reduce((m, t) => (t.status === "completed" && t.at > m ? t.at : m), ""),
         inApollo: apolloHitFor({ email: l.email, contact: l.contact }, apolloIndex)
           ?? (a ? { how: "sync" as const, name: l.contact, sequences: seqs.map((x) => (x.status === "active" ? `${x.name} (active)` : x.name)) } : null),
+        // What a download leaves out — exactly as before the live check:
+        // the pulled uploads and an imported sync, never a live result.
+        exportBlocked: !!apolloHitFor({ email: l.email, contact: l.contact }, apolloIndex) || (!!a && !a.live),
       });
     }
     return m;
@@ -531,7 +536,7 @@ export default function AllLeads({
   /** Per Jack: "make sure i am not reuploading leads that have already been
    *  uploaded in apollo". Anyone already in Apollo is left out of every
    *  export, and the button says how many. */
-  const notInApollo = (set: StoredLead[]) => set.filter((l) => !derived.get(l.key)?.inApollo);
+  const notInApollo = (set: StoredLead[]) => set.filter((l) => !derived.get(l.key)?.exportBlocked);
   async function exportSet(set: StoredLead[], label: string) {
     const clean = notInApollo(set);
     if (!clean.length || exporting) return;

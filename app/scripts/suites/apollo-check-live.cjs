@@ -111,6 +111,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   const all = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
   ok('All leads shows the sequence for the checked lead', /Dynamics Sequence/.test(all), all.slice(0, 600));
 
+  ok('downloads still include live-checked leads (all 4 exportable)', /Export 4 for Apollo/.test(all), all.match(/Export[^·]{0,40}/)?.[0]);
   ok('no page errors', errs.length === 0, errs.join(' | '));
   await b.close();
   console.log(`\n${pass}/${pass + fail} checks passed`);

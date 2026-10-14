@@ -6250,8 +6250,10 @@ here for strong signal only".
   `emailer_campaigns_search`'s `emailer_steps`, added/finished dates, Apollo's
   own `inactive_reason`), plus `apollo.live` (owner, last activity) and
   `lead.apolloCheckedAt`. A miss sets only `apolloCheckedAt` and never erases
-  an earlier sync record. Call counts are unknown on a live record
-  (`callsUnknown`); `neverContacted` then reads sequences instead.
-- Because the result lands on `lead.apollo`, everything that already reads it
-  (status, All leads, the export exclusion) picks it up. Nothing writes to
-  Apollo. Suite: `apollo-check-live` (fake connector, 15 checks).
+  an earlier sync record.
+- **Per Jack: "no calls or downloads."** A live result is shown (In Apollo,
+  All leads, lead record) but changes neither call numbers / "never
+  contacted" nor what a download leaves out: `buildRosterIndex` skips
+  `apollo.live` leads and All leads exports on `exportBlocked` (pulled
+  uploads + imported sync only). Nothing writes to Apollo. Suite:
+  `apollo-check-live` (fake connector, 16 checks).

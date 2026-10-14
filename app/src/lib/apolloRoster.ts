@@ -108,7 +108,9 @@ export function buildRosterIndex(roster: ApolloRosterEntry[], leads: StoredLead[
   };
   for (const r of roster) add(r.email, r.name, r.sequences, r.uploadedAt, r.emails);
   for (const l of leads) {
-    if (!l.apollo) continue;
+    // A live check's result is shown, but never feeds the "already in
+    // Apollo" exclusion. Per Jack: "no calls or downloads".
+    if (!l.apollo || l.apollo.live) continue;
     add(l.email, l.contact, sequenceLabels(l.apollo.sequences));
   }
   return { byEmail, byName, size: people.size };
