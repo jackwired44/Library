@@ -25,7 +25,7 @@
 // contact_campaign_statuses[].{emailer_campaign_id,status,added_at},
 // emailer_campaigns[].{id,name}, pagination.total_pages.
 import type { ClaudeMcpNamespace } from "./claudeRuntime";
-import { getMcp, describeApolloError } from "./apolloEnrich";
+import { getMcp, describeApolloError, requestApolloConsent } from "./apolloEnrich";
 import { normEmail } from "./leadStore";
 import type { ApolloRosterEntry } from "./apolloRoster";
 import type { ApolloLeadState, ApolloSequenceState, StoredLead } from "./leadStore";
@@ -52,6 +52,7 @@ export interface LiveHandle {
 export async function connectApollo(): Promise<LiveHandle> {
   const mcp = await getMcp();
   if (!mcp) throw new Error("Apollo can only be reached from the published page in Claude, not a downloaded copy.");
+  await requestApolloConsent();
   let servers: { server: string; tools: { name: string }[] }[];
   try {
     ({ servers } = await mcp.listTools());

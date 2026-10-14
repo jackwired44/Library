@@ -37,7 +37,7 @@ import {
 } from "../lib/leadStatus";
 import { stepsInSequence, type ApolloFunnel } from "../lib/apolloFunnel";
 import { apolloHitFor, type ApolloHit, type RosterIndex } from "../lib/apolloRoster";
-import { DEFAULT_PULL_MONTHS, type PullProgress } from "../lib/apolloLive";
+import { DEFAULT_PULL_MONTHS, type PullProgress, type CheckProgress } from "../lib/apolloLive";
 import { loadRawNotesMany, newestRaw } from "../lib/rawNotes";
 import { isIntentDate, soonestUpcoming, type NoteDate } from "../lib/noteDates";
 import {
@@ -134,7 +134,7 @@ interface Derived {
   exportBlocked: boolean;
 }
 
-type InApolloFilter = "all" | "not" | "in";
+type InApolloFilter = "all" | "not" | "in" | "checked-in" | "checked-not" | "unchecked";
 
 function dateKindOf(dates: NoteDate[] | undefined): Derived["dateKind"] {
   if (!dates?.length) return "none";
@@ -181,8 +181,10 @@ const NO_LINE = "(no product line)";
 export default function AllLeads({
   leads, companyProfiles = [], onApplySync, initialSequence = "",
   sequenceNames = [], onSetPlan, onSetStatus, funnels = [], initialStatus, initialPreset,
-  apolloIndex = null, rosterPulledAt = "", onPullApollo,
+  apolloIndex = null, rosterPulledAt = "", onPullApollo, onCheckLeads,
 }: {
+  /** Live Apollo lookup: sequence, step and status per lead. Read-only. */
+  onCheckLeads?: (leads: StoredLead[], onProgress: (p: CheckProgress) => void, signal: AbortSignal) => Promise<CheckProgress>;
   /** Everyone known to be in Apollo — see lib/apolloRoster.ts. */
   apolloIndex?: RosterIndex | null;
   /** When Apollo uploads were last pulled. "" if never. */
@@ -250,6 +252,10 @@ export default function AllLeads({
   const [pullError, setPullError] = useState("");
   const [pullMonths, setPullMonths] = useState(DEFAULT_PULL_MONTHS);
   const pullAbort = useRef<AbortController | null>(null);
+  const [check, setCheck] = useState<CheckProgress | null>(null);
+  const [checkError, setCheckError] = useState("");
+  const [recheck, setRecheck] = useState(false);
+  const checkAbort = useRef<AbortController | null>(null);
 
   /* ---- derived, once per lead set ---- */
   const derived = useMemo(() => {
@@ -329,7 +335,12 @@ export default function AllLeads({
   type Key = "inApollo" | "verdict" | "company" | "contact" | "level" | "fn" | "month" | "dates" | "status" | "search" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "plan" | "planSeq" | "files" | "fileName" | "date";
   const tests = useMemo(() => {
     const t: Record<Key, (l: StoredLead, d: Derived) => boolean> = {
-      inApollo: (_l, d) => inApolloF === "all" || (inApolloF === "in" ? !!d.inApollo : !d.inApollo),
+      inApollo: (l, d) => inApolloF === "all"
+        || (inApolloF === "in" ? !!d.inApollo
+          : inApolloF === "not" ? !d.inApollo
+          : inApolloF === "checked-in" ? !!l.apolloCheckedAt && !!l.apollo?.live
+          : inApolloF === "checked-not" ? !!l.apolloCheckedAt && !l.apollo?.live
+          : !l.apolloCheckedAt),
       verdict: (_l, d) => verdictF === "all" || d.verdict === verdictF,
       company: (_l, d) => {
         if (companyF === "all") return true;
@@ -544,6 +555,39 @@ export default function AllLeads({
     try { await downloadCampaignCSV(clean, companyProfiles, label); } finally { setExporting(false); }
   }
 
+  // Per Jack: check "this mass or one by one select page what not" — the
+  // selection when there is one, otherwise everything matched.
+  const weekAgo = useMemo(() => new Date(Date.now() - 7 * 86_400_000).toISOString(), [check?.finished]);
+  const checkBase = selected.size ? selectedLeads : filtered;
+  const checkTargets = useMemo(
+    () => (recheck ? checkBase : checkBase.filter((l) => !(l.apolloCheckedAt && l.apolloCheckedAt > weekAgo))),
+    [checkBase, recheck, weekAgo]);
+  const checkCounts = useMemo(() => {
+    let found = 0, notFound = 0, unchecked = 0;
+    for (const l of leads) {
+      if (!l.apolloCheckedAt) unchecked++;
+      else if (l.apollo?.live) found++;
+      else notFound++;
+    }
+    return { found, notFound, unchecked };
+  }, [leads]);
+  const checking = !!check && !check.finished;
+
+  async function runCheck() {
+    if (!onCheckLeads || checking || !checkTargets.length) return;
+    const ac = new AbortController();
+    checkAbort.current = ac;
+    setCheckError("");
+    setCheck({ total: checkTargets.length, done: 0, found: 0, notFound: 0, skipped: 0, errors: 0, finished: false });
+    try {
+      const p = await onCheckLeads(checkTargets, setCheck, ac.signal);
+      setCheck({ ...p, finished: true });
+    } catch (e) {
+      setCheckError(e instanceof Error ? e.message : String(e));
+      setCheck((x) => (x ? { ...x, finished: true } : x));
+    } finally { checkAbort.current = null; }
+  }
+
   async function runPull() {
     if (!onPullApollo || pull && !pull.done) return;
     const ac = new AbortController();
@@ -617,8 +661,11 @@ export default function AllLeads({
           <b>Apollo</b>
           {ageDays === null ? (
             <span style={{ color: "var(--muted)" }}>
-              Not synced — sequence and call columns are blank until a sync is imported, so nothing here
-              reads as "in Apollo" yet.
+              {checkCounts.found + checkCounts.notFound > 0
+                ? <>No sync imported. <b style={{ color: "var(--ink)" }}>{(checkCounts.found + checkCounts.notFound).toLocaleString()}</b> checked live in Apollo
+                    ({checkCounts.found.toLocaleString()} found) · {checkCounts.unchecked.toLocaleString()} not checked yet — select leads and press ⟳ Check in Apollo.</>
+                : <>Not synced and not checked yet, so nothing here reads as "in Apollo" yet. Select one lead, a page, or none for
+                    everything matched, then press ⟳ Check in Apollo below.</>}
             </span>
           ) : (
             <span style={{ color: ageDays > SYNC_STALE_DAYS ? "#B5443B" : "var(--muted)" }}>
@@ -765,6 +812,9 @@ export default function AllLeads({
             <option value="all">Apollo: any</option>
             <option value="not">Not in Apollo — safe to upload ({inApolloCounts.not.toLocaleString()})</option>
             <option value="in">Already in Apollo ({inApolloCounts.in.toLocaleString()})</option>
+            <option value="checked-in">Apollo check: found ({checkCounts.found.toLocaleString()})</option>
+            <option value="checked-not">Apollo check: not found ({checkCounts.notFound.toLocaleString()})</option>
+            <option value="unchecked">Apollo check: not checked yet ({checkCounts.unchecked.toLocaleString()})</option>
           </select>
           <select className="field" aria-label="At company" value={companyF}
                   onChange={(e) => setCompanyF(e.target.value as "all" | "multi" | "single")}
@@ -981,12 +1031,42 @@ export default function AllLeads({
             </button>
           </>
         )}
+        {onCheckLeads && (
+          <>
+            <span style={{ width: 1, height: 18, background: "var(--border)" }} />
+            {checking
+              ? <button className="btn btn-sm btn-secondary" onClick={() => checkAbort.current?.abort()}>Stop Apollo check</button>
+              : <button className="btn btn-sm btn-primary" disabled={!checkTargets.length} onClick={runCheck}
+                        title={"Looks each lead up in Apollo: whether they're a contact, which sequence, which step, finished and why.\nOne free, read-only search per lead. Nothing is written to Apollo, and call counts and downloads don't change."}>
+                  ⟳ Check {checkTargets.length.toLocaleString()} in Apollo{selected.size ? " (selected)" : ""}
+                </button>}
+            <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }} title="Leads checked in the last 7 days are skipped unless this is ticked">
+              <input type="checkbox" checked={recheck} disabled={checking} onChange={(e) => setRecheck(e.target.checked)} />
+              Re-check this week's
+            </label>
+          </>
+        )}
         <button className="btn btn-sm btn-ghost" disabled={!selected.size || exporting}
                 onClick={() => exportSet(selectedLeads, "selection")}
                 title="Anyone already in Apollo is left out">
           ⬇ Export selection{selected.size ? ` (${notInApollo(selectedLeads).length.toLocaleString()} not in Apollo)` : ""}
         </button>
       </div>
+
+      {(check || checkError) && (
+        <div className="panel" style={{ marginBottom: 8 }}>
+          <div className="panel-body" style={{ fontSize: 12 }} aria-label="Apollo check">
+            {check && <>
+              {check.finished ? "Apollo check done:" : "Checking Apollo…"} <b>{check.done.toLocaleString()}</b> of {check.total.toLocaleString()}
+              {" · "}<b>{check.found.toLocaleString()}</b> in Apollo · {check.notFound.toLocaleString()} not in Apollo
+              {check.skipped > 0 && <> · {check.skipped.toLocaleString()} skipped (no email or full name)</>}
+              {check.errors > 0 && <span style={{ color: "#B5443B" }}> · {check.errors} failed{check.lastError ? `: ${check.lastError}` : ""}</span>}
+              {!check.finished && check.total > 200 && <span className="muted"> · about {Math.max(1, Math.round((check.total - check.done) / 240))} min left; Stop keeps everything already read</span>}
+            </>}
+            {checkError && <span style={{ color: "#B5443B" }}> Apollo check stopped: {checkError}</span>}
+          </div>
+        </div>
+      )}
 
       {/* ---- the table: one page at a time, scrolling inside its own box
              so the toolbar and filters stay in view ---- */}
@@ -1042,7 +1122,9 @@ export default function AllLeads({
                   <td title={d.inApollo ? [`Matched by ${d.inApollo.how === "sync" ? "an Apollo sync" : d.inApollo.how}`, d.inApollo.uploadedAt ? `Uploaded to Apollo ${d.inApollo.uploadedAt}` : "", ...d.inApollo.sequences].filter(Boolean).join("\n") : "Not found among your Apollo uploads"}>
                     {d.inApollo
                       ? <span className="pill" style={{ color: "#0A66C2", background: "#EAF3FC" }}>In Apollo{d.inApollo.uploadedAt ? ` · ${d.inApollo.uploadedAt}` : ""}</span>
-                      : <span className="muted">No</span>}
+                      : l.apolloCheckedAt
+                        ? <span className="muted" title={`Searched Apollo ${l.apolloCheckedAt.slice(0, 10)} — no matching contact`}>Not found · {l.apolloCheckedAt.slice(5, 10)}</span>
+                        : <span className="muted">No</span>}
                   </td>
                   <td title={`${cm.hint}${a ? `\n${a.callCount} call${a.callCount === 1 ? "" : "s"}${a.emailCount !== undefined ? ` · ${a.emailCount} email${a.emailCount === 1 ? "" : "s"}` : ""}` : ""}`}>
                     <span className="pill" style={{ color: cm.color, background: cm.bg }}>{cm.label}</span>

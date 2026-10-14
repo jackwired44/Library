@@ -34,6 +34,21 @@ export async function getMcp(): Promise<ClaudeMcpNamespace | null> {
   }
 }
 
+/** Ask the viewer to allow Apollo for this page, inside the click that
+ *  started the run. Without it the first listTools can settle as
+ *  "connector access isn't confirmed" with no prompt ever shown. Never
+ *  throws: a "no" is read by the call that follows. */
+export async function requestApolloConsent(): Promise<void> {
+  try {
+    const perms = await window.claude?.use?.("permissions");
+    if (!perms) return;
+    const names = ["mcp:Apollo.io"];
+    const st = await perms.state(names[0]).catch(() => "unavailable");
+    if (st === "granted") return;
+    await perms.request(st === "unavailable" ? ["mcp"] : names).catch(() => undefined);
+  } catch { /* fall through to the call itself */ }
+}
+
 interface ApolloServerHandle {
   server: string;
   bulkMatchTool: string;
@@ -93,6 +108,9 @@ export function describeApolloError(err: unknown): string {
     const e = err as { code?: string; message?: string };
     if (e.code === "needs_reauth") return "Apollo's connection needs to be reconnected — check claude.ai Settings → Connectors.";
     if (e.code === "server_not_connected" || e.code === "selection_required") return "Apollo isn't connected — add it in claude.ai Settings → Connectors, then try again.";
+    if (e.code === "not_granted" || e.code === "not_in_manifest" || e.code === "capability_disabled")
+      return "This page isn't allowed to use Apollo yet — allow Apollo when Claude asks, or reload the page and try again.";
+    if (e.code === "blocked_by_policy" || e.code === "approval_required") return "Your organization's policy blocks this Apollo call from a page.";
     if (e.message) return e.message;
   }
   if (err instanceof Error) return err.message;

@@ -34,7 +34,9 @@ const FAKE = () => {
       contact_campaign_statuses: [{ emailer_campaign_id: 'seq1', status: 'finished', added_at: '2026-07-28T21:09:19Z', finished_at: '2026-08-11T21:37:51Z',
         inactive_reason: 'talked on phone', current_step_id: 's5', current_step_position: 5 }] }],
   };
-  window.claude = { use: async name => name !== 'mcp' ? null : {
+  window.__perm = [];
+  const perms = { state: async n => (window.__perm.length ? 'granted' : 'prompt'), request: async names => { window.__perm.push(names); return {}; } };
+  window.claude = { use: async name => name === 'permissions' ? perms : name !== 'mcp' ? null : {
     listTools: async () => ({ servers: [{ server: 'Apollo.io', tools: [{ name: 'apollo_contacts_search' }, { name: 'apollo_emailer_campaigns_search' }] }] }),
     callTool: async (server, tool, args) => {
       window.__calls.push({ tool, args });
@@ -112,6 +114,28 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('All leads shows the sequence for the checked lead', /Dynamics Sequence/.test(all), all.slice(0, 600));
 
   ok('downloads still include live-checked leads (all 4 exportable)', /Export 4 for Apollo/.test(all), all.match(/Export[^·]{0,40}/)?.[0]);
+
+  console.log('\n== All leads: check one lead, a page, or everything matched ==');
+  ok('with nothing selected the button covers what is left unchecked (1)', /Check 1 in Apollo/.test(all), all.match(/Check \d+ in Apollo[^·]{0,12}/)?.[0]);
+  await page.locator('.data-table tbody tr', { hasText: 'REVIEW CO' }).first().locator('input[type=checkbox]').check(); await sleep(300);
+  let t2 = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
+  ok('selecting one lead scopes the button to it', /Check 1 in Apollo \(selected\)/.test(t2), t2.match(/Check \d+ in Apollo[^·]{0,12}/)?.[0]);
+  const before = (await page.evaluate(() => window.__calls)).length;
+  await page.locator('button', { hasText: /Check 1 in Apollo/ }).click();
+  await page.waitForFunction(() => /Apollo check done/.test(document.querySelector('main').innerText), null, { timeout: 60000 });
+  const after = await page.evaluate(() => window.__calls);
+  ok('only that one lead was looked up', after.slice(before).filter(c => c.tool.endsWith('contacts_search')).map(c => c.args.q_keywords).join() === 'rae@review.com', JSON.stringify(after.slice(before)));
+  ok('Apollo access is asked for before the lookup', (await page.evaluate(() => window.__perm)).some(n => n.includes('mcp:Apollo.io')));
+  ok('a lead not in Apollo reads "Not found" in All leads', /Not found/.test(await rowOf('REVIEW CO')), await rowOf('REVIEW CO'));
+  await page.locator('input[type=checkbox][aria-label="Select this page"]').check(); await sleep(300);
+  await page.locator('label', { hasText: "Re-check this week's" }).locator('input').check(); await sleep(200);
+  t2 = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
+  ok('select the page + re-check covers all 4', /Check 4 in Apollo \(selected\)/.test(t2), t2.match(/Check \d+ in Apollo[^·]{0,12}/)?.[0]);
+  console.log('\n== the lead view ==');
+  await page.locator('.data-table tbody tr', { hasText: 'ACTIVE CO' }).first().locator('td').nth(1).click(); await sleep(800);
+  const dlg = (await page.locator('[role=dialog]').innerText()).replace(/\s+/g, ' ');
+  ok('lead view shows sequence, step and the live check date', /Dynamics Sequence · active · step 2 of 5/.test(dlg) && /Checked live/.test(dlg), dlg.slice(0, 500));
+  await page.keyboard.press('Escape'); await sleep(300);
   ok('no page errors', errs.length === 0, errs.join(' | '));
   await b.close();
   console.log(`\n${pass}/${pass + fail} checks passed`);

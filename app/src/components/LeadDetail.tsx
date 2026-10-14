@@ -26,6 +26,7 @@ import { SYNC_STALE_DAYS } from "../lib/apolloSync";
 import { realSteps, type ApolloFunnel } from "../lib/apolloFunnel";
 import { isIntentDate, soonestUpcoming, type NoteDate } from "../lib/noteDates";
 import { loadRawNotes, type RawNotes } from "../lib/rawNotes";
+import { scanParsedFiles, stripSnippetPrefix } from "../lib/detection";
 import { FUNCTION_META, LEVEL_META, titleFunction, titleLevel } from "../lib/titleLevel";
 import { CONTACT_META, contactStateOf } from "../lib/leadStatus";
 import {
@@ -187,6 +188,21 @@ export default function LeadDetail({
   const rawSegs = raw && raw !== "loading" ? raw.segments : [];
   const rawRows = raw && raw !== "loading" ? raw.rows ?? [] : [];
 
+  // Per Jack: "when i view each lead in all leads need to see the new
+  // note also". A stored lead keeps the note it was scanned with; this
+  // re-runs today's Main Scanner over the stored CSV row so the current
+  // call brief shows beside it. Read-only: nothing is saved.
+  const currentNote = useMemo(() => {
+    if (lead.source !== "main" || !rawSegs.length) return "";
+    const fields = { ...(rawRows[rawRows.length - 1]?.fields ?? {}) };
+    const notesCol = Object.keys(fields).find((k) => /comment|note|description/i.test(k)) || "Comments";
+    fields[notesCol] = rawSegs[0].text;
+    try {
+      const r = scanParsedFiles([{ name: rawSegs[0].file || "lead", fields: Object.keys(fields), data: [fields] }]).results[0];
+      return r?.notesSummary ? stripSnippetPrefix(r.notesSummary) : "";
+    } catch { return ""; }
+  }, [lead.source, rawSegs, rawRows]);
+
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(8,30,34,0.18)", zIndex: 60 }}>
       <div
@@ -250,7 +266,7 @@ export default function LeadDetail({
             const seqs = apolloSequencesFor(lead, apolloIndex);
             const live = (seqs ?? []).filter((x) => x.active);
             const ended = (seqs ?? []).filter((x) => !x.active);
-            const apolloLine = !seqs ? { text: "Not in Apollo", sub: "Not found in an Apollo sync or your pulled uploads.", color: "var(--muted)" }
+            const apolloLine = !seqs ? { text: "Not in Apollo", sub: lead.apolloCheckedAt ? `Searched Apollo ${lead.apolloCheckedAt.slice(0, 10)} — no matching contact.` : "Not found in an Apollo sync or your pulled uploads.", color: "var(--muted)" }
               : live.length ? { text: `Active in ${live.map((x) => x.name).join(", ")}`, sub: ended.length ? `Also finished: ${ended.map((x) => x.name).join(", ")}` : "", color: "#0A66C2" }
               : ended.length ? { text: "In Apollo — sequence ended", sub: ended.map((x) => x.name).join(", "), color: "#5B3FC4" }
               : { text: "In Apollo — not in a sequence", sub: "", color: "#4C6167" };
@@ -274,6 +290,14 @@ export default function LeadDetail({
                   {fact("Apollo", <>
                     <b style={{ color: apolloLine.color }}>{apolloLine.text}</b>
                     {apolloLine.sub && <div style={{ fontSize: 12, ...muted }}>{apolloLine.sub}</div>}
+                    {a?.live && a.sequences.map((sq) => (
+                      <div key={sq.name} style={{ fontSize: 12 }}>
+                        {sq.name} · {sq.status}{sq.step != null ? ` · step ${sq.step}${sq.steps ? ` of ${sq.steps}` : ""}` : ""}
+                        {sq.finishedAt && <span style={muted}> · ended {sq.finishedAt.slice(0, 10)}</span>}
+                        {sq.reason && <span style={muted}> · "{sq.reason}"</span>}
+                      </div>
+                    ))}
+                    {lead.apolloCheckedAt && a?.live && <div style={{ fontSize: 11.5, ...muted }}>Checked live {lead.apolloCheckedAt.slice(0, 10)}</div>}
                     {a && (
                       <div style={{ fontSize: 12, marginTop: 2 }}>
                         Calls: {a.callCount} · Emails sent: {a.emailCount ?? "—"}
@@ -294,6 +318,12 @@ export default function LeadDetail({
                 <div style={{ marginTop: 12 }}>
                   <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 600, ...muted }}>Summary</div>
                   <div style={{ fontSize: 14, lineHeight: 1.5, marginTop: 3 }}>{note || <span style={muted}>No summary for this lead.</span>}</div>
+                  {currentNote && currentNote !== stripSnippetPrefix(note) && (
+                    <div aria-label="Current note" style={{ marginTop: 8, borderLeft: "3px solid var(--accent)", paddingLeft: 8 }}>
+                      <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 600, ...muted }}>New note · today's rules</div>
+                      <div style={{ fontSize: 14, lineHeight: 1.5, marginTop: 2 }}>{currentNote}</div>
+                    </div>
+                  )}
                   {next && <div style={{ fontSize: 12.5, marginTop: 6 }}>📅 Next date in the notes: <b>{next.iso}</b>{next.about ? ` (${next.about})` : ""}</div>}
                 </div>
                 <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 10, fontSize: 12.5 }}>

@@ -15,11 +15,16 @@ export interface ClaudeMcpNamespace {
   listTools(): Promise<{ servers: { server: string; authStatus: string; tools: { name: string }[] }[] }>;
   callTool(server: string, tool: string, input?: unknown, options?: { cache?: false; signal?: AbortSignal }): Promise<{ payload?: unknown }>;
 }
+export interface ClaudePermissionsNamespace {
+  state(name: string): Promise<string>;
+  request(names?: readonly string[]): Promise<Record<string, string>>;
+}
 declare global {
   interface Window {
     claude?: {
       use(name: "downloads"): Promise<ClaudeDownloadsNamespace | null>;
       use(name: "mcp"): Promise<ClaudeMcpNamespace | null>;
+      use(name: "permissions"): Promise<ClaudePermissionsNamespace | null>;
     };
   }
 }

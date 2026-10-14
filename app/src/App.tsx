@@ -916,6 +916,7 @@ export default function App() {
             apolloIndex={apolloIndex}
             rosterPulledAt={rosterPulledAt}
             onPullApollo={pullApollo}
+            onCheckLeads={checkLeadsLive}
             initialSequence={leadsSequenceEntry}
             initialStatus={leadsStatusEntry || undefined}
             initialPreset={leadsPresetEntry || undefined}

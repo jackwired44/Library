@@ -6257,3 +6257,25 @@ here for strong signal only".
   `apollo.live` leads and All leads exports on `exportBlocked` (pulled
   uploads + imported sync only). Nothing writes to Apollo. Suite:
   `apollo-check-live` (fake connector, 16 checks).
+
+### 2026-10-14: Apollo check from All leads, consent prompt, new note in the lead view
+
+Per Jack: "theres 12992 leads in the all leads here i want to find every lead
+that is in apollo its status and what sequence its apart of" / "we need a
+button to enrich this mass or one by one select page what not" / "when i
+view each lead in all leads need to see the new note also".
+- All leads bulk bar: "⟳ Check N in Apollo" runs the same read-only lookup
+  as In Apollo over the selection (one lead, a page, all matched), or over
+  everything matched when nothing is selected, any tier. Leads checked in
+  the last 7 days are skipped unless "Re-check this week's" is ticked. The
+  In Apollo filter gained Apollo check: found / not found / not checked.
+  Still "no calls or downloads": exportBlocked is unchanged.
+- "connector access isn't confirmed for this artifact": connectApollo now
+  calls requestApolloConsent() (permissions.request(["mcp:Apollo.io"]))
+  inside the click before listTools; describeApolloError maps not_granted /
+  not_in_manifest / blocked_by_policy to plain copy.
+- Lead view: a Main lead re-scans its stored raw CSV row with today's rules
+  and shows "New note · today's rules" when it differs from the stored note
+  (nothing is saved). The Apollo box lists sequence, status, step N of M,
+  end date and reason from a live check, or "Searched Apollo DATE — no
+  matching contact".
