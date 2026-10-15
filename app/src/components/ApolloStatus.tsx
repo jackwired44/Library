@@ -82,6 +82,9 @@ export default function ApolloStatus({
   const abort = useRef<AbortController | null>(null);
   // Per Jack: "select all or select one by one or multiple". Lead keys.
   const [sel, setSel] = useState<Set<string>>(new Set());
+  // Per Jack: "need to be able to select the quantity and not just all at
+  // once every time". How many of the due Strong Signal leads one click runs.
+  const [qty, setQty] = useState<number>(100);
 
   const rows = useMemo(() => leads
     .filter((l) => verdictF === "all" || verdictOf(l.tier) === verdictF)
@@ -100,7 +103,7 @@ export default function ApolloStatus({
   const selected = useMemo(() => leads.filter((l) => sel.has(l.key)), [leads, sel]);
 
   async function runCheck(only?: StoredLead[]) {
-    const targets = only ?? (selected.length ? selected : toCheck);
+    const targets = only ?? (selected.length ? selected : (qty > 0 ? toCheck.slice(0, qty) : toCheck));
     if (!onCheckLeads || (check && !check.finished) || !targets.length) return;
     const ac = new AbortController();
     checkAbort.current = ac;
@@ -185,10 +188,18 @@ export default function ApolloStatus({
                           title="One Apollo contact search per selected lead. Free, read-only.">
                     Check {selected.length.toLocaleString()} selected
                   </button>
-                : <button className="btn btn-sm btn-primary" disabled={!toCheck.length} onClick={() => runCheck()}
-                          title="One Apollo contact search per lead, by email (or full name + company). Free, read-only.">
-                    Check {toCheck.length.toLocaleString()} Strong Signal lead{toCheck.length === 1 ? "" : "s"}
-                  </button>}
+                : <>
+                    <select className="field" aria-label="How many to check" value={qty}
+                            onChange={(e) => setQty(Number(e.target.value))}>
+                      {[10, 25, 50, 100, 250, 500, 1000].map((n) => <option key={n} value={n}>{n.toLocaleString()} at a time</option>)}
+                      <option value={0}>All due</option>
+                    </select>
+                    <button className="btn btn-sm btn-primary" disabled={!toCheck.length} onClick={() => runCheck()}
+                            title="One Apollo contact search per lead, by email (or full name + company). Free, read-only. Next run picks up where this one stopped.">
+                      {(() => { const n = qty > 0 ? Math.min(qty, toCheck.length) : toCheck.length;
+                        return <>Check {n.toLocaleString()} Strong Signal lead{n === 1 ? "" : "s"}{n < toCheck.length ? <span style={{ opacity: 0.75 }}> of {toCheck.length.toLocaleString()}</span> : null}</>; })()}
+                    </button>
+                  </>}
           </div>
           {(check || checkError) && (
             <div className="panel-body" style={{ paddingTop: 0, fontSize: 12 }} aria-label="Apollo check">

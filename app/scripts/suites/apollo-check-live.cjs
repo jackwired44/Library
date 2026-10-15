@@ -80,6 +80,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await page.locator('.vault-tile', { hasText: 'Active in a sequence' }).click(); await sleep(300); // toggle to all
   ok('unchecked leads say so', /not checked yet/.test(await rowOf('NEW CO')));
   ok('the table defaults to Strong Signal only', !(await main()).includes('REVIEW CO'));
+  await page.selectOption('select[aria-label="How many to check"]', '10');
+  ok('a quantity picker sets how many one click runs', /Check 3 Strong Signal leads/.test(await main()) && await page.locator('select[aria-label="How many to check"] option').count() === 8);
 
   await page.locator('button', { hasText: /Check 3 Strong Signal leads/ }).click();
   await page.waitForFunction(() => /Checked 3 of 3/.test(document.querySelector('main').innerText), null, { timeout: 60000 });

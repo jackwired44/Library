@@ -6315,3 +6315,8 @@ access for this" and "in filters in all leads breakdown () for which scanner".
 - A check's result is written to `lead.apollo`, which `derivedStatus`
   reads, so it moves the lead into "In sequence" / "Finished" on Home's
   "Where every lead stands" — asserted in `apollo-check-live` (35 checks).
+- In Apollo: a quantity picker ("10 … 1,000 at a time", or "All due") beside
+  the Strong Signal check, per Jack: "need to be able to select the quantity
+  and not just all at once every time". A run takes the next N due leads
+  (unchecked or older than 7 days), so the next click picks up where the
+  last stopped. A ticked selection still overrides it.
