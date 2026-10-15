@@ -80,6 +80,8 @@ export default function ApolloStatus({
   const [pullError, setPullError] = useState("");
   const [months, setMonths] = useState(DEFAULT_PULL_MONTHS);
   const abort = useRef<AbortController | null>(null);
+  // Per Jack: "select all or select one by one or multiple". Lead keys.
+  const [sel, setSel] = useState<Set<string>>(new Set());
 
   const rows = useMemo(() => leads
     .filter((l) => verdictF === "all" || verdictOf(l.tier) === verdictF)
@@ -94,14 +96,18 @@ export default function ApolloStatus({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [strong, recheck]);
 
-  async function runCheck() {
-    if (!onCheckLeads || (check && !check.finished) || !toCheck.length) return;
+  // A selection is checked as picked — any tier, re-check or not.
+  const selected = useMemo(() => leads.filter((l) => sel.has(l.key)), [leads, sel]);
+
+  async function runCheck(only?: StoredLead[]) {
+    const targets = only ?? (selected.length ? selected : toCheck);
+    if (!onCheckLeads || (check && !check.finished) || !targets.length) return;
     const ac = new AbortController();
     checkAbort.current = ac;
     setCheckError("");
-    setCheck({ total: toCheck.length, done: 0, found: 0, notFound: 0, skipped: 0, errors: 0, finished: false });
+    setCheck({ total: targets.length, done: 0, found: 0, notFound: 0, skipped: 0, errors: 0, finished: false });
     try {
-      const p = await onCheckLeads(toCheck, setCheck, ac.signal);
+      const p = await onCheckLeads(targets, setCheck, ac.signal);
       setCheck({ ...p, finished: true });
     } catch (e) {
       setCheckError(e instanceof Error ? e.message : String(e));
@@ -174,10 +180,15 @@ export default function ApolloStatus({
             </label>
             {check && !check.finished
               ? <button className="btn btn-sm btn-secondary" onClick={() => checkAbort.current?.abort()}>Stop</button>
-              : <button className="btn btn-sm btn-primary" disabled={!toCheck.length} onClick={runCheck}
-                        title="One Apollo contact search per lead, by email (or full name + company). Free, read-only.">
-                  Check {toCheck.length.toLocaleString()} Strong Signal lead{toCheck.length === 1 ? "" : "s"}
-                </button>}
+              : selected.length > 0
+                ? <button className="btn btn-sm btn-primary" onClick={() => runCheck()}
+                          title="One Apollo contact search per selected lead. Free, read-only.">
+                    Check {selected.length.toLocaleString()} selected
+                  </button>
+                : <button className="btn btn-sm btn-primary" disabled={!toCheck.length} onClick={() => runCheck()}
+                          title="One Apollo contact search per lead, by email (or full name + company). Free, read-only.">
+                    Check {toCheck.length.toLocaleString()} Strong Signal lead{toCheck.length === 1 ? "" : "s"}
+                  </button>}
           </div>
           {(check || checkError) && (
             <div className="panel-body" style={{ paddingTop: 0, fontSize: 12 }} aria-label="Apollo check">
@@ -270,18 +281,41 @@ export default function ApolloStatus({
           <div className="toolbar-spacer" />
           <span style={{ fontSize: 12, color: "var(--muted)" }}><b>{filtered.length.toLocaleString()}</b> of {rows.length.toLocaleString()}</span>
         </div>
+        <div className="toolbar-row" aria-label="Selection" style={{ fontSize: 12 }}>
+          <button className="btn btn-sm btn-ghost" disabled={!shown.length}
+                  onClick={() => setSel((s) => { const n = new Set(s); shown.forEach((r) => n.add(r.lead.key)); return n; })}>
+            Select page ({shown.length.toLocaleString()})
+          </button>
+          <button className="btn btn-sm btn-ghost" disabled={!filtered.length}
+                  onClick={() => setSel(new Set(filtered.map((r) => r.lead.key)))}>
+            Select all {filtered.length.toLocaleString()} matched
+          </button>
+          {sel.size > 0 && <>
+            <span><b>{sel.size.toLocaleString()}</b> selected</span>
+            <button className="btn btn-sm btn-ghost" onClick={() => setSel(new Set())}>Clear</button>
+          </>}
+          {statusF === "active" && counts.active === 0 && (
+            <span className="muted">Nobody shows as active yet — click "Active in a sequence" again to list every lead and pick from them.</span>
+          )}
+        </div>
       </div>
 
       <div className="table-card" style={{ maxHeight: "calc(100vh - 330px)", minHeight: 240, overflow: "auto" }}>
         <table className="data-table dense-table">
           <thead>
             <tr>
+              <th style={{ width: 28 }}>
+                <input type="checkbox" aria-label="Select this page"
+                       checked={shown.length > 0 && shown.every((r) => sel.has(r.lead.key))}
+                       onChange={(e) => setSel((s) => { const n = new Set(s); shown.forEach((r) => (e.target.checked ? n.add(r.lead.key) : n.delete(r.lead.key))); return n; })} />
+              </th>
               <th>Company</th>
               <th>Contact</th>
               <th>Stored as</th>
               <th>In Apollo</th>
               <th>Sequence</th>
               <th title="How this lead was matched to Apollo">Matched by</th>
+              {onCheckLeads && <th />}
             </tr>
           </thead>
           <tbody>
@@ -291,6 +325,10 @@ export default function ApolloStatus({
               const ordered = [...r.seqs].sort((a, b) => Number(b.active) - Number(a.active));
               return (
                 <tr key={r.lead.key}>
+                  <td>
+                    <input type="checkbox" aria-label={`Select ${r.lead.contact || r.lead.company}`} checked={sel.has(r.lead.key)}
+                           onChange={() => setSel((s) => { const n = new Set(s); if (n.has(r.lead.key)) n.delete(r.lead.key); else n.add(r.lead.key); return n; })} />
+                  </td>
                   <td className="strong" title={r.lead.company}>{r.lead.company || "—"}</td>
                   <td title={[r.lead.contact, r.lead.title, r.lead.email].filter(Boolean).join(" · ")}>{r.lead.contact || "—"}</td>
                   <td><span className="pill" style={{ color: v.color, background: v.bg }}>{v.label}</span></td>
@@ -311,11 +349,17 @@ export default function ApolloStatus({
                     ))}
                   </td>
                   <td className="muted">{r.how || "—"}</td>
+                  {onCheckLeads && (
+                    <td>
+                      <button className="btn btn-sm btn-ghost" disabled={!!check && !check.finished} onClick={() => runCheck([r.lead])}
+                              title="Look up just this lead in Apollo">Check</button>
+                    </td>
+                  )}
                 </tr>
               );
             })}
             {shown.length === 0 && (
-              <tr><td colSpan={6} style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}>
+              <tr><td colSpan={onCheckLeads ? 8 : 7} style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}>
                 {rows.length === 0 ? "No leads stored yet." : "No leads match."}
               </td></tr>
             )}

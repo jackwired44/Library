@@ -93,6 +93,84 @@ function Seg<T extends string>({ label, value, options, onChange }: {
 
 interface UploadRow { at: string; source: LeadSource; files: string; rows: number; top: number }
 
+// Per Jack: "filters view i can remove or add to homepage make a button
+// here so i can have what i want". A display preference, kept in this
+// browser only; nothing about the leads changes.
+const HOME_WIDGETS = [
+  { id: "apollo", group: "Panels", label: "Apollo status (check leads)" },
+  { id: "slicers", group: "Panels", label: "Filters bar" },
+  { id: "k-leads", group: "Numbers", label: "Leads" },
+  { id: "k-top", group: "Numbers", label: "Top tier" },
+  { id: "k-uncontacted", group: "Numbers", label: "Strong signal · never contacted" },
+  { id: "k-unreached", group: "Numbers", label: "Strong signal · tried, not reached" },
+  { id: "k-active", group: "Numbers", label: "Active in Apollo" },
+  { id: "k-inapollo", group: "Numbers", label: "In Apollo" },
+  { id: "k-insequence", group: "Numbers", label: "In a sequence now" },
+  { id: "k-reached", group: "Numbers", label: "Reached" },
+  { id: "c-weekly", group: "Charts", label: "Leads received per week" },
+  { id: "c-status", group: "Charts", label: "Where every lead stands" },
+  { id: "c-contact", group: "Charts", label: "Contact coverage" },
+  { id: "c-scanner", group: "Charts", label: "Top-tier leads by scanner" },
+  { id: "c-bysequence", group: "Charts", label: "Active in Apollo, by sequence" },
+  { id: "c-dates", group: "Charts", label: "Dates coming up in the notes" },
+  { id: "c-industries", group: "Charts", label: "Top industries" },
+  { id: "c-levels", group: "Charts", label: "Who the leads are" },
+  { id: "c-live", group: "Charts", label: "Live Apollo sequences" },
+  { id: "c-uploads", group: "Charts", label: "Recent uploads" },
+] as const;
+type WidgetId = (typeof HOME_WIDGETS)[number]["id"];
+const HIDDEN_KEY = "homeHiddenWidgets";
+
+function loadHidden(): Set<WidgetId> {
+  try {
+    const raw = localStorage.getItem(HIDDEN_KEY);
+    const ids = raw ? (JSON.parse(raw) as string[]) : [];
+    return new Set(ids.filter((x) => HOME_WIDGETS.some((w) => w.id === x)) as WidgetId[]);
+  } catch { return new Set(); }
+}
+
+function CustomizeHome({ hidden, onChange }: { hidden: Set<WidgetId>; onChange: (h: Set<WidgetId>) => void }) {
+  const [open, setOpen] = useState(false);
+  const groups = [...new Set(HOME_WIDGETS.map((w) => w.group))];
+  const toggle = (id: WidgetId) => { const n = new Set(hidden); if (n.has(id)) n.delete(id); else n.add(id); onChange(n); };
+  const setGroup = (g: string, show: boolean) => {
+    const n = new Set(hidden);
+    for (const w of HOME_WIDGETS) if (w.group === g) { if (show) n.delete(w.id); else n.add(w.id); }
+    onChange(n);
+  };
+  return (
+    <div className="filter-wrap">
+      <button className={`filter-btn${hidden.size ? " on" : ""}`} onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        ⚙ Customize{hidden.size > 0 && <span className="filter-count">{HOME_WIDGETS.length - hidden.size}/{HOME_WIDGETS.length}</span>}
+      </button>
+      {open && <>
+        <div className="filter-pop-backdrop" onClick={() => setOpen(false)} />
+        <div className="filter-pop" role="dialog" aria-label="Customize home">
+          {groups.map((g) => (
+            <div className="filter-group" key={g}>
+              <div className="filter-group-title" style={{ display: "flex", gap: 8 }}>
+                <span style={{ flex: 1 }}>{g}</span>
+                <button className="btn btn-sm btn-ghost" style={{ padding: "0 4px", fontSize: 11 }} onClick={() => setGroup(g, true)}>All</button>
+                <button className="btn btn-sm btn-ghost" style={{ padding: "0 4px", fontSize: 11 }} onClick={() => setGroup(g, false)}>None</button>
+              </div>
+              {HOME_WIDGETS.filter((w) => w.group === g).map((w) => (
+                <label key={w.id} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, padding: "3px 0", cursor: "pointer" }}>
+                  <input type="checkbox" checked={!hidden.has(w.id)} onChange={() => toggle(w.id)} />
+                  {w.label}
+                </label>
+              ))}
+            </div>
+          ))}
+          <div className="filter-group" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span className="muted" style={{ fontSize: 11.5 }}>Saved in this browser.</span>
+            <button className="btn btn-sm btn-ghost" disabled={!hidden.size} onClick={() => onChange(new Set())}>Show everything</button>
+          </div>
+        </div>
+      </>}
+    </div>
+  );
+}
+
 export default function Overview({
   leads, funnels, historyEntries, companyProfiles, rules, onNavigate, onOpenStatus, onOpenPreset, apolloIndex = null, topPanel,
 }: {
@@ -111,6 +189,12 @@ export default function Overview({
   /** Rendered right under the page header (the Apollo status panel). */
   topPanel?: React.ReactNode;
 }) {
+  const [hidden, setHiddenState] = useState<Set<WidgetId>>(loadHidden);
+  const setHidden = (h: Set<WidgetId>) => {
+    setHiddenState(h);
+    try { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...h])); } catch { /* preference only */ }
+  };
+  const show = (id: WidgetId) => !hidden.has(id);
   const [runs, setRuns] = useState<Run2[]>([]);
   useEffect(() => {
     Promise.all([loadRuns("smc"), loadRuns("csp")])
@@ -306,16 +390,17 @@ export default function Overview({
           <h2>{greeting()}, Jack.</h2>
           <p className="page-sub">{today} · {scopeNote} · {syncNote}</p>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <CustomizeHome hidden={hidden} onChange={setHidden} />
           <button className="btn btn-sm btn-secondary" onClick={() => onNavigate("scanner")}>⬆ Upload leads</button>
           <button className="btn btn-sm btn-primary" onClick={() => onNavigate("allleads")}>All leads →</button>
         </div>
       </div>
 
-      {topPanel}
+      {show("apollo") && topPanel}
 
       {/* Slicers: one row, scoping everything below. */}
-      <div className="viz-slicers">
+      {show("slicers") && <div className="viz-slicers">
         <Seg label="Received" value={range} options={RANGE_LABEL} onChange={setRange} />
         <Seg label="Scanner" value={source}
              options={{ all: "All", main: "Main", smc: "Custom", csp: "CSP" } as Record<LeadSource | "all", string>}
@@ -325,7 +410,7 @@ export default function Overview({
           <button className="btn btn-sm btn-ghost" style={{ marginLeft: "auto" }}
                   onClick={() => { setRange("all"); setSource("all"); setLine("all"); }}>Reset</button>
         )}
-      </div>
+      </div>}
 
       {leads.length === 0 ? (
         <div className="calm-state">
@@ -335,62 +420,62 @@ export default function Overview({
       ) : (
         <>
           <div className="viz-kpis">
-            <KpiTile label="Leads" value={compact(scoped.length)}
+            {show("k-leads") && <KpiTile label="Leads" value={compact(scoped.length)}
                      sub={filtered ? `of ${leads.length.toLocaleString()} stored` : `${weekNew.toLocaleString()} new in the last 7 days`}
-                     trend={weeks.map((w) => w.value)} onClick={() => onNavigate("allleads")} />
-            <KpiTile label="Top tier" value={compact(m.top)} sub={`${pct(m.top, scoped.length)} of leads in view`}
-                     onClick={() => onOpenStatus("qualified")} />
-            <KpiTile label="Strong signal · never contacted" value={compact(m.topUncontacted)}
+                     trend={weeks.map((w) => w.value)} onClick={() => onNavigate("allleads")} />}
+            {show("k-top") && <KpiTile label="Top tier" value={compact(m.top)} sub={`${pct(m.top, scoped.length)} of leads in view`}
+                     onClick={() => onOpenStatus("qualified")} />}
+            {show("k-uncontacted") && <KpiTile label="Strong signal · never contacted" value={compact(m.topUncontacted)}
                      sub={synced ? "top tier, no call logged" : "top tier · no Apollo sync yet, so none are known called"}
-                     onClick={() => onOpenPreset("top-uncontacted")} />
-            <KpiTile label="Strong signal · tried, not reached" value={synced ? compact(m.topUnreached) : "—"} tone={synced ? undefined : "muted"}
+                     onClick={() => onOpenPreset("top-uncontacted")} />}
+            {show("k-unreached") && <KpiTile label="Strong signal · tried, not reached" value={synced ? compact(m.topUnreached) : "—"} tone={synced ? undefined : "muted"}
                      sub={synced ? "called, only no answer / voicemail" : "needs an Apollo sync"}
-                     onClick={() => onOpenPreset("top-unreached")} />
-            <KpiTile label="Active in Apollo" value={compact(inApollo.active)}
+                     onClick={() => onOpenPreset("top-unreached")} />}
+            {show("k-active") && <KpiTile label="Active in Apollo" value={compact(inApollo.active)}
                      sub={`in a live sequence · across ${inApollo.bySeq.length} sequence${inApollo.bySeq.length === 1 ? "" : "s"}`}
-                     onClick={() => onNavigate("queue")} />
-            <KpiTile label="In Apollo" value={compact(inApollo.found)} sub="a contact there, any sequence state" onClick={() => onNavigate("queue")} />
-            <KpiTile label="In a sequence now" value={synced ? compact(m.active) : "—"} tone={synced ? undefined : "muted"}
-                     sub={synced ? "active in Apollo" : "needs an Apollo sync"} onClick={() => onOpenStatus("in-sequence")} />
-            <KpiTile label="Reached" value={synced ? compact(m.reached) : "—"} tone={synced ? undefined : "muted"}
+                     onClick={() => onNavigate("queue")} />}
+            {show("k-inapollo") && <KpiTile label="In Apollo" value={compact(inApollo.found)} sub="a contact there, any sequence state" onClick={() => onNavigate("queue")} />}
+            {show("k-insequence") && <KpiTile label="In a sequence now" value={synced ? compact(m.active) : "—"} tone={synced ? undefined : "muted"}
+                     sub={synced ? "active in Apollo" : "needs an Apollo sync"} onClick={() => onOpenStatus("in-sequence")} />}
+            {show("k-reached") && <KpiTile label="Reached" value={synced ? compact(m.reached) : "—"} tone={synced ? undefined : "muted"}
                      sub={synced ? `${m.meetings.toLocaleString()} meeting${m.meetings === 1 ? "" : "s"} booked` : "needs an Apollo sync"}
-                     onClick={() => onOpenStatus("reached")} />
+                     onClick={() => onOpenStatus("reached")} />}
           </div>
 
           <div className="viz-grid">
-            <ChartCard
+            {show("c-weekly") && (<ChartCard
               title="Leads received per week"
               sub={`Last 12 weeks, by the file's own date (else upload date)${range !== "all" ? ` · ${RANGE_LABEL[range].toLowerCase()} highlighted` : ""}`}
               table={{ head: ["Week of", "Leads"], rows: weeks.map((w) => [w.label, w.value]) }}
             >
               <ColumnChart points={weeks} highlightFrom={start ? weekOf(start) : undefined} />
-            </ChartCard>
+            </ChartCard>)}
 
-            <ChartCard
+            {show("c-status") && (<ChartCard
               title="Where every lead stands"
               sub="Status, grouped by stage · click a bar to open those leads"
               table={{ head: ["Stage", "Status", "Leads"], rows: statusRows.map((r) => [r.group!, r.label, r.value]) }}
             >
               <BarList rows={statusRows} />
-            </ChartCard>
+            </ChartCard>)}
 
-            <ChartCard
+            {show("c-contact") && (<ChartCard
               title="Contact coverage"
               sub={synced ? `Has anyone got through? · ${syncNote}` : "Has anyone got through? · fills in once an Apollo sync is imported"}
               table={{ head: ["Outcome", "Leads"], rows: contactRows.map((r) => [r.label, r.value]) }}
             >
               <BarList rows={contactRows} max={scoped.length} />
-            </ChartCard>
+            </ChartCard>)}
 
-            <ChartCard
+            {show("c-scanner") && (<ChartCard
               title="Top-tier leads by scanner"
               sub="High priority / Strong Signal, split by product line"
               table={{ head: ["Scanner", ...LINE_SERIES, "Total"], rows: sourceRows.map((r) => [r.label, ...r.parts, r.parts.reduce((a, b) => a + b, 0)]) }}
             >
               <StackedBars rows={sourceRows} series={LINE_SERIES} />
-            </ChartCard>
+            </ChartCard>)}
 
-            <ChartCard
+            {show("c-bysequence") && (<ChartCard
               title="Active in Apollo, by sequence"
               sub="Leads live in each Apollo sequence right now · from your pulled uploads and syncs"
               table={{ head: ["Sequence", "Active leads"], rows: inApollo.bySeq.map(([n, c]) => [n, c]) }}
@@ -398,43 +483,43 @@ export default function Overview({
             >
               {inApollo.bySeq.length ? <BarList rows={inApollo.bySeq.slice(0, 8).map(([n, c]) => ({ key: n, label: n, value: c }))} />
                 : <div className="viz-empty">No lead here is active in an Apollo sequence yet — pull your Apollo uploads under In Apollo.</div>}
-            </ChartCard>
+            </ChartCard>)}
 
-            <ChartCard
+            {show("c-dates") && (<ChartCard
               title="Dates coming up in the notes"
               sub={`Leads by the month of their next renewal, close, timeline or meeting${laterDates ? ` · ${laterDates.toLocaleString()} more after ${nextMonths[nextMonths.length - 1].long}` : ""}`}
               table={{ head: ["Month", "Leads"], rows: nextMonths.map((p) => [p.long, p.value]) }}
             >
               <ColumnChart points={nextMonths} height={160}
                            empty="None of the leads in view mention an upcoming date in their notes." />
-            </ChartCard>
+            </ChartCard>)}
 
-            <ChartCard
+            {show("c-industries") && (<ChartCard
               title="Top industries"
               sub={`Top-tier leads with an enriched company · ${enrichedPct}% enriched, ${m.notEnriched.toLocaleString()} not yet`}
               table={{ head: ["Industry", "Leads"], rows: industryRows.map((r) => [r.label, r.value]) }}
             >
               <BarList rows={industryRows} empty="No enriched companies yet — enrich from the Scanner to fill this in." />
-            </ChartCard>
+            </ChartCard>)}
 
-            <ChartCard
+            {show("c-levels") && (<ChartCard
               title="Who the leads are"
               sub="Position read from each contact's job title"
               table={{ head: ["Position", "Leads"], rows: levelRows.map((r) => [r.label, r.value]) }}
             >
               <BarList rows={levelRows} />
-            </ChartCard>
+            </ChartCard>)}
 
-            <ChartCard
+            {show("c-live") && (<ChartCard
               title="Live Apollo sequences"
               sub={funnels.length ? "Emails delivered per sequence, from the last funnel import · hover for replies and drop-off" : "Import the step funnel on Sequences to fill this in"}
               table={{ head: ["Sequence", "Delivered"], rows: liveSeq.map((r) => [r.label, r.value]) }}
               action={<button className="viz-toggle" onClick={() => onNavigate("campaigns")}>Open</button>}
             >
               <BarList rows={liveSeq} empty="No funnel imported yet." />
-            </ChartCard>
+            </ChartCard>)}
 
-            <ChartCard title="Recent uploads" sub="All three scanners"
+            {show("c-uploads") && (<ChartCard title="Recent uploads" sub="All three scanners"
                        action={<button className="viz-toggle" onClick={() => onNavigate("history")}>History</button>}>
               {uploads.length === 0 ? <div className="viz-empty">No uploads yet.</div> : (
                 <table className="viz-table">
@@ -452,7 +537,7 @@ export default function Overview({
                   </tbody>
                 </table>
               )}
-            </ChartCard>
+            </ChartCard>)}
           </div>
         </>
       )}

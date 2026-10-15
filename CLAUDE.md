@@ -6301,3 +6301,17 @@ access for this" and "in filters in all leads breakdown () for which scanner".
   the whole list 1,700 times.
 - No Trellus connector exists in this account; Echo is connected but not
   wired in. Both would need adding to the published manifest.
+
+### 2026-10-15: Customize Home, pick leads in In Apollo (scanner-platform-v29)
+
+- Home: "⚙ Customize" (page header) shows/hides every panel, number tile
+  and chart, per group (All / None) or one by one, with "Show everything".
+  Saved in this browser's localStorage (`homeHiddenWidgets`), a display
+  preference only.
+- In Apollo: a checkbox per lead, "Select page", "Select all N matched",
+  Clear, and a per-row Check. With a selection the button reads "Check N
+  selected" and looks up exactly those (any tier, re-check or not);
+  without one it is still the Strong Signal sweep.
+- A check's result is written to `lead.apollo`, which `derivedStatus`
+  reads, so it moves the lead into "In sequence" / "Finished" on Home's
+  "Where every lead stands" — asserted in `apollo-check-live` (35 checks).
