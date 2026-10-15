@@ -39,7 +39,9 @@ import {
 import { stepsInSequence, type ApolloFunnel } from "../lib/apolloFunnel";
 import { apolloHitFor, type ApolloHit, type RosterIndex } from "../lib/apolloRoster";
 import { DEFAULT_PULL_MONTHS, type PullProgress, type CheckProgress } from "../lib/apolloLive";
-import { loadRawNotesMany, newestRaw } from "../lib/rawNotes";
+import { loadRawNotesMany, loadRawNoteSearchIndex, newestRaw } from "../lib/rawNotes";
+import { matchesKeywords, parseKeywords } from "../lib/keywords";
+import { apolloStandingOf, NEEDS, STATUS_META as STANDING_META, STATUS_ORDER as STANDING_ORDER, type Status as Standing } from "./ApolloStatus";
 import { isIntentDate, soonestUpcoming, type NoteDate } from "../lib/noteDates";
 import {
   FUNCTION_META, LEVEL_META, LEVEL_ORDER, titleFunction, titleLevel,
@@ -100,6 +102,7 @@ const SORT_LABEL: Record<SortKey, string> = {
 /** Everything a filter, a facet count or a cell reads, resolved once. */
 interface Derived {
   hay: string;
+  standing: Standing;
   industry: string;
   employees: number | null;
   sizeKey: string; // a SIZE_BUCKETS key, or "unknown"
@@ -211,6 +214,12 @@ export default function AllLeads({
   initialPreset?: LeadsPreset;
 }) {
   const [search, setSearch] = useState("");
+  // Per Jack: "search through the notes with keywords". Its own box, read
+  // as keywords, over the scan note AND the original CSV note text.
+  const [noteSearch, setNoteSearch] = useState("");
+  const [standingF, setStandingF] = useState<Standing | "needs" | "all">("all");
+  const [rawIndex, setRawIndex] = useState<Map<string, string> | null>(null);
+  const [rawIndexState, setRawIndexState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [sourceF, setSourceF] = useState<LeadSource | "all">("all");
   const [tierF, setTierF] = useState(initialPreset ? TOP : "all");
   const [lineF, setLineF] = useState("all");
@@ -277,6 +286,7 @@ export default function AllLeads({
       const seqs = a?.sequences ?? [];
       const bucket = c.employees === null ? null : SIZE_BUCKETS.find((b) => b.test(c!.employees!));
       m.set(l.key, {
+        standing: apolloStandingOf(l, apolloIndex),
         hay: [
           l.company, l.contact, l.title, l.email, l.phone, l.mobilePhone,
           l.productArea, l.tier, l.notes, c.industry, l.plan?.sequence ?? "",
@@ -333,10 +343,23 @@ export default function AllLeads({
 
   /* ---- the predicates, one per filter, so each facet can skip its own ---- */
   const q = search.trim().toLowerCase();
+  const kq = useMemo(() => parseKeywords(search), [search]);
+  const nq = useMemo(() => parseKeywords(noteSearch), [noteSearch]);
+  // Load the original notes the first time the notes search is used, and
+  // again when the lead count changes (a new upload wrote new ones).
+  useEffect(() => {
+    if (nq.empty) return;
+    let live = true;
+    setRawIndexState("loading");
+    loadRawNoteSearchIndex()
+      .then((m) => { if (live) { setRawIndex(m); setRawIndexState("ready"); } })
+      .catch(() => { if (live) setRawIndexState("error"); });
+    return () => { live = false; };
+  }, [nq.empty, leads.length]);
   const fromT = from ? Date.parse(`${from}T00:00:00`) : null;
   const toT = to ? Date.parse(`${to}T23:59:59.999`) : null;
 
-  type Key = "inApollo" | "verdict" | "company" | "contact" | "level" | "fn" | "month" | "dates" | "status" | "search" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "plan" | "planSeq" | "files" | "fileName" | "date";
+  type Key = "inApollo" | "verdict" | "company" | "contact" | "level" | "fn" | "month" | "dates" | "status" | "search" | "notes" | "standing" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "plan" | "planSeq" | "files" | "fileName" | "date";
   const tests = useMemo(() => {
     const t: Record<Key, (l: StoredLead, d: Derived) => boolean> = {
       inApollo: (l, d) => inApolloF === "all"
@@ -360,7 +383,9 @@ export default function AllLeads({
         || (contactF === "made" && (d.contact === "meeting" || d.contact === "no")),
       fn: (_l, d) => fnF === "all" || d.fn === fnF,
       dates: (_l, d) => dateF === "all" || d.dateKind === dateF,
-      search: (_l, d) => !q || d.hay.includes(q),
+      search: (_l, d) => !q || matchesKeywords(d.hay, kq),
+      standing: (_l, d) => standingF === "all" || (standingF === "needs" ? NEEDS.has(d.standing) : d.standing === standingF),
+      notes: (l) => nq.empty || matchesKeywords(`${(l.notes || "").toLowerCase()} \u0001${rawIndex?.get(l.key) ?? ""}`, nq),
       source: (l) => sourceF === "all" || l.source === sourceF,
       tier: (l) => tierF === "all" || (tierF === TOP ? TOP_TIER_SET.has(l.tier) : l.tier === tierF),
       line: (_l, d) => lineF === "all" || d.line === lineF,
@@ -392,7 +417,7 @@ export default function AllLeads({
       },
     };
     return t;
-  }, [inApolloF, verdictF, companyF, companyStats, contactF, levelF, fnF, monthF, dateF, statusF, q, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, planF, planSeqF, filesF, fileNameF, fromT, toT]);
+  }, [inApolloF, verdictF, companyF, companyStats, contactF, levelF, fnF, monthF, dateF, statusF, q, kq, nq, rawIndex, standingF, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, planF, planSeqF, filesF, fileNameF, fromT, toT]);
 
   const passes = (l: StoredLead, skip?: Key) => {
     const d = derived.get(l.key)!;
@@ -435,6 +460,17 @@ export default function AllLeads({
     }
     return m;
   }
+
+  // Per Jack: "i need to see how many leads have been scanned against
+  // apollo also and where they stand". Always visible, honouring every
+  // other filter, so it answers for whatever slice is on screen.
+  const standingCounts = useMemo(() => {
+    const m = facet("standing", (_l, d) => d.standing);
+    const by = Object.fromEntries(STANDING_ORDER.map((k) => [k, m.get(k) || 0])) as Record<Standing, number>;
+    const total = STANDING_ORDER.reduce((n, k) => n + by[k], 0);
+    return { by, total, checked: total - by.unchecked, needs: by.finished + by.none + by.out };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leads, derived, tests]);
 
   // Facets are computed only while the panel is open — at 25,000 leads a
   // dozen of them is real work, and nobody reads a count they cannot see.
@@ -522,6 +558,8 @@ export default function AllLeads({
 
   /* ---- active filter chips ---- */
   const chips: { label: string; clear: () => void }[] = [];
+  if (standingF !== "all") chips.push({ label: `Apollo: ${standingF === "needs" ? "Needs a sequence" : STANDING_META[standingF].label}`, clear: () => setStandingF("all") });
+  if (!nq.empty) chips.push({ label: `Notes: ${noteSearch.trim()}`, clear: () => setNoteSearch("") });
   if (inApolloF !== "all") chips.push({ label: inApolloF === "in" ? "Already in Apollo" : "Not in Apollo", clear: () => setInApolloF("all") });
   if (contactF !== "all") chips.push({ label: contactF === "untouched" ? "Never touched (no outreach on record)" : CONTACT_META[contactF].label, clear: () => setContactF("all") });
   if (levelF !== "all") chips.push({ label: `Position: ${LEVEL_META[levelF].label}`, clear: () => setLevelF("all") });
@@ -797,12 +835,45 @@ export default function AllLeads({
         </div>
       </div>
 
+      {/* ---- where every lead stands in Apollo ---- */}
+      <div className="panel" aria-label="Apollo standing" style={{ marginBottom: 10 }}>
+        <div className="panel-head" style={{ fontSize: 12.5 }}>
+          <span><b>{standingCounts.checked.toLocaleString()}</b> of {standingCounts.total.toLocaleString()} leads checked against Apollo
+            {standingCounts.total > 0 && <span className="muted"> ({Math.round((standingCounts.checked / standingCounts.total) * 100)}%)</span>}</span>
+        </div>
+        <div className="panel-body" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <button className="vault-tile" aria-pressed={standingF === "needs"} title="Never reached, never put in a sequence, or not in Apollo."
+                  style={{ borderColor: standingF === "needs" ? "#B5443B" : undefined }}
+                  onClick={() => setStandingF(standingF === "needs" ? "all" : "needs")}>
+            <span className="vault-num" style={{ color: "#B5443B" }}>{standingCounts.needs.toLocaleString()}</span>
+            <span>Needs a sequence</span>
+          </button>
+          {STANDING_ORDER.map((k) => {
+            const on = standingF === k; const m = STANDING_META[k];
+            return (
+              <button key={k} className="vault-tile" aria-pressed={on} title={m.hint}
+                      style={{ borderColor: on ? m.color : undefined, background: on ? m.bg : undefined }}
+                      onClick={() => setStandingF(on ? "all" : k)}>
+                <span className="vault-num" style={{ color: m.color }}>{standingCounts.by[k].toLocaleString()}</span>
+                <span>{m.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* ---- toolbar: the basics in the open, everything else behind Filters ---- */}
       <div className="toolbar">
         <div className="toolbar-row">
           <input className="field" placeholder="Search company, contact, email, notes, industry, file…"
                  value={search} onChange={(e) => setSearch(e.target.value)}
                  style={{ flex: 1, minWidth: 220, maxWidth: 380 }} />
+          <input className="field" aria-label="Keywords in notes" placeholder='Keywords in notes: renewal "no partner" -gmail'
+                 title={'Searches the scan note and the original CSV note text.\nword = must appear · "two words" = exact phrase · -word = must not appear · a OR b = either'}
+                 value={noteSearch} onChange={(e) => setNoteSearch(e.target.value)}
+                 style={{ flex: 1, minWidth: 220, maxWidth: 340 }} />
+          {!nq.empty && rawIndexState === "loading" && <span className="muted" style={{ fontSize: 12 }}>Reading original notes…</span>}
+          {!nq.empty && rawIndexState === "error" && <span style={{ fontSize: 12, color: "#B5443B" }}>Original notes could not be read; searching scan notes only.</span>}
           <select className="field" aria-label="Scanner" value={sourceF}
                   onChange={(e) => setSourceF(e.target.value as LeadSource | "all")}>
             <option value="all">Scanner: any ({(sourceCounts.main + sourceCounts.smc + sourceCounts.csp).toLocaleString()})</option>

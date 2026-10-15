@@ -9,7 +9,7 @@
 // lead at a time, only when its record is opened. Additive across uploads:
 // a new upload adds a segment, an identical one is not stored twice, and
 // nothing here is ever rewritten by a scan.
-import { STORE_RAW_NOTES, dbGet, dbGetMany, dbUpdateMany } from "./db";
+import { STORE_RAW_NOTES, dbGet, dbGetAll, dbGetMany, dbUpdateMany } from "./db";
 
 export interface RawNoteSegment {
   /** When this text arrived (the upload time). */
@@ -134,4 +134,20 @@ export async function loadRawNotesMany(keys: string[]): Promise<Map<string, RawN
 export function newestRaw(r: RawNotes | undefined): string {
   if (!r?.segments.length) return "";
   return [...r.segments].sort((a, b) => b.at.localeCompare(a.at))[0].text;
+}
+
+/**
+ * Every lead's raw note text, lowercased and joined across its uploads,
+ * for keyword search in All leads. Per Jack: "i want to be able to search
+ * through the notes with keywords in all leads". Loaded once, only when
+ * the notes search is used — it is the largest store in the app.
+ */
+export async function loadRawNoteSearchIndex(): Promise<Map<string, string>> {
+  const all = await dbGetAll<RawNotes>(STORE_RAW_NOTES);
+  const m = new Map<string, string>();
+  for (const r of all) {
+    if (!r?.key || !r.segments?.length) continue;
+    m.set(r.key, r.segments.map((s) => s.text || "").join(" \u0001").toLowerCase());
+  }
+  return m;
 }

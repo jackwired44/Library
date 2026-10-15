@@ -1378,9 +1378,17 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
   const rowsExcept = useCallback(
     (...skip: FilterKey[]) => {
       const keys = Object.keys(tests) as FilterKey[];
-      return (result?.rows ?? []).filter((r) => keys.every((k) => skip.includes(k) || tests[k](r)));
+      // The Apollo match test never narrows the table or its counts —
+      // per Jack, a tab saying 171 over a 17-row table is broken. It only
+      // applies to downloads, through dlRowsExcept below.
+      return (result?.rows ?? []).filter((r) => keys.every((k) => k === "apollo" || skip.includes(k) || tests[k](r)));
     },
     [result, tests],
+  );
+  /** What a download takes: the table's rows, minus Apollo matches when the toggle is on. */
+  const dlRowsExcept = useCallback(
+    (...skip: FilterKey[]) => rowsExcept(...skip).filter((r) => tests.apollo(r)),
+    [rowsExcept, tests],
   );
 
   const counts = useMemo(() => {
@@ -1598,7 +1606,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
    */
   const smcDownload = useCallback(
     (which: "priority" | "review" | "all", line: ProductLine | "all") =>
-      rowsExcept("bucket", "line")
+      dlRowsExcept("bucket", "line")
         .filter((r) => {
           const b = effBucket(r);
           const inBand = which === "all" ? b === "priority" || b === "review" : b === which;
@@ -1609,7 +1617,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
         .map((r, i) => ({ r, i }))
         .sort((a, b) => compareSmcScores(a.r.smcScore, b.r.smcScore) || a.i - b.i)
         .map((x) => x.r),
-    [rowsExcept, curation, effBucket],
+    [dlRowsExcept, curation, effBucket],
   );
   /** High priority on one line — what call readiness is measured over. */
   const strongFor = useCallback(
@@ -1657,7 +1665,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
       // Everything the filters leave, EXCEPT the priority tab itself —
       // the band is chosen by the button you click, so the tab you happen
       // to be looking at must not also narrow it.
-      rowsExcept("bucket")
+      dlRowsExcept("bucket")
         .filter((r) => {
           const b = effBucket(r);
           return which === "all" ? b === "priority" || b === "review" : b === which;
@@ -1665,7 +1673,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
         .map((r, i) => ({ r, i }))
         .sort((a, b) => compareCspLeads(a.r.csp, b.r.csp) || a.i - b.i)
         .map((x) => x.r),
-    [rowsExcept, effBucket],
+    [dlRowsExcept, effBucket],
   );
 
   const strongDownloads = useMemo(
@@ -1895,8 +1903,8 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
               </span>
               <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12.5 }}
                      title="Leave them out of the table and every download, so the CSV you take to Apollo is only new people. They are still saved to All leads when you click Save.">
-                <input type="checkbox" checked={hideInApollo} onChange={(e) => { setHideInApollo(e.target.checked); setPage(1); setSelected(new Set()); }} />
-                Hide them from the table and downloads
+                <input type="checkbox" checked={hideInApollo} onChange={(e) => setHideInApollo(e.target.checked)} />
+                Leave them out of downloads (still shown here)
               </label>
             </div>
           )}

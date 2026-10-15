@@ -62,7 +62,10 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   // conversation recorded, so he reads "never reached"; Nia was never
   // looked up, so she is "Not checked yet" rather than "Not in Apollo".
   ok('tiles count active / ended / not checked', /1 Active in a sequence/.test(t) && /1 Sequence ended, never reached/.test(t) && /1 Not checked yet/.test(t), t.slice(0, 700));
-  ok('active-by-sequence lists the live sequence', /Active by sequence: Jack Main Sequence 1/.test(t), t.slice(0, 500));
+  ok('active-by-sequence lists the live sequence', /Main sequences, active:.*Jack Main Sequence 1/s.test(t), t.slice(0, 500));
+  // Per Jack: the six main sequences lead, in his order, even at 0.
+  const order = ['Carly Main Sequence Recycled 0', 'Carly Main Sequence 0', 'Jack Main Sequence 1', 'Jack Main Backup Sequence 0', 'Wired CIO Email (Custom September Leads) 0', 'CSP Renewal Campaign 0'].map((x) => t.indexOf(x));
+  ok('  the six main sequences show in Jack\'s order', order.every((i, k) => i >= 0 && (k === 0 || i > order[k - 1])), JSON.stringify(order));
   await page.locator('.vault-tile', { hasText: 'Active in a sequence' }).click(); await sleep(400);
   let r = await rows();
   ok('default view lists the active lead with its sequence', /Ada Brant[^|]*Active[^|]*Jack Main Sequence · active/.test(r) && !/Ben Cole/.test(r), r);

@@ -27,8 +27,8 @@ import { VERDICT_META, VERDICT_ORDER, verdictOf, type Verdict } from "../lib/lea
 // So an ended sequence is split by whether Apollo says the person was
 // reached, and "not checked yet" is its own state rather than being
 // counted as "not in Apollo" — the two mean very different things.
-type Status = "active" | "finished" | "reached" | "none" | "out" | "unchecked";
-const STATUS_META: Record<Status, { label: string; short: string; hint: string; color: string; bg: string }> = {
+export type Status = "active" | "finished" | "reached" | "none" | "out" | "unchecked";
+export const STATUS_META: Record<Status, { label: string; short: string; hint: string; color: string; bg: string }> = {
   active: { label: "Active in a sequence", short: "Active", hint: "In Apollo and live in at least one sequence right now.", color: "#0A66C2", bg: "#EAF3FC" },
   finished: { label: "Sequence ended, never reached", short: "Ended · not reached", hint: "Every sequence they were in has ended or paused, and Apollo records no conversation, reply or meeting. Ready to go again.", color: "#8A5A00", bg: "#FFF4DD" },
   reached: { label: "Sequence ended, reached", short: "Ended · reached", hint: "A sequence ended because they replied, were spoken to, booked, or opted out. Not a re-add.", color: "#5B3FC4", bg: "#EEEAFC" },
@@ -36,9 +36,9 @@ const STATUS_META: Record<Status, { label: string; short: string; hint: string; 
   out: { label: "Not in Apollo", short: "Not in Apollo", hint: "Looked up in Apollo and not found — never added.", color: "#B5443B", bg: "#FBEAE8" },
   unchecked: { label: "Not checked yet", short: "Not checked", hint: "Not looked up in Apollo yet. Run a check to see where it stands.", color: "#4C6167", bg: "#EEF1F2" },
 };
-const STATUS_ORDER: Status[] = ["active", "finished", "reached", "none", "out", "unchecked"];
+export const STATUS_ORDER: Status[] = ["active", "finished", "reached", "none", "out", "unchecked"];
 /** The ones to act on: never reached, or never put into a sequence. */
-const NEEDS: ReadonlySet<Status> = new Set(["finished", "none", "out"]);
+export const NEEDS: ReadonlySet<Status> = new Set(["finished", "none", "out"]);
 type StatusFilter = Status | "all" | "needs";
 /** An ended sequence whose reason means a person answered or closed it out. */
 const REACHED_REASON_RE = /talk|spoke|repl|meet|book|demo|interest|unsub|opt.?out|do not|bounc|wrong|left company/i;
@@ -48,6 +48,34 @@ interface Row { lead: StoredLead; status: Status; seqs: Seq[]; how: string }
 
 const PAGE = 100;
 
+// Per Jack: "the main sequences to follow are carly recyled and carly main
+// jack main and jack backup then the wired cio custom leads email and csp
+// renewal". The order IS the rule: these six lead every sequence list on
+// this page, in this order, and everything else follows by count.
+export const MAIN_SEQUENCES = [
+  "Carly Main Sequence Recycled",
+  "Carly Main Sequence",
+  "Jack Main Sequence",
+  "Jack Main Backup Sequence",
+  "Wired CIO Email (Custom September Leads)",
+  "CSP Renewal Campaign",
+] as const;
+const MAIN_KEY = "__main";
+const norm = (n: string) => n.trim().toLowerCase().replace(/\s+/g, " ");
+const MAIN_RANK = new Map(MAIN_SEQUENCES.map((n, i) => [norm(n), i]));
+/** 0-5 for a main sequence in Jack's order, Infinity for anything else. */
+export function mainSequenceRank(name: string): number {
+  return MAIN_RANK.get(norm(name)) ?? Infinity;
+}
+export const isMainSequence = (name: string) => MAIN_RANK.has(norm(name));
+/** Live first, then main sequences in order, then the rest. */
+function bySeqOrder(a: Seq, b: Seq): number {
+  return Number(b.active) - Number(a.active) || mainSequenceRank(a.name) - mainSequenceRank(b.name);
+}
+function rankEntries(m: Map<string, number>): [string, number][] {
+  return [...m.entries()].sort((a, b) => mainSequenceRank(a[0]) - mainSequenceRank(b[0]) || b[1] - a[1]);
+}
+
 // Per Jack: "select the leads and download them to a csv for export ... after
 // its confirmed where they stand". One row per lead; a lead in several
 // sequences lists them all, the live one first.
@@ -56,7 +84,7 @@ const STATUS_EXPORT_COLUMNS = ["First Name", "Last Name", "Company", "Email", "W
 
 function exportRow(r: Row): Record<string, string> {
   const [first, ...rest] = (r.lead.contact || "").trim().split(/\s+/);
-  const seqs = [...r.seqs].sort((a, b) => Number(b.active) - Number(a.active));
+  const seqs = [...r.seqs].sort(bySeqOrder);
   const join = (f: (s: Seq) => string) => seqs.map(f).filter(Boolean).join(" | ");
   return {
     "First Name": first || "", "Last Name": rest.join(" "), Company: r.lead.company, Email: r.lead.email,
@@ -79,7 +107,7 @@ function exportRow(r: Row): Record<string, string> {
  *  in the note so a list keeps the classification it was built from. */
 function listRowFor(r: Row): ExportRow {
   const [first, ...rest] = (r.lead.contact || "").trim().split(/\s+/);
-  const live = r.seqs.find((s) => s.active) ?? r.seqs[0];
+  const live = [...r.seqs].sort(bySeqOrder)[0];
   const where = `Apollo: ${STATUS_META[r.status].short}${live ? ` (${live.name})` : ""}`;
   const note = stripSnippetPrefix(r.lead.notes || "");
   return {
@@ -113,6 +141,11 @@ function rowFor(l: StoredLead, index: RosterIndex | null): Row {
     lead: l, seqs, how: hit.how === "email" ? "email" : "name",
     status: statusOfSeqs(seqs),
   };
+}
+
+/** Where one lead stands in Apollo — the same answer In Apollo shows. */
+export function apolloStandingOf(l: StoredLead, index: RosterIndex | null): Status {
+  return rowFor(l, index).status;
 }
 
 function statusOfSeqs(seqs: Seq[]): Status {
@@ -202,19 +235,22 @@ export default function ApolloStatus({
   // Sequences people are ACTIVE in, with how many — the "which sequence".
   const activeBySeq = useMemo(() => {
     const m = new Map<string, number>();
-    for (const r of rows) for (const s of r.seqs) if (s.active) m.set(s.name, (m.get(s.name) || 0) + 1);
-    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+    // The six main sequences always show, even at 0, so a gap is visible.
+    for (const n of MAIN_SEQUENCES) m.set(n, 0);
+    const canon = (n: string) => MAIN_SEQUENCES.find((x) => norm(x) === norm(n)) ?? n;
+    for (const r of rows) for (const s of r.seqs) if (s.active) { const n = canon(s.name); m.set(n, (m.get(n) || 0) + 1); }
+    return rankEntries(m);
   }, [rows]);
   const allSeqs = useMemo(() => {
     const m = new Map<string, number>();
     for (const r of rows) for (const s of r.seqs) m.set(s.name, (m.get(s.name) || 0) + 1);
-    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+    return rankEntries(m);
   }, [rows]);
 
   const needle = q.trim().toLowerCase();
   const filtered = useMemo(() => rows.filter((r) =>
     (statusF === "all" || (statusF === "needs" ? NEEDS.has(r.status) : r.status === statusF))
-    && (seqF === "all" || r.seqs.some((s) => s.name === seqF && (statusF !== "active" || s.active)))
+    && (seqF === "all" || r.seqs.some((s) => (seqF === MAIN_KEY ? isMainSequence(s.name) : norm(s.name) === norm(seqF)) && (statusF !== "active" || s.active)))
     && (!needle || `${r.lead.company} ${r.lead.contact} ${r.lead.email}`.toLowerCase().includes(needle)),
   ), [rows, statusF, seqF, needle]);
   const shown = filtered.slice((page - 1) * PAGE, page * PAGE);
@@ -344,20 +380,23 @@ export default function ApolloStatus({
             );
           })}
         </div>
-        {activeBySeq.length > 0 && (
-          <div className="panel-body" style={{ paddingTop: 0, fontSize: 12, color: "var(--muted)" }}>
-            Active by sequence:{" "}
-            {activeBySeq.map(([n, c], i) => (
-              <span key={n}>
-                {i > 0 && " · "}
-                <button className="btn btn-sm btn-ghost" style={{ padding: "0 4px" }}
-                        onClick={() => { setStatusF("active"); setSeqF(n); setPage(1); }}>
-                  {n} <b>{c.toLocaleString()}</b>
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
+        <div className="panel-body" aria-label="Active by sequence" style={{ paddingTop: 0, fontSize: 12, color: "var(--muted)", display: "grid", gap: 4 }}>
+          {([["Main sequences", activeBySeq.filter(([n]) => isMainSequence(n))],
+             ["Other", activeBySeq.filter(([n]) => !isMainSequence(n))]] as const).map(([label, list]) => list.length > 0 && (
+            <div key={label}>
+              <b style={{ color: "var(--ink)" }}>{label}, active:</b>{" "}
+              {list.map(([n, c], i) => (
+                <span key={n}>
+                  {i > 0 && " · "}
+                  <button className="btn btn-sm btn-ghost" style={{ padding: "0 4px", opacity: c ? 1 : 0.55 }}
+                          onClick={() => { setStatusF("active"); setSeqF(n); setPage(1); }}>
+                    {n} <b>{c.toLocaleString()}</b>
+                  </button>
+                </span>
+              ))}
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="toolbar">
@@ -370,7 +409,18 @@ export default function ApolloStatus({
           </select>
           <select className="field" aria-label="Sequence" value={seqF} onChange={(e) => { setSeqF(e.target.value); setPage(1); }}>
             <option value="all">Sequence: any</option>
-            {allSeqs.map(([n, c]) => <option key={n} value={n}>{n} ({c.toLocaleString()})</option>)}
+            <option value={MAIN_KEY}>Any main sequence</option>
+            <optgroup label="Main sequences">
+              {MAIN_SEQUENCES.map((n) => {
+                const c = allSeqs.find(([x]) => norm(x) === norm(n))?.[1] ?? 0;
+                return <option key={n} value={n}>{n} ({c.toLocaleString()})</option>;
+              })}
+            </optgroup>
+            {allSeqs.some(([n]) => !isMainSequence(n)) && (
+              <optgroup label="Other sequences">
+                {allSeqs.filter(([n]) => !isMainSequence(n)).map(([n, c]) => <option key={n} value={n}>{n} ({c.toLocaleString()})</option>)}
+              </optgroup>
+            )}
           </select>
           <div className="toolbar-spacer" />
           <span style={{ fontSize: 12, color: "var(--muted)" }}><b>{filtered.length.toLocaleString()}</b> of {rows.length.toLocaleString()}</span>
@@ -445,7 +495,7 @@ export default function ApolloStatus({
             {shown.map((r) => {
               const v = VERDICT_META[verdictOf(r.lead.tier)];
               const m = STATUS_META[r.status];
-              const ordered = [...r.seqs].sort((a, b) => Number(b.active) - Number(a.active));
+              const ordered = [...r.seqs].sort(bySeqOrder);
               return (
                 <tr key={r.lead.key}>
                   <td>

@@ -689,7 +689,11 @@ export default function Scanner({
     dupOnly: duplicatesOnly,
     prioOnly: priorityOnly,
     q: search,
-    excludeIds: hideInApollo ? apolloIds : undefined,
+    // Per Jack: "says 171 strong signal show me 17". Hiding Apollo matches
+    // from the TABLE made 154 Strong Signal leads vanish under a tab still
+    // counting 171. The table now always shows every lead (each Apollo
+    // match carries its "In Apollo" badge); the toggle below only keeps
+    // them out of the downloads, which is what it was asked for.
   };
 
   const filtered = useMemo(() => {
@@ -719,7 +723,7 @@ export default function Scanner({
     // never overlap - a Google lead is always M365/Azure).
     return sortTopPriorityFirst(ranked);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [results, tierFilter, categoryFilter, duplicatesOnly, priorityOnly, search, dynamicsSortDesc, sortBy, m365SubView, dynamicsSubView, hideInApollo, apolloIds]);
+  }, [results, tierFilter, categoryFilter, duplicatesOnly, priorityOnly, search, dynamicsSortDesc, sortBy, m365SubView, dynamicsSubView]);
 
   // Every count badge is computed with EVERY OTHER active filter applied,
   // but not its own — so the number on a button is exactly how many rows
@@ -980,7 +984,7 @@ export default function Scanner({
    * mean sitting on "Needs review" silently emptied every download.
    */
   function bucketRowsFor(bucketKey: BucketKey) {
-    const scoped = results ? applyFacets(results, { ...facets, tier: "all", category: "all" }) : [];
+    const scoped = results ? applyFacets(results, { ...facets, tier: "all", category: "all", excludeIds: hideInApollo ? apolloIds : undefined }) : [];
     return exportRowsForBucket(scoped, bucketKey);
   }
   function defaultBucketFileName(bucketKey: BucketKey) {
@@ -1381,9 +1385,9 @@ export default function Scanner({
             </span>
           </span>
           <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12.5 }}
-                 title="Leave them out of the table and every download, so the CSV you take to Apollo is only new people. They are still saved to All leads when you click Save.">
-            <input type="checkbox" checked={hideInApollo} onChange={(e) => { setHideInApollo(e.target.checked); setPage(1); setSelected(new Set()); }} />
-            Hide them from the table and downloads
+                 title="Every lead stays in the table and in All leads. This only leaves the Apollo matches out of the CSV downloads, so the file you take to Apollo is only new people.">
+            <input type="checkbox" checked={hideInApollo} onChange={(e) => setHideInApollo(e.target.checked)} />
+            Leave them out of downloads (still shown here)
           </label>
         </div>
       )}

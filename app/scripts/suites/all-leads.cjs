@@ -207,6 +207,35 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('  both are dated', ((full || '').match(/\d{4}-\d{2}-\d{2}/g) || []).length >= 2, (full || '').slice(0, 300));
   await search2.fill(''); await sleep(500);
 
+  console.log('\n== keyword search through notes ==');
+  // Per Jack: "search through the notes with keywords in all leads".
+  const notesBox = page.locator('input[aria-label="Keywords in notes"]');
+  await notesBox.fill('december quote'); await sleep(1500);
+  t = await allLeadsText();
+  ok('two words anywhere in the ORIGINAL note find the lead', /\b1 of 5\b/.test(t) && /MAIN ALPHA CO/.test(t), t.slice(0, 300));
+  await notesBox.fill('"renewal is December"'); await sleep(800);
+  ok('  an exact phrase matches', /\b1 of 5\b/.test(await allLeadsText()));
+  await notesBox.fill('"december renewal"'); await sleep(800);
+  ok('  a phrase not in that order does not', /\b0 of 5\b/.test(await allLeadsText()), (await allLeadsText()).slice(0, 200));
+  await notesBox.fill('unsubscribe OR "quote sent"'); await sleep(800);
+  t = await allLeadsText();
+  ok('  OR finds either lead', /\b2 of 5\b/.test(t) && /MAIN GAMMA CO/.test(t) && /CSP BETA CO/.test(t), t.slice(0, 300));
+  await notesBox.fill('partner -licensing'); await sleep(800);
+  t = await allLeadsText();
+  ok('  -word excludes', /MAIN ALPHA CO/.test(t) && !/CSP ALPHA CO/.test(t), t.slice(0, 300));
+  ok('  and the active search shows as a chip', /Notes: partner -licensing/.test(t));
+  await notesBox.fill(''); await sleep(600);
+
+  console.log('\n== how many leads were checked against Apollo, and where they stand ==');
+  t = await allLeadsText();
+  ok('the standing strip counts checked of total', /0 of 5 leads checked against Apollo/.test(t), t.slice(0, 400));
+  ok('  with every lead under Not checked yet', /5 Not checked yet/.test(t));
+  await page.locator('[aria-label="Apollo standing"] .vault-tile', { hasText: 'Not checked yet' }).click(); await sleep(600);
+  ok('  and clicking a tile filters to it', /\b5 of 5\b/.test(await allLeadsText()) && /Apollo: Not checked yet/.test(await allLeadsText()));
+  await page.locator('[aria-label="Apollo standing"] .vault-tile', { hasText: 'Not in Apollo' }).click(); await sleep(600);
+  ok('  an empty status narrows to nothing', /\b0 of 5\b/.test(await allLeadsText()));
+  await page.locator('[aria-label="Apollo standing"] .vault-tile', { hasText: 'Not in Apollo' }).click(); await sleep(600);
+
   console.log('\n== it survives a reload ==');
   await page.reload(); await sleep(2000);
   await nav('All leads');

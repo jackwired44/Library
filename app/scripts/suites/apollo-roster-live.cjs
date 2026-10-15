@@ -82,16 +82,16 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('  and how each matched', /1 by email, 1 by name only/.test(t));
   const rows = async () => (await page.locator('.data-table tbody tr').allInnerTexts()).join(' | ');
   let r = await rows();
-  ok('hidden by default: only the new person is in the table', /Nia Rowe/.test(r) && !/Zed Quinn/.test(r) && !/Lou Park/.test(r), r);
+  ok('every lead stays in the table, Apollo matches included', /Nia Rowe/.test(r) && /Zed Quinn/.test(r) && /Lou Park/.test(r), r);
   const dl = async () => (await page.locator('.dl-strip').first().innerText()).replace(/\s+/g, ' ');
-  ok('  and the downloads count only the new person', /M365 \/ Azure\s*1\b/.test(await dl()), await dl());
-  ok('  and the unrelated rows still are not marked', !/In Apollo/.test(r));
-  await page.locator('label:has-text("Hide them from the table and downloads") input').uncheck(); await sleep(600);
-  r = await rows();
-  ok('unhiding shows all three', /Nia Rowe/.test(r) && /Zed Quinn/.test(r) && /Lou Park/.test(r), r);
+  ok('  but the downloads count only the new person', /M365 \/ Azure\s*1\b/.test(await dl()), await dl());
   ok('  Zed carries an In Apollo badge (email match)', /Zed Quinn[^|]*In Apollo(?!\?)/.test(r), r);
   ok('  Lou carries an In Apollo? badge (name only)', /Lou Park[^|]*In Apollo\?/.test(r), r);
   ok('  Nia carries none', !/Nia Rowe[^|]*In Apollo/.test(r), r);
+  ok('  the Strong Signal tab counts every row on screen', /Strong Signal \(3\)/.test(await main()), (await main()).slice(0, 400));
+  await page.locator('label:has-text("Leave them out of downloads") input').uncheck(); await sleep(600);
+  r = await rows();
+  ok('unticking leaves the table unchanged', /Nia Rowe/.test(r) && /Zed Quinn/.test(r) && /Lou Park/.test(r), r);
   ok('  and the downloads count all three again', /M365 \/ Azure\s*3\b/.test(await dl()), await dl());
 
   console.log('\n== the roster survives a reload ==');
@@ -104,7 +104,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   t = await main();
   ok('CSP: one row already in Apollo, by email', /1 of these rows is already in Apollo/.test(t) && /1 by email/.test(t), t.slice(0, 600));
   r = await rows();
-  ok('  hidden from the CSP table by default', /Kim Lane/.test(r) && !/Zed Quinn/.test(r), r);
+  ok('  still shown in the CSP table', /Kim Lane/.test(r) && /Zed Quinn/.test(r), r);
 
   ok('no page errors', errs.length === 0, errs.slice(0, 2).join(' | '));
   console.log(`\napollo-roster-live ${fail ? 'FAIL' : 'PASS'} ${pass}/${pass + fail}`);
