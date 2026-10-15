@@ -6284,3 +6284,20 @@ view each lead in all leads need to see the new note also".
   apollo_emailer_campaigns_search (the live check / pull) plus the four
   enrichment tools, alongside downloads: true. A link missing the first
   two is exactly what "connector access isn't confirmed" looks like.
+
+### 2026-10-15: Home Apollo panel, one-lead check, scanner counts (scanner-platform-v29)
+
+Per Jack: "create a button to do it by 100 by one or all ... need home page
+access for this" and "in filters in all leads breakdown () for which scanner".
+- Home (`ApolloSyncPanel`, under the greeting): Checked / In Apollo / Active
+  in a sequence / Sequence finished / Not checked yet, with "Check next 100"
+  and "Check all N" (`leadsDueForApollo`: unchecked or older than 7 days,
+  Strong Signal first, then newest). The run lives in App.tsx so it keeps
+  going across views; Stop keeps what was read. Same read-only lookup,
+  still "no calls or downloads".
+- Lead view: "⟳ Check in Apollo" / "↻ Re-check in Apollo" for one lead.
+- All leads Scanner filter shows faceted counts per scanner.
+- Results now save every 100 lookups (was 25) so a 40k run doesn't re-render
+  the whole list 1,700 times.
+- No Trellus connector exists in this account; Echo is connected but not
+  wired in. Both would need adding to the published manifest.

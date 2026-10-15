@@ -487,6 +487,14 @@ export default function AllLeads({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leads, derived, tests]);
 
+  // Per Jack: the Scanner filter shows how many leads came from each one.
+  const sourceCounts = useMemo(() => {
+    const m: Record<LeadSource, number> = { main: 0, smc: 0, csp: 0 };
+    for (const l of leads) if (passes(l, "source") && l.source in m) m[l.source]++;
+    return m;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leads, derived, tests]);
+
   const tiers = useMemo(() => [...new Set(leads.map((l) => l.tier).filter(Boolean))].sort(), [leads]);
   const ageDays = useMemo(() => syncAgeDays(leads), [leads]);
 
@@ -573,14 +581,15 @@ export default function AllLeads({
   }, [leads]);
   const checking = !!check && !check.finished;
 
-  async function runCheck() {
-    if (!onCheckLeads || checking || !checkTargets.length) return;
+  async function runCheck(only?: StoredLead[]) {
+    const targets = only ?? checkTargets;
+    if (!onCheckLeads || checking || !targets.length) return;
     const ac = new AbortController();
     checkAbort.current = ac;
     setCheckError("");
-    setCheck({ total: checkTargets.length, done: 0, found: 0, notFound: 0, skipped: 0, errors: 0, finished: false });
+    setCheck({ total: targets.length, done: 0, found: 0, notFound: 0, skipped: 0, errors: 0, finished: false });
     try {
-      const p = await onCheckLeads(checkTargets, setCheck, ac.signal);
+      const p = await onCheckLeads(targets, setCheck, ac.signal);
       setCheck({ ...p, finished: true });
     } catch (e) {
       setCheckError(e instanceof Error ? e.message : String(e));
@@ -791,8 +800,8 @@ export default function AllLeads({
                  style={{ flex: 1, minWidth: 220, maxWidth: 380 }} />
           <select className="field" aria-label="Scanner" value={sourceF}
                   onChange={(e) => setSourceF(e.target.value as LeadSource | "all")}>
-            <option value="all">Scanner: any</option>
-            {(["main", "smc", "csp"] as LeadSource[]).map((s) => <option key={s} value={s}>{LEAD_SOURCE_META[s].label}</option>)}
+            <option value="all">Scanner: any ({(sourceCounts.main + sourceCounts.smc + sourceCounts.csp).toLocaleString()})</option>
+            {(["main", "smc", "csp"] as LeadSource[]).map((s) => <option key={s} value={s}>{LEAD_SOURCE_META[s].label} ({sourceCounts[s].toLocaleString()})</option>)}
           </select>
           <select className="field" aria-label="Tier" value={tierF} onChange={(e) => setTierF(e.target.value)}>
             <option value="all">Tier: any</option>
@@ -1036,7 +1045,7 @@ export default function AllLeads({
             <span style={{ width: 1, height: 18, background: "var(--border)" }} />
             {checking
               ? <button className="btn btn-sm btn-secondary" onClick={() => checkAbort.current?.abort()}>Stop Apollo check</button>
-              : <button className="btn btn-sm btn-primary" disabled={!checkTargets.length} onClick={runCheck}
+              : <button className="btn btn-sm btn-primary" disabled={!checkTargets.length} onClick={() => runCheck()}
                         title={"Looks each lead up in Apollo: whether they're a contact, which sequence, which step, finished and why.\nOne free, read-only search per lead. Nothing is written to Apollo, and call counts and downloads don't change."}>
                   ⟳ Check {checkTargets.length.toLocaleString()} in Apollo{selected.size ? " (selected)" : ""}
                 </button>}
@@ -1211,6 +1220,8 @@ export default function AllLeads({
             onPrev={i > 0 ? () => go(i - 1) : undefined}
             onNext={i >= 0 && i < filtered.length - 1 ? () => go(i + 1) : undefined}
             position={i >= 0 ? `${(i + 1).toLocaleString()} of ${filtered.length.toLocaleString()}` : undefined}
+            onCheckApollo={onCheckLeads ? () => runCheck([openLead]) : undefined}
+            checkingApollo={checking}
             funnels={funnels}
             companyLeads={(() => {
               const ck = derived.get(openLead.key)?.companyKey;

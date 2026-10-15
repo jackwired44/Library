@@ -124,7 +124,7 @@ function StepTrack({ funnel, step, status }: { funnel: ApolloFunnel | undefined;
 
 export default function LeadDetail({
   lead, companyProfiles, onClose, sequenceNames = [], onSetPlan, onSetStatus,
-  onPrev, onNext, position, funnels = [], companyLeads = [], onOpenLead, apolloIndex = null,
+  onPrev, onNext, position, funnels = [], companyLeads = [], onOpenLead, apolloIndex = null, onCheckApollo, checkingApollo,
 }: {
   /** Who is in Apollo (sync + pulled uploads), for the summary's Apollo line. */
   apolloIndex?: RosterIndex | null;
@@ -146,6 +146,9 @@ export default function LeadDetail({
   companyLeads?: StoredLead[];
   /** Open another lead's profile in place. */
   onOpenLead?: (key: string) => void;
+  /** Look this one lead up in Apollo now. */
+  onCheckApollo?: () => void;
+  checkingApollo?: boolean;
 }) {
   // Arrow keys step through the list, Escape closes.
   useEffect(() => {
@@ -298,6 +301,11 @@ export default function LeadDetail({
                       </div>
                     ))}
                     {lead.apolloCheckedAt && a?.live && <div style={{ fontSize: 11.5, ...muted }}>Checked live {lead.apolloCheckedAt.slice(0, 10)}</div>}
+                    {onCheckApollo && (
+                      <button className="btn btn-sm btn-secondary" style={{ marginTop: 6 }} disabled={checkingApollo} onClick={onCheckApollo}>
+                        {checkingApollo ? "Checking…" : lead.apolloCheckedAt ? "↻ Re-check in Apollo" : "⟳ Check in Apollo"}
+                      </button>
+                    )}
                     {a && (
                       <div style={{ fontSize: 12, marginTop: 2 }}>
                         Calls: {a.callCount} · Emails sent: {a.emailCount ?? "—"}

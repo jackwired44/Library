@@ -56,6 +56,7 @@ import {
 } from "./lib/sequenceRouting";
 import { leadInputsFromResults, leadInputsFromRows2, leadInputsFromNoSignal, leadInputsFromDuplicates } from "./lib/leadFiling";
 import AllLeads, { type LeadsPreset } from "./components/AllLeads";
+import ApolloSyncPanel from "./components/ApolloSyncPanel";
 import {
   applyStickyState, attachScanResultsToContacts, loadContactsFromDB,
   mergeContactsFromParsedFiles, persistContact, type Contact,
@@ -185,6 +186,25 @@ export default function App() {
           setError(`Apollo results could not be stored: ${e instanceof Error ? e.message : String(e)}`));
       },
     });
+  }
+  /** The Home panel's Apollo run. Held here, not in the panel, so it keeps
+   *  going while you move to another view. */
+  const [homeCheck, setHomeCheck] = useState<CheckProgress | null>(null);
+  const [homeCheckError, setHomeCheckError] = useState("");
+  const homeCheckAbort = useRef<AbortController | null>(null);
+  async function runHomeCheck(targets: StoredLead[]) {
+    if (!targets.length || (homeCheck && !homeCheck.finished)) return;
+    const ac = new AbortController();
+    homeCheckAbort.current = ac;
+    setHomeCheckError("");
+    setHomeCheck({ total: targets.length, done: 0, found: 0, notFound: 0, skipped: 0, errors: 0, finished: false });
+    try {
+      const p = await checkLeadsLive(targets, setHomeCheck, ac.signal);
+      setHomeCheck({ ...p, finished: true });
+    } catch (e) {
+      setHomeCheckError(e instanceof Error ? e.message : String(e));
+      setHomeCheck((x) => (x ? { ...x, finished: true } : x));
+    } finally { homeCheckAbort.current = null; }
   }
   /** What the qualification gate just threw away. Transient by necessity —
    *  a discarded lead is never stored, so this is the only record of it. */
@@ -871,6 +891,16 @@ export default function App() {
             onNavigate={setView}
             onOpenStatus={(st) => { setLeadsStatusEntry(st); setLeadsSequenceEntry(""); setLeadsPresetEntry(""); setView("allleads"); }}
             onOpenPreset={(pr) => { setLeadsPresetEntry(pr); setLeadsStatusEntry(""); setLeadsSequenceEntry(""); setView("allleads"); }}
+            topPanel={
+              <ApolloSyncPanel
+                leads={leads}
+                progress={homeCheck}
+                error={homeCheckError}
+                onRun={runHomeCheck}
+                onStop={() => homeCheckAbort.current?.abort()}
+                onOpenLeads={() => { setLeadsStatusEntry(""); setLeadsSequenceEntry(""); setLeadsPresetEntry(""); setView("allleads"); }}
+              />
+            }
           />
         )}
         {(view === "queue" || view === "campaigns") && (

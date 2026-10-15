@@ -338,7 +338,7 @@ export async function checkLeadsInApollo(opts: {
       const lead = queue.shift()!;
       await one(lead);
       p.done++;
-      if (batch.length >= 25) await flush();
+      if (batch.length >= 100) await flush();
       opts.onProgress({ ...p });
       // Every call failing means the connector is down; stop rather than
       // grind through thousands of identical errors.

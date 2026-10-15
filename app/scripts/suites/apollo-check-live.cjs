@@ -131,9 +131,18 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await page.locator('label', { hasText: "Re-check this week's" }).locator('input').check(); await sleep(200);
   t2 = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
   ok('select the page + re-check covers all 4', /Check 4 in Apollo \(selected\)/.test(t2), t2.match(/Check \d+ in Apollo[^·]{0,12}/)?.[0]);
+  console.log('\n== Home panel ==');
+  await page.locator('.side-nav-btn', { hasText: 'Home' }).first().click(); await sleep(700);
+  let home = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
+  ok('Home shows where leads stand in Apollo', /Where every lead stands in Apollo/.test(home) && /Active in a sequence/i.test(home), home.slice(0, 400));
+  ok('Home offers next-100 and check-all', await page.locator('button', { hasText: /^Check next \d+$/ }).count() === 1 && await page.locator('button', { hasText: /^Check all \d+$/ }).count() === 1);
+  await nav('All leads'); await sleep(500);
+  const scannerOpts = await page.locator('select[aria-label="Scanner"] option').allInnerTexts();
+  ok('Scanner filter shows a count per scanner', scannerOpts.some(o => /Main Scanner \(4\)/.test(o)), JSON.stringify(scannerOpts));
   console.log('\n== the lead view ==');
   await page.locator('.data-table tbody tr', { hasText: 'ACTIVE CO' }).first().locator('td').nth(1).click(); await sleep(800);
   const dlg = (await page.locator('[role=dialog]').innerText()).replace(/\s+/g, ' ');
+  ok('lead view has a one-lead Apollo check', await page.locator('[role=dialog] button', { hasText: /check in Apollo/i }).count() === 1);
   ok('lead view shows sequence, step and the live check date', /Dynamics Sequence · active · step 2 of 5/.test(dlg) && /Checked live/.test(dlg), dlg.slice(0, 500));
   await page.keyboard.press('Escape'); await sleep(300);
   ok('no page errors', errs.length === 0, errs.join(' | '));

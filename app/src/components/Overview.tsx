@@ -94,7 +94,7 @@ function Seg<T extends string>({ label, value, options, onChange }: {
 interface UploadRow { at: string; source: LeadSource; files: string; rows: number; top: number }
 
 export default function Overview({
-  leads, funnels, historyEntries, companyProfiles, rules, onNavigate, onOpenStatus, onOpenPreset, apolloIndex = null,
+  leads, funnels, historyEntries, companyProfiles, rules, onNavigate, onOpenStatus, onOpenPreset, apolloIndex = null, topPanel,
 }: {
   /** Who is in Apollo (sync + pulled uploads) — see lib/apolloRoster.ts. */
   apolloIndex?: RosterIndex | null;
@@ -108,6 +108,8 @@ export default function Overview({
   onOpenStatus: (status: LeadStatus) => void;
   /** Open All leads on one of its named views. */
   onOpenPreset: (preset: LeadsPreset) => void;
+  /** Rendered right under the page header (the Apollo status panel). */
+  topPanel?: React.ReactNode;
 }) {
   const [runs, setRuns] = useState<Run2[]>([]);
   useEffect(() => {
@@ -309,6 +311,8 @@ export default function Overview({
           <button className="btn btn-sm btn-primary" onClick={() => onNavigate("allleads")}>All leads →</button>
         </div>
       </div>
+
+      {topPanel}
 
       {/* Slicers: one row, scoping everything below. */}
       <div className="viz-slicers">
