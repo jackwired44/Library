@@ -36,10 +36,15 @@ const FAKE = () => {
   };
   window.__perm = [];
   const perms = { state: async n => (window.__perm.length ? 'granted' : 'prompt'), request: async names => { window.__perm.push(names); return {}; } };
-  window.claude = { use: async name => name === 'permissions' ? perms : name !== 'mcp' ? null : {
+  window.__saved = [];
+  const downloads = { save: async ({ filename, data }) => { window.__saved.push({ filename, data: String(data) }); } };
+  window.claude = { use: async name => name === 'permissions' ? perms : name === 'downloads' ? downloads : name !== 'mcp' ? null : {
     listTools: async () => ({ servers: [{ server: 'Apollo.io', tools: [{ name: 'apollo_contacts_search' }, { name: 'apollo_emailer_campaigns_search' }] }] }),
     callTool: async (server, tool, args) => {
       window.__calls.push({ tool, args });
+      if (tool.endsWith('contacts_search') && window.__rateLimitAfter != null
+          && window.__calls.filter(c => c.tool.endsWith('contacts_search')).length > window.__rateLimitAfter)
+        throw { code: 'tool_error', message: 'USAGE.RATE_LIMIT.API_RATE_LIMIT_EXCEEDED: 400 contacts/search calls per hour' };
       if (tool.endsWith('emailer_campaigns_search')) return { payload: { emailer_campaigns: [{ id: 'seq1', name: 'Dynamics Sequence', num_steps: 5, emailer_steps: steps }], pagination: { total_pages: 1 } } };
       return { payload: { contacts: contacts[args.q_keywords] || [] } };
     },
@@ -76,12 +81,17 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await nav('In Apollo');
   let t = await main();
   console.log('\n== before the check ==');
+  // Per Jack: every lead, any scanner or tier, gets run against Apollo — so
+  // the default scope is every tier, and Strong Signal is one filter away.
+  ok('by default it checks every tier (4 leads)', /Check 4 leads/.test(t), t.slice(0, 400));
+  ok('Bad Leads / Needs Review are listed too', /REVIEW CO/.test(t));
+  await page.selectOption('select[aria-label="Stored as"]', 'strong'); await sleep(300);
+  t = await main();
   ok('the button checks Strong Signal leads only (3, not 4)', /Check 3 Strong Signal leads/.test(t), t.slice(0, 400));
-  await page.locator('.vault-tile', { hasText: 'Active in a sequence' }).click(); await sleep(300); // toggle to all
-  ok('unchecked leads say so', /not checked yet/.test(await rowOf('NEW CO')));
-  ok('the table defaults to Strong Signal only', !(await main()).includes('REVIEW CO'));
-  await page.selectOption('select[aria-label="How many to check"]', '10');
-  ok('a quantity picker sets how many one click runs', /Check 3 Strong Signal leads/.test(await main()) && await page.locator('select[aria-label="How many to check"] option').count() === 8);
+  ok('unchecked leads say so', /Not checked/.test(await rowOf('NEW CO')));
+  ok('the Strong Signal filter narrows the table', !(await main()).includes('REVIEW CO'));
+  await page.selectOption('select[aria-label="How many to check"]', '25');
+  ok('a quantity picker sets how many one click runs', /Check 3 Strong Signal leads/.test(await main()) && await page.locator('select[aria-label="How many to check"] option').count() === 6);
 
   await page.locator('button', { hasText: /Check 3 Strong Signal leads/ }).click();
   await page.waitForFunction(() => /Checked 3 of 3/.test(document.querySelector('main').innerText), null, { timeout: 60000 });
@@ -103,13 +113,18 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('matched on a second address on the contact', /Ended/.test(ben), ben);
   ok('finished lead: step, end date and Apollo\'s reason', /step 5 of 5/.test(ben) && /ended 2026-08-11/.test(ben) && /talked on phone/.test(ben), ben);
   const nia = await rowOf('NEW CO');
-  ok('not found reads as a checked "No"', /\bNo\b/.test(nia) && /Apollo check/.test(nia), nia);
+  ok('not found reads as a checked "Not in Apollo"', /Not in Apollo/.test(nia) && /checked \d{4}-\d\d-\d\d/.test(nia), nia);
+  ok('an ended sequence Apollo closed as "talked on phone" reads as reached', /Ended · reached/.test(ben), ben);
+  ok('the note from the scan shows in the table', /Google Workspace|Microsoft 365|240/.test(await rowOf('ACTIVE CO')), await rowOf('ACTIVE CO'));
+  const tiles = await main();
+  ok('"Needs a sequence" counts never-reached + no sequence + not in Apollo', /1\s*Needs a sequence/.test(tiles), (tiles.match(/\d+\s*Needs a sequence/) || [''])[0]);
 
   console.log('\n== it sticks, and All leads sees it ==');
   await page.reload(); await sleep(1200);
   await nav('In Apollo');
-  await page.locator('.vault-tile', { hasText: 'Active in a sequence' }).click(); await sleep(300);
+  await page.locator('.vault-tile', { hasText: 'Needs a sequence' }).click(); await sleep(300);
   ok('survives a reload', /step 2 of 5/.test(await rowOf('ACTIVE CO')));
+  await page.selectOption('select[aria-label="Stored as"]', 'strong'); await sleep(300);
   ok('re-run skips leads checked this week', /Check 0 Strong Signal leads/.test(await main()));
   console.log('\n== pick leads one by one ==');
   const nCalls1 = (await page.evaluate(() => window.__calls)).length;
@@ -175,6 +190,41 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('lead view has a one-lead Apollo check', await page.locator('[role=dialog] button', { hasText: /check in Apollo/i }).count() === 1);
   ok('lead view shows sequence, step and the live check date', /Dynamics Sequence · active · step 2 of 5/.test(dlg) && /Checked live/.test(dlg), dlg.slice(0, 500));
   await page.keyboard.press('Escape'); await sleep(300);
+  console.log('\n== download where they stand ==');
+  await nav('In Apollo');
+  if (await page.locator('.vault-tile[aria-pressed="true"]').count()) { await page.locator('.vault-tile[aria-pressed="true"]').click(); await sleep(300); }
+  await page.locator('button', { hasText: /^Clear$/ }).click().catch(() => {});
+  await page.locator('.data-table tbody tr', { hasText: 'ACTIVE CO' }).first().locator('input[type=checkbox]').check(); await sleep(200);
+  ok('the download button follows the selection', await page.locator('button', { hasText: /Download 1 selected/ }).count() === 1);
+  await page.locator('button', { hasText: /Download 1 selected/ }).click(); await sleep(500);
+  const saved = await page.evaluate(() => window.__saved);
+  const body = saved.length ? saved[saved.length - 1].data : '';
+  const lines = body.trim().split(/\r?\n/);
+  ok('the CSV has one lead with where it stands', lines.length === 2 && /Apollo Status/.test(lines[0]) && /Ada/.test(lines[1]) && /Active in a sequence/.test(lines[1]) && /Dynamics Sequence/.test(lines[1]) && /2 of 5/.test(lines[1]), lines.join(' || ').slice(0, 400));
+  await page.locator('button', { hasText: /^Clear$/ }).click(); await sleep(200);
+  ok('with nothing ticked it downloads what is shown', await page.locator('button', { hasText: /^⬇ Download \d+ shown$/ }).count() === 1);
+  console.log('\n== classify into a list ==');
+  await page.locator('.data-table tbody tr', { hasText: 'NEW CO' }).first().locator('input[type=checkbox]').check(); await sleep(200);
+  await page.fill('input[aria-label="New list name"]', 'Never added');
+  await page.locator('button', { hasText: /^Add 1 to list$/ }).click(); await sleep(500);
+  ok('selected leads go into a new list', /Added 1 to "Never added"/.test(await main()));
+  await nav('Lists'); await sleep(500);
+  const lt = await main();
+  ok('the list shows in Lists, carrying where the lead stood', /Never added/.test(lt), lt.slice(0, 300));
+  console.log('\n== Apollo hourly limit ==');
+  await nav('In Apollo');
+  await page.locator('label', { hasText: 'Re-check ones done this week' }).locator('input').check(); await sleep(200);
+  await page.evaluate(() => { window.__rateLimitAfter = window.__calls.filter(c => c.tool.endsWith('contacts_search')).length + 1; });
+  const nBefore = await page.evaluate(() => window.__calls.length);
+  await page.locator('button', { hasText: /^Check \d+ (Strong Signal )?lead/ }).click();
+  await page.waitForFunction(() => /Apollo allows 400 lookups an hour/.test(document.querySelector('main').innerText), null, { timeout: 30000 });
+  const tl = await main();
+  ok('the hourly cap pauses the run with a come-back time', /Apollo allows 400 lookups an hour/.test(tl) && /run it again after about/.test(tl), tl.match(/Checked[^\n]{0,240}/)?.[0]);
+  await page.waitForFunction(() => /Checked \d/.test(document.querySelector('[aria-label="Apollo check"]')?.innerText || ''), null, { timeout: 30000 });
+  const line = (await page.locator('[aria-label="Apollo check"]').innerText()).replace(/\s+/g, ' ');
+  ok('it stops instead of failing every lead', /Checked 1 of \d/.test(line) && !/failed/.test(line), line);
+  ok('it stops calling Apollo once refused', (await page.evaluate(() => window.__calls.length)) - nBefore <= 6);
+  await page.evaluate(() => { window.__rateLimitAfter = null; });
   ok('no page errors', errs.length === 0, errs.join(' | '));
   await b.close();
   console.log(`\n${pass}/${pass + fail} checks passed`);

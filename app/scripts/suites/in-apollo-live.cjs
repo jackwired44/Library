@@ -58,15 +58,19 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   console.log('\n== it shows who is active, and in which sequence ==');
   await nav('In Apollo');
   let t = await main();
-  ok('tiles count active / ended / not in Apollo', /1 Active in a sequence/.test(t) && /1 In Apollo, sequence ended/.test(t) && /1 Not in Apollo/.test(t), t.slice(0, 500));
+  // An imported sync with no checks yet: Ben's sequence ended with no
+  // conversation recorded, so he reads "never reached"; Nia was never
+  // looked up, so she is "Not checked yet" rather than "Not in Apollo".
+  ok('tiles count active / ended / not checked', /1 Active in a sequence/.test(t) && /1 Sequence ended, never reached/.test(t) && /1 Not checked yet/.test(t), t.slice(0, 700));
   ok('active-by-sequence lists the live sequence', /Active by sequence: Jack Main Sequence 1/.test(t), t.slice(0, 500));
+  await page.locator('.vault-tile', { hasText: 'Active in a sequence' }).click(); await sleep(400);
   let r = await rows();
   ok('default view lists the active lead with its sequence', /Ada Brant[^|]*Active[^|]*Jack Main Sequence · active/.test(r) && !/Ben Cole/.test(r), r);
   ok('  and its ended sequence too, marked ended', /Ada Brant[^|]*Old Sequence · finished/.test(r), r);
-  await page.locator('.vault-tile', { hasText: 'In Apollo, sequence ended' }).click(); await sleep(400);
+  await page.locator('.vault-tile', { hasText: 'Sequence ended, never reached' }).click(); await sleep(400);
   r = await rows();
   ok('ended view shows Ben in Carly Main Sequence', /Ben Cole[^|]*Ended[^|]*Carly Main Sequence/.test(r), r);
-  await page.locator('.vault-tile', { hasText: 'Not in Apollo' }).click(); await sleep(400);
+  await page.locator('.vault-tile', { hasText: 'Not checked yet' }).click(); await sleep(400);
   r = await rows();
   ok('not-in-Apollo view shows Nia only', /Nia Rowe/.test(r) && !/Ada Brant/.test(r), r);
 

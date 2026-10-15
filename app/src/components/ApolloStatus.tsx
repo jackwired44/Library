@@ -11,25 +11,83 @@
 //   - the pulled Apollo uploads (the roster), matched by email or a unique
 //     full name, which carries each sequence with "(active)" on live ones.
 // Nothing here writes to Apollo or assigns anything.
+import RateLimitNote from "./RateLimitNote";
+import { leadsDueForApollo } from "./ApolloSyncPanel";
 import { useMemo, useRef, useState } from "react";
+import { toCSV, downloadBlob } from "../lib/csv";
+import { stripSnippetPrefix, type ExportRow } from "../lib/detection";
+import type { LeadList } from "../lib/leadLists";
 import type { StoredLead } from "../lib/leadStore";
 import { apolloHitFor, type RosterIndex } from "../lib/apolloRoster";
 import { DEFAULT_PULL_MONTHS, type PullProgress, type CheckProgress } from "../lib/apolloLive";
 import { VERDICT_META, VERDICT_ORDER, verdictOf, type Verdict } from "../lib/leadStatus";
 
-type Status = "active" | "finished" | "none" | "out";
-const STATUS_META: Record<Status, { label: string; hint: string; color: string; bg: string }> = {
-  active: { label: "Active in a sequence", hint: "In Apollo and live in at least one sequence right now.", color: "#0A66C2", bg: "#EAF3FC" },
-  finished: { label: "In Apollo, sequence ended", hint: "In Apollo; every sequence they were in has finished, paused or stopped.", color: "#5B3FC4", bg: "#EEEAFC" },
-  none: { label: "In Apollo, no sequence", hint: "A contact in Apollo, never put in a sequence.", color: "#4C6167", bg: "#EEF1F2" },
-  out: { label: "Not in Apollo", hint: "Not found by the Apollo check, a sync or your pulled uploads. \"Matched by\" says whether it was actually looked up.", color: "#4C6167", bg: "transparent" },
+// Per Jack: "i want to be able to see where a lead stands and act on the
+// ones who have never been reached or slip being added into a sequence".
+// So an ended sequence is split by whether Apollo says the person was
+// reached, and "not checked yet" is its own state rather than being
+// counted as "not in Apollo" — the two mean very different things.
+type Status = "active" | "finished" | "reached" | "none" | "out" | "unchecked";
+const STATUS_META: Record<Status, { label: string; short: string; hint: string; color: string; bg: string }> = {
+  active: { label: "Active in a sequence", short: "Active", hint: "In Apollo and live in at least one sequence right now.", color: "#0A66C2", bg: "#EAF3FC" },
+  finished: { label: "Sequence ended, never reached", short: "Ended · not reached", hint: "Every sequence they were in has ended or paused, and Apollo records no conversation, reply or meeting. Ready to go again.", color: "#8A5A00", bg: "#FFF4DD" },
+  reached: { label: "Sequence ended, reached", short: "Ended · reached", hint: "A sequence ended because they replied, were spoken to, booked, or opted out. Not a re-add.", color: "#5B3FC4", bg: "#EEEAFC" },
+  none: { label: "In Apollo, no sequence", short: "No sequence", hint: "A contact in Apollo that was never put in a sequence.", color: "#B5443B", bg: "#FBEAE8" },
+  out: { label: "Not in Apollo", short: "Not in Apollo", hint: "Looked up in Apollo and not found — never added.", color: "#B5443B", bg: "#FBEAE8" },
+  unchecked: { label: "Not checked yet", short: "Not checked", hint: "Not looked up in Apollo yet. Run a check to see where it stands.", color: "#4C6167", bg: "#EEF1F2" },
 };
-const STATUS_ORDER: Status[] = ["active", "finished", "none", "out"];
+const STATUS_ORDER: Status[] = ["active", "finished", "reached", "none", "out", "unchecked"];
+/** The ones to act on: never reached, or never put into a sequence. */
+const NEEDS: ReadonlySet<Status> = new Set(["finished", "none", "out"]);
+type StatusFilter = Status | "all" | "needs";
+/** An ended sequence whose reason means a person answered or closed it out. */
+const REACHED_REASON_RE = /talk|spoke|repl|meet|book|demo|interest|unsub|opt.?out|do not|bounc|wrong|left company/i;
 
 interface Seq { name: string; active: boolean; status: string; step: number | null; addedAt: string; steps?: number; finishedAt?: string; reason?: string }
 interface Row { lead: StoredLead; status: Status; seqs: Seq[]; how: string }
 
 const PAGE = 100;
+
+// Per Jack: "select the leads and download them to a csv for export ... after
+// its confirmed where they stand". One row per lead; a lead in several
+// sequences lists them all, the live one first.
+const STATUS_EXPORT_COLUMNS = ["First Name", "Last Name", "Company", "Email", "Work Direct Phone", "Mobile Phone", "Title",
+  "Stored As", "Apollo Status", "Sequence", "Sequence Status", "Step", "Added", "Ended", "Apollo Reason", "Checked On", "Matched By", "Notes"] as const;
+
+function exportRow(r: Row): Record<string, string> {
+  const [first, ...rest] = (r.lead.contact || "").trim().split(/\s+/);
+  const seqs = [...r.seqs].sort((a, b) => Number(b.active) - Number(a.active));
+  const join = (f: (s: Seq) => string) => seqs.map(f).filter(Boolean).join(" | ");
+  return {
+    "First Name": first || "", "Last Name": rest.join(" "), Company: r.lead.company, Email: r.lead.email,
+    "Work Direct Phone": r.lead.phone, "Mobile Phone": r.lead.mobilePhone, Title: r.lead.title,
+    "Stored As": VERDICT_META[verdictOf(r.lead.tier)].label,
+    "Apollo Status": STATUS_META[r.status].label,
+    Sequence: join((s) => s.name),
+    "Sequence Status": join((s) => (s.active ? "active" : s.status)),
+    Step: join((s) => (s.step != null ? `${s.step}${s.steps ? ` of ${s.steps}` : ""}` : "")),
+    Added: join((s) => (s.addedAt || "").slice(0, 10)),
+    Ended: join((s) => (s.finishedAt || "").slice(0, 10)),
+    "Apollo Reason": join((s) => s.reason || ""),
+    "Checked On": (r.lead.apolloCheckedAt || "").slice(0, 10),
+    "Matched By": r.how,
+    Notes: r.lead.notes,
+  };
+}
+
+/** A lead in the list/export shape, with where it stands in Apollo up front
+ *  in the note so a list keeps the classification it was built from. */
+function listRowFor(r: Row): ExportRow {
+  const [first, ...rest] = (r.lead.contact || "").trim().split(/\s+/);
+  const live = r.seqs.find((s) => s.active) ?? r.seqs[0];
+  const where = `Apollo: ${STATUS_META[r.status].short}${live ? ` (${live.name})` : ""}`;
+  const note = stripSnippetPrefix(r.lead.notes || "");
+  return {
+    "First Name": first || "", "Last Name": rest.join(" "), Title: r.lead.title, "Company Name": r.lead.company,
+    Email: r.lead.email, "Work Direct Phone": r.lead.phone, "Mobile Phone": r.lead.mobilePhone,
+    "Number of Employees": "", "Product Area": r.lead.productArea, Notes: note ? `${where} · ${note}` : where,
+  };
+}
 
 function rowFor(l: StoredLead, index: RosterIndex | null): Row {
   if (l.apollo) {
@@ -41,25 +99,33 @@ function rowFor(l: StoredLead, index: RosterIndex | null): Row {
     const how = lv
       ? [`Apollo check ${l.apollo.syncedAt.slice(0, 10)}`, lv.owner && `owner ${lv.owner}`, lv.lastActivityAt && `last activity ${lv.lastActivityAt}`].filter(Boolean).join(" · ")
       : "Apollo sync";
-    return { lead: l, seqs, how, status: seqs.some((s) => s.active) ? "active" : seqs.length ? "finished" : "none" };
+    return { lead: l, seqs, how, status: statusOfSeqs(seqs) };
   }
   const hit = apolloHitFor({ email: l.email, contact: l.contact }, index);
   if (!hit) return l.apolloCheckedAt
     ? { lead: l, seqs: [], how: `Apollo check ${l.apolloCheckedAt.slice(0, 10)}`, status: "out" }
-    : { lead: l, seqs: [], how: "not checked yet", status: "out" };
+    : { lead: l, seqs: [], how: "not checked yet", status: "unchecked" };
   const seqs = hit.sequences.map((label) => {
     const active = /\(active\)$/.test(label);
     return { name: label.replace(/\s*\(active\)$/, ""), active, status: active ? "active" : "ended", step: null, addedAt: "" };
   });
   return {
     lead: l, seqs, how: hit.how === "email" ? "email" : "name",
-    status: seqs.some((s) => s.active) ? "active" : seqs.length ? "finished" : "none",
+    status: statusOfSeqs(seqs),
   };
 }
 
+function statusOfSeqs(seqs: Seq[]): Status {
+  if (seqs.some((s) => s.active)) return "active";
+  if (!seqs.length) return "none";
+  return seqs.some((s) => s.reason && REACHED_REASON_RE.test(s.reason)) ? "reached" : "finished";
+}
+
 export default function ApolloStatus({
-  leads, apolloIndex, rosterPulledAt = "", onPullApollo, onCheckLeads,
+  leads, apolloIndex, rosterPulledAt = "", onPullApollo, onCheckLeads, lists = [], onAddToList,
 }: {
+  lists?: LeadList[];
+  onAddToList?: (rows: { row: ExportRow; scanner: "main" | "smc" | "csp" }[], opts: { existingId?: string; newName?: string }) => { listId: string; added: number; skipped: number } | null;
   leads: StoredLead[];
   apolloIndex: RosterIndex | null;
   rosterPulledAt?: string;
@@ -67,8 +133,13 @@ export default function ApolloStatus({
   onCheckLeads?: (leads: StoredLead[], onProgress: (p: CheckProgress) => void, signal: AbortSignal) => Promise<CheckProgress>;
 }) {
   // Per Jack: "the contacts in the all leads here for strong signal only".
-  const [verdictF, setVerdictF] = useState<Verdict | "all">("strong");
-  const [statusF, setStatusF] = useState<Status | "all">("active");
+  // Per Jack: "every lead uploaded into this platform regardless of the
+  // scanner will get ran against sequences in apollo" and "just because its
+  // a bad lead doesnt mean we wont ever reach out". So every tier, by default.
+  const [verdictF, setVerdictF] = useState<Verdict | "all">("all");
+  // Opens on the leads to act on once anything has been checked; before
+  // that "needs" would be empty, so it opens on everyone.
+  const [statusF, setStatusF] = useState<StatusFilter>(() => (leads.some((l) => l.apolloCheckedAt || l.apollo) ? "needs" : "all"));
   const [check, setCheck] = useState<CheckProgress | null>(null);
   const [checkError, setCheckError] = useState("");
   const [recheck, setRecheck] = useState(false);
@@ -85,19 +156,23 @@ export default function ApolloStatus({
   // Per Jack: "need to be able to select the quantity and not just all at
   // once every time". How many of the due Strong Signal leads one click runs.
   const [qty, setQty] = useState<number>(100);
+  // Per Jack: "lists manually created so i can classify them all and then
+  // download as needed or edit" — these are the platform's own Lists.
+  const [listTarget, setListTarget] = useState<string>("");
+  const [newListName, setNewListName] = useState("");
+  const [listNotice, setListNotice] = useState("");
 
   const rows = useMemo(() => leads
     .filter((l) => verdictF === "all" || verdictOf(l.tier) === verdictF)
     .map((l) => rowFor(l, apolloIndex)), [leads, apolloIndex, verdictF]);
 
-  // The check runs over Strong Signal leads only. Leads looked up in the
+  // The check runs over the leads the "Stored as" filter shows (every tier
+  // by default), Strong Signal first, then newest. Leads looked up in the
   // last 7 days are skipped unless "re-check" is ticked, so a stopped run
   // picks up where it left off.
-  const strong = useMemo(() => leads.filter((l) => verdictOf(l.tier) === "strong"), [leads]);
-  const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString();
-  const toCheck = useMemo(() => recheck ? strong : strong.filter((l) => !(l.apolloCheckedAt && l.apolloCheckedAt > weekAgo)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [strong, recheck]);
+  const scope = useMemo(() => leads.filter((l) => verdictF === "all" || verdictOf(l.tier) === verdictF), [leads, verdictF]);
+  const toCheck = useMemo(() => recheck ? leadsDueForApollo(scope, Date.now(), true) : leadsDueForApollo(scope), [scope, recheck]);
+  const scopeNoun = verdictF === "all" ? "lead" : `${VERDICT_META[verdictF].label} lead`;
 
   // A selection is checked as picked — any tier, re-check or not.
   const selected = useMemo(() => leads.filter((l) => sel.has(l.key)), [leads, sel]);
@@ -119,9 +194,9 @@ export default function ApolloStatus({
   }
 
   const counts = useMemo(() => {
-    const m: Record<Status, number> = { active: 0, finished: 0, none: 0, out: 0 };
+    const m: Record<Status, number> = { active: 0, finished: 0, reached: 0, none: 0, out: 0, unchecked: 0 };
     for (const r of rows) m[r.status]++;
-    return m;
+    return { ...m, needs: m.finished + m.none + m.out };
   }, [rows]);
 
   // Sequences people are ACTIVE in, with how many — the "which sequence".
@@ -138,7 +213,7 @@ export default function ApolloStatus({
 
   const needle = q.trim().toLowerCase();
   const filtered = useMemo(() => rows.filter((r) =>
-    (statusF === "all" || r.status === statusF)
+    (statusF === "all" || (statusF === "needs" ? NEEDS.has(r.status) : r.status === statusF))
     && (seqF === "all" || r.seqs.some((s) => s.name === seqF && (statusF !== "active" || s.active)))
     && (!needle || `${r.lead.company} ${r.lead.contact} ${r.lead.email}`.toLowerCase().includes(needle)),
   ), [rows, statusF, seqF, needle]);
@@ -173,7 +248,7 @@ export default function ApolloStatus({
         <div className="panel" style={{ marginBottom: 10 }}>
           <div className="panel-body" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", fontSize: 12.5 }}>
             <span style={{ color: "var(--muted)" }}>
-              Look up each <b style={{ color: "var(--ink)" }}>Strong Signal</b> lead in Apollo — sequence, step, finished and why.
+              Look up where each lead stands in Apollo, any tier, Strong Signal first — sequence, step, finished and why.
               Free and read-only; nothing is written to Apollo.
             </span>
             <div className="toolbar-spacer" />
@@ -191,13 +266,13 @@ export default function ApolloStatus({
                 : <>
                     <select className="field" aria-label="How many to check" value={qty}
                             onChange={(e) => setQty(Number(e.target.value))}>
-                      {[10, 25, 50, 100, 250, 500, 1000].map((n) => <option key={n} value={n}>{n.toLocaleString()} at a time</option>)}
+                      {[25, 50, 100, 200, 400].map((n) => <option key={n} value={n}>Batch of {n}{n === 400 ? " (Apollo's hourly max)" : ""}</option>)}
                       <option value={0}>All due</option>
                     </select>
                     <button className="btn btn-sm btn-primary" disabled={!toCheck.length} onClick={() => runCheck()}
                             title="One Apollo contact search per lead, by email (or full name + company). Free, read-only. Next run picks up where this one stopped.">
                       {(() => { const n = qty > 0 ? Math.min(qty, toCheck.length) : toCheck.length;
-                        return <>Check {n.toLocaleString()} Strong Signal lead{n === 1 ? "" : "s"}{n < toCheck.length ? <span style={{ opacity: 0.75 }}> of {toCheck.length.toLocaleString()}</span> : null}</>; })()}
+                        return <>Check {n.toLocaleString()} {scopeNoun}{n === 1 ? "" : "s"}{n < toCheck.length ? <span style={{ opacity: 0.75 }}> of {toCheck.length.toLocaleString()}</span> : null}</>; })()}
                     </button>
                   </>}
           </div>
@@ -208,6 +283,7 @@ export default function ApolloStatus({
                 {" · "}<b>{check.found.toLocaleString()}</b> in Apollo · {check.notFound.toLocaleString()} not in Apollo
                 {check.skipped > 0 && <> · {check.skipped.toLocaleString()} skipped (no email or full name)</>}
                 {check.errors > 0 && <span style={{ color: "#B5443B" }}> · {check.errors} failed{check.lastError ? `: ${check.lastError}` : ""}</span>}
+                <RateLimitNote progress={check} />
               </>}
               {checkError && <span style={{ color: "#B5443B" }}> Apollo check stopped: {checkError}</span>}
             </div>
@@ -249,6 +325,13 @@ export default function ApolloStatus({
 
       <div className="panel" style={{ marginBottom: 10 }}>
         <div className="panel-body" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <button className="vault-tile" aria-pressed={statusF === "needs"}
+                  title="Never reached, or never put in a sequence: sequence ended without a conversation, in Apollo with no sequence, or not in Apollo at all."
+                  style={{ borderColor: statusF === "needs" ? "var(--brand, #0E7A72)" : undefined, borderWidth: 2, background: statusF === "needs" ? "var(--brand-subtle, #E3F3F1)" : undefined }}
+                  onClick={() => { setStatusF(statusF === "needs" ? "all" : "needs"); setPage(1); }}>
+            <span className="vault-num" style={{ color: "var(--brand, #0E7A72)" }}>{counts.needs.toLocaleString()}</span>
+            <span><b>Needs a sequence</b></span>
+          </button>
           {STATUS_ORDER.map((s) => {
             const on = statusF === s; const m = STATUS_META[s];
             return (
@@ -301,12 +384,42 @@ export default function ApolloStatus({
                   onClick={() => setSel(new Set(filtered.map((r) => r.lead.key)))}>
             Select all {filtered.length.toLocaleString()} matched
           </button>
+          <button className="btn btn-sm btn-secondary" disabled={!sel.size && !filtered.length}
+                  title="A CSV of these leads with where each one stands in Apollo"
+                  onClick={() => {
+                    const pick = sel.size ? rows.filter((r) => sel.has(r.lead.key)) : filtered;
+                    const stamp = new Date().toISOString().slice(0, 10);
+                    void downloadBlob(toCSV(pick.map(exportRow), STATUS_EXPORT_COLUMNS), `apollo-status-${stamp}.csv`);
+                  }}>
+            ⬇ Download {sel.size ? `${sel.size.toLocaleString()} selected` : `${filtered.length.toLocaleString()} shown`}
+          </button>
           {sel.size > 0 && <>
             <span><b>{sel.size.toLocaleString()}</b> selected</span>
             <button className="btn btn-sm btn-ghost" onClick={() => setSel(new Set())}>Clear</button>
+            {onAddToList && <>
+              <select className="field" aria-label="Add to list" value={listTarget} onChange={(e) => setListTarget(e.target.value)}>
+                <option value="">＋ New list…</option>
+                {lists.map((l) => <option key={l.id} value={l.id}>{l.name} ({l.rows.length})</option>)}
+              </select>
+              {!listTarget && <input className="field" placeholder="List name" aria-label="New list name" value={newListName}
+                                     onChange={(e) => setNewListName(e.target.value)} style={{ width: 170 }} />}
+              <button className="btn btn-sm btn-primary" disabled={!listTarget && !newListName.trim()}
+                      onClick={() => {
+                        const picked = rows.filter((r) => sel.has(r.lead.key));
+                        const res = onAddToList(picked.map((r) => ({ row: listRowFor(r), scanner: r.lead.source })),
+                          listTarget ? { existingId: listTarget } : { newName: newListName.trim() });
+                        if (!res) { setListNotice("Couldn't add to that list."); return; }
+                        const name = lists.find((l) => l.id === res.listId)?.name ?? newListName.trim();
+                        setListNotice(`Added ${res.added.toLocaleString()} to "${name}"${res.skipped ? ` (${res.skipped} already there)` : ""}. Open Lists to edit or download it.`);
+                        setListTarget(res.listId); setNewListName(""); setSel(new Set());
+                      }}>
+                Add {sel.size.toLocaleString()} to list
+              </button>
+            </>}
           </>}
-          {statusF === "active" && counts.active === 0 && (
-            <span className="muted">Nobody shows as active yet — click "Active in a sequence" again to list every lead and pick from them.</span>
+          {listNotice && <span style={{ color: "var(--success, #1F7A4D)" }} aria-label="List notice">{listNotice}</span>}
+          {statusF === "needs" && counts.unchecked > 0 && (
+            <span className="muted">{counts.unchecked.toLocaleString()} not checked yet aren't counted here — check them to see where they stand.</span>
           )}
         </div>
       </div>
@@ -320,12 +433,11 @@ export default function ApolloStatus({
                        checked={shown.length > 0 && shown.every((r) => sel.has(r.lead.key))}
                        onChange={(e) => setSel((s) => { const n = new Set(s); shown.forEach((r) => (e.target.checked ? n.add(r.lead.key) : n.delete(r.lead.key))); return n; })} />
               </th>
-              <th>Company</th>
-              <th>Contact</th>
+              <th>Lead</th>
+              <th>Note</th>
               <th>Stored as</th>
-              <th>In Apollo</th>
+              <th>Where they stand</th>
               <th>Sequence</th>
-              <th title="How this lead was matched to Apollo">Matched by</th>
               {onCheckLeads && <th />}
             </tr>
           </thead>
@@ -340,11 +452,22 @@ export default function ApolloStatus({
                     <input type="checkbox" aria-label={`Select ${r.lead.contact || r.lead.company}`} checked={sel.has(r.lead.key)}
                            onChange={() => setSel((s) => { const n = new Set(s); if (n.has(r.lead.key)) n.delete(r.lead.key); else n.add(r.lead.key); return n; })} />
                   </td>
-                  <td className="strong" title={r.lead.company}>{r.lead.company || "—"}</td>
-                  <td title={[r.lead.contact, r.lead.title, r.lead.email].filter(Boolean).join(" · ")}>{r.lead.contact || "—"}</td>
+                  <td style={{ minWidth: 170 }}>
+                    <div className="strong" title={r.lead.company}>{r.lead.company || "—"}</div>
+                    <div className="muted" style={{ fontSize: 12 }} title={[r.lead.contact, r.lead.title, r.lead.email].filter(Boolean).join(" · ")}>
+                      {r.lead.contact || "—"}{r.lead.title ? ` · ${r.lead.title}` : ""}
+                    </div>
+                  </td>
+                  <td style={{ minWidth: 260, maxWidth: 420 }} title={stripSnippetPrefix(r.lead.notes || "")}>
+                    <div style={{ display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden", fontSize: 12.5, lineHeight: 1.4 }}>
+                      {stripSnippetPrefix(r.lead.notes || "") || <span className="muted">—</span>}
+                    </div>
+                  </td>
                   <td><span className="pill" style={{ color: v.color, background: v.bg }}>{v.label}</span></td>
-                  <td>{r.status === "out" ? <span className="muted">No</span>
-                    : <span className="pill" style={{ color: m.color, background: m.bg }}>{r.status === "active" ? "Active" : r.status === "finished" ? "Ended" : "No sequence"}</span>}</td>
+                  <td title={`${m.hint}${r.how ? ` · matched by ${r.how}` : ""}`}>
+                    <span className="pill" style={{ color: m.color, background: m.bg, whiteSpace: "nowrap" }}>{m.short}</span>
+                    {r.how && r.status !== "unchecked" && <div className="muted" style={{ fontSize: 11, marginTop: 2, maxWidth: 220 }}>{r.how.replace(/^Apollo check /, "checked ")}</div>}
+                  </td>
                   <td className="wide">
                     {ordered.length === 0 ? <span className="muted">—</span> : ordered.map((s, i) => (
                       <div key={`${s.name}-${i}`} style={{ color: s.active ? "var(--ink)" : "var(--muted)" }}>
@@ -359,7 +482,6 @@ export default function ApolloStatus({
                       </div>
                     ))}
                   </td>
-                  <td className="muted">{r.how || "—"}</td>
                   {onCheckLeads && (
                     <td>
                       <button className="btn btn-sm btn-ghost" disabled={!!check && !check.finished} onClick={() => runCheck([r.lead])}

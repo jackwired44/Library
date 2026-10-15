@@ -15,6 +15,7 @@
 //   - The table renders one page at a time, at most 500 rows. 77,500 DOM
 //     nodes is what an unpaginated Contacts table measured at 3,000 rows.
 //   - Selection is a Set of keys, so it survives paging and refiltering.
+import RateLimitNote from "./RateLimitNote";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   LEAD_SOURCE_META, newestNote, noteSegments, outcomeSummary,
@@ -82,8 +83,9 @@ const FILES_LABEL: Record<Exclude<FilesFilter, "all">, string> = {
   "3": "On 3+ files",
 };
 
-type SortKey = "last" | "first" | "company" | "files" | "score" | "calls" | "nextdate" | "added" | "taskdone";
+type SortKey = "received" | "last" | "first" | "company" | "files" | "score" | "calls" | "nextdate" | "added" | "taskdone";
 const SORT_LABEL: Record<SortKey, string> = {
+  received: "CSV date (newest)",
   last: "Last seen (newest)",
   first: "First seen (newest)",
   company: "Company A–Z",
@@ -236,7 +238,9 @@ export default function AllLeads({
   const [bulkStatus, setBulkStatus] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const [sort, setSort] = useState<SortKey>("last");
+  // Per Jack: "auto filter according to the csv date it was uploaded from" —
+  // newest file first, by the date the CSV states (else its upload date).
+  const [sort, setSort] = useState<SortKey>("received");
   const [pageSize, setPageSize] = useState(100);
   const [page, setPage] = useState(1);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -403,6 +407,7 @@ export default function AllLeads({
     const out = leads.filter((l) => passes(l));
     const d = (l: StoredLead) => derived.get(l.key)!;
     const cmp: Record<SortKey, (a: StoredLead, b: StoredLead) => number> = {
+      received: (a, b) => (b.receivedOn || b.firstSeenAt).localeCompare(a.receivedOn || a.firstSeenAt) || b.lastSeenAt.localeCompare(a.lastSeenAt),
       last: (a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt),
       first: (a, b) => b.firstSeenAt.localeCompare(a.firstSeenAt),
       company: (a, b) => (a.company || "￿").localeCompare(b.company || "￿"),
@@ -1070,6 +1075,7 @@ export default function AllLeads({
               {" · "}<b>{check.found.toLocaleString()}</b> in Apollo · {check.notFound.toLocaleString()} not in Apollo
               {check.skipped > 0 && <> · {check.skipped.toLocaleString()} skipped (no email or full name)</>}
               {check.errors > 0 && <span style={{ color: "#B5443B" }}> · {check.errors} failed{check.lastError ? `: ${check.lastError}` : ""}</span>}
+                <RateLimitNote progress={check} />
               {!check.finished && check.total > 200 && <span className="muted"> · about {Math.max(1, Math.round((check.total - check.done) / 240))} min left; Stop keeps everything already read</span>}
             </>}
             {checkError && <span style={{ color: "#B5443B" }}> Apollo check stopped: {checkError}</span>}

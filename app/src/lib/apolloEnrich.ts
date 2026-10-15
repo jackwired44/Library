@@ -25,10 +25,37 @@ import type { ClaudeMcpNamespace } from "./claudeRuntime";
 
 export type ApolloAvailability = "available" | "not-connected" | "unsupported";
 
+// Per Jack: "nothing should be pushed to apollo make a rule". The platform
+// only ever READS Apollo. Every Apollo call in the app goes through getMcp,
+// so the rule lives here: only read tools are allowed through, and any
+// tool that could create, change, enroll, send or delete is refused before
+// it leaves the page — even if a future change tries to call one.
+const APOLLO_READ_TOOL_RE = /(?:^|_)(search|show|match|bulk_match|enrich|bulk_enrich|lookup|index|activity_feed|get_[a-z_]+|job_postings|aggregates|usage_stats[a-z_]*)$/;
+const APOLLO_WRITE_WORD_RE = /(?:^|_)(create|update|add|remove|delete|stop|send|approve|complete|skip|bulk_create|purchase|submit|install|log|push)(?:_|$)/;
+export function isApolloReadOnlyTool(tool: string): boolean {
+  const t = tool.toLowerCase();
+  return APOLLO_READ_TOOL_RE.test(t) && !APOLLO_WRITE_WORD_RE.test(t);
+}
+
+function readOnly(mcp: ClaudeMcpNamespace): ClaudeMcpNamespace {
+  return new Proxy(mcp, {
+    get(target, prop, recv) {
+      if (prop !== "callTool") return Reflect.get(target, prop, recv);
+      return (server: string, tool: string, input?: unknown, options?: { cache?: false; signal?: AbortSignal }) => {
+        if (/apollo/i.test(server) && !isApolloReadOnlyTool(tool)) {
+          return Promise.reject({ code: "write_blocked", message: `Blocked: this platform never writes to Apollo (${tool}).` });
+        }
+        return target.callTool(server, tool, input, options);
+      };
+    },
+  });
+}
+
 export async function getMcp(): Promise<ClaudeMcpNamespace | null> {
   try {
     if (typeof window === "undefined" || !window.claude?.use) return null;
-    return await window.claude.use("mcp");
+    const mcp = await window.claude.use("mcp");
+    return mcp ? readOnly(mcp) : null;
   } catch {
     return null;
   }

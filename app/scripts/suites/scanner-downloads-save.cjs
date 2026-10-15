@@ -50,89 +50,12 @@ const csv=[HEAD,...rows].join('\n');
  ok('combined count equals the two product lines summed', all === dyn + m365, `${dyn}+${m365} != ${all}`);
  ok('combined is not a third bucket', all === 2, `expected the 2 Strong Signal leads, got ${all}`);
 
- // --- folder picker: existing folders, month folders, and create-new ---
- const sel = page.locator('select[aria-label="Lead Library folder"]');
- ok('folder picker present', await sel.count() === 1);
-
- // Month folders are auto-seeded, so the current month almost always
- // already has a folder and is offered as a group id, not a month key.
- // The picker used to hold the month key in state while a controlled
- // <select> with no matching option displayed its FIRST entry — so it
- // read "May 2026" and filed into September. What is shown and what is
- // saved must be the same folder.
- const shownLabel = await sel.evaluate(el => el.options[el.selectedIndex] && el.options[el.selectedIndex].textContent);
- const thisMonth = new Date().toLocaleString('en-US',{month:'long'}) + ' ' + new Date().getFullYear();
- ok('picker preselects the current month', shownLabel === thisMonth, `shows "${shownLabel}", expected "${thisMonth}"`);
- const selValue = await sel.inputValue();
- const optValues = await sel.locator('option').evaluateAll(os => os.map(o => o.value));
- ok('picker value matches a real option', optValues.includes(selValue), `${selValue} not in [${optValues.join(', ')}]`);
- const opts = await sel.locator('option').allInnerTexts();
- ok('offers a create-new option', opts.some(o=>/Create a new folder/.test(o)), opts.slice(0,6).join(' | '));
- ok('offers month folders', opts.some(o=>/\b20\d\d\b/.test(o)), opts.slice(0,6).join(' | '));
-
- // Name field only appears once "create new" is chosen.
- ok('name field hidden until needed', await page.locator('input[aria-label="New folder name"]').count() === 0);
- await sel.selectOption({label:'＋ Create a new folder…'}); await sleep(300);
- const nameField = page.locator('input[aria-label="New folder name"]');
- ok('name field appears', await nameField.count() === 1);
-
- // Saving with no name must refuse rather than create an unnamed folder.
- await page.click('button:has-text("Save to Lead Library")'); await sleep(500);
- let body = await page.locator('main').innerText();
- ok('refuses an unnamed new folder', /Name the new folder/.test(body), body.slice(0,200));
-
- await nameField.fill('Azure Push Q4');
- await page.click('button:has-text("Save to Lead Library")'); await sleep(900);
- body = await page.locator('main').innerText();
- ok('files into the new folder', /Filed 2 Strong Signal leads into the Azure Push Q4 folder/.test(body), body.slice(0,240));
- ok('save button locks after filing', /✓ Filed/.test(await page.locator('.panel').first().innerText()));
-
- // --- the folder really exists in the Lead Library, and survives a reload ---
- await page.reload(); await sleep(1500);
- if (await page.locator('input[aria-label="Email"]').count()) {
-   await page.fill('input[aria-label="Email"]','jack@wiredcio.com'); await page.fill('input[type=password]','changeme');
-   await page.click('button:has-text("Unlock")');
- }
- await page.locator('.side-nav-btn:has-text("All leads")').click(); await sleep(500); await page.locator('.seg-btn:has-text("Monthly files")').click(); await sleep(1200);
- const lib = await page.locator('main').innerText();
- ok('new folder persisted to the Lead Library', /Azure Push Q4/.test(lib), lib.slice(0,300));
-
- // --- "Load into Scanner" must carry the SCAN STATS, not just the rows ---
- // Jack caught this on a real seven-file upload: the Rows scanned tile read
- // 2,216 while Strong Signal 959 + Needs review 711 + Bad leads 546 summed
- // to exactly 2,216. That identity can only hold if nothing was dropped,
- // and the true figure was 5,599 — understated by 3,383, because this path
- // left lastScanStats null and the tile fell back to results.length.
- // Files live inside a collapsed folder, so expand it first; the control
- // on each file row is labelled just "Load".
- const folder = page.locator('main button', { hasText: /Azure Push Q4/ }).first();
- if (await folder.count()) { await folder.click(); await sleep(900); }
- const loadBtn = page.locator('main button', { hasText: /^Load$/ }).first();
- if (await loadBtn.count()) {
-   await loadBtn.click(); await sleep(1800);
-   const main = (await page.locator('main').innerText()).replace(/\s+/g,' ');
-   // The KPI labels are CSS-uppercased, so innerText reads them in caps —
-   // match case-insensitively or every one of these comes back null.
-   const tile = /Rows\s+scanned\s+(\d[\d,]*)/i.exec(main);
-   const signal = /Strong\s+Signal\s+(\d[\d,]*)/i.exec(main);
-   const review = /Needs\s+review\s+(\d[\d,]*)/i.exec(main);
-   const bad = /Bad\s+leads\s+(\d[\d,]*)/i.exec(main);
-   const n = (m) => m ? Number(m[1].replace(/,/g,'')) : null;
-   ok('Load into Scanner reports a Rows scanned figure', n(tile) !== null, main.slice(0,200));
-   // The file filed above holds only the Strong Signal rows, so every row
-   // loaded back clears detection and the sum legitimately equals the
-   // total. What must NOT happen is the tile reading BELOW the rows it is
-   // showing, which is what the fallback produced.
-   ok('  and it is never less than the rows on screen',
-      n(tile) >= (n(signal)||0) + (n(review)||0) + (n(bad)||0),
-      `tile ${n(tile)} vs ${n(signal)}+${n(review)}+${n(bad)}`);
-   // The accounting now sits under the Rows scanned tile:
-   // "N processed · N no signal · ...".
-   ok('  and the accounting line is shown rather than the narrow fallback',
-      /\d[\d,]*\s+processed\s*\u00b7/i.test(main), main.slice(0,400));
- } else {
-   ok('a Load control is present on a filed Lead library file', false, 'button not found');
- }
+ // Per Jack: "File Strong Signal leads into … Save to Lead Library — remove
+ // this on the scanner page". Every scanned row is already stored in All
+ // leads, so the post-scan filing row is gone from the Scanner.
+ ok('the Lead Library filing row is gone from the Scanner',
+    await page.locator('select[aria-label="Lead Library folder"]').count() === 0
+    && await page.locator('button:has-text("Save to Lead Library")').count() === 0);
 
  ok('no page errors', errs.length===0, errs.slice(0,2).join(' | '));
  console.log(`\n${pass}/${pass+fail} passed`);

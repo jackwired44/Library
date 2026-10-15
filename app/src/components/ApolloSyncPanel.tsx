@@ -6,6 +6,7 @@
 // while you move to another view; this panel only starts, stops and reports.
 // Read-only against Apollo, free (contacts_search), and — per "no calls or
 // downloads" — never changes call counts or what a download leaves out.
+import RateLimitNote from "./RateLimitNote";
 import { useMemo } from "react";
 import type { StoredLead } from "../lib/leadStore";
 import type { CheckProgress } from "../lib/apolloLive";
@@ -16,11 +17,11 @@ export const RECHECK_AFTER_DAYS = 7;
 
 /** Who to look up next: never-checked (or stale) leads, Strong Signal first,
  *  then the most recently seen. */
-export function leadsDueForApollo(leads: StoredLead[], now = Date.now()): StoredLead[] {
+export function leadsDueForApollo(leads: StoredLead[], now = Date.now(), includeRecent = false): StoredLead[] {
   const cutoff = new Date(now - RECHECK_AFTER_DAYS * 86_400_000).toISOString();
   const rank = (l: StoredLead) => (verdictOf(l.tier) === "strong" ? 0 : verdictOf(l.tier) === "review" ? 1 : 2);
   return leads
-    .filter((l) => !(l.apolloCheckedAt && l.apolloCheckedAt > cutoff))
+    .filter((l) => includeRecent || !(l.apolloCheckedAt && l.apolloCheckedAt > cutoff))
     .sort((a, b) => rank(a) - rank(b) || (b.lastSeenAt || "").localeCompare(a.lastSeenAt || ""));
 }
 
@@ -87,6 +88,7 @@ export default function ApolloSyncPanel({ leads, progress, error, onRun, onStop,
               {" · "}<b>{fmt(progress.found)}</b> in Apollo · {fmt(progress.notFound)} not in Apollo
               {progress.skipped > 0 && <> · {fmt(progress.skipped)} skipped (no email or full name)</>}
               {progress.errors > 0 && <span style={{ color: "#B5443B" }}> · {progress.errors} failed{progress.lastError ? `: ${progress.lastError}` : ""}</span>}
+                <RateLimitNote progress={progress} />
               {running && progress.total - progress.done > 240 && <span className="muted"> · about {mins(progress.total - progress.done)} min left</span>}
             </>}
             {error && <span style={{ color: "#B5443B" }}> Apollo check stopped: {error}</span>}

@@ -920,7 +920,7 @@ export default function App() {
           // Per Jack: "the apollo queue isnt what i want … i want to be able
           // to see if a lead is active in apollo from here and if so which
           // sequence", and "i dont want to push the leads over". Read-only.
-          <ApolloStatus leads={leads} apolloIndex={apolloIndex} rosterPulledAt={rosterPulledAt} onPullApollo={pullApollo} onCheckLeads={checkLeadsLive} />
+          <ApolloStatus leads={leads} apolloIndex={apolloIndex} rosterPulledAt={rosterPulledAt} onPullApollo={pullApollo} onCheckLeads={checkLeadsLive} lists={leadLists} onAddToList={addExportRowsToLists} />
         )}
         {(view === "allleads" || view === "library") && (
           // The Lead library lives inside All leads now. Per Jack: "re do

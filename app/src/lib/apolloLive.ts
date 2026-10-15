@@ -296,7 +296,18 @@ export function apolloStateFrom(c: Rec, meta: Map<string, SequenceMeta>, prev: A
   };
 }
 
-export interface CheckProgress { total: number; done: number; found: number; notFound: number; skipped: number; errors: number; finished: boolean; lastError?: string }
+/** Apollo allows this many contact searches an hour (measured: the 401st
+ *  call in an hour is refused with a rate-limit error). */
+export const APOLLO_LOOKUPS_PER_HOUR = 400;
+export interface CheckProgress { total: number; done: number; found: number; notFound: number; skipped: number; errors: number; finished: boolean; lastError?: string;
+  /** Set when Apollo's hourly limit stopped the run: leads not reached stay unchecked, so the next run picks them up. */
+  rateLimitedAt?: string }
+
+const RATE_LIMIT_RE = /rate.?limit|too many requests|\b429\b|per hour|quota/i;
+export function isRateLimitError(err: unknown): boolean {
+  const e = err as { code?: string; message?: string } | null;
+  return !!e && (e.code === "rate_limited" || RATE_LIMIT_RE.test(String(e.message ?? err)));
+}
 export interface CheckResult { key: string; at: string; apollo: ApolloLeadState | null }
 
 /** Look up each lead in Apollo, a few at a time, handing results over in
@@ -315,10 +326,11 @@ export async function checkLeadsInApollo(opts: {
   let batch: CheckResult[] = [];
   const flush = async () => { if (batch.length) { const b = batch; batch = []; await opts.onResults(b); } };
 
-  async function one(lead: StoredLead) {
+  /** False only when Apollo's hourly cap refused this lead — it stays unchecked. */
+  async function one(lead: StoredLead): Promise<boolean> {
     const e = normEmail(lead.email);
     const query = e.includes("@") ? e : lead.contact.trim().split(/\s+/).length >= 2 ? lead.contact.trim() : "";
-    if (!query) { p.skipped++; return; }
+    if (!query) { p.skipped++; return true; }
     try {
       const res = await h.mcp.callTool(h.server, h.contactsTool, { q_keywords: query, per_page: 10 }, { cache: false, signal: opts.signal });
       const list = Array.isArray((res.payload as Rec | undefined)?.contacts) ? ((res.payload as Rec).contacts as Rec[]) : [];
@@ -327,16 +339,24 @@ export async function checkLeadsInApollo(opts: {
       if (c) { p.found++; batch.push({ key: lead.key, at, apollo: apolloStateFrom(c, meta, lead.apollo, at) }); }
       else { p.notFound++; batch.push({ key: lead.key, at, apollo: null }); }
     } catch (err) {
-      if (opts.signal?.aborted) return;
+      if (opts.signal?.aborted) return false;
+      // Apollo's hourly cap: stop the whole run, write nothing for this lead,
+      // and say when to come back. Hammering on would only fail every lead.
+      if (isRateLimitError(err)) {
+        if (!p.rateLimitedAt) p.rateLimitedAt = new Date().toISOString();
+        queue.length = 0;
+        return false;
+      }
       p.errors++;
       p.lastError = describeApolloError(err);
     }
+    return true;
   }
 
   const workers = Array.from({ length: Math.max(1, opts.concurrency ?? 4) }, async () => {
     while (queue.length && !opts.signal?.aborted) {
       const lead = queue.shift()!;
-      await one(lead);
+      if (!(await one(lead))) break;
       p.done++;
       if (batch.length >= 100) await flush();
       opts.onProgress({ ...p });

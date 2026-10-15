@@ -6320,3 +6320,44 @@ access for this" and "in filters in all leads breakdown () for which scanner".
   and not just all at once every time". A run takes the next N due leads
   (unchecked or older than 7 days), so the next click picks up where the
   last stopped. A ticked selection still overrides it.
+
+### 2026-10-15: In Apollo rebuilt around "who needs a sequence" (scanner-platform-v29)
+
+Per Jack: "i want to be able to see where a lead stands and act on the ones
+who have never been reached or slip being added into a sequence", "every
+lead uploaded into this platform regardless of the scanner will get ran
+against sequences in apollo", "just because its a bad lead doesnt mean we
+wont ever reach out", "nothing should be pushed to apollo make a rule".
+- **Statuses** (`ApolloStatus.tsx`): Active in a sequence / Sequence ended,
+  never reached / Sequence ended, reached (Apollo's reason says talked,
+  replied, booked, opted out, bounced…) / In Apollo, no sequence / Not in
+  Apollo (checked, not found) / Not checked yet — "not checked" is no longer
+  counted as "not in Apollo". A **Needs a sequence** tile = never reached +
+  no sequence + not in Apollo; it is the default view once anything has been
+  checked.
+- **Every tier by default**, Strong Signal checked first
+  (`leadsDueForApollo`); the "Stored as" filter narrows it.
+- Table shows the stored scan note (3 lines, full on hover) and a short
+  status pill with owner/last activity under it.
+- **Batches**: Batch of 25/50/100/200/400 or All due. **Apollo allows 400
+  contact searches an hour** (measured): `checkLeadsInApollo` stops on the
+  first rate-limit refusal, writes nothing for unreached leads (they stay
+  due) and `RateLimitNote` says when to run again.
+- **Download** "N selected" / "N shown" as CSV with Apollo status, sequence,
+  step, added/ended, Apollo's reason, checked-on and the note.
+- **Add to list**: selected leads go into the platform's Lists (new or
+  existing), note prefixed with "Apollo: <status> (<sequence>)"; edit,
+  rename and download from Lists.
+- **Read-only rule**: `getMcp()` (`lib/apolloEnrich.ts`) wraps the
+  connector so only read tools (`isApolloReadOnlyTool`: search / show /
+  match / enrich / lookup…) reach Apollo; anything that creates, updates,
+  adds, removes, sends, completes or skips is refused before it leaves the
+  page. Suite `apollo-read-only` (29 checks).
+- Scanner page: the "File Strong Signal leads into … Save to Lead Library"
+  row and the "re-scan a monthly file / Past uploads" picker are hidden
+  (`SHOW_LIBRARY_FILING`, `SHOW_RESCAN_PICKER`), per Jack.
+- All leads defaults to sorting by **CSV date (newest)**
+  (`receivedOn`, else first seen).
+- Not built, needs a proposal: "scanners page should all be the same, they
+  just process different types of info" (one shared Scanner layout across
+  Main / Custom / CSP).

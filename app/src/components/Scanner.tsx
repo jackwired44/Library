@@ -214,6 +214,11 @@ interface ScannerProps {
   onAddSelectedToList: (rows: ResultRow[], opts: { existingId?: string; newName?: string }) => { listId: string; added: number } | null;
 }
 
+/** The post-scan "File Strong Signal leads into … Save to Lead Library" row. */
+const SHOW_LIBRARY_FILING = false as boolean;
+/** The landing screen's "re-scan a monthly file" picker and History pointer. */
+const SHOW_RESCAN_PICKER = false as boolean;
+
 export default function Scanner({
   results,
   setResults,
@@ -1038,6 +1043,8 @@ export default function Scanner({
             same thing for EVERY upload, grouped by month/week/day and
             searchable, so keeping a shorter copy of it on this screen was
             duplication — this points at the real one instead. */}
+        {/* Per Jack: "remove this from front of scanners". */}
+        {SHOW_RESCAN_PICKER && <>
         <div style={{ marginTop: 14 }}>
           <div>
             <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 6 }}>Or re-scan a monthly file already filed in All leads</div>
@@ -1100,6 +1107,7 @@ export default function Scanner({
         <div style={{ marginTop: 12, fontSize: 12.5, color: "var(--muted)" }}>
           Past uploads are in <b>History</b>.
         </div>
+        </>}
 
         {priorityLeads.length > 0 && (
           <div style={{ marginTop: 20, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "14px 16px" }}>
@@ -1251,7 +1259,10 @@ export default function Scanner({
           file. The Apollo look-up toggle sits on the same row. */}
       <div className="panel">
         <div className="panel-head" style={{ flexWrap: "wrap", gap: 10 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          {/* Per Jack: "remove this on the scanner page". Every row is already
+              stored in All leads, so monthly filing is hidden here; the code
+              stays so it can come back without a rebuild of the flow. */}
+          {SHOW_LIBRARY_FILING && <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span style={{ fontSize: 12.5, fontWeight: 600 }}>File Strong Signal leads into</span>
             <select
               value={uploadMonthKey}
@@ -1298,7 +1309,7 @@ export default function Scanner({
             >
               {libraryFiledForBatch ? "✓ Filed" : "Save to Lead Library"}
             </button>
-          </div>
+          </div>}
           <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, whiteSpace: "nowrap" }}
                  title="Companies already covered by an imported Apollo export attach automatically. This also offers a live Apollo look-up for the ones that aren't, after each upload. Nothing runs without your click.">
             <input type="checkbox" checked={autoEnrichCompanies} onChange={(e) => onToggleAutoEnrichCompanies(e.target.checked)} />
