@@ -134,7 +134,7 @@ interface ScannerProps {
   saveCount?: number;
   /** What the last Save stored, or null before one. */
   savedReport?: SaveReport | null;
-  onSaveLeads?: () => void;
+  onSaveLeads?: (checkInApollo?: boolean) => void;
   /** Who is already in Apollo, from imported syncs. See lib/apolloRoster. */
   apolloIndex?: RosterIndex | null;
   results: ResultRow[] | null;
@@ -1247,10 +1247,16 @@ export default function Scanner({
               {saveReportText(savedReport)}
             </span>
           ) : saveCount > 0 && onSaveLeads ? (
-            <button className="btn btn-primary" aria-label="Save to platform" onClick={onSaveLeads}
-                    title="Store every row of this upload — contacts, companies, raw and scanned notes, the CSV row and its file — in All leads. Nothing is stored until you click this.">
-              Save {saveCount.toLocaleString()} rows to All leads
-            </button>
+            <>
+              <button className="btn btn-primary" aria-label="Save and check in Apollo" onClick={() => onSaveLeads(true)}
+                      title="Store every row in All leads, then look each lead up in Apollo (Strong Signal first) to see if it is in a sequence. Read-only; nothing is written to Apollo.">
+                Save {saveCount.toLocaleString()} rows & check in Apollo
+              </button>
+              <button className="btn btn-secondary" aria-label="Save to platform" onClick={() => onSaveLeads(false)}
+                      title="Store every row of this upload — contacts, companies, raw and scanned notes, the CSV row and its file — in All leads, without the Apollo check.">
+                Save only
+              </button>
+            </>
           ) : null}
           <button onClick={reset} className="btn btn-secondary">
             Start over

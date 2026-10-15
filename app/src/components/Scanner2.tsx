@@ -856,7 +856,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
    *  records counts and filenames, never rows, so a 9,265-row scan was
    *  gone on Start over unless the CSV had been downloaded. */
   /** Stores a batch in All leads. Called only by the Save button. */
-  onStoreLeads?: (rows: Row2[], kind: ScannerKind) => SaveReport | void;
+  onStoreLeads?: (rows: Row2[], kind: ScannerKind, checkInApollo?: boolean) => SaveReport | void;
   onAddToList?: (
     rows: { row: Scanner2ExportRow; scanner: "main" | "smc" | "csp"; band?: string; score?: number }[],
     opts: { existingId?: string; newName?: string },
@@ -942,9 +942,9 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
     return m;
   }, [result, apolloIndex]);
   const apolloByEmail = useMemo(() => [...apolloHits.values()].filter((h) => h.how === "email").length, [apolloHits]);
-  function saveBatch() {
+  function saveBatch(checkInApollo = false) {
     if (!result || !onStoreLeads) return;
-    const r = onStoreLeads(result.rows, kind);
+    const r = onStoreLeads(result.rows, kind, checkInApollo);
     setSavedReport(r || { rows: result.rows.length, stored: result.rows.length, repeats: 0, unkeyable: 0, added: result.rows.length, updated: 0, discarded: 0 });
   }
   // The scan's fine print — setup sentence, reconciliation, renewal and
@@ -1773,10 +1773,16 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
                 {saveReportText(savedReport)}
               </span>
             ) : onStoreLeads ? (
-              <button className="btn btn-primary" aria-label="Save to platform" onClick={saveBatch}
-                      title="Store every row of this upload — contacts, companies, raw and scanned notes, the CSV row and its file — in All leads. Nothing is stored until you click this.">
-                Save {result.rows.length.toLocaleString()} rows to All leads
-              </button>
+              <>
+                <button className="btn btn-primary" aria-label="Save and check in Apollo" onClick={() => saveBatch(true)}
+                        title="Store every row in All leads, then look each lead up in Apollo (Strong Signal first) to see if it is in a sequence. Read-only; nothing is written to Apollo.">
+                  Save {result.rows.length.toLocaleString()} rows & check in Apollo
+                </button>
+                <button className="btn btn-secondary" aria-label="Save to platform" onClick={() => saveBatch(false)}
+                        title="Store every row of this upload in All leads, without the Apollo check.">
+                  Save only
+                </button>
+              </>
             ) : null}
             <button className="btn btn-secondary" onClick={startOver}>Start over</button>
           </div>

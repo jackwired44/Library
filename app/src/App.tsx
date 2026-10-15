@@ -49,7 +49,7 @@ import {
 import Campaigns from "./components/Campaigns";
 import Overview from "./components/Overview";
 import { appendRawNotes } from "./lib/rawNotes";
-import { withStatusOverride, type LeadStatus } from "./lib/leadStatus";
+import { verdictOf, withStatusOverride, type LeadStatus } from "./lib/leadStatus";
 import ApolloStatus from "./components/ApolloStatus";
 import {
   DEFAULT_ROUTING, loadRouting, withPlan, type RoutingRules,
@@ -57,6 +57,7 @@ import {
 import { leadInputsFromResults, leadInputsFromRows2, leadInputsFromNoSignal, leadInputsFromDuplicates } from "./lib/leadFiling";
 import AllLeads, { type LeadsPreset } from "./components/AllLeads";
 import ApolloSyncPanel from "./components/ApolloSyncPanel";
+import RateLimitNote from "./components/RateLimitNote";
 import {
   applyStickyState, attachScanResultsToContacts, loadContactsFromDB,
   mergeContactsFromParsedFiles, persistContact, type Contact,
@@ -206,6 +207,32 @@ export default function App() {
       setHomeCheck((x) => (x ? { ...x, finished: true } : x));
     } finally { homeCheckAbort.current = null; }
   }
+  // Per Jack: "when i upload a lead list i need it to be saved to all leads
+  // than ran against in apollo … a simple workflow with a button or two".
+  // Save & check stores the batch, then looks every lead in it up in Apollo
+  // (Strong Signal first), on the same run the Home panel uses — so it
+  // keeps going while you move around, and stops cleanly at Apollo's
+  // 400-an-hour cap with what it read kept.
+  const [uploadCheckKeys, setUploadCheckKeys] = useState<string[] | null>(null);
+  const [uploadCheckLabel, setUploadCheckLabel] = useState("");
+  useEffect(() => {
+    if (!uploadCheckKeys || (homeCheck && !homeCheck.finished)) return;
+    const want = new Set(uploadCheckKeys);
+    const targets = leads.filter((l) => want.has(l.key));
+    if (!targets.length) return; // the save has not landed in state yet
+    const rank = (l: StoredLead) => ({ strong: 0, review: 1, bad: 2 })[verdictOf(l.tier)];
+    targets.sort((a, b) => rank(a) - rank(b));
+    setUploadCheckKeys(null);
+    void runHomeCheck(targets);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leads, uploadCheckKeys, homeCheck]);
+  function fileLeadsAndCheck(inputs: LeadInput[], label: string): SaveReport {
+    const report = fileLeads(inputs);
+    const keys = [...new Set(inputs.map((i) => leadKeyOfInput(i)).filter(Boolean))];
+    if (keys.length) { setUploadCheckLabel(label); setUploadCheckKeys(keys); }
+    return report;
+  }
+
   /** What the qualification gate just threw away. Transient by necessity —
    *  a discarded lead is never stored, so this is the only record of it. */
   const [lastDiscards, setLastDiscards] =
@@ -454,9 +481,9 @@ export default function App() {
   }
 
   /** The Main Scanner's Save button. */
-  function saveMainBatch() {
+  function saveMainBatch(check = false) {
     if (!pendingMain) return;
-    setMainSaved(fileLeads(pendingMain));
+    setMainSaved(check ? fileLeadsAndCheck(pendingMain, "this Main Scanner upload") : fileLeads(pendingMain));
     setPendingMain(null);
   }
 
@@ -845,6 +872,23 @@ export default function App() {
       </aside>
 
       <main className="app-main" style={{ minWidth: 0 }}>
+        {uploadCheckLabel && (uploadCheckKeys || homeCheck) && (
+          <div className="scan-note" role="status" aria-label="Upload Apollo check" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
+            {!homeCheck || uploadCheckKeys
+              ? <span>Saved. Waiting to check {uploadCheckLabel} in Apollo…</span>
+              : <span>
+                  {homeCheck.finished ? "Apollo check done for" : "Checking"} {uploadCheckLabel}{homeCheck.finished ? ":" : " in Apollo:"}{" "}
+                  <b>{homeCheck.done.toLocaleString()}</b> of {homeCheck.total.toLocaleString()}
+                  {" · "}{homeCheck.found.toLocaleString()} in Apollo · {homeCheck.notFound.toLocaleString()} not in Apollo
+                  {homeCheck.errors > 0 && ` · ${homeCheck.errors.toLocaleString()} failed`}
+                </span>}
+            {homeCheckError && <span style={{ color: "#B5443B" }}>Stopped: {homeCheckError}</span>}
+            <RateLimitNote progress={homeCheck} />
+            {homeCheck && !homeCheck.finished && <button className="btn btn-sm btn-secondary" onClick={() => homeCheckAbort.current?.abort()}>Stop</button>}
+            <button className="btn btn-sm btn-primary" onClick={() => setView("queue")}>See where they stand</button>
+            {homeCheck?.finished && <button className="btn btn-sm btn-ghost" aria-label="Dismiss" onClick={() => setUploadCheckLabel("")}>✕</button>}
+          </div>
+        )}
         {error && <div style={{ marginBottom: 12, color: "#9A5B22" }}>{error}</div>}
 
         {/* The discard report. A gated-out lead is never written anywhere,
@@ -964,8 +1008,8 @@ export default function App() {
           />
         )}
 
-        {view === "scanner2" && <Scanner2 key={`smc-${scanEpoch}`} kind="smc" apolloIndex={apolloIndex} lists={leadLists} onAddToList={addExportRowsToLists} onStoreLeads={(rows, k) => fileLeads(leadInputsFromRows2(rows, k))} onStartOver={() => setScanEpoch((n) => n + 1)} />}
-        {view === "scanner3" && <Scanner2 key={`csp-${scanEpoch}`} kind="csp" apolloIndex={apolloIndex} lists={leadLists} onAddToList={addExportRowsToLists} onStoreLeads={(rows, k) => fileLeads(leadInputsFromRows2(rows, k))} onStartOver={() => setScanEpoch((n) => n + 1)} />}
+        {view === "scanner2" && <Scanner2 key={`smc-${scanEpoch}`} kind="smc" apolloIndex={apolloIndex} lists={leadLists} onAddToList={addExportRowsToLists} onStoreLeads={(rows, k, check) => check ? fileLeadsAndCheck(leadInputsFromRows2(rows, k), "this Custom Scanner upload") : fileLeads(leadInputsFromRows2(rows, k))} onStartOver={() => setScanEpoch((n) => n + 1)} />}
+        {view === "scanner3" && <Scanner2 key={`csp-${scanEpoch}`} kind="csp" apolloIndex={apolloIndex} lists={leadLists} onAddToList={addExportRowsToLists} onStoreLeads={(rows, k, check) => check ? fileLeadsAndCheck(leadInputsFromRows2(rows, k), "this CSP Scanner upload") : fileLeads(leadInputsFromRows2(rows, k))} onStartOver={() => setScanEpoch((n) => n + 1)} />}
 
         {view === "scanner" && (
           <>

@@ -85,7 +85,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await nav('All leads');
   ok('a scan alone stores nothing — the Save button does', /Nothing stored yet/.test(await allLeadsText()));
   await nav('Main Scanner');
-  ok('  and the scanner offers Save for every row', /Save \d[\d,]* rows to All leads/.test(await page.locator('main').innerText()));
+  ok('  and the scanner offers Save for every row', /Save \d[\d,]* rows & check in Apollo/.test(await page.locator('main').innerText()));
   // Nothing is stored until Save (per Jack: a save option on every upload).
   await page.locator('button[aria-label="Save to platform"]').first().click(); await sleep(900);
   ok('  Save confirms what it stored', /✓ \d[\d,]* rows → \d[\d,]* leads? in All leads · \d[\d,]* new/.test(await page.locator('main').innerText()));
