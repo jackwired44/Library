@@ -6279,3 +6279,8 @@ view each lead in all leads need to see the new note also".
   (nothing is saved). The Apollo box lists sequence, status, step N of M,
   end date and reason from a live check, or "Searched Apollo DATE — no
   matching contact".
+- If Jack republishes the live link himself, the manifest needs SIX Apollo
+  tools for this to work: apollo_contacts_search and
+  apollo_emailer_campaigns_search (the live check / pull) plus the four
+  enrichment tools, alongside downloads: true. A link missing the first
+  two is exactly what "connector access isn't confirmed" looks like.
