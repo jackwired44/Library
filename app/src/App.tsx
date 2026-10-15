@@ -997,6 +997,8 @@ export default function App() {
             sequenceNames={knownSequences}
             onSetStatus={setLeadStatus}
             funnels={funnels}
+            lists={leadLists}
+            onAddToList={addExportRowsToLists}
           />
         )}
         {view === "campaigns" && (

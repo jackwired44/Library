@@ -41,7 +41,9 @@ import { apolloHitFor, type ApolloHit, type RosterIndex } from "../lib/apolloRos
 import { DEFAULT_PULL_MONTHS, type PullProgress, type CheckProgress } from "../lib/apolloLive";
 import { loadRawNotesMany, loadRawNoteSearchIndex, newestRaw } from "../lib/rawNotes";
 import { matchesKeywords, parseKeywords } from "../lib/keywords";
-import { apolloStandingOf, NEEDS, STATUS_META as STANDING_META, STATUS_ORDER as STANDING_ORDER, type Status as Standing } from "./ApolloStatus";
+import type { LeadList } from "../lib/leadLists";
+import type { ExportRow } from "../lib/detection";
+import { apolloStandingOf, listRowForLead, NEEDS, STATUS_META as STANDING_META, STATUS_ORDER as STANDING_ORDER, type Status as Standing } from "./ApolloStatus";
 import { isIntentDate, soonestUpcoming, type NoteDate } from "../lib/noteDates";
 import {
   FUNCTION_META, LEVEL_META, LEVEL_ORDER, titleFunction, titleLevel,
@@ -186,8 +188,11 @@ const NO_LINE = "(no product line)";
 export default function AllLeads({
   leads, companyProfiles = [], onApplySync, initialSequence = "",
   sequenceNames = [], onSetPlan, onSetStatus, funnels = [], initialStatus, initialPreset,
-  apolloIndex = null, rosterPulledAt = "", onPullApollo, onCheckLeads,
+  apolloIndex = null, rosterPulledAt = "", onPullApollo, onCheckLeads, lists = [], onAddToList,
 }: {
+  /** Per Jack: "a lead bank that i search through and can create lists". */
+  lists?: LeadList[];
+  onAddToList?: (rows: { row: ExportRow; scanner: "main" | "smc" | "csp" }[], opts: { existingId?: string; newName?: string }) => { listId: string; added: number; skipped: number } | null;
   /** Live Apollo lookup: sequence, step and status per lead. Read-only. */
   onCheckLeads?: (leads: StoredLead[], onProgress: (p: CheckProgress) => void, signal: AbortSignal) => Promise<CheckProgress>;
   /** Everyone known to be in Apollo — see lib/apolloRoster.ts. */
@@ -230,6 +235,12 @@ export default function AllLeads({
   const [planF, setPlanF] = useState<PlanFilter>("all");
   const [planSeqF, setPlanSeqF] = useState("all");
   const [filesF, setFilesF] = useState<FilesFilter>("all");
+  // Per Jack: "run it against specific csv files i upload … any csv file
+  // that has been uploaded i should be able to go through in all leads".
+  const [batchN, setBatchN] = useState(400);
+  const [listTarget, setListTarget] = useState("");
+  const [newListName, setNewListName] = useState("");
+  const [listNotice, setListNotice] = useState("");
   const [fileNameF, setFileNameF] = useState("all");
   const [statusF, setStatusF] = useState<LeadStatus | "all">(initialStatus ?? "all");
   // "untouched" = no outreach on record at all: in Apollo with no call or
@@ -472,6 +483,18 @@ export default function AllLeads({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leads, derived, tests]);
 
+  /** Every uploaded CSV, newest first, with how many leads match the other filters. */
+  const fileOptions = useMemo(() => {
+    const m = facet("fileName", (l) => l.sourceFiles);
+    const first = new Map<string, string>();
+    for (const l of leads) for (const f of l.sourceFiles) {
+      const at = l.fileSeen?.find((x) => x.file === f)?.at || l.firstSeenAt || "";
+      if (!first.has(f) || at > first.get(f)!) first.set(f, at);
+    }
+    return [...m.entries()].sort((a, b) => (first.get(b[0]) || "").localeCompare(first.get(a[0]) || "") || a[0].localeCompare(b[0]));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leads, derived, tests]);
+
   // Facets are computed only while the panel is open — at 25,000 leads a
   // dozen of them is real work, and nobody reads a count they cannot see.
   const facets = useMemo(() => {
@@ -610,9 +633,14 @@ export default function AllLeads({
   // selection when there is one, otherwise everything matched.
   const weekAgo = useMemo(() => new Date(Date.now() - 7 * 86_400_000).toISOString(), [check?.finished]);
   const checkBase = selected.size ? selectedLeads : filtered;
-  const checkTargets = useMemo(
-    () => (recheck ? checkBase : checkBase.filter((l) => !(l.apolloCheckedAt && l.apolloCheckedAt > weekAgo))),
-    [checkBase, recheck, weekAgo]);
+  // Strong Signal first, then a batch at a time — Apollo allows 400
+  // lookups an hour, so "next 400" is the natural unit at 38,000 leads.
+  const checkDue = useMemo(() => {
+    const due = recheck ? [...checkBase] : checkBase.filter((l) => !(l.apolloCheckedAt && l.apolloCheckedAt > weekAgo));
+    const rank = (l: StoredLead) => ({ strong: 0, review: 1, bad: 2 })[verdictOf(l.tier)];
+    return due.sort((a, b) => rank(a) - rank(b));
+  }, [checkBase, recheck, weekAgo]);
+  const checkTargets = useMemo(() => (batchN && !selected.size ? checkDue.slice(0, batchN) : checkDue), [checkDue, batchN, selected.size]);
   const checkCounts = useMemo(() => {
     let found = 0, notFound = 0, unchecked = 0;
     for (const l of leads) {
@@ -879,6 +907,11 @@ export default function AllLeads({
             <option value="all">Scanner: any ({(sourceCounts.main + sourceCounts.smc + sourceCounts.csp).toLocaleString()})</option>
             {(["main", "smc", "csp"] as LeadSource[]).map((s) => <option key={s} value={s}>{LEAD_SOURCE_META[s].label} ({sourceCounts[s].toLocaleString()})</option>)}
           </select>
+          <select className="field" aria-label="Uploaded file" value={fileNameF} onChange={(e) => setFileNameF(e.target.value)}
+                  title="Every CSV you have uploaded, newest first. Pick one to work just that file's leads." style={{ maxWidth: 260 }}>
+            <option value="all">Uploaded file: any ({fileOptions.length.toLocaleString()})</option>
+            {fileOptions.map(([f, n]) => <option key={f} value={f}>{f} ({n.toLocaleString()})</option>)}
+          </select>
           <select className="field" aria-label="Tier" value={tierF} onChange={(e) => setTierF(e.target.value)}>
             <option value="all">Tier: any</option>
             <option value={TOP}>Top tier (all scanners)</option>
@@ -1123,12 +1156,42 @@ export default function AllLeads({
               ? <button className="btn btn-sm btn-secondary" onClick={() => checkAbort.current?.abort()}>Stop Apollo check</button>
               : <button className="btn btn-sm btn-primary" disabled={!checkTargets.length} onClick={() => runCheck()}
                         title={"Looks each lead up in Apollo: whether they're a contact, which sequence, which step, finished and why.\nOne free, read-only search per lead. Nothing is written to Apollo, and call counts and downloads don't change."}>
-                  ⟳ Check {checkTargets.length.toLocaleString()} in Apollo{selected.size ? " (selected)" : ""}
+                  ⟳ Check {checkTargets.length.toLocaleString()} in Apollo{selected.size ? " (selected)" : checkDue.length > checkTargets.length ? ` of ${checkDue.length.toLocaleString()} due` : ""}
                 </button>}
+            {!selected.size && (
+              <select className="field" aria-label="Apollo batch" value={batchN} disabled={checking} onChange={(e) => setBatchN(Number(e.target.value))}>
+                {[100, 200, 400].map((n) => <option key={n} value={n}>Batch of {n}{n === 400 ? " (hourly max)" : ""}</option>)}
+                <option value={0}>All due</option>
+              </select>
+            )}
             <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }} title="Leads checked in the last 7 days are skipped unless this is ticked">
               <input type="checkbox" checked={recheck} disabled={checking} onChange={(e) => setRecheck(e.target.checked)} />
               Re-check this week's
             </label>
+          </>
+        )}
+        {onAddToList && (
+          <>
+            <span style={{ width: 1, height: 18, background: "var(--border)" }} />
+            <select className="field" aria-label="Add to list" value={listTarget} onChange={(e) => setListTarget(e.target.value)} style={{ maxWidth: 190 }}>
+              <option value="">＋ New list…</option>
+              {lists.map((l) => <option key={l.id} value={l.id}>{l.name} ({l.rows.length.toLocaleString()})</option>)}
+            </select>
+            {!listTarget && <input className="field" placeholder="List name" aria-label="New list name" value={newListName}
+                                   onChange={(e) => setNewListName(e.target.value)} style={{ width: 150 }} />}
+            <button className="btn btn-sm btn-secondary" disabled={(!listTarget && !newListName.trim()) || !(selected.size || filtered.length)}
+                    onClick={() => {
+                      const picked = selected.size ? selectedLeads : filtered;
+                      const res = onAddToList(picked.map((l) => ({ row: listRowForLead(l, apolloIndex), scanner: l.source })),
+                        listTarget ? { existingId: listTarget } : { newName: newListName.trim() });
+                      if (!res) { setListNotice("Couldn't add to that list."); return; }
+                      const name = lists.find((x) => x.id === res.listId)?.name ?? newListName.trim();
+                      setListNotice(`Added ${res.added.toLocaleString()} to "${name}"${res.skipped ? ` (${res.skipped.toLocaleString()} already there)` : ""}. Download or edit it in Lists.`);
+                      setListTarget(res.listId); setNewListName(""); setSelected(new Set());
+                    }}>
+              Add {(selected.size || filtered.length).toLocaleString()} to list
+            </button>
+            {listNotice && <span style={{ color: "var(--success, #1F7A4D)" }} aria-label="List notice">{listNotice}</span>}
           </>
         )}
         <button className="btn btn-sm btn-ghost" disabled={!selected.size || exporting}

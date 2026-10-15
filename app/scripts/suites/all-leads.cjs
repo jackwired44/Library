@@ -226,6 +226,23 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('  and the active search shows as a chip', /Notes: partner -licensing/.test(t));
   await notesBox.fill(''); await sleep(600);
 
+  console.log('\n== go through any uploaded CSV, then make a list from it ==');
+  const fileSel = page.locator('select[aria-label="Uploaded file"]');
+  const fileOpts = await fileSel.locator('option').allInnerTexts();
+  ok('every uploaded CSV is in the file picker with its lead count', fileOpts.some(o => /all-leads-csp\.csv \(2\)/.test(o)) && fileOpts.some(o => /all-leads-main\.csv \(3\)/.test(o)), fileOpts.join(' | '));
+  await fileSel.selectOption('all-leads-csp.csv'); await sleep(700);
+  t = await allLeadsText();
+  ok('  picking one works just that file', /\b2 of 5\b/.test(t) && /CSP ALPHA CO/.test(t) && !/MAIN ALPHA CO/.test(t), t.slice(0, 300));
+  ok('  and the Apollo check offers that file\'s leads', /Check 2 in Apollo/.test(t), t.slice(0, 600));
+  ok('  in batches', await page.locator('select[aria-label="Apollo batch"]').count() === 1);
+  await page.fill('input[aria-label="New list name"]', 'CSP follow-ups'); await sleep(200);
+  await page.locator('button', { hasText: /^Add 2 to list$/ }).click(); await sleep(700);
+  ok('  the matched leads go into a new list', /Added 2 to "CSP follow-ups"/.test(await allLeadsText()), (await allLeadsText()).slice(0, 600));
+  await fileSel.selectOption('all'); await sleep(600);
+  await nav('Lists');
+  ok('  and the list is there to download or edit', /CSP follow-ups/.test(await allLeadsText()) && /CSP ALPHA CO|2 leads/.test(await allLeadsText()), (await allLeadsText()).slice(0, 400));
+  await nav('All leads');
+
   console.log('\n== how many leads were checked against Apollo, and where they stand ==');
   t = await allLeadsText();
   ok('the standing strip counts checked of total', /0 of 5 leads checked against Apollo/.test(t), t.slice(0, 400));

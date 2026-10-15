@@ -143,6 +143,11 @@ function rowFor(l: StoredLead, index: RosterIndex | null): Row {
   };
 }
 
+/** A stored lead in the list shape, its Apollo standing up front in the note. */
+export function listRowForLead(l: StoredLead, index: RosterIndex | null): ExportRow {
+  return listRowFor(rowFor(l, index));
+}
+
 /** Where one lead stands in Apollo — the same answer In Apollo shows. */
 export function apolloStandingOf(l: StoredLead, index: RosterIndex | null): Status {
   return rowFor(l, index).status;
