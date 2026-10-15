@@ -6361,3 +6361,41 @@ wont ever reach out", "nothing should be pushed to apollo make a rule".
 - Not built, needs a proposal: "scanners page should all be the same, they
   just process different types of info" (one shared Scanner layout across
   Main / Custom / CSP).
+
+### 2026-10-15: one Apollo answer everywhere, Save & check, lead bank, Diagnostics (scanner-platform-v29)
+
+- **Scanner tables show every lead.** "171 Strong Signal, 17 shown": 154 were
+  hidden because they matched the pulled Apollo uploads. Main, Custom and CSP
+  now always show every row (Apollo matches carry the "In Apollo" badge); the
+  toggle is "Leave them out of downloads (still shown here)" and applies to
+  downloads only (`bucketRowsFor` in Scanner, `dlRowsExcept` in Scanner2).
+- **Save & check in Apollo** (all three scanners): one click stores the upload
+  in All leads, then looks every lead up in Apollo, Strong Signal first, on the
+  same run as Home's (`fileLeadsAndCheck`, `App.tsx`). A strip at the top of
+  every view shows progress, Stop, the hourly-cap note and "See where they
+  stand". "Save only" remains.
+- **One Apollo standing everywhere.** `apolloStandingOf` (ApolloStatus.tsx)
+  is the single source for In Apollo, All leads' standing tiles, Home's Apollo
+  panel and Diagnostics. Home used to count live checks only. And
+  `setStatusRoster` (leadStatus.ts) lets the pipeline status read the pulled
+  Apollo uploads too, so a lead active there is "In sequence" on Home, not
+  "not worked".
+- **Main sequences pinned in In Apollo**, in Jack's order: `MAIN_SEQUENCES`
+  (Carly Main Sequence Recycled, Carly Main Sequence, Jack Main Sequence, Jack
+  Main Backup Sequence, Wired CIO Email (Custom September Leads), CSP Renewal
+  Campaign). Always listed, even at 0, then "Other". Sequence filter has
+  "Any main sequence".
+- **All leads as a lead bank:** a "Keywords in notes" box (scan note and the
+  original CSV note; word, "phrase", -exclude, a OR b — `lib/keywords.ts`,
+  `loadRawNoteSearchIndex`); an "Uploaded file" picker in the open toolbar
+  (newest first, with counts); Apollo standing tiles ("N of M checked") that
+  filter; the Apollo check in batches of 100/200/400 or all due; "Add N to
+  list" for the selection or everything matched, with the Apollo standing
+  written into the list row's note.
+- **Diagnostics** (sidebar, `lib/diagnostics.ts`): invariants (tiers sum,
+  standing sums, pipeline sums, unique keys, keys valid, live results dated,
+  files linked, pipeline agrees with In Apollo, list rows shaped) and leaks
+  ranked by priority with a Fix button, plus per-file health. 90 ms at 38k.
+- Suites: `upload-check-live` (12), `diagnostics-live` (11); `all-leads`,
+  `apollo-check-live`, `apollo-roster-live`, `in-apollo-live` extended.
+  52 suites / 2,091 checks; `csp-download` needs the real CSP export.

@@ -23,6 +23,7 @@ import ListsView from "./components/Lists";
 import LockScreen from "./components/LockScreen";
 import Scanner2 from "./components/Scanner2";
 import Documentation from "./components/Documentation";
+import Diagnostics from "./components/Diagnostics";
 import BackupRestore from "./components/BackupRestore";
 import CheatSheet from "./components/CheatSheet";
 import PlatformNotes from "./components/PlatformNotes";
@@ -49,7 +50,7 @@ import {
 import Campaigns from "./components/Campaigns";
 import Overview from "./components/Overview";
 import { appendRawNotes } from "./lib/rawNotes";
-import { verdictOf, withStatusOverride, type LeadStatus } from "./lib/leadStatus";
+import { setStatusRoster, verdictOf, withStatusOverride, type LeadStatus } from "./lib/leadStatus";
 import ApolloStatus from "./components/ApolloStatus";
 import {
   DEFAULT_ROUTING, loadRouting, withPlan, type RoutingRules,
@@ -92,7 +93,7 @@ export interface UploadedFile {
 
 export type View =
   | "home" | "scanner" | "scanner2" | "scanner3" | "library" | "allleads"
-  | "queue" | "campaigns" | "history" | "lists" | "docs";
+  | "queue" | "campaigns" | "history" | "lists" | "docs" | "diagnostics";
 
 /** The three scanners, kept in their own collapsible sidebar section.
  *  Per Jack: "build the scanners into a drop down section on the left hand
@@ -155,6 +156,7 @@ export default function App() {
   /** Every lead ever scanned, all three scanners. See lib/leadStore.ts. */
   const [leads, setLeads] = useState<StoredLead[]>([]);
   const apolloIndex = useMemo(() => buildRosterIndex(apolloRoster, leads), [apolloRoster, leads]);
+  setStatusRoster(apolloIndex);
   const leadsRef = useRef(leads);
   leadsRef.current = leads;
   const rosterPulledAt = useMemo(
@@ -866,6 +868,11 @@ export default function App() {
             className={`btn btn-sm btn-ghost${view === "docs" ? " active" : ""}`}
             aria-label="Documentation"
           >📖 Documentation</button>
+          <button
+            onClick={() => setView("diagnostics")}
+            className={`btn btn-sm btn-ghost${view === "diagnostics" ? " active" : ""}`}
+            aria-label="Diagnostics"
+          >🩺 Diagnostics</button>
           <button onClick={() => setNotesPanelTab("cheatsheet")} className="btn btn-sm btn-ghost">❓ Cheat Sheet</button>
           <button onClick={() => setNotesPanelTab("notes")} className="btn btn-sm btn-ghost">📝 Platform notes</button>
         </div>
@@ -924,6 +931,10 @@ export default function App() {
         {/* Per Jack: no per-scanner passwords. The sign-in gate still
             fronts the whole page; these two screens open like any other. */}
         {view === "docs" && <Documentation />}
+        {view === "diagnostics" && (
+          <Diagnostics leads={leads} apolloIndex={apolloIndex} lists={leadLists}
+                       onNavigate={(v) => { if (v === "allleads") { setLeadsStatusEntry(""); setLeadsSequenceEntry(""); setLeadsPresetEntry(""); } setView(v); }} />
+        )}
         {view === "home" && (
           <Overview
             leads={leads}
@@ -938,6 +949,7 @@ export default function App() {
             topPanel={
               <ApolloSyncPanel
                 leads={leads}
+                apolloIndex={apolloIndex}
                 progress={homeCheck}
                 error={homeCheckError}
                 onRun={runHomeCheck}

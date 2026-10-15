@@ -276,7 +276,7 @@ export default function Overview({
       if (!l.plan && r === "no-rule") waitingRule++;
     }
     return { status, contact, bySource, industries, levels, top, active, reached, meetings, waitingRule, notEnriched, months, topUncontacted, topUnreached };
-  }, [scoped, companyProfiles, rules, sizeBands]);
+  }, [scoped, companyProfiles, rules, sizeBands, apolloIndex]);
 
   // Per Jack: "see if a lead is active in apollo from here and if so which
   // sequence". Replaces the old queue numbers — he doesn't push leads from

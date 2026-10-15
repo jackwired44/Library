@@ -15,6 +15,15 @@
 // sequence" whether or not it was ever queued here. The order below IS the
 // rule — read it top to bottom.
 import type { StoredLead } from "./leadStore";
+import { apolloHitFor, type RosterIndex } from "./apolloRoster";
+
+// The pulled Apollo uploads (the roster) are evidence too. Without this a
+// lead matched there as "(active)" read "Active in a sequence" on In Apollo
+// and All leads but "Strong Signal / not worked" on Home — the same lead,
+// two answers. App sets it whenever the roster changes, so every caller of
+// statusOf agrees without threading the index through each one.
+let statusRoster: RosterIndex | null = null;
+export function setStatusRoster(index: RosterIndex | null): void { statusRoster = index; }
 
 export type LeadStatus =
   | "meeting" | "not-interested"
@@ -127,6 +136,11 @@ export function derivedStatus(l: StoredLead): LeadStatus {
     if (a.sequences.some((s) => s.status === "active")) return "in-sequence";
     if (a.callCount > 0) return "called";
     if (a.sequences.length > 0) return "finished";
+  }
+  if (!a && statusRoster) {
+    const hit = apolloHitFor({ email: l.email, contact: l.contact }, statusRoster);
+    if (hit?.sequences.some((x) => /\(active\)$/.test(x))) return "in-sequence";
+    if (hit?.sequences.length) return "finished";
   }
   if (l.plan?.status === "exported") return "sent";
   if (l.plan?.status === "queued") return "queued";

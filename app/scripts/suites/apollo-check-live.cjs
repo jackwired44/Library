@@ -168,7 +168,17 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await page.locator('.side-nav-btn', { hasText: 'Home' }).first().click(); await sleep(700);
   let home = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
   ok('Home shows where leads stand in Apollo', /Where every lead stands in Apollo/.test(home) && /Active in a sequence/i.test(home), home.slice(0, 400));
-  ok('Home offers next-100 and check-all', await page.locator('button', { hasText: /^Check next \d+$/ }).count() === 1 && await page.locator('button', { hasText: /^Check all \d+$/ }).count() === 1);
+  ok('Home offers next-100, next-400 and check-all', await page.locator('button', { hasText: /^Check next \d+$/ }).count() === 2 && await page.locator('button', { hasText: /^Check all \d+ due$/ }).count() === 1);
+  // Per Jack: "numericals to match". Home's Apollo panel and All leads'
+  // standing tiles are one function, so they must read the same.
+  const homeApollo = (await page.locator('[aria-label="Apollo status"]').innerText()).replace(/\s+/g, ' ');
+  const homeActive = Number((homeApollo.match(/Active in a sequence (\d+)/i) || [])[1]);
+  const homeUnchecked = Number((homeApollo.match(/Not checked yet (\d+)/i) || [])[1]);
+  await nav('All leads');
+  const standing = (await page.locator('[aria-label="Apollo standing"]').innerText()).replace(/\s+/g, ' ');
+  ok('  Home and All leads agree on active', Number((standing.match(/(\d+) Active in a sequence/) || [])[1]) === homeActive, `${homeApollo} || ${standing}`);
+  ok('  and on not checked yet', Number((standing.match(/(\d+) Not checked yet/) || [])[1]) === homeUnchecked, `${homeApollo} || ${standing}`);
+  await page.locator('.side-nav-btn', { hasText: 'Home' }).first().click(); await sleep(700);
   ok('a checked active lead feeds "Where every lead stands"', /In sequence 1\b/.test(home), (home.match(/Where every lead stands.{0,300}/) || [''])[0]);
   console.log('\n== customize Home ==');
   await page.locator('button', { hasText: 'Customize' }).click(); await sleep(200);
