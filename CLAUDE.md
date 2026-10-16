@@ -6399,3 +6399,35 @@ wont ever reach out", "nothing should be pushed to apollo make a rule".
 - Suites: `upload-check-live` (12), `diagnostics-live` (11); `all-leads`,
   `apollo-check-live`, `apollo-roster-live`, `in-apollo-live` extended.
   52 suites / 2,091 checks; `csp-download` needs the real CSP export.
+
+### 2026-10-16: email deliverability — green-lit before Apollo (scanner-platform-v29)
+
+Per Jack: Apollo "shows u catch all domain emails and user domain emails and
+flags to not add them", catch-alls "hurt but the numbers are great … i need a
+middle ground", "thin these large numbers down so i can add them to
+sequences", and "recognized and green lighted in here".
+- **Apollo's own verdict, free, from the live check.** Rehearsed live: every
+  Apollo contact carries `email_status`, `email_domain_catchall`,
+  `email_domain_catchall_verdict` ("allow") and `free_domain`, on the contact
+  and per address in `contact_emails`. `emailVerdictOf` (apolloLive.ts)
+  stores them on `lead.apollo.live`. No new tool, no new key.
+- **Lanes** (`lib/deliverability.ts`, `laneOf`): Verified → send; catch-all
+  Apollo allows, or a verifier score ≥ cutoff (default 70, set in All leads)
+  → green-lit catch-all lane (secondary domain, capped); catch-all screened →
+  call first, never dropped; personal address (free domain) → Apollo flags
+  it, never green-lit even if verified; verifier invalid / Apollo
+  unavailable → call only; else not verified / no email.
+- **Verifier hand-off, any vendor.** No email-verification connector exists
+  in the claude.ai directory and the sandbox blocks verifier APIs, so it's a
+  file round trip: "⬇ Export N to verify" (only unverified + screened
+  catch-alls, each address once, re-due after 90 days) → ZeroBounce (Jack's
+  account) / Bouncer / NeverBounce / Kickbox / SendGrid → "⬆ Import verifier
+  results". Columns detected; score scale read per file (ZeroBounce AI 0–10,
+  Kickbox/SendGrid 0–1, others 0–100). New store `STORE_DELIVERABILITY`
+  (keyed by email, DB_VERSION 22→23, in the backup).
+- **All leads**: Email deliverability panel with tiles that filter,
+  "🚀 Ready to sequence" (green-lit AND needs a sequence), row badges.
+  Diagnostics gap: Strong Signal leads whose email Apollo would flag.
+- Suites: `deliverability` (50), `upload-check-live` 12 → 26; `all-leads`
+  search locator re-pointed to its placeholder (the cutoff input now sits
+  above it). 53 suites / 2,130 checks; `csp-download` needs the real export.

@@ -3,7 +3,7 @@
 // used. No server, no shared backend (see CLAUDE.md, Access & ownership).
 
 export const DB_NAME = "wiredCioUnifiedLeadScannerLibrary_v1";
-export const DB_VERSION = 22;
+export const DB_VERSION = 23;
 export const STORE_LIBRARY = "files";
 export const STORE_GROUPS = "groups";
 export const STORE_HISTORY = "history";
@@ -41,6 +41,9 @@ export const STORE_RAW_NOTES = "rawNotes";
 /** Everyone an imported Apollo sync has ever named, matched or not — the
  *  mirror a new upload is checked against. See lib/apolloRoster.ts. */
 export const STORE_APOLLO_ROSTER = "apolloRoster";
+/** Verifier results per email (catch-all / valid / invalid + score), kept
+ *  so an address is paid for once. See lib/deliverability.ts. */
+export const STORE_DELIVERABILITY = "deliverability";
 // Scanner 2 — its own stores, so nothing it writes can touch the Lead
 // Library, Lists or History that Scanner 1 owns (see lib/scanner2.ts).
 export const STORE_SCANNER2_RULESETS = "scanner2RuleSets";
@@ -85,6 +88,7 @@ function openDB(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE_ROUTING)) db.createObjectStore(STORE_ROUTING, { keyPath: "id" });
       if (!db.objectStoreNames.contains(STORE_RAW_NOTES)) db.createObjectStore(STORE_RAW_NOTES, { keyPath: "key" });
       if (!db.objectStoreNames.contains(STORE_APOLLO_ROSTER)) db.createObjectStore(STORE_APOLLO_ROSTER, { keyPath: "key" });
+      if (!db.objectStoreNames.contains(STORE_DELIVERABILITY)) db.createObjectStore(STORE_DELIVERABILITY, { keyPath: "email" });
     };
     req.onsuccess = () => {
       const db = req.result;

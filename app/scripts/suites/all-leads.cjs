@@ -114,7 +114,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
      /High priority|Medium priority|Low priority/.test(afterCsp), afterCsp.slice(0, 400));
 
   console.log('\n== search and filters ==');
-  const search = page.locator('main input.field').first();
+  const search = page.locator('main input[placeholder^="Search company"]');
   await search.fill('CSP ALPHA'); await sleep(600);
   let t = await allLeadsText();
   ok('search narrows to one lead', /\b1 of 5\b/.test(t), t.slice(0, 200));
@@ -178,7 +178,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   // Nothing is stored until Save (per Jack: a save option on every upload).
   await page.locator('button[aria-label="Save to platform"]').first().click(); await sleep(900);
   await nav('All leads');
-  const search2 = page.locator('main input.field').first();
+  const search2 = page.locator('main input[placeholder^="Search company"]');
   await search2.fill('MAIN ALPHA'); await sleep(700);
   const cell = await page.locator('.data-table tbody tr').first().innerText();
   ok('the row still shows ONE lead, not two', /\b1 of 5\b/.test(await allLeadsText()), (await allLeadsText()).slice(0, 160));

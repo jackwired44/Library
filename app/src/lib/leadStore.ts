@@ -66,7 +66,14 @@ export interface ApolloLeadState {
    *  sync file. A live lookup reads sequences, not calls. Per Jack ("no
    *  calls or downloads") it changes neither the call numbers nor what a
    *  download leaves out — see buildRosterIndex and AllLeads' exportBlocked. */
-  live?: { owner?: string; lastActivityAt?: string; uploadedAt?: string };
+  live?: {
+    owner?: string; lastActivityAt?: string; uploadedAt?: string;
+    /** Apollo's own read of this lead's email, from the live check (free):
+     *  email_status ("verified", "unavailable"…), whether the domain is a
+     *  catch-all, and Apollo's catch-all verdict ("allow" = it will send).
+     *  See lib/deliverability.ts. */
+    emailStatus?: string; catchAll?: boolean; catchAllVerdict?: string; freeDomain?: boolean;
+  };
   callsUnknown?: boolean;
 }
 

@@ -282,7 +282,27 @@ export function pickContact(lead: StoredLead, contacts: Rec[]): Rec | null {
 
 /** The lead's Apollo record from a live contact. Call numbers carry over
  *  from an earlier sync file; with none, they are marked unknown. */
-export function apolloStateFrom(c: Rec, meta: Map<string, SequenceMeta>, prev: ApolloLeadState | undefined, at: string): ApolloLeadState {
+/** Apollo's verdict on ONE address: the matching entry in contact_emails
+ *  when there is one (a contact can hold several), else the contact's own
+ *  fields. Rehearsed live: email_status "verified", email_domain_catchall
+ *  false, email_domain_catchall_verdict "allow". */
+export function emailVerdictOf(c: Rec, email: string): { emailStatus?: string; catchAll?: boolean; catchAllVerdict?: string; freeDomain?: boolean } {
+  const e = normEmail(email);
+  const list = Array.isArray(c.contact_emails) ? (c.contact_emails as Rec[]) : [];
+  const hit = (e.includes("@") && list.find((x) => normEmail(str(x.email)) === e)) || (normEmail(str(c.email)) === e ? c : null) || list[0] || c;
+  const status = str(hit.email_status) || str(c.email_status);
+  const ca = hit.email_domain_catchall ?? c.email_domain_catchall;
+  const verdict = str(hit.email_domain_catchall_verdict) || str(c.email_domain_catchall_verdict);
+  const free = hit.free_domain ?? c.free_domain;
+  return {
+    ...(status ? { emailStatus: status } : {}),
+    ...(typeof ca === "boolean" ? { catchAll: ca } : {}),
+    ...(verdict ? { catchAllVerdict: verdict } : {}),
+    ...(typeof free === "boolean" ? { freeDomain: free } : {}),
+  };
+}
+
+export function apolloStateFrom(c: Rec, meta: Map<string, SequenceMeta>, prev: ApolloLeadState | undefined, at: string, email = ""): ApolloLeadState {
   const owner = TEAM_USERS[str(c.owner_id)] || "";
   return {
     ...(prev ?? { callCount: 0, outcomes: {}, lastOutcome: "", lastCallAt: "", callsUnknown: true }),
@@ -292,6 +312,7 @@ export function apolloStateFrom(c: Rec, meta: Map<string, SequenceMeta>, prev: A
       ...(owner ? { owner } : {}),
       ...(day(c.last_activity_date) ? { lastActivityAt: day(c.last_activity_date) } : {}),
       ...(day(c.created_at) ? { uploadedAt: day(c.created_at) } : {}),
+      ...emailVerdictOf(c, email || str(c.email)),
     },
   };
 }
@@ -336,7 +357,7 @@ export async function checkLeadsInApollo(opts: {
       const list = Array.isArray((res.payload as Rec | undefined)?.contacts) ? ((res.payload as Rec).contacts as Rec[]) : [];
       const c = pickContact(lead, list);
       const at = new Date().toISOString();
-      if (c) { p.found++; batch.push({ key: lead.key, at, apollo: apolloStateFrom(c, meta, lead.apollo, at) }); }
+      if (c) { p.found++; batch.push({ key: lead.key, at, apollo: apolloStateFrom(c, meta, lead.apollo, at, lead.email) }); }
       else { p.notFound++; batch.push({ key: lead.key, at, apollo: null }); }
     } catch (err) {
       if (opts.signal?.aborted) return false;

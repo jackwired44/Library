@@ -59,6 +59,7 @@ import { leadInputsFromResults, leadInputsFromRows2, leadInputsFromNoSignal, lea
 import AllLeads, { type LeadsPreset } from "./components/AllLeads";
 import ApolloSyncPanel from "./components/ApolloSyncPanel";
 import RateLimitNote from "./components/RateLimitNote";
+import { loadEmailChecks, saveEmailChecks, readVerifierFiles, indexChecks, type EmailCheck } from "./lib/deliverability";
 import {
   applyStickyState, attachScanResultsToContacts, loadContactsFromDB,
   mergeContactsFromParsedFiles, persistContact, type Contact,
@@ -152,6 +153,16 @@ export default function App() {
   const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [companyProfiles, setCompanyProfiles] = useState<CompanyProfile[]>([]);
+  // Verifier results per email (lib/deliverability.ts). Loaded once; an
+  // import merges in and saves. Apollo's own verdict rides on each lead.
+  const [emailChecks, setEmailChecks] = useState<EmailCheck[]>([]);
+  useEffect(() => { loadEmailChecks().then(setEmailChecks).catch(() => setEmailChecks([])); }, []);
+  async function importVerifierFiles(files: ParsedFile[]) {
+    const r = readVerifierFiles(files);
+    await saveEmailChecks(r.checks);
+    setEmailChecks((prev) => { const m = indexChecks(prev); r.checks.forEach((c) => m.set(c.email, c)); return [...m.values()]; });
+    return r;
+  }
   const [leadLists, setLeadLists] = useState<LeadList[]>([]);
   /** Every lead ever scanned, all three scanners. See lib/leadStore.ts. */
   const [leads, setLeads] = useState<StoredLead[]>([]);
@@ -1011,6 +1022,8 @@ export default function App() {
             funnels={funnels}
             lists={leadLists}
             onAddToList={addExportRowsToLists}
+            emailChecks={emailChecks}
+            onImportVerifier={importVerifierFiles}
           />
         )}
         {view === "campaigns" && (

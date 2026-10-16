@@ -12,6 +12,7 @@ import type { StoredLead } from "./leadStore";
 import type { LeadList } from "./leadLists";
 import { apolloHitFor, type RosterIndex } from "./apolloRoster";
 import { verdictOf, statusOf, STATUS_ORDER, countByStatus } from "./leadStatus";
+import { laneOf, isGreenLit } from "./deliverability";
 import { apolloStandingOf, STATUS_ORDER as STANDING_ORDER, NEEDS, type Status as Standing } from "../components/ApolloStatus";
 
 export interface DiagCheck { id: string; label: string; ok: boolean; detail: string }
@@ -47,7 +48,7 @@ export function runDiagnostics(leads: StoredLead[], apolloIndex: RosterIndex | n
   const keys = new Map<string, number>();
   const files = new Map<string, FileHealth>();
   let noContact = 0, noCompany = 0, noFile = 0, nameOnly = 0, stale = 0, strongUnchecked = 0, strongNeeds = 0;
-  let liveWithoutCheck = 0, badKey = 0, bounced = 0;
+  let liveWithoutCheck = 0, badKey = 0, bounced = 0, strongFlagged = 0;
   const staleCut = new Date(now - STALE_DAYS * 86_400_000).toISOString();
 
   for (const l of leads) {
@@ -68,6 +69,7 @@ export function runDiagnostics(leads: StoredLead[], apolloIndex: RosterIndex | n
       if (hit && hit.how === "name") nameOnly++;
     }
     if ((l.apollo?.sequences ?? []).some((s) => /bounc/i.test(s.reason || ""))) bounced++;
+    if (v === "strong" && (l.email || "").includes("@") && !isGreenLit(laneOf(l.email, undefined, undefined, l.apollo?.live))) strongFlagged++;
     if (v === "strong") {
       if (st === "unchecked") strongUnchecked++;
       if (NEEDS.has(st)) strongNeeds++;
@@ -120,6 +122,8 @@ export function runDiagnostics(leads: StoredLead[], apolloIndex: RosterIndex | n
       hint: "You can't know if they're already being worked. All leads → Tier: Strong Signal → Check in Apollo (400 an hour)." },
     { id: "strong-needs", label: "Strong Signal leads that need a sequence", count: strongNeeds, of: verdict.strong, view: "queue", severity: "high",
       hint: "Checked: never reached, never sequenced, or not in Apollo at all. In Apollo → Needs a sequence → Add to list → download for Apollo." },
+    { id: "strong-email-flagged", label: "Strong Signal leads whose email Apollo would flag", count: strongFlagged, of: verdict.strong, view: "allleads", severity: "medium",
+      hint: "Catch-all Apollo screens, a personal address, or not verified yet. Run the Apollo check first (free), then export the rest to ZeroBounce from All leads → Email deliverability. Verifier results imported there count on that page." },
     { id: "unchecked", label: "Leads with no Apollo standing yet (any tier)", count: standing.unchecked, of: total, view: "allleads", severity: "medium",
       hint: "Run checks in batches of 400 an hour, Strong Signal first." },
     { id: "no-contact", label: "Leads with no email and no phone", count: noContact, of: total, view: "allleads", severity: "medium",

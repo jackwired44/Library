@@ -42,6 +42,7 @@ import { DEFAULT_PULL_MONTHS, type PullProgress, type CheckProgress } from "../l
 import { loadRawNotesMany, loadRawNoteSearchIndex, newestRaw } from "../lib/rawNotes";
 import { matchesKeywords, parseKeywords } from "../lib/keywords";
 import type { LeadList } from "../lib/leadLists";
+import { laneOf, indexChecks, emailsToVerify, isGreenLit, LANE_META, LANE_ORDER, DEFAULT_CATCH_ALL_MIN, type Lane, type EmailCheck, type VerifierImport } from "../lib/deliverability";
 import type { ExportRow } from "../lib/detection";
 import { apolloStandingOf, listRowForLead, NEEDS, STATUS_META as STANDING_META, STATUS_ORDER as STANDING_ORDER, type Status as Standing } from "./ApolloStatus";
 import { isIntentDate, soonestUpcoming, type NoteDate } from "../lib/noteDates";
@@ -104,6 +105,7 @@ const SORT_LABEL: Record<SortKey, string> = {
 /** Everything a filter, a facet count or a cell reads, resolved once. */
 interface Derived {
   hay: string;
+  lane: Lane;
   standing: Standing;
   industry: string;
   employees: number | null;
@@ -189,7 +191,11 @@ export default function AllLeads({
   leads, companyProfiles = [], onApplySync, initialSequence = "",
   sequenceNames = [], onSetPlan, onSetStatus, funnels = [], initialStatus, initialPreset,
   apolloIndex = null, rosterPulledAt = "", onPullApollo, onCheckLeads, lists = [], onAddToList,
+  emailChecks = [], onImportVerifier,
 }: {
+  /** Verifier results per email — see lib/deliverability.ts. */
+  emailChecks?: EmailCheck[];
+  onImportVerifier?: (files: ParsedFile[]) => Promise<VerifierImport>;
   /** Per Jack: "a lead bank that i search through and can create lists". */
   lists?: LeadList[];
   onAddToList?: (rows: { row: ExportRow; scanner: "main" | "smc" | "csp" }[], opts: { existingId?: string; newName?: string }) => { listId: string; added: number; skipped: number } | null;
@@ -223,6 +229,19 @@ export default function AllLeads({
   // as keywords, over the scan note AND the original CSV note text.
   const [noteSearch, setNoteSearch] = useState("");
   const [standingF, setStandingF] = useState<Standing | "needs" | "all">("all");
+  // Per Jack: catch-alls "hurt but the numbers are great … i need a middle
+  // ground". The score that earns the catch-all email lane is his to set.
+  const [catchAllMin, setCatchAllMinState] = useState(() => {
+    try { const v = Number(localStorage.getItem("catchAllMin")); return v > 0 && v <= 100 ? v : DEFAULT_CATCH_ALL_MIN; } catch { return DEFAULT_CATCH_ALL_MIN; }
+  });
+  const setCatchAllMin = (v: number) => { setCatchAllMinState(v); try { localStorage.setItem("catchAllMin", String(v)); } catch { /* preference only */ } };
+  const [laneF, setLaneF] = useState<Lane | "green" | "all">("all");
+  // Per Jack: "thin these large numbers down so i can add them to
+  // sequences". Ready = an email Apollo won't flag (green-lit) AND a lead
+  // that needs a sequence (never reached, no sequence, or not in Apollo).
+  const [readyOnly, setReadyOnly] = useState(false);
+  const [verifyNote, setVerifyNote] = useState("");
+  const checkIndex = useMemo(() => indexChecks(emailChecks), [emailChecks]);
   const [rawIndex, setRawIndex] = useState<Map<string, string> | null>(null);
   const [rawIndexState, setRawIndexState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [sourceF, setSourceF] = useState<LeadSource | "all">("all");
@@ -297,6 +316,7 @@ export default function AllLeads({
       const seqs = a?.sequences ?? [];
       const bucket = c.employees === null ? null : SIZE_BUCKETS.find((b) => b.test(c!.employees!));
       m.set(l.key, {
+        lane: laneOf(l.email, checkIndex.get((l.email || "").trim().toLowerCase()), catchAllMin, l.apollo?.live),
         standing: apolloStandingOf(l, apolloIndex),
         hay: [
           l.company, l.contact, l.title, l.email, l.phone, l.mobilePhone,
@@ -334,7 +354,7 @@ export default function AllLeads({
       });
     }
     return m;
-  }, [leads, companyProfiles, apolloIndex]);
+  }, [leads, companyProfiles, apolloIndex, checkIndex, catchAllMin]);
 
   /* ---- every contact stored at each company, and how far they got ---- */
   const companyStats = useMemo(() => {
@@ -370,7 +390,7 @@ export default function AllLeads({
   const fromT = from ? Date.parse(`${from}T00:00:00`) : null;
   const toT = to ? Date.parse(`${to}T23:59:59.999`) : null;
 
-  type Key = "inApollo" | "verdict" | "company" | "contact" | "level" | "fn" | "month" | "dates" | "status" | "search" | "notes" | "standing" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "plan" | "planSeq" | "files" | "fileName" | "date";
+  type Key = "inApollo" | "verdict" | "company" | "contact" | "level" | "fn" | "month" | "dates" | "status" | "search" | "notes" | "standing" | "lane" | "ready" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "plan" | "planSeq" | "files" | "fileName" | "date";
   const tests = useMemo(() => {
     const t: Record<Key, (l: StoredLead, d: Derived) => boolean> = {
       inApollo: (l, d) => inApolloF === "all"
@@ -395,6 +415,8 @@ export default function AllLeads({
       fn: (_l, d) => fnF === "all" || d.fn === fnF,
       dates: (_l, d) => dateF === "all" || d.dateKind === dateF,
       search: (_l, d) => !q || matchesKeywords(d.hay, kq),
+      ready: (_l, d) => !readyOnly || (isGreenLit(d.lane) && NEEDS.has(d.standing)),
+      lane: (_l, d) => laneF === "all" || (laneF === "green" ? isGreenLit(d.lane) : d.lane === laneF),
       standing: (_l, d) => standingF === "all" || (standingF === "needs" ? NEEDS.has(d.standing) : d.standing === standingF),
       notes: (l) => nq.empty || matchesKeywords(`${(l.notes || "").toLowerCase()} \u0001${rawIndex?.get(l.key) ?? ""}`, nq),
       source: (l) => sourceF === "all" || l.source === sourceF,
@@ -428,7 +450,7 @@ export default function AllLeads({
       },
     };
     return t;
-  }, [inApolloF, verdictF, companyF, companyStats, contactF, levelF, fnF, monthF, dateF, statusF, q, kq, nq, rawIndex, standingF, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, planF, planSeqF, filesF, fileNameF, fromT, toT]);
+  }, [inApolloF, verdictF, companyF, companyStats, contactF, levelF, fnF, monthF, dateF, statusF, q, kq, nq, rawIndex, standingF, laneF, readyOnly, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, planF, planSeqF, filesF, fileNameF, fromT, toT]);
 
   const passes = (l: StoredLead, skip?: Key) => {
     const d = derived.get(l.key)!;
@@ -492,6 +514,19 @@ export default function AllLeads({
       if (!first.has(f) || at > first.get(f)!) first.set(f, at);
     }
     return [...m.entries()].sort((a, b) => (first.get(b[0]) || "").localeCompare(first.get(a[0]) || "") || a[0].localeCompare(b[0]));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leads, derived, tests]);
+
+  const laneCounts = useMemo(() => {
+    const m = facet("lane", (_l, d) => d.lane);
+    const by = Object.fromEntries(LANE_ORDER.map((k) => [k, m.get(k) || 0])) as Record<Lane, number>;
+    let ready = 0;
+    for (const l of leads) {
+      if (!passes(l, "ready")) continue;
+      const d = derived.get(l.key)!;
+      if (isGreenLit(d.lane) && NEEDS.has(d.standing)) ready++;
+    }
+    return { by, ready, green: LANE_ORDER.filter(isGreenLit).reduce((n, k) => n + by[k], 0), total: LANE_ORDER.reduce((n, k) => n + by[k], 0) };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leads, derived, tests]);
 
@@ -581,6 +616,8 @@ export default function AllLeads({
 
   /* ---- active filter chips ---- */
   const chips: { label: string; clear: () => void }[] = [];
+  if (readyOnly) chips.push({ label: "Ready to sequence", clear: () => setReadyOnly(false) });
+  if (laneF !== "all") chips.push({ label: `Email: ${laneF === "green" ? "Green-lit" : LANE_META[laneF].label}`, clear: () => setLaneF("all") });
   if (standingF !== "all") chips.push({ label: `Apollo: ${standingF === "needs" ? "Needs a sequence" : STANDING_META[standingF].label}`, clear: () => setStandingF("all") });
   if (!nq.empty) chips.push({ label: `Notes: ${noteSearch.trim()}`, clear: () => setNoteSearch("") });
   if (inApolloF !== "all") chips.push({ label: inApolloF === "in" ? "Already in Apollo" : "Not in Apollo", clear: () => setInApolloF("all") });
@@ -687,6 +724,39 @@ export default function AllLeads({
     const rows = leadsToSync(leads).map((l) => ({ Email: l.email, Name: l.contact, Company: l.company }));
     await downloadBlob(toCSV(rows, ["Email", "Name", "Company"] as const),
       `apollo-lookup-${rows.length}-${new Date().toISOString().slice(0, 10)}.csv`);
+  }
+
+  /** Emails worth paying a verifier for: in the current filter (or the
+   *  selection), not already green-lit or confirmed bad, and with no fresh
+   *  verifier result. Apollo's free check should run first — it settles
+   *  every address Apollo already holds. */
+  const verifyBase = selected.size ? selectedLeads : filtered;
+  const toVerify = useMemo(() => emailsToVerify(
+    verifyBase.filter((l) => { const ln = derived.get(l.key)?.lane; return ln === "unverified" || ln === "catch-all-call"; }),
+    checkIndex,
+  ), [verifyBase, derived, checkIndex]);
+  async function exportForVerifier() {
+    if (!toVerify.length) return;
+    const rows = toVerify.map((l) => {
+      const [first, ...rest] = (l.contact || "").trim().split(/\s+/);
+      return { Email: l.email.trim(), "First Name": first || "", "Last Name": rest.join(" "), Company: l.company };
+    });
+    await downloadBlob(toCSV(rows, ["Email", "First Name", "Last Name", "Company"] as const),
+      `emails-to-verify-${rows.length}-${new Date().toISOString().slice(0, 10)}.csv`);
+  }
+  async function importVerifierFile(files: FileList | null) {
+    if (!files?.length || !onImportVerifier) return;
+    try {
+      const parsed = await Promise.all([...files].map((f) => parseCSVFile(f)));
+      const r = await onImportVerifier(parsed as ParsedFile[]);
+      if (!r.mapping.email || !r.mapping.status) {
+        setVerifyNote(`Couldn't read that file: no ${!r.mapping.email ? "email" : "status/result"} column found.`);
+        return;
+      }
+      setVerifyNote(`Imported ${r.checks.length.toLocaleString()} results: ${r.byStatus.valid} valid · ${r.byStatus["catch-all"]} catch-all · ${r.byStatus.risky + r.byStatus.unknown} risky/unknown · ${r.byStatus.invalid} invalid${r.skipped ? ` · ${r.skipped} rows skipped` : ""}${r.mapping.score ? "" : " · no score column, so catch-alls stay call-first unless Apollo allows them"}.`);
+    } catch (e) {
+      setVerifyNote(e instanceof Error ? e.message : String(e));
+    }
   }
 
   async function importSyncFile(files: FileList | null) {
@@ -888,6 +958,57 @@ export default function AllLeads({
             );
           })}
         </div>
+      </div>
+
+      {/* ---- email deliverability: recognised and green-lit before Apollo ---- */}
+      <div className="panel" aria-label="Email deliverability" style={{ marginBottom: 10 }}>
+        <div className="panel-head" style={{ fontSize: 12.5, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <span><b style={{ color: "#1F7A4D" }}>{laneCounts.green.toLocaleString()}</b> of {laneCounts.total.toLocaleString()} green-lit to email
+            <span className="muted"> · Apollo's own verdict from the check, plus any verifier results</span></span>
+          <span style={{ flex: 1 }} />
+          <label style={{ display: "flex", gap: 6, alignItems: "center" }} title="A catch-all address with a verifier score at or above this goes in the email lane. Apollo's 'allow' verdict green-lights it regardless.">
+            Catch-all score to email ≥
+            <input className="field" type="number" min={1} max={100} value={catchAllMin} style={{ width: 64 }} aria-label="Catch-all score cutoff"
+                   onChange={(e) => { const v = Number(e.target.value); if (v >= 1 && v <= 100) setCatchAllMin(v); }} />
+          </label>
+          <button className="btn btn-sm btn-secondary" disabled={!toVerify.length} onClick={exportForVerifier}
+                  title="Emails in this filter (or selection) that Apollo couldn't settle: not verified yet, or a catch-all it screens. Each address is paid for once — anything with a fresh result is skipped.">
+            ⬇ Export {toVerify.length.toLocaleString()} to verify
+          </button>
+          {onImportVerifier && (
+            <label className="btn btn-sm btn-secondary" style={{ cursor: "pointer" }} title="The results file from Bouncer, ZeroBounce, NeverBounce, Kickbox or Scrubby — any of them; the columns are detected.">
+              ⬆ Import verifier results
+              <input type="file" accept=".csv" multiple hidden aria-label="Import verifier results" onChange={(e) => { void importVerifierFile(e.target.files); e.target.value = ""; }} />
+            </label>
+          )}
+        </div>
+        <div className="panel-body" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <button className="vault-tile" aria-pressed={readyOnly} aria-label="Ready to sequence"
+                  title="Green-lit email (Apollo won't flag it) AND needs a sequence: never reached, no sequence, or not in Apollo. Leads not checked against Apollo yet aren't counted — check them first."
+                  style={{ borderColor: readyOnly ? "var(--accent, #0E7A72)" : undefined, background: readyOnly ? "#E3F3F1" : undefined }}
+                  onClick={() => setReadyOnly(!readyOnly)}>
+            <span className="vault-num" style={{ color: "var(--accent, #0E7A72)" }}>{laneCounts.ready.toLocaleString()}</span>
+            <span>🚀 Ready to sequence</span>
+          </button>
+          <button className="vault-tile" aria-pressed={laneF === "green"} title="Verified, plus catch-alls Apollo allows or the verifier scores high."
+                  style={{ borderColor: laneF === "green" ? "#1F7A4D" : undefined }}
+                  onClick={() => setLaneF(laneF === "green" ? "all" : "green")}>
+            <span className="vault-num" style={{ color: "#1F7A4D" }}>{laneCounts.green.toLocaleString()}</span>
+            <span>✓ Green-lit</span>
+          </button>
+          {LANE_ORDER.map((k) => {
+            const on = laneF === k; const m = LANE_META[k];
+            return (
+              <button key={k} className="vault-tile" aria-pressed={on} title={m.hint}
+                      style={{ borderColor: on ? m.color : undefined, background: on ? m.bg : undefined }}
+                      onClick={() => setLaneF(on ? "all" : k)}>
+                <span className="vault-num" style={{ color: m.color }}>{laneCounts.by[k].toLocaleString()}</span>
+                <span>{m.label}</span>
+              </button>
+            );
+          })}
+        </div>
+        {verifyNote && <div className="panel-body" style={{ paddingTop: 0, fontSize: 12 }} aria-label="Verifier notice">{verifyNote}</div>}
       </div>
 
       {/* ---- toolbar: the basics in the open, everything else behind Filters ---- */}
@@ -1255,7 +1376,10 @@ export default function AllLeads({
                     <input type="checkbox" checked={selected.has(l.key)} onChange={() => toggle(l.key)} aria-label={`Select ${l.company}`} />
                   </td>
                   <td className="pin pin-1 strong" title={l.company}>{l.company || "—"}</td>
-                  <td title={[l.contact, l.title, l.email].filter(Boolean).join(" · ")}>{l.contact || "—"}</td>
+                  <td title={[l.contact, l.title, l.email, LANE_META[d.lane].hint].filter(Boolean).join(" · ")}>
+                    {l.contact || "—"}
+                    {d.lane !== "no-email" && <span className="pill" data-lane={d.lane} style={{ marginLeft: 6, fontSize: 10.5, color: LANE_META[d.lane].color, background: LANE_META[d.lane].bg }}>{LANE_META[d.lane].short}</span>}
+                  </td>
                   <td title={`${VERDICT_META[d.verdict].hint}\nScanner's word: ${l.tier || "—"}`}>
                     <span className="pill" style={{ color: VERDICT_META[d.verdict].color, background: VERDICT_META[d.verdict].bg }}>{VERDICT_META[d.verdict].label}</span>
                   </td>
