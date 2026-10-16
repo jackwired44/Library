@@ -39,7 +39,13 @@ export const STATUS_META: Record<Status, { label: string; short: string; hint: s
 export const STATUS_ORDER: Status[] = ["active", "finished", "reached", "none", "out", "unchecked"];
 /** The ones to act on: never reached, or never put into a sequence. */
 export const NEEDS: ReadonlySet<Status> = new Set(["finished", "none", "out"]);
-type StatusFilter = Status | "all" | "needs";
+/** Never put in a sequence at all: not in Apollo, or in Apollo with no
+ *  sequence. Per Jack: "filter strong signal not in apollo or in apollo but
+ *  not in sequence". Unlike NEEDS it leaves out ended sequences. */
+export const NO_SEQUENCE: ReadonlySet<Status> = new Set(["none", "out"]);
+type StatusFilter = Status | "all" | "needs" | "noseq";
+const matchesStatus = (f: StatusFilter, s: Status) =>
+  f === "all" || (f === "needs" ? NEEDS.has(s) : f === "noseq" ? NO_SEQUENCE.has(s) : s === f);
 /** An ended sequence whose reason means a person answered or closed it out. */
 const REACHED_REASON_RE = /talk|spoke|repl|meet|book|demo|interest|unsub|opt.?out|do not|bounc|wrong|left company/i;
 
@@ -234,7 +240,7 @@ export default function ApolloStatus({
   const counts = useMemo(() => {
     const m: Record<Status, number> = { active: 0, finished: 0, reached: 0, none: 0, out: 0, unchecked: 0 };
     for (const r of rows) m[r.status]++;
-    return { ...m, needs: m.finished + m.none + m.out };
+    return { ...m, needs: m.finished + m.none + m.out, noseq: m.none + m.out };
   }, [rows]);
 
   // Sequences people are ACTIVE in, with how many — the "which sequence".
@@ -254,7 +260,7 @@ export default function ApolloStatus({
 
   const needle = q.trim().toLowerCase();
   const filtered = useMemo(() => rows.filter((r) =>
-    (statusF === "all" || (statusF === "needs" ? NEEDS.has(r.status) : r.status === statusF))
+    matchesStatus(statusF, r.status)
     && (seqF === "all" || r.seqs.some((s) => (seqF === MAIN_KEY ? isMainSequence(s.name) : norm(s.name) === norm(seqF)) && (statusF !== "active" || s.active)))
     && (!needle || `${r.lead.company} ${r.lead.contact} ${r.lead.email}`.toLowerCase().includes(needle)),
   ), [rows, statusF, seqF, needle]);
@@ -372,6 +378,19 @@ export default function ApolloStatus({
                   onClick={() => { setStatusF(statusF === "needs" ? "all" : "needs"); setPage(1); }}>
             <span className="vault-num" style={{ color: "var(--brand, #0E7A72)" }}>{counts.needs.toLocaleString()}</span>
             <span><b>Needs a sequence</b></span>
+          </button>
+          <button className="vault-tile" aria-pressed={statusF === "noseq"}
+                  title="Never put in a sequence: not in Apollo, or in Apollo with no sequence. Leaves out ended sequences."
+                  style={{ borderColor: statusF === "noseq" ? "#B5443B" : undefined, borderWidth: 2, background: statusF === "noseq" ? "#FBEAE8" : undefined }}
+                  onClick={() => { setStatusF(statusF === "noseq" ? "all" : "noseq"); setPage(1); }}>
+            <span className="vault-num" style={{ color: "#B5443B" }}>{counts.noseq.toLocaleString()}</span>
+            <span><b>Never sequenced</b></span>
+          </button>
+          <button className="vault-tile" aria-pressed={statusF === "noseq" && verdictF === "strong"}
+                  title="Strong Signal leads that are not in Apollo, or are in Apollo with no sequence."
+                  onClick={() => { const on = statusF === "noseq" && verdictF === "strong"; setVerdictF(on ? "all" : "strong"); setStatusF(on ? "all" : "noseq"); setPage(1); }}>
+            <span className="vault-num" style={{ color: "#B5443B" }}>★</span>
+            <span><b>Strong Signal, never sequenced</b></span>
           </button>
           {STATUS_ORDER.map((s) => {
             const on = statusF === s; const m = STATUS_META[s];

@@ -37,18 +37,21 @@ export function isApolloReadOnlyTool(tool: string): boolean {
   return APOLLO_READ_TOOL_RE.test(t) && !APOLLO_WRITE_WORD_RE.test(t);
 }
 
+// Not a Proxy: the live runtime hands back a frozen namespace, and a Proxy
+// may not return a different value for a frozen property ("'get' on proxy:
+// property 'callTool' is a read-only and non-configurable data property").
+// A fresh object inheriting from it can define its own callTool.
 function readOnly(mcp: ClaudeMcpNamespace): ClaudeMcpNamespace {
-  return new Proxy(mcp, {
-    get(target, prop, recv) {
-      if (prop !== "callTool") return Reflect.get(target, prop, recv);
-      return (server: string, tool: string, input?: unknown, options?: { cache?: false; signal?: AbortSignal }) => {
-        if (/apollo/i.test(server) && !isApolloReadOnlyTool(tool)) {
-          return Promise.reject({ code: "write_blocked", message: `Blocked: this platform never writes to Apollo (${tool}).` });
-        }
-        return target.callTool(server, tool, input, options);
-      };
+  const guarded = Object.create(mcp) as ClaudeMcpNamespace;
+  Object.defineProperty(guarded, "callTool", {
+    value: (server: string, tool: string, input?: unknown, options?: { cache?: false; signal?: AbortSignal }) => {
+      if (/apollo/i.test(server) && !isApolloReadOnlyTool(tool)) {
+        return Promise.reject({ code: "write_blocked", message: `Blocked: this platform never writes to Apollo (${tool}).` });
+      }
+      return mcp.callTool(server, tool, input, options);
     },
   });
+  return guarded;
 }
 
 export async function getMcp(): Promise<ClaudeMcpNamespace | null> {

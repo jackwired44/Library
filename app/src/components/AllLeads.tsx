@@ -44,7 +44,7 @@ import { matchesKeywords, parseKeywords } from "../lib/keywords";
 import type { LeadList } from "../lib/leadLists";
 import { laneOf, indexChecks, emailsToVerify, isGreenLit, LANE_META, LANE_ORDER, DEFAULT_CATCH_ALL_MIN, type Lane, type EmailCheck, type VerifierImport } from "../lib/deliverability";
 import type { ExportRow } from "../lib/detection";
-import { apolloStandingOf, listRowForLead, NEEDS, STATUS_META as STANDING_META, STATUS_ORDER as STANDING_ORDER, type Status as Standing } from "./ApolloStatus";
+import { apolloStandingOf, listRowForLead, NEEDS, NO_SEQUENCE, STATUS_META as STANDING_META, STATUS_ORDER as STANDING_ORDER, type Status as Standing } from "./ApolloStatus";
 import { isIntentDate, soonestUpcoming, type NoteDate } from "../lib/noteDates";
 import {
   FUNCTION_META, LEVEL_META, LEVEL_ORDER, titleFunction, titleLevel,
@@ -228,7 +228,7 @@ export default function AllLeads({
   // Per Jack: "search through the notes with keywords". Its own box, read
   // as keywords, over the scan note AND the original CSV note text.
   const [noteSearch, setNoteSearch] = useState("");
-  const [standingF, setStandingF] = useState<Standing | "needs" | "all">("all");
+  const [standingF, setStandingF] = useState<Standing | "needs" | "noseq" | "all">("all");
   // Per Jack: catch-alls "hurt but the numbers are great … i need a middle
   // ground". The score that earns the catch-all email lane is his to set.
   const [catchAllMin, setCatchAllMinState] = useState(() => {
@@ -417,7 +417,7 @@ export default function AllLeads({
       search: (_l, d) => !q || matchesKeywords(d.hay, kq),
       ready: (_l, d) => !readyOnly || (isGreenLit(d.lane) && NEEDS.has(d.standing)),
       lane: (_l, d) => laneF === "all" || (laneF === "green" ? isGreenLit(d.lane) : d.lane === laneF),
-      standing: (_l, d) => standingF === "all" || (standingF === "needs" ? NEEDS.has(d.standing) : d.standing === standingF),
+      standing: (_l, d) => standingF === "all" || (standingF === "needs" ? NEEDS.has(d.standing) : standingF === "noseq" ? NO_SEQUENCE.has(d.standing) : d.standing === standingF),
       notes: (l) => nq.empty || matchesKeywords(`${(l.notes || "").toLowerCase()} \u0001${rawIndex?.get(l.key) ?? ""}`, nq),
       source: (l) => sourceF === "all" || l.source === sourceF,
       tier: (l) => tierF === "all" || (tierF === TOP ? TOP_TIER_SET.has(l.tier) : l.tier === tierF),
@@ -501,7 +501,7 @@ export default function AllLeads({
     const m = facet("standing", (_l, d) => d.standing);
     const by = Object.fromEntries(STANDING_ORDER.map((k) => [k, m.get(k) || 0])) as Record<Standing, number>;
     const total = STANDING_ORDER.reduce((n, k) => n + by[k], 0);
-    return { by, total, checked: total - by.unchecked, needs: by.finished + by.none + by.out };
+    return { by, total, checked: total - by.unchecked, needs: by.finished + by.none + by.out, noseq: by.none + by.out };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leads, derived, tests]);
 
@@ -618,7 +618,7 @@ export default function AllLeads({
   const chips: { label: string; clear: () => void }[] = [];
   if (readyOnly) chips.push({ label: "Ready to sequence", clear: () => setReadyOnly(false) });
   if (laneF !== "all") chips.push({ label: `Email: ${laneF === "green" ? "Green-lit" : LANE_META[laneF].label}`, clear: () => setLaneF("all") });
-  if (standingF !== "all") chips.push({ label: `Apollo: ${standingF === "needs" ? "Needs a sequence" : STANDING_META[standingF].label}`, clear: () => setStandingF("all") });
+  if (standingF !== "all") chips.push({ label: `Apollo: ${standingF === "needs" ? "Needs a sequence" : standingF === "noseq" ? "Never sequenced" : STANDING_META[standingF].label}`, clear: () => setStandingF("all") });
   if (!nq.empty) chips.push({ label: `Notes: ${noteSearch.trim()}`, clear: () => setNoteSearch("") });
   if (inApolloF !== "all") chips.push({ label: inApolloF === "in" ? "Already in Apollo" : "Not in Apollo", clear: () => setInApolloF("all") });
   if (contactF !== "all") chips.push({ label: contactF === "untouched" ? "Never touched (no outreach on record)" : CONTACT_META[contactF].label, clear: () => setContactF("all") });
@@ -945,6 +945,12 @@ export default function AllLeads({
                   onClick={() => setStandingF(standingF === "needs" ? "all" : "needs")}>
             <span className="vault-num" style={{ color: "#B5443B" }}>{standingCounts.needs.toLocaleString()}</span>
             <span>Needs a sequence</span>
+          </button>
+          <button className="vault-tile" aria-pressed={standingF === "noseq"} title="Never put in a sequence: not in Apollo, or in Apollo with no sequence."
+                  style={{ borderColor: standingF === "noseq" ? "#B5443B" : undefined }}
+                  onClick={() => setStandingF(standingF === "noseq" ? "all" : "noseq")}>
+            <span className="vault-num" style={{ color: "#B5443B" }}>{standingCounts.noseq.toLocaleString()}</span>
+            <span>Never sequenced</span>
           </button>
           {STANDING_ORDER.map((k) => {
             const on = standingF === k; const m = STANDING_META[k];

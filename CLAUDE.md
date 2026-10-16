@@ -6455,3 +6455,18 @@ it", "those are hot leads".
 - Left as is: a Google lead that also names Dynamics files under Dynamics
   365 (category priority), so it carries the ★ Google pin but is not on
   the M365 / Azure Google tab.
+
+### 2026-10-16: Apollo pull fixed on the live page; "Never sequenced" filter (scanner-platform-v29)
+
+- **Bug fixed:** the live page's Apollo pull failed with "'get' on proxy:
+  property 'callTool' is a read-only and non-configurable data property".
+  The runtime's mcp namespace is frozen, and a Proxy may not return a
+  different value for a frozen property. The read-only guard
+  (`readOnly`, `lib/apolloEnrich.ts`) is now an object inheriting from the
+  namespace with its own `callTool`. Same rule, nothing writes to Apollo.
+  The test fakes were not frozen, which is why no suite caught it.
+- **"Never sequenced"** (`NO_SEQUENCE` = not in Apollo + in Apollo with no
+  sequence, leaving out ended sequences), per Jack: "filter strong signal
+  not in apollo or in apollo but not in sequence". A tile in In Apollo and
+  All leads, plus "★ Strong Signal, never sequenced" in In Apollo.
+  "Not checked yet" is not counted: unknown is not the same as not in Apollo.
