@@ -818,6 +818,9 @@ const PARTNER_ASK_RE = new RegExp(
 const PARTNER_LEAVING_RE =
   /\bno\s+partner\s+(?:yet|identified|selected|in\s+place|assigned)\b|\bunhappy\s+with\s+(?:their\s+|our\s+)?(?:current\s+)?(?:partner|reseller|provider|msp)\b|\bswitch(?:ing)?\s+(?:partners?|resellers?|msps?)\b/i;
 
+const PARTNER_DESIRE_RE =
+  /\b(?:want(?:s|ed|ing)?|would\s+like|'d\s+like|prefer(?:s|red|ring)?|open|interested|look(?:s|ing)?|plan(?:s|ning)?|hop(?:e|es|ing))\s+(?:to|in)\s+(?:work(?:ing)?\s+with|partner(?:ing)?\s+with|engag(?:e|ing)\s+with|bring(?:ing)?\s+(?:in|on))\s+(?:a|an)\s+(?:new\s+|local\s+|microsoft\s+|certified\s+|trusted\s+)?(?:partner|msp|csp|reseller|consultant|consultancy|integrator|it\s+provider|managed\s+service\s+provider)\b/i;
+
 /** The seller's OWN partner activity, not the customer's ask. Measured:
  *  21 of the first draft's 605 survivors were Microsoft staff working
  *  their own partner - "DAS to engage with the partner", "Re-engaged
@@ -865,6 +868,13 @@ export function partnerAskMatch(text: string): string | null {
   // naming the current partner is what makes them an ask.
   const leaving = PARTNER_LEAVING_RE.exec(t);
   if (leaving && !blockedNearby(t, leaving, false)) return leaving[0];
+  // "want to work with a partner", "would like to partner with an MSP" —
+  // a desire verb and an ARTICLE before the noun. Per Jack: "make it known
+  // in the notes if they want to work with a partner". Checked without the
+  // incumbency guard, which reads "work with a partner" as already having
+  // one; the article ("a"/"an", not "their"/"the") is what marks it new.
+  const desire = PARTNER_DESIRE_RE.exec(t);
+  if (desire && !blockedNearby(t, desire, false)) return desire[0];
   const m = PARTNER_ASK_RE.exec(t);
   if (!m) return null;
   return blockedNearby(t, m, true) ? null : m[0];
@@ -1172,7 +1182,29 @@ const PHONE_RE = /(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/;
 // whole class rather than one broken phone format.
 const CONTACT_FIELD_RE =
   /\b(?:first|last|full)\s*name\s*:|\bjob\s*title\s*:|\b(?:main\s*)?phone(?:\s*number)?\s*:|\bmobile\s*:|\be-?mail\s*:/i;
+/** Per Jack: "no url link or weird characters should ever be in notes". */
+const URL_RE = /\b(?:https?:\/\/|www\.)\S*[^\s.,;:)]|\b[\w.-]+\.(?:com|net|org|io|co|us|ai|gov|edu)\/\S*[^\s.,;:)]/gi;
+/** Mangled text: mojibake ("â€™", "Ã©"), the replacement character, and
+ *  zero-width / control characters. */
+const MOJIBAKE_RE = /(?:â€[\u0080-\u00BF™œ�"]?|Ã[\u0080-\u00BF]|Â(?=[\s\u00A0-\u00BF])|\uFFFD|[\u200B-\u200F\u2028-\u202F\u2060-\u206F\uFEFF]|[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F])/g;
+/** The final pass over every Main Scanner note: no links, no mangled
+ *  characters, and anything outside plain text and normal punctuation is
+ *  dropped — except the score/band marks (▲ ▼ ▸ ✕) Jack asked for. */
+export function cleanNoteText(note: string): string {
+  return String(note || "")
+    .replace(URL_RE, "")
+    .replace(MOJIBAKE_RE, "")
+    .replace(/[^\x20-\x7E\u00A0-\u00FF\u2010-\u2027\u2030-\u205E\u00B7\u25B2\u25B8\u25BC\u2715]/g, "")
+    .replace(/\(\s*\)/g, "")
+    .replace(/\s['"]\s/g, " ")
+    .replace(/\s+([.,;:])/g, "$1")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
 function hasForbiddenContent(s: string) {
+  URL_RE.lastIndex = 0;
+  if (URL_RE.test(s)) { URL_RE.lastIndex = 0; return true; }
+  URL_RE.lastIndex = 0;
   return DATE_RE.test(s) || BILLING_BANT_RE.test(s) || SERIAL_RE.test(s) || EMAIL_RE.test(s)
     || EMAIL_FRAGMENT_RE.test(s) || PHONE_RE.test(s) || CONTACT_FIELD_RE.test(s)
     // Microsoft's propensity scorecard is not a sentence the lead said, and
@@ -2405,7 +2437,7 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
   // quoted summary only if the row gave nothing to state, which cannot
   // happen on a scored row (it named a product to get here) but keeps the
   // function total rather than relying on that.
-  notesSummary = buildCallBrief(
+  notesSummary = cleanNoteText(buildCallBrief(
     autoCategory,
     licensing,
     platform,
@@ -2413,7 +2445,7 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
     resolved.productArea || "",
     resolved.company || "",
     resolved.email || "",
-  ) || notesSummary;
+  ) || notesSummary);
   // Per Jack: "i dont need a score for dynamics". The Dynamics line is
   // facts the row stated; a score and band mark in front of it is the
   // engine talking over the lead. Every other product line keeps the head,
@@ -3016,6 +3048,56 @@ export function rivalPlatformNamed(text: string | undefined | null): string {
  *   Dynamics CRM \u00b7 10 seats
  *   Dynamics 365 Sales \u00b7 already on Dynamics \u00b7 "manual double-entry"
  */
+/* --- PARTNER OR DIRECT, from the notes -------------------------------- *
+ * Per Jack: "make it known in the notes if they want to work with a
+ * partner also for anything or if it says direct". Read off the row's own
+ * words. A partner ask uses the same confirmed-ask rule as the ⚑ badge
+ * (partnerAskMatch), so the note and the badge can never disagree.
+ */
+const WANTS_DIRECT_RE = /\b(?:move|moving|shift\w*|switch\w*)\s+(?:away\s+from\s+(?:their|the|its)\s+(?:current\s+)?(?:partner|reseller|csp|provider)\s+and\s+)?(?:back\s+to\s+)?(?:buy\w*|purchas\w*|go\w*)?\s*direct(?:ly)?\b|\bwants?\s+to\s+(?:buy|purchase|go|work)\s+direct(?:ly)?\b|\brequest\w*\s+(?:a\s+)?direct\s+microsoft\s+contact\b/i;
+const BUYS_DIRECT_RE = /\bpurchas\w*\s+directly\b|\bdirect\s+purchase\b|\bbuy\w*\s+direct(?:ly)?\s+(?:from|with|through)\s+microsoft\b|\bdirect\s+with\s+microsoft\b|\bpartner\s*:\s*no\b|\bno\s+partner\s+(?:today|yet|currently|in\s+place|involved|on\s+record)\b|\bwithout\s+a\s+partner\b|\bthrough\s+the\s+admin\s+(?:center|centre|portal)\b|\bmicrosoft\s+direct\s+customer\b/i;
+export type PartnerStance = { wantsPartner: boolean; wantsDirect: boolean; buysDirect: boolean };
+export function partnerStanceOf(fullText: string): PartnerStance {
+  const t = String(fullText || "").replace(/\s+/g, " ");
+  const wantsDirect = WANTS_DIRECT_RE.test(t);
+  return { wantsPartner: !wantsDirect && partnerAskConfirmed(t), wantsDirect, buysDirect: !wantsDirect && BUYS_DIRECT_RE.test(t) };
+}
+/** One short sentence, or "". */
+function partnerStanceLine(st: PartnerStance): string {
+  if (st.wantsDirect) return "Wants to buy direct from Microsoft.";
+  if (st.buysDirect && st.wantsPartner) return "Direct with Microsoft today, wants to work with a partner.";
+  if (st.wantsPartner) return "Wants to work with a partner.";
+  if (st.buysDirect) return "Direct with Microsoft, no partner.";
+  return "";
+}
+
+/** Why they want it, in the row's own words. Per Jack: "for dynamics we
+ *  want to know they want it, reason why they want it, current platform if
+ *  states what they are on today and by when". Only a stated reason — a
+ *  "because …", "to replace …", "outgrowing …" clause — never inferred. */
+const REASON_MARK_RE = /\b(?:because|due\s+to|since|as\s+(?:they|their|the)|in\s+order\s+to|so\s+(?:that|they\s+can|we\s+can)|to\s+(?:replace|improve|streamline|consolidate|automate|moderni[sz]e|scale|support|integrate|centrali[sz]e|unify|connect|get\s+(?:off|away\s+from|rid\s+of)|move\s+off|eliminate|reduce)|outgr[eo]w\w*|limitations?\s+(?:of|with|in)|no\s+longer|end\s+of\s+(?:life|support)|struggl\w*\s+with|too\s+manual|manual\s+(?:processes?|entry|work)|disconnected|siloed)\b/i;
+function dynamicsReason(fullText: string): string {
+  const t = stripCrmChrome(cleanText(fullText));
+  for (const raw of splitSentences(t)) {
+    const u = cleanLeadSentence(raw);
+    if (SELLER_CHATTER_RE.test(u) || MEETING_CHROME_RE.test(u)) continue;
+    const m = REASON_MARK_RE.exec(u);
+    if (!m) continue;
+    let clause = u.slice(m.index).replace(/^(?:because|due\s+to|since|as)\s+/i, "");
+    clause = clause.split(/[;]|\s+[-–]\s+|,\s+(?:and|but)\s+/)[0];
+    // Checked on the clause, not the sentence: a sentence carrying a date
+    // ("by Q2 2027 because …") still has a quotable reason.
+    if (hasForbiddenContent(clause)) continue;
+    // Evaluating, demoing or the seller's own partner work is not a reason
+    // the customer gave.
+    if (/\b(?:evaluat\w*|assess\w*|demo\w*|discuss\w*|meeting|call|partner|good\s+(?:fit|solution)|determine|explore\w*|learn\s+more)\b/i.test(clause)) continue;
+    const cut = truncateAtWord(clause.trim(), 80);
+    if (!cut.safe || !cut.text || cut.text.length < 12) continue;
+    return cut.text.replace(/[.,;:\s]+$/, "");
+  }
+  return "";
+}
+
 function buildDynamicsBrief(
   platform: PlatformResult | null,
   fullText: string,
@@ -3027,57 +3109,64 @@ function buildDynamicsBrief(
   const anchorText = dynHit?.snippet ?? "";
   const parts: string[] = [];
 
-  // 1. THE PLATFORM. The row's own longest wording for it. A Sales / CRM
-  //    lead says so up front, per Jack: "for sales it should have a note
-  //    about a sales platform".
-  const product = dynamicsProductsNamed(fullText).join(" + ") || longestDynamicsProduct(anchorText) || "Dynamics 365";
-  if (platform?.isSalesCrm) {
-    const said = SALES_CRM_RE.exec(fullText)?.[0]?.trim() ?? "";
-    const named = /sales|insights|crm|engagement/i.test(product) ? product : said && !/^crm$/i.test(said) ? said : "Dynamics 365 Sales / CRM";
-    parts.push(`Sales platform: ${named}`);
-  } else parts.push(product);
-
-  // 2. THE USER COUNT, only when stated. A missing count is simply absent:
-  //    saying "no seat count stated" spends a clause to say nothing.
+  // 1. WHAT THEY WANT, with the user count in parentheses when stated.
+  // Legacy Dynamics (GP, NAV, AX, SL) named beside a current product is
+  // what they run TODAY, not what they want — per Jack, "if they are on
+  // dynamics nav or gp that is important info".
+  const LEGACY_DYN_RE = /^(?:(?:microsoft\s+)?dynamics\s+)?(?:gp|nav|ax|sl|great\s+plains|navision)$/i;
+  const named = dynamicsProductsNamed(fullText);
+  const legacy = named.filter((n) => LEGACY_DYN_RE.test(n.trim()));
+  const wanted = named.filter((n) => !LEGACY_DYN_RE.test(n.trim()));
+  const onLegacy = legacy.length > 0 && wanted.length > 0 ? legacy.join(" + ") : "";
+  const product = (onLegacy ? wanted : named).join(" + ") || longestDynamicsProduct(anchorText) || "Dynamics 365";
   const seats = platform?.dynamicsSeatCount ?? null;
+  let count = "";
   if (seats != null && seats > 0) {
     const asEmployees = new RegExp(`\\b${seats}\\b\\s*\\+?\\s*(?:full[- ]time\\s*)?(?:employees?|staff|people|person)\\b(?!\\s*(?:will|would|who|that)?\\s*(?:use|using|need|be\\s*using|on\\s*it))`, "i").test(fullText);
-    parts.push(asEmployees ? `${seats} employees` : `${seats} seats`);
+    count = ` (${seats} ${asEmployees ? "employees" : "users"})`;
   }
+  if (platform?.isSalesCrm) {
+    const said = SALES_CRM_RE.exec(fullText)?.[0]?.trim() ?? "";
+    const salesName = /sales|insights|crm|engagement/i.test(product) ? product : said && !/^crm$/i.test(said) ? said : "Dynamics 365 Sales / CRM";
+    parts.push(`Wants a sales platform: ${salesName}${count}.`);
+  } else parts.push(`Wants ${product}${count}.`);
+  // A row that reversed itself must never read as a live want.
+  const reversal = reversalClause(fullText);
+  if (reversal) parts[0] = parts[0].replace(/^Wants (?:a sales platform: )?/, "Looked at ");
 
-  // 3. WHO HANDLES IT. Only a value that is actually a partner or
-  //    Microsoft-direct — a segment label like "Baseline" or "Growth" is
-  //    Microsoft's own taxonomy and says nothing about the lead, so it is
-  //    dropped rather than printed as a partner. The customer's own name
-  //    is never reported as their partner.
-  const pa = classifyProductArea(productArea);
-  if (pa.kind === "microsoft") parts.push("direct with Microsoft");
-  else if (pa.kind === "partner" && !isOwnCompany(pa.label, company, email)) {
-    parts.push(`partner: ${firstWords(pa.label, 3)}`);
-  }
+  // 2. WHY, only when they said.
+  const reason = dynamicsReason(fullText) || nearestIn(fullText, anchorText, PAIN_RE);
+  if (reason) parts.push(`Why: ${reason.replace(/^[a-z]/, (c) => c.toLowerCase())}.`);
 
-  // 4. WHEN. Labelled "Timeline:" first, else a real date or window.
-  const when = extractTimeline(fullText);
-  if (when) parts.push(when);
-
-  // 5. ALREADY ON IT, per Jack: "most of this will not alr be on dynamics
-  //    so if it indicates they are let me know." A rival named instead is
-  //    the displacement angle and is worth as much.
-  if (alreadyOnDynamics(fullText)) parts.push("already on Dynamics");
+  // 3. WHAT THEY ARE ON TODAY, per Jack: "most of this will not alr be on
+  //    dynamics so if it indicates they are let me know."
+  if (onLegacy) parts.push(`On ${onLegacy} today.`);
+  else if (alreadyOnDynamics(fullText)) parts.push("Already on Dynamics.");
   else {
     const rival = rivalPlatformNamed(fullText);
-    if (rival) parts.push(`on ${rival} today`);
+    if (rival) parts.push(`On ${rival} today.`);
+    else if (/\b(?:on|using|use|run(?:s|ning)?(?:\s+on)?|track\w*\s+in)\s+(?:excel|spreadsheets?)\b/i.test(fullText)) parts.push("On spreadsheets today.");
   }
 
-  // 6. THE PAIN, quoted, only when they said one.
-  const pain = nearestIn(fullText, anchorText, PAIN_RE);
-  if (pain) parts.push(quoteOnce(pain));
+  // 4. BY WHEN, only a date or window still ahead.
+  const when = wantedTimeline(fullText);
+  if (when) parts.push(`Timeline: ${when.replace(/[.\s]+$/, "")}.`);
 
-  // A row that reversed itself must never read as a live deal.
-  const reversal = reversalClause(fullText);
-  if (reversal) parts.push(`reversed: ${quoteOnce(reversal)}`);
+  // 5. WHO HANDLES IT. Product Area first (a real partner or Microsoft
+  //    direct, never a segment label or the customer's own name), then
+  //    what the notes say — see partnerStanceOf.
+  const pa = classifyProductArea(productArea);
+  const st = partnerStanceOf(fullText);
+  if (st.wantsDirect) parts.push("Wants to buy direct from Microsoft.");
+  else {
+    if (pa.kind === "microsoft" || st.buysDirect) parts.push("Direct with Microsoft.");
+    else if (pa.kind === "partner" && !isOwnCompany(pa.label, company, email)) parts.push(`Partner: ${firstWords(pa.label, 3)}.`);
+    if (st.wantsPartner) parts.push("Wants a partner.");
+  }
 
-  return parts.join(" \u00b7 ");
+  if (reversal) parts.push(`Reversed: ${quoteOnce(reversal)}.`);
+
+  return parts.join(" ");
 }
 
 /** The Product Area sometimes repeats the customer's own name, which is not
@@ -3154,6 +3243,11 @@ const LEAD_PRODUCT_RE = /\b(microsoft|m365|o365|office|d365|dynamics|azure|entra
 const LEAD_INTENT_RE = /\b(want\w*|looking|evaluat\w*|interest\w*|planning|plan\s+to|seek\w*|need\w*|migrat\w*|mov(?:e|ing)|explor\w*|consider\w*|upgrad\w*|replac\w*|request\w*|asked|purchas\w*|buy\w*|implement\w*|deploy\w*|shift\w*|switch\w*|expand\w*|frustrat\w*|struggl\w*|help|assist\w*)\b/i;
 function stripCrmChrome(t: string): string {
   return t
+    // Mangled apostrophes and dashes repaired, links dropped, before any
+    // sentence is chosen — see cleanNoteText.
+    .replace(/â€™|â€˜/g, "'").replace(/â€œ|â€\u009d|â€\u201d/g, "\"").replace(/â€“|â€”/g, "-")
+    .replace(/(?:\s+(?:see|at|visit|link|url)\s*:?)?\s*(?:https?:\/\/|www\.)\S*[^\s.,;:)]/gi, " ")
+    .replace(/\s['"]\s/g, " ")
     .replace(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, " ")
     .replace(/\b\d{4}-\d\d-\d\d(?:[ T]\d\d:\d\d(?::\d\d)?)?(?:\s*(?:PDT|PST|EDT|EST|CDT|CST|UTC))?\s*:?/g, " ")
     .replace(/\bReferrer\s*:[^;|]*[;|]?/gi, " ")
@@ -3196,6 +3290,17 @@ function cleanLeadSentence(u: string): string {
     .replace(/^cu\b/i, "Customer")
     .replace(/\bCU\b/g, "customer");
   return t.trim();
+}
+function stripTimelinePhrase(u: string): string {
+  let out = u;
+  for (const re of TIMELINE_PATTERNS) {
+    // Numeric dates stay: in these exports they are usually the note's own
+    // stamp, and hasForbiddenContent is what keeps those out of a lead.
+    if (re.source.includes("[/-]")) continue;
+    const g = new RegExp(`\\s*(?:\\b(?:by|in|before|until|starting|from|around|during)\\s+)?(?:${re.source})`, "gi");
+    out = out.replace(g, "");
+  }
+  return out.replace(/\s+([.,;])/g, "$1").replace(/\s{2,}/g, " ").trim();
 }
 function noteLead(fullText: string, anchor: string, skip?: RegExp): string {
   // "…Referral ID: 7426… Notes: Microsoft Partner is engaging…" — a label
@@ -3244,7 +3349,9 @@ function noteLead(fullText: string, anchor: string, skip?: RegExp): string {
   const anchorWords = new Set((anchor.toLowerCase().match(/[a-z][a-z0-9]{3,}/g) ?? []));
   let best = "", bestScore = -1;
   splitSentences(t).forEach((raw, i) => {
-    const u = cleanLeadSentence(raw);
+    // The timeline is reported on its own line, so a date inside the
+    // sentence ("… by Q1 2027") is cut rather than costing the sentence.
+    const u = stripTimelinePhrase(cleanLeadSentence(raw));
     if (u.length < 25 || hasForbiddenContent(u)) return;
     let sc = 0;
     if (LEAD_INTENT_RE.test(u)) sc += 3;
@@ -3346,29 +3453,32 @@ const titleDest = (d: string) => {
   if (/^(?:m365|microsoft\s*365|o365|office\s*365)$/i.test(t)) return "Microsoft 365";
   return t.replace(/\b[a-z]/g, (c) => c.toUpperCase()).replace(/\bOnedrive\b/, "OneDrive").replace(/\bSharepoint\b/, "SharePoint");
 };
-/** A timeline for the move: the row's labelled "Timeline:", or a quarter,
- *  month-year or relative window written near the migration sentence.
- *  A bare numeric date is skipped — in these exports it is usually the
- *  note's own stamp ("9/22/2026"), not when the move happens. */
-function migrationTimeline(t: string, at: number): string {
+/** Is this timeline phrase still ahead (or undatable, like "next quarter")?
+ *  A date that already passed is the note's own stamp or a meeting that
+ *  happened — never when they want it. */
+function timelineAhead(phrase: string): boolean {
+  const now = Date.now();
+  const q = /\bQ([1-4])\s*(?:FY)?\s?(20\d{2})\b/i.exec(phrase);
+  if (q) return new Date(Number(q[2]), Number(q[1]) * 3, 0).getTime() >= now;
+  const num = /\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})\b/.exec(phrase);
+  if (num) { const y = Number(num[3]) < 100 ? 2000 + Number(num[3]) : Number(num[3]); const d = new Date(y, Number(num[1]) - 1, Number(num[2])); return !isNaN(d.getTime()) && d.getTime() >= now; }
+  const md = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(?:(\d{1,2}),?\s+)?(20\d{2})\b/i.exec(phrase);
+  if (md) { const m = "janfebmaraprmayjunjulaugsepoctnovdec".indexOf(md[1].toLowerCase()) / 3; const d = new Date(Number(md[3]), m, md[2] ? Number(md[2]) : 28); return d.getTime() >= now; }
+  return true;
+}
+/** When they want it: the row's labelled "Timeline:", else a quarter,
+ *  month or relative window — near `at` when given — that is still ahead. */
+export function wantedTimeline(fullText: string, at = -1): string {
+  const t = String(fullText || "").replace(/\s+/g, " ");
   const labelled = TIMELINE_LABEL_RE.exec(t);
   if (labelled) {
     const v = labelled[1].trim().replace(/[,;]$/, "");
-    if (v && !/^(?:not\b.*|n\/?a|none|tbd|unknown|pending|-+|next|to be \w+)$/i.test(v)) return v.length > 48 ? v.slice(0, 45).trimEnd() + "\u2026" : v;
+    if (v && !/^(?:not\b.*|n\/?a|none|tbd|unknown|pending|-+|next|to be \w+)$/i.test(v) && timelineAhead(v)) return v.length > 48 ? v.slice(0, 45).trimEnd() + "\u2026" : v;
   }
-  const near = t.slice(Math.max(0, at - 200), at + 300);
+  const scope = at >= 0 ? t.slice(Math.max(0, at - 200), at + 300) : t;
   for (const re of TIMELINE_PATTERNS) {
-    const m = re.exec(near);
-    if (!m) continue;
-    if (re.source.includes("[/-]")) {
-      // Numeric: keep it only when it is still ahead — a past date is the
-      // note's own stamp, a future one is when the move is planned.
-      const [a, b, c] = m[0].split(/[/-]/).map(Number);
-      const y = c < 100 ? 2000 + c : c;
-      const d = new Date(y, a - 1, b);
-      if (isNaN(d.getTime()) || d.getTime() < Date.now()) continue;
-    }
-    return m[0].trim();
+    const g = new RegExp(re.source, re.flags.includes("g") ? re.flags : re.flags + "g");
+    for (const m of scope.matchAll(g)) if (timelineAhead(m[0])) return m[0].trim();
   }
   return "";
 }
@@ -3378,17 +3488,17 @@ function migrationClause(fullText: string, google: boolean): { what: string; whe
     const g = new RegExp(G_SRC, "i").exec(t);
     const src = g ? g[0].replace(/\s+/g, " ").replace(/^gmail$/i, "Gmail").replace(/^google\s*work\w*$/i, "Google Workspace") : "Google";
     const d = new RegExp(MS_DST, "i").exec(t.slice(g ? g.index : 0));
-    return { what: `Moving off ${src} to ${d ? titleDest(d[0]) : "Microsoft 365"}.`, when: migrationTimeline(t, g ? g.index : 0) };
+    return { what: `Moving off ${src} to ${d ? titleDest(d[0]) : "Microsoft 365"}.`, when: wantedTimeline(t, g ? g.index : 0) };
   }
   // Per Jack: "if a company is looking to migrate to azure or on prem to
   // azure just be direct with the notes". On-prem → Azure, and a named
   // workload moving to Azure, read as one plain line.
   const onPrem = /\bon[\s-]?prem(?:ise|ises)?\b[^.;]{0,80}?\b(?:to|into|→|->)\s+(?:the\s+)?(azure|cloud)\b/i.exec(t);
-  if (onPrem) return { what: `Migrating on-prem to ${titleDest(onPrem[1])}.`, when: migrationTimeline(t, onPrem.index) };
+  if (onPrem) return { what: `Migrating on-prem to ${titleDest(onPrem[1])}.`, when: wantedTimeline(t, onPrem.index) };
   const workload = /\b(server\s+estate|servers?|vms?|virtual\s+machines?|workloads?|infrastructure|data\s*cent(?:er|re)s?|databases?|file\s+servers?|applications?|apps?)\b[^.;]{0,60}?\b(?:move|moving|migrat\w*|lift(?:ing)?\s+and\s+shift\w*)\s+(?:to|into)\s+(azure)\b/i.exec(t);
   if (workload) {
     const noun = workload[1].toLowerCase().replace(/^vms?$/, "VMs").replace(/^server estate$/, "the server estate");
-    return { what: `Migrating ${noun} to Azure.`, when: migrationTimeline(t, workload.index) };
+    return { what: `Migrating ${noun} to Azure.`, when: wantedTimeline(t, workload.index) };
   }
   let at = 0;
   for (const raw of splitSentences(t)) {
@@ -3399,21 +3509,21 @@ function migrationClause(fullText: string, google: boolean): { what: string; whe
     if (m) {
       const what = m[1].replace(/^(?:from|off)\s+/i, "").replace(/\s+/g, " ").trim();
       if (what.split(" ").length <= 9 && !/\b(?:forward|ahead|away|quickly|along)\b$/i.test(what) && !/^(?:entirely|fully|completely|everything)$/i.test(what)) {
-        return { what: `Migrating ${what} to ${titleDest(m[2])}.`, when: migrationTimeline(t, at) };
+        return { what: `Migrating ${what} to ${titleDest(m[2])}.`, when: wantedTimeline(t, at) };
       }
       // "We want to move entirely to cloud" — no object, but a plain
       // statement of the whole move.
       if (/^(?:entirely|fully|completely|everything)$/i.test(what)) {
-        return { what: `Moving ${what.toLowerCase()} to ${titleDest(m[2])}.`, when: migrationTimeline(t, at) };
+        return { what: `Moving ${what.toLowerCase()} to ${titleDest(m[2])}.`, when: wantedTimeline(t, at) };
       }
     }
     const f = MIGRATION_FROM_RE.exec(u);
-    if (f && f[1].split(" ").length <= 7) return { what: `Moving from ${f[1].trim()} to ${titleDest(f[2])}.`, when: migrationTimeline(t, at) };
+    if (f && f[1].split(" ").length <= 7) return { what: `Moving from ${f[1].trim()} to ${titleDest(f[2])}.`, when: wantedTimeline(t, at) };
   }
   // "move entirely to the cloud" names no object. It is only used when the
   // row has no better opening line of its own (see buildCallBrief).
   const b = MIGRATION_BARE_RE.exec(t);
-  if (b) return { what: `Moving to ${titleDest(b[1])}.`, when: migrationTimeline(t, b.index), bare: true };
+  if (b) return { what: `Moving to ${titleDest(b[1])}.`, when: wantedTimeline(t, b.index), bare: true };
   return null;
 }
 
@@ -3530,6 +3640,14 @@ export function buildCallBrief(
   // partner with them" — that clause is dropped everywhere. Who handles it
   // (a named partner, or direct) still stays.
   const direction = /^Microsoft is already pitching/.test(directionFull) ? "" : directionFull;
+  // Partner or direct, from the notes. Skipped when the Product Area
+  // already said "Goes direct with Microsoft", so it is never said twice.
+  const st = partnerStanceOf(fullText);
+  const columnDirect = /^Goes direct with Microsoft/.test(direction);
+  const stanceRaw = partnerStanceLine(columnDirect && st.wantsPartner ? { ...st, buysDirect: true } : st);
+  // Never said twice: the Product Area already said direct, or the opening
+  // line already says they need a partner (checked once the lead is known).
+  const stanceBase = columnDirect && /^Direct with Microsoft/.test(stanceRaw) && !st.wantsPartner ? "" : stanceRaw;
   // A row can qualify on a platform gate alone — an Azure migration, a
   // Google→Microsoft move — naming no SKU and carrying no usable Product
   // Area. 19 of 742 real Strong Signal rows land here. Rather than open on
@@ -3544,12 +3662,21 @@ export function buildCallBrief(
   // says "Mentions", since naming a product is not the same as running it.
 
   const azureHelp = azureSupportClause(fullText);
+  // Per Jack: Azure Document Intelligence "has to be known" — a row that
+  // names it always says so, even when its opening line does not.
+  const wantsDocIntel = DOCUMENT_INTELLIGENCE_RE.test(fullText);
   // The help request is already said by azureHelp, so the lead goes to what
   // the row is about rather than repeating it.
   const lead = noteLead(fullText, dynHit?.snippet || licensing?.snippet || platform?.hits[0]?.snippet || "", azureHelp ? AZURE_HELP_LIST_RE : undefined);
+  const stance = /\bpartner\b/i.test(lead) && /^Wants to work with a partner\.$/.test(stanceBase) ? "" : stanceBase;
+  // "Direct with Microsoft today, wants to work with a partner." already
+  // says what the Product Area's "Goes direct with Microsoft." would.
+  const dirShown = columnDirect && /^Direct with Microsoft today/.test(stance) ? "" : direction;
   const stated = [lead
     ? (what && !leadCovers(lead, what) ? `${lead}${seatsLine(what, lead)}` : lead)
-    : noted, azureHelp].filter(Boolean).join(" ");
+    : (wantsDocIntel ? "" : noted),
+    wantsDocIntel && !/document\s*intelligence/i.test(lead) ? "Wants Azure Document Intelligence." : "",
+    azureHelp].filter(Boolean).join(" ");
 
   // WHAT ELSE THE ROW SAYS — quoted, windowed to the match, dropped when
   // absent. Never inferred: ~94% of real rows say none of this.
@@ -3581,7 +3708,9 @@ export function buildCallBrief(
   if (reversal) {
     return sentenceCase([
       stated ? `${stated}${size}` : "",
-      direction,
+      dirShown,
+      // A partner ask the row then walked back is not a live ask.
+      /^Wants to work with a partner/.test(stance) ? "" : stance,
       known,
       `Row reverses: "${reversal.toLowerCase()}".`,
       "Ask what changed and what would reopen it.",
@@ -3611,6 +3740,9 @@ export function buildCallBrief(
       // drop one.
       what ? `${migration}${seatsLine(what, migration)}` : migration,
       when ? `Timeline: ${when.replace(/[.\s]+$/, "")}.` : "",
+      // The migration line does not show the opening sentence, so a partner
+      // ask in it still has to be said here.
+      stanceBase,
       azureMove
         ? briefQuestions("azure", false, false)
         : briefQuestions(hits.length > 0 || /Microsoft 365|Google/.test(migration) ? "licensing" : "azure", false, false),
@@ -3628,9 +3760,15 @@ export function buildCallBrief(
   const area: "dynamics" | "licensing" | "azure" =
     dynamics ? "dynamics" : azureDirection ? "azure" : hits.length > 0 ? "licensing" : "azure";
 
+  // Per Jack: "we need to know exactly what they want and if theres a
+  // timeline of when they want it".
+  const whenWanted = wantedTimeline(fullText);
+  const whenLine = whenWanted && !stated.toLowerCase().includes(whenWanted.toLowerCase()) ? `Timeline: ${whenWanted.replace(/[.\s]+$/, "")}.` : "";
   return sentenceCase([
     stated ? `${stated}${size}` : "",
-    direction,
+    whenLine,
+    dirShown,
+    stance,
     known,
     briefQuestions(area, !!incumbent, !!pain),
   ].filter(Boolean).join(" "));

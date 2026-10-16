@@ -66,41 +66,41 @@ console.log("\n=== the Dynamics line: facts only ===");
   ok("no score head", !/^\(\d+\)/.test(r.notesSummary), r.notesSummary);
   ok("  no generated question", !/\bAsk /.test(r.notesSummary), r.notesSummary);
   ok("  names the platform", /Business Central/.test(r.notesSummary), r.notesSummary);
-  ok("  states the user count", /20 seats/.test(r.notesSummary), r.notesSummary);
-  ok("  names the partner", /partner: CDW/.test(r.notesSummary), r.notesSummary);
+  ok("  states the user count", /\(20 users\)/.test(r.notesSummary), r.notesSummary);
+  ok("  names the partner", /Partner: CDW/.test(r.notesSummary), r.notesSummary);
   ok("  carries the timeline", /3\/30\/2027/.test(r.notesSummary), r.notesSummary);
 }
 {
   // A thin row stays SHORT rather than padded. Only 43% of real Dynamics
   // rows state a seat count, 37% a timeline and 7% a pain.
   const r = scan("Interested in Dynamics 365.");
-  ok("a row stating nothing else is just the platform", r.notesSummary.trim() === "Dynamics 365", r.notesSummary);
+  ok("a row stating nothing else is just the platform", r.notesSummary.trim() === "Wants Dynamics 365.", r.notesSummary);
   ok("  and says nothing about a missing seat count", !/no seat count/.test(r.notesSummary));
 }
 {
   const r = scan("Dynamics 365 Business Central evaluation. The team is drowning in manual double-entry between systems.");
-  ok("a stated pain is quoted", /"manual double-entry"/.test(r.notesSummary), r.notesSummary);
+  ok("a stated pain is quoted", /Why: manual double-entry/.test(r.notesSummary), r.notesSummary);
 }
 {
   const r = scan("Looking at Dynamics 365.", "Acme Freight", "Microsoft Corporation");
-  ok("Microsoft in the partner slot reads as direct", /direct with Microsoft/.test(r.notesSummary), r.notesSummary);
+  ok("Microsoft in the partner slot reads as direct", /Direct with Microsoft/.test(r.notesSummary), r.notesSummary);
 }
 {
   // The Product Area sometimes repeats the customer's own name.
   const r = scan("Looking at Dynamics 365.", "Stoneridge Software", "Stoneridge Software LLC");
   ok("the customer's own name is never reported as their partner",
-     !/partner: Stoneridge/.test(r.notesSummary), r.notesSummary);
+     !/[Pp]artner: Stoneridge/.test(r.notesSummary), r.notesSummary);
 }
 
 console.log("\n=== already on Dynamics, or on a rival ===");
 {
   const r = scan("The customer is a current D365 customer and is looking to expand their usage in Dataverse.");
-  ok("an existing Dynamics customer is flagged", /already on Dynamics/.test(r.notesSummary), r.notesSummary);
+  ok("an existing Dynamics customer is flagged", /[Aa]lready on Dynamics/.test(r.notesSummary), r.notesSummary);
 }
 {
   const r = scan("Evaluating Dynamics 365 Business Central. Deeper integration with their existing CRM (Salesforce) was discussed.");
-  ok("a rival named instead is the displacement angle", /on Salesforce today/.test(r.notesSummary), r.notesSummary);
-  ok("  and it is not claimed as already-on-Dynamics", !/already on Dynamics/.test(r.notesSummary));
+  ok("a rival named instead is the displacement angle", /On Salesforce today/.test(r.notesSummary), r.notesSummary);
+  ok("  and it is not claimed as already-on-Dynamics", !/[Aa]lready on Dynamics/.test(r.notesSummary));
 }
 ok("a greenfield evaluation claims neither",
    !alreadyOnDynamics("evaluating a Dynamics 365 Business Central solution for 20 users") &&

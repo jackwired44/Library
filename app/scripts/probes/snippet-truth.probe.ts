@@ -107,6 +107,9 @@ const factsTraceable = (snippet: string, row: string): true | string => {
     const mig = /^(?:Moving off|Moving from|Migrating)\s+(.+?)\s+to\s+.+$/i.exec(c);
     if (/^Moving (?:to|entirely|fully|completely)\b/i.test(c)) continue;
     if (/^Timeline:\s*/i.test(c)) continue;
+    // Partner / direct lines are our reading of the row (partnerStanceOf),
+    // checked directly by their own cases below.
+    if (/^(?:Wants to work with a partner|Wants to buy direct from Microsoft|Direct with Microsoft(?: today)?(?:, (?:no partner|wants to work with a partner))?)$/i.test(c)) continue;
     // A timeline is the row's own wording, but it is often a date the row
     // writes in a different format than the brief prints, so it is checked
     // by its digits rather than as a phrase.
@@ -121,7 +124,16 @@ const factsTraceable = (snippet: string, row: string): true | string => {
     const reversed = /^reversed:\s*"(.+?)"?$/i.exec(c);
     const quoted = /^"(.+?)"?$/.exec(c);
     const flagged = /^Flagged\s+"(.+)"$/i.exec(c);
-    if (mig) {
+    // The Dynamics line: "Wants <product> (N users)", "Looked at …",
+    // "Why: <the row's reason>", "Already on Dynamics", "Wants a partner".
+    const dynWant = /^(?:Wants|Looked at)\s+(?:a sales platform:\s+)?(.+?)(?:\s+\(\d+\s+(?:users|employees)\))?$/i.exec(c);
+    const why = /^Why:\s+(.+)$/i.exec(c);
+    if (/^(?:Already on Dynamics|Wants a partner)$/i.test(c)) continue;
+    if (why) {
+      claims = [why[1].replace(/\u2026$/, "")];
+    } else if (dynWant && !/^Wants (?:to |Azure Document Intelligence)/i.test(c) && !/^Wants .+ for \d+ users$/i.test(c)) {
+      claims = dynWant[1].split(/\s+\+\s+/).filter((x) => !/^Dynamics 365 Sales \/ CRM$/i.test(x));
+    } else if (mig) {
       claims = [mig[1].replace(/^Google Workspace$/i, "Google Work")];
     } else if (runs) {
       claims = runs[1].split(/\s*,\s*|\s+and\s+/)
@@ -264,7 +276,7 @@ const [lr] = scan([LONG_REVERSAL]);
 ok("a brief that would drop \u201cdecided not to proceed\u201d carries it instead",
    !!lr && /decided not to proceed/i.test(lr.notesSummary), lr ? lr.notesSummary : "(no row)");
 ok("  and the reversal is the last thing it says, with no ask after it",
-   !!lr && !/\bAsk /.test(lr.notesSummary) && /reversed:/.test(lr.notesSummary),
+   !!lr && !/\bAsk /.test(lr.notesSummary) && /[Rr]eversed:/.test(lr.notesSummary) && /^Looked at /.test(lr.notesSummary),
    lr ? lr.notesSummary : "(no row)");
 const LONG_PLAIN = "The customer has been evaluating Dynamics 365 Business Central for their finance team across every regional office and subsidiary for several quarters now and continues to move forward.";
 const [lp] = scan([LONG_PLAIN]);
@@ -306,7 +318,7 @@ ok("a licensing seat count rides on the SKU that stated it",
    !!c300 && /\(300 seats\)/.test(c300.notesSummary), c300 ? c300.notesSummary : "(no row)");
 const [c40] = scan(["Looking at Dynamics 365 Business Central for 40 users."]);
 ok("a Dynamics seat count survives into the note",
-   !!c40 && /\b40 seats\b/.test(c40.notesSummary), c40 ? c40.notesSummary : "(no row)");
+   !!c40 && /\(40 users\)/.test(c40.notesSummary), c40 ? c40.notesSummary : "(no row)");
 // The Dynamics module the row named must survive, not collapse to the
 // category: "Dynamics 365 Business Central - 25 users" rendered as
 // "25 seats on Dynamics 365" because the hit's \u00b170 window clipped it.
@@ -333,12 +345,12 @@ ok("  so the row keeps its normal questions",
    !!soft && /Ask how Azure is managed today/.test(soft.notesSummary), soft ? soft.notesSummary : "(no row)");
 const [hard] = scan(["We evaluated Dynamics 365 Business Central for 40 users, but they are staying on SAP for now."]);
 ok("a substantive verdict IS reported even with a \u201cbut\u201d before it",
-   !!hard && /reversed:/.test(hard.notesSummary), hard ? hard.notesSummary : "(no row)");
+   !!hard && /[Rr]eversed:/.test(hard.notesSummary), hard ? hard.notesSummary : "(no row)");
 ok("  and it quotes the verdict, not the evaluation it replaced",
    !!hard && /staying on sap/i.test(hard.notesSummary) && !/reversed: "we evaluated/i.test(hard.notesSummary),
    hard ? hard.notesSummary : "(no row)");
 ok("  and the reversal is the last thing it says, with no ask after it",
-   !!hard && !/\bAsk /.test(hard.notesSummary) && /reversed:/.test(hard.notesSummary),
+   !!hard && !/\bAsk /.test(hard.notesSummary) && /[Rr]eversed:/.test(hard.notesSummary),
    hard ? hard.notesSummary : "(no row)");
 
 console.log("\n== Jack's three-clause shape ==");
@@ -414,16 +426,16 @@ console.log("\n== the Dynamics line states facts instead of asking ==");
 const DYN_FACTS: [string, string, RegExp][] = [
   ["a bare evaluation is just the module and the count",
    "Looking at Dynamics 365 Business Central for 40 users.",
-   /^Dynamics 365 Business Central \u00b7 40 seats$/],
+   /^Wants Dynamics 365 Business Central \(40 users\)\.$/],
   ["an incumbent is named as a fact, not asked about",
    "We looked at Dynamics 365 Business Central for 40 users. We are on Sage 100 today and continue to move forward.",
-   /on Sage today/],
+   /On Sage today/],
   ["a stated pain is quoted",
    "Looking at Dynamics 365 Business Central for 40 users. The current setup is end of life.",
-   /"end of life"/],
+   /Why: end of life/],
   ["incumbent AND pain both land",
    "Dynamics 365 Business Central for 40 users. On QuickBooks today and the manual double-entry is a bottleneck, and we continue to move forward.",
-   /on QuickBooks today/],
+   /On QuickBooks today/],
 ];
 scan(DYN_FACTS.map((d) => d[1])).forEach((row, i) => {
   const [label, , want] = DYN_FACTS[i];
@@ -521,7 +533,7 @@ ok("a row with no SKU and no Product Area still states what matched",
 {
   const [g] = scan(["We are moving from Google Workspace to Microsoft 365 for 40 users in Q1 2027 and want a partner to run it."]);
   const gs = g ? stripSnippetPrefix(g.notesSummary) : "(no row)";
-  ok("a Google move reads as what is moving, the count and the timeline", /^Moving off Google Workspace to Microsoft 365\. 40 (?:users|seats)\. Timeline: Q1 2027\. Ask /.test(gs), gs);
+  ok("a Google move reads as what is moving, the count and the timeline", /^Moving off Google Workspace to Microsoft 365\. 40 (?:users|seats)\. Timeline: Q1 2027\. (?:Wants to work with a partner\. )?Ask /.test(gs), gs);
   const [a] = scan(["Looking to migrate our file servers and SQL databases to Azure by end of the year with a partner."]);
   const as = a ? stripSnippetPrefix(a.notesSummary) : "(no row)";
   ok("an Azure move names what is migrating and when", /^Migrating file servers and SQL databases to Azure\. Timeline: end of the year\. Ask how Azure/.test(as), as);
@@ -547,6 +559,54 @@ ok("a row with no SKU and no Product Area still states what matched",
   const [op] = scan(["We are looking to move from on-premises to Azure next quarter with a partner."]);
   const o = op ? stripSnippetPrefix(op.notesSummary) : "(no row)";
   ok("on-prem to Azure reads as one direct line", /^Migrating on-prem to Azure\. Timeline: next quarter\. Ask how Azure/.test(o), o);
+}
+
+// Per Jack: "make it known in the notes if they want to work with a partner
+// also for anything or if it says direct".
+{
+  const [d] = scan(["Customer has 40 Microsoft 365 E3 licenses purchased directly with Microsoft and wants to add Copilot for 40 users."]);
+  const ds = d ? stripSnippetPrefix(d.notesSummary) : "(no row)";
+  ok("a direct buyer says so", /Direct with Microsoft, no partner\./.test(ds), ds);
+  const [w] = scan(["Planning to migrate our on-prem servers to Azure next quarter and would like to work with a partner."]);
+  const ws = w ? stripSnippetPrefix(w.notesSummary) : "(no row)";
+  ok("a partner ask says so", /Wants to work with a partner\./.test(ws), ws);
+  const [x] = scan(["Customer wants to move away from their current partner and purchase directly from Microsoft for 50 Microsoft 365 E3 licenses."]);
+  const xs = x ? stripSnippetPrefix(x.notesSummary) : "(no row)";
+  ok("wanting to go direct says so", /Wants to buy direct from Microsoft\./.test(xs), xs);
+  const [n] = scan(["Renewing Microsoft 365 E3 for 300 users this year."]);
+  const ns = n ? stripSnippetPrefix(n.notesSummary) : "(no row)";
+  ok("  and a row that says neither adds nothing", !/Wants to work with a partner|Direct with Microsoft|buy direct/.test(ns), ns);
+  const [dy] = scan(["Looking to implement Dynamics 365 Business Central for 25 users this year and want to work with a partner for the implementation."]);
+  ok("  the Dynamics line carries it too", !!dy && /[Ww]ants a partner/.test(dy.notesSummary), dy ? dy.notesSummary : "(no row)");
+}
+
+// Per Jack: "for dynamics we want to know they want it, reason why they want
+// it, current platform if states what they are on today and by when they
+// want it if it states that parantheses the user count".
+{
+  const [dq] = scan(["Looking to implement Dynamics 365 Business Central for 25 users by Q2 2027 because QuickBooks can't handle their inventory anymore."]);
+  const s3 = dq ? dq.notesSummary : "(no row)";
+  ok("Dynamics: what, (users), why, on today, by when", /^Wants Dynamics 365 Business Central \(25 users\)\. Why: QuickBooks can't handle their inventory anymore\. On QuickBooks today\. Timeline: Q2 2027\.$/.test(s3), s3);
+  const [gp] = scan(["Currently on Dynamics GP and looking to move to Dynamics 365 Business Central for 40 users this year."]);
+  const g3 = gp ? gp.notesSummary : "(no row)";
+  ok("  GP beside Business Central is what they run today", /^Wants Dynamics 365 Business Central \(40 users\)\..*On Dynamics GP today\./.test(g3), g3);
+}
+// Per Jack: Azure Document Intelligence "has to be known" — "Wants Azure
+// Document Intelligence. Ask how Azure is managed today, internal IT or an
+// external part[ner]" "is gold".
+{
+  const [di] = scan(["Service - Azure Document Intelligence - process invoices"]);
+  const d3 = di ? stripSnippetPrefix(di.notesSummary) : "(no row)";
+  ok("Document Intelligence reads exactly as Jack's gold line", /^Wants Azure Document Intelligence\. Ask how Azure is managed today, internal IT or an external partner/.test(d3), d3);
+  const [di2] = scan(["Customer wants to use Azure Document Intelligence to automate invoice processing by Q1 2027."]);
+  const e3 = di2 ? stripSnippetPrefix(di2.notesSummary) : "(no row)";
+  ok("  and is named even when its sentence cannot be quoted", /Wants Azure Document Intelligence\. Timeline: Q1 2027\./.test(e3), e3);
+}
+// Per Jack: "no url link or weird characters should ever be in notes".
+{
+  const [u] = scan(["Customer wants Microsoft 365 Business Premium for 30 users \u00e2\u20ac\u2122 see https://contoso.com/form. They don\u00e2\u20ac\u2122t have a partner today."]);
+  const u3 = u ? u.notesSummary : "(no row)";
+  ok("no link and no mangled characters in a note", !/https?:|www\.|\u00e2\u20ac|\uFFFD/.test(u3) && /Business Premium for 30 users/.test(u3), u3);
 }
 
 console.log(`\n${pass}/${pass + fail} checks passed`);

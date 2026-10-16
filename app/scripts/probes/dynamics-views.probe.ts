@@ -106,7 +106,7 @@ for (const [note, want] of [
   ok(`${want.padEnd(23)} <- ${note.slice(0, 52)}`, got === want, `got ${got}`);
 }
 const salesNote = scan(["Need a CRM — looking at Dynamics 365, 20 users."])[0];
-ok("a Sales / CRM lead's note names the sales platform", /^Sales platform: /.test(salesNote?.notesSummary ?? ""), salesNote?.notesSummary);
+ok("a Sales / CRM lead's note names the sales platform", /^Wants a sales platform: /.test(salesNote?.notesSummary ?? ""), salesNote?.notesSummary);
 
 console.log("\n== F&O is not Business Central, even when it says ERP ==");
 const fno = scan(["Dynamics 365 Finance and Operations is the ERP we want, 120 users."])[0];

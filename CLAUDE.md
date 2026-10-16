@@ -6585,3 +6585,41 @@ still partner with them".
   a test — Jack: "this is a great lead and note".
 - Suites: snippet-truth 94 → 100, note-refresh-live 12 → 16; dynamics-views'
   Himmel check re-pointed to the migration shape.
+
+### 2026-10-16: partner/direct line, timelines, Dynamics shape, Document Intelligence, clean notes (scanner-platform-v29)
+
+- **Partner or direct, in every Main note** (per Jack: "make it known in
+  the notes if they want to work with a partner also for anything or if it
+  says direct"). `partnerStanceOf`: "Wants to work with a partner." /
+  "Wants to buy direct from Microsoft." / "Direct with Microsoft, no
+  partner." / "Direct with Microsoft today, wants to work with a partner."
+  Never said twice (Product Area direct, or an opening line that already
+  says it). A walked-back ask is dropped on reversal.
+- **`PARTNER_DESIRE_RE`**: "want to work with a partner", "would like to",
+  "prefer to", "open to working with", "interested in partnering with an
+  MSP" now count as a confirmed ask (badge, pin and note). They were missed
+  because the incumbency guard read "work with a partner" as already having
+  one; the article ("a"/"an") marks it new. Negation still blocks.
+- **Timeline on every M365/Azure note** ("we need to know exactly what they
+  want and if theres a timeline"). `wantedTimeline`: labelled "Timeline:",
+  else a quarter / month / relative window that is still AHEAD — a past date
+  is the note's stamp or a meeting already held. A date phrase inside the
+  opening sentence is cut (`stripTimelinePhrase`) since the timeline has
+  its own line; numeric dates are left for `hasForbiddenContent`.
+- **Dynamics line rebuilt** ("for dynamics we want to know they want it,
+  reason why, current platform … by when … parentheses the user count"):
+  `Wants <product> (N users). Why: <reason>. On <platform> today. Timeline:
+  <when>. Partner: X / Direct with Microsoft / Wants a partner.` A reversed
+  row opens "Looked at …". GP/NAV/AX/SL named beside a 365 product read as
+  "On Dynamics GP today." `dynamicsReason` quotes a stated reason only
+  ("because …", "to replace …", "outgrowing …"), never evaluation chatter.
+- **Azure Document Intelligence always named** — "Wants Azure Document
+  Intelligence." (Jack: "has to be known … is gold"), pinned as a test.
+- **No links or weird characters** ("no url link or weird characters should
+  ever be in notes"): `cleanNoteText` is the last pass on every Main note
+  (URLs, mojibake, control/zero-width chars, anything outside plain text and
+  punctuation; the ▲ ▼ ▸ ✕ marks stay). `stripCrmChrome` repairs mangled
+  apostrophes and drops links before a sentence is chosen. 0 of 412 notes on
+  Book9-30 carry either.
+- `NOTE_RULES_VERSION` bumped. snippet-truth 105 → 110; dynamics-brief,
+  dynamics-count, dynamics-views locators moved to the new Dynamics shape.

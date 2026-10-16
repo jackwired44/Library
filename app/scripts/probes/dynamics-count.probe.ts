@@ -20,7 +20,7 @@ for (const [n, want] of [
   ["Dynamics 365 Business Central (approx. 60 users)", 60],
 ] as [string, number][]) {
   const r = scan(n);
-  ok(`${want} <- ${JSON.stringify(n.slice(0, 50))}`, r?.dynamicsSeatCount === want && new RegExp(`\\b${want} seats\\b`).test(r?.notesSummary ?? ""), `${r?.dynamicsSeatCount} | ${r?.notesSummary}`);
+  ok(`${want} <- ${JSON.stringify(n.slice(0, 50))}`, r?.dynamicsSeatCount === want && new RegExp(`\\(${want} (?:users|employees)\\)`).test(r?.notesSummary ?? ""), `${r?.dynamicsSeatCount} | ${r?.notesSummary}`);
 }
 // Company size is not a user count: it is shown, but as employees.
 const co = scan("American Cementing has roughly 400 employees and is evaluating Dynamics 365 Business Central.");
