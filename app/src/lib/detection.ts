@@ -1186,7 +1186,7 @@ const CONTACT_FIELD_RE =
 const URL_RE = /\b(?:https?:\/\/|www\.)\S*[^\s.,;:)]|\b[\w.-]+\.(?:com|net|org|io|co|us|ai|gov|edu)\/\S*[^\s.,;:)]/gi;
 /** Mangled text: mojibake ("â€™", "Ã©"), the replacement character, and
  *  zero-width / control characters. */
-const MOJIBAKE_RE = /(?:â€[\u0080-\u00BF™œ�"]?|Ã[\u0080-\u00BF]|Â(?=[\s\u00A0-\u00BF])|\uFFFD|[\u200B-\u200F\u2028-\u202F\u2060-\u206F\uFEFF]|[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F])/g;
+const MOJIBAKE_RE = /(?:\u00e2\u20ac[\u0080-\u00BF\u2122\u0153\uFFFD"]?|\u00c3[\u0080-\u00BF]|\u00c2(?=[\s\u00A0-\u00BF])|\uFFFD|[\u200B-\u200F\u2028-\u202F\u2060-\u206F\uFEFF]|[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F])/g;
 /** The final pass over every Main Scanner note: no links, no mangled
  *  characters, and anything outside plain text and normal punctuation is
  *  dropped — except the score/band marks (▲ ▼ ▸ ✕) Jack asked for. */
