@@ -2342,3 +2342,182 @@ details.panel.fold > summary.fold-head { list-style: none; cursor: pointer; padd
 details.panel.fold > summary.fold-head::-webkit-details-marker { display: none; }
 details.panel.fold > summary.fold-head::before { content: "▸"; color: var(--muted); width: 10px; }
 details.panel.fold[open] > summary.fold-head::before { content: "▾"; }
+
+/* ============================================================
+   SHELL v2 — silver sidebar + tight top bar.
+   Per Jack: "more slick and like a built side bar that can be
+   collapsed to the left … more silver … define buttons", and the
+   top "less white space" with who is signed in, settings, sign
+   out, and the date and time. Presentational only: every button
+   keeps the handler it had.
+   ============================================================ */
+:root {
+  --topbar-h: 48px;
+  --sidebar-w: 236px;
+  --sidebar-w-collapsed: 60px;
+  --silver-1: #f6f7f9;
+  --silver-2: #e6eaee;
+  --silver-3: #d3d9df;
+  --silver-edge: #c3cbd3;
+  --silver-ink: #26343b;
+  --silver-ink-2: #55636c;
+  --silver-ink-3: #78858e;
+}
+:root[data-theme="dark"] {
+  --silver-1: #2a3136;
+  --silver-2: #1f252a;
+  --silver-3: #343c42;
+  --silver-edge: #3d474e;
+  --silver-ink: #e3e8ec;
+  --silver-ink-2: #b6c0c7;
+  --silver-ink-3: #8e9aa3;
+}
+
+.app-shell { transition: grid-template-columns 0.18s ease; }
+.app-shell.nav-collapsed { grid-template-columns: var(--sidebar-w-collapsed) 1fr; }
+
+/* --- top bar --- */
+.topbar {
+  height: var(--topbar-h);
+  padding: 0 12px;
+  gap: 10px;
+  background: linear-gradient(180deg, var(--silver-1), var(--silver-2));
+  border-bottom: 1px solid var(--silver-edge);
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.6);
+}
+.topbar-brand { font-size: 14px; color: var(--silver-ink); }
+.topbar-mark { width: 24px; height: 24px; box-shadow: 0 1px 2px rgba(16, 24, 40, 0.2); }
+.topbar-sub { color: var(--silver-ink-3); border-left-color: var(--silver-3); }
+.topbar-welcome {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12.5px; color: var(--silver-ink-2);
+  white-space: nowrap; min-width: 0;
+}
+.topbar-greet { color: var(--silver-ink-3); }
+.topbar-user {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 30px; padding: 0 10px 0 3px;
+  border: 1px solid var(--silver-edge); border-radius: 999px;
+  background: linear-gradient(180deg, #ffffff, var(--silver-1));
+  color: var(--silver-ink); font: 600 12.5px var(--font); cursor: pointer;
+  box-shadow: 0 1px 1px rgba(16, 24, 40, 0.06);
+}
+:root[data-theme="dark"] .topbar-user { background: linear-gradient(180deg, var(--silver-3), var(--silver-2)); }
+.topbar-user:hover { border-color: var(--brand); }
+.topbar-avatar {
+  width: 24px; height: 24px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--brand); color: #fff; font-size: 11px; font-weight: 700;
+}
+.topbar-clock {
+  font-family: var(--mono, monospace); font-size: 11.5px; color: var(--silver-ink);
+  padding: 4px 9px; border-radius: 6px;
+  background: rgba(255, 255, 255, 0.65); border: 1px solid var(--silver-3);
+}
+:root[data-theme="dark"] .topbar-clock { background: var(--silver-3); }
+.topbar-build {
+  font-family: var(--mono, monospace); font-size: 10px; color: var(--silver-ink-3);
+  white-space: nowrap;
+}
+.topbar-icon, .topbar-signout {
+  height: 30px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  border: 1px solid var(--silver-edge); border-radius: 8px;
+  background: linear-gradient(180deg, #ffffff, var(--silver-1));
+  color: var(--silver-ink); font: 600 12px var(--font); cursor: pointer;
+  box-shadow: 0 1px 1px rgba(16, 24, 40, 0.06);
+}
+:root[data-theme="dark"] .topbar-icon,
+:root[data-theme="dark"] .topbar-signout { background: linear-gradient(180deg, var(--silver-3), var(--silver-2)); }
+.topbar-icon { width: 30px; padding: 0; }
+.topbar-signout { padding: 0 10px; }
+.topbar-icon:hover, .topbar-signout:hover { border-color: var(--brand); color: var(--brand); }
+.topbar-icon .side-nav-icon, .topbar-signout .side-nav-icon { width: 16px; height: 16px; }
+@media (max-width: 900px) {
+  .topbar-greet, .topbar-build, .topbar-sub { display: none; }
+}
+@media (max-width: 640px) {
+  .topbar-clock, .topbar-signout span { display: none; }
+}
+
+/* --- silver sidebar --- */
+.sidebar {
+  background: linear-gradient(180deg, var(--silver-1) 0%, var(--silver-2) 100%);
+  border-right: 1px solid var(--silver-edge);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.7);
+  padding: 8px 0;
+}
+.sidebar-collapse {
+  display: flex; align-items: center; gap: 10px;
+  margin: 0 10px 6px; padding: 6px 9px; height: 32px;
+  border: 1px solid var(--silver-3); border-radius: 8px;
+  background: rgba(255, 255, 255, 0.55); color: var(--silver-ink-3);
+  font: 600 11px var(--font); letter-spacing: 0.04em; text-transform: uppercase; cursor: pointer;
+}
+:root[data-theme="dark"] .sidebar-collapse { background: var(--silver-3); }
+.sidebar-collapse:hover { color: var(--silver-ink); border-color: var(--silver-edge); }
+.sidebar-nav { padding: 0 10px; }
+.sidebar-group {
+  display: flex; width: 100%; align-items: center; gap: 6px;
+  background: none; border: none; cursor: pointer; text-align: left;
+  font: 700 10px var(--font); letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--silver-ink-3); padding: 14px 8px 6px;
+}
+.sidebar-group-caret { width: 10px; display: inline-block; }
+.side-nav-btn {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; height: 36px; padding: 0 10px; margin: 2px 0;
+  border: 1px solid transparent; border-left: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent; color: var(--silver-ink-2);
+  font: 500 13px var(--font); text-align: left; cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.side-nav-btn:hover {
+  background: rgba(255, 255, 255, 0.7);
+  border-color: var(--silver-3);
+  color: var(--silver-ink);
+}
+:root[data-theme="dark"] .side-nav-btn:hover { background: var(--silver-3); }
+.side-nav-btn.active {
+  background-color: #ffffff;
+  background-image: linear-gradient(180deg, #ffffff, #f9fafb);
+  border-color: var(--silver-edge);
+  color: var(--silver-ink);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.08), inset 3px 0 0 var(--brand);
+}
+:root[data-theme="dark"] .side-nav-btn.active { background-color: var(--silver-3); background-image: linear-gradient(180deg, var(--silver-3), var(--silver-2)); }
+.side-nav-btn.active .side-nav-icon { color: var(--brand); }
+.side-nav-sub { padding-left: 16px; }
+.side-nav-icon { flex-shrink: 0; color: var(--silver-ink-3); }
+.side-nav-btn:hover .side-nav-icon { color: var(--silver-ink); }
+.side-nav-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-nav-count {
+  font-family: var(--mono, monospace); font-size: 10.5px; font-weight: 600;
+  padding: 1px 7px; border-radius: 999px;
+  background: var(--silver-2); border: 1px solid var(--silver-3); color: var(--silver-ink-2);
+}
+.side-nav-btn.active .side-nav-count { background: var(--brand); border-color: var(--brand); color: #fff; }
+.sidebar-foot {
+  margin-top: auto; padding: 8px 10px 4px;
+  border-top: 1px solid var(--silver-3);
+  display: flex; flex-direction: column;
+}
+.sidebar-foot .side-nav-btn { height: 32px; font-size: 12.5px; }
+
+/* --- collapsed: an icon rail --- */
+.nav-collapsed .sidebar-nav, .nav-collapsed .sidebar-foot { padding-left: 8px; padding-right: 8px; }
+.nav-collapsed .sidebar-collapse { margin: 0 8px 6px; justify-content: center; padding: 0; }
+.nav-collapsed .side-nav-label,
+.nav-collapsed .side-nav-count { display: none; }
+.nav-collapsed .side-nav-btn { justify-content: center; padding: 0; }
+.nav-collapsed .sidebar-group { font-size: 0; padding: 8px 0 4px; justify-content: center; }
+.nav-collapsed .sidebar-group::after { content: ""; display: block; width: 24px; border-top: 1px solid var(--silver-3); }
+.nav-collapsed .sidebar-group > span { display: none; }
+
+/* --- scan stamp on both scanner screens --- */
+.scan-stamp {
+  font-family: var(--mono, monospace); font-size: 11px; color: var(--ink-3);
+  padding: 2px 8px; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--bg-subtle); white-space: nowrap;
+}

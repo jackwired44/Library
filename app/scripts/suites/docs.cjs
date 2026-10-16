@@ -27,7 +27,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  PASS', n)) : (fail++,
   ok('  it is inside the sidebar, below the nav', !!box && !!nav && box.x < 260 && box.y > nav.height * 0.5, JSON.stringify(box));
   await btn.click(); await sleep(600);
   ok('  it opens the Documentation page', /Documentation/.test(await page.locator('main h2').innerText()));
-  // The sidebar is dark; a light active fill would make the label vanish.
+  // The active fill must keep the label readable whatever the sidebar's ground.
   const vis = await btn.evaluate((el) => {
     const cs = getComputedStyle(el);
     const parse = (c) => (c.match(/[\d.]+/g) || []).slice(0, 3).map(Number);
@@ -36,7 +36,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  PASS', n)) : (fail++,
     const L1 = lum(fg), L2 = lum(bg);
     return { ratio: (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05), bg: cs.backgroundColor, color: cs.color, rail: cs.borderLeftColor };
   });
-  ok('  the active button is readable on the dark sidebar (>= 4.5:1)', vis.ratio >= 4.5, `${vis.ratio.toFixed(2)}:1  fg ${vis.color} on bg ${vis.bg}`);
+  ok('  the active button is readable on the sidebar (>= 4.5:1)', vis.ratio >= 4.5, `${vis.ratio.toFixed(2)}:1  fg ${vis.color} on bg ${vis.bg}`);
 
   console.log('\n== sections ==');
   const wanted = ['How the platform is put together', 'CSP Scanner', 'Custom Scanner September', 'Main Scanner', 'The CSV, column by column', 'Capacity and storage', 'Known limits'];

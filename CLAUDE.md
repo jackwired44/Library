@@ -6671,3 +6671,32 @@ already in Apollo ("Leave them out of downloads"), and nothing said so.
   has no company, the name match stands (still labelled "name only"). Every
   caller passes the lead's company. Suite `apollo-name-match` (9);
   `apollo-roster-live` 16 → 17.
+
+### 2026-10-16: Central clock, silver sidebar, top bar (scanner-platform-v29)
+
+Per Jack: "platform should state date and time so the scanner is aware" /
+"cst time", then "make the left hand more slick … collapsed to the left …
+more silver … define buttons … no functions changed", then the top "less
+… white space … sign out, settings icon … user name logged in … welcome
+with the time … and date".
+- **Platform clock is Central** (`lib/centralTime.ts`, `PLATFORM_TZ =
+  America/Chicago`). The top bar shows "Good evening, Jack · Fri, Oct 16,
+  2026 · 6:32 PM CDT", live. Each scanner's results bar shows "Scanned
+  <date time CDT>".
+- **The scanner judges note dates against today in Central**:
+  `timelineAhead` (`lib/detection.ts`) compares against Central midnight
+  today, so a timeline dated today still counts (it was dropped as past
+  before). Inlined there as `centralTodayMs`, because detection.ts
+  imports nothing (isolation suite). `NOTE_RULES_VERSION` bumped.
+- **Top bar**, 48px, silver: brand · welcome + signed-in name (sign-in
+  accepts one email, `AUTH_EMAIL`; the name shown is a display name in
+  localStorage `platformUserName`, click to change) · clock · build id ·
+  ⚙ Settings (opens the Cheat Sheet panel, where rule settings live) ·
+  Sign out (the old 🔒 Lock, same handler).
+- **Sidebar**, silver gradient, line icons (`NavIcon`, App.tsx), defined
+  36px buttons, the active item a raised white tile with a teal rail.
+  "Collapse" at the top folds it to a 60px icon rail (labels as tooltips;
+  localStorage `navCollapsed`). The footer buttons (Documentation,
+  Diagnostics, Cheat Sheet, Platform notes) are nav-style now; same
+  handlers and aria-labels. Styles: "SHELL v2" block at the end of
+  styles.css.

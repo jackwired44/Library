@@ -3509,8 +3509,17 @@ const titleDest = (d: string) => {
 /** Is this timeline phrase still ahead (or undatable, like "next quarter")?
  *  A date that already passed is the note's own stamp or a meeting that
  *  happened — never when they want it. */
+/** Today in Central time (the platform's clock, per Jack: "cst time"), at
+ *  local midnight, so a date that is today still counts as ahead wherever
+ *  the browser is. Kept inline: this file imports nothing. Same answer as
+ *  lib/centralTime.ts's centralToday. */
+function centralTodayMs(): number {
+  const p: Record<string, string> = {};
+  for (const x of new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date())) p[x.type] = x.value;
+  return new Date(Number(p.year), Number(p.month) - 1, Number(p.day)).getTime();
+}
 function timelineAhead(phrase: string): boolean {
-  const now = Date.now();
+  const now = centralTodayMs();
   const q = /\bQ([1-4])\s*(?:FY)?\s?(20\d{2})\b/i.exec(phrase);
   if (q) return new Date(Number(q[2]), Number(q[1]) * 3, 0).getTime() >= now;
   const num = /\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})\b/.exec(phrase);

@@ -1,3 +1,4 @@
+import { formatCentral } from "../lib/centralTime";
 import { saveReportText, type SaveReport } from "../lib/saveReport";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apolloHitFor, type ApolloHit, type RosterIndex } from "../lib/apolloRoster";
@@ -895,6 +896,9 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
   const lastRunId = useRef<string | null>(null);
   const addFileInputRef = useRef<HTMLInputElement>(null);
   const [result, setResult] = useState<Scan2Result | null>(null);
+  // A new result object only comes from a scan (curation lives elsewhere),
+  // so its identity is when this batch was scanned. Shown in Central.
+  const scannedAt = useMemo(() => (result ? new Date() : null), [result]);
   const [profiles, setProfiles] = useState<ColumnProfile[]>([]);
   const [runs, setRuns] = useState<Run2[]>([]);
   const [curation, setCurationState] = useState<Record<string, CurationRecord>>({});
@@ -1725,6 +1729,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
           <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
             {isCsp ? "CSP opportunities — renewals and licensing" : "Custom data sets — Microsoft SMC / Cloud Ascent lists"}
           </span>
+          {scannedAt && <span className="scan-stamp" title="When this batch was scanned (Central).">Scanned {formatCentral(scannedAt)}</span>}
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
             {files.map((f) => (
               <span key={f.name} className="file-chip">

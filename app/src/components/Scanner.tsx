@@ -1,4 +1,5 @@
 import { saveReportText, type SaveReport } from "../lib/saveReport";
+import { formatCentral } from "../lib/centralTime";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ACTIVE_CATEGORY_KEYS,
@@ -285,6 +286,8 @@ export default function Scanner({
   // that cleared detection. Kept as its own state (not derived from
   // uploadedFiles) since scanParsedFiles is the one source of truth for
   // both numbers together.
+  // When this batch was scanned, shown in Central (the platform clock).
+  const [scannedAt, setScannedAt] = useState<Date | null>(null);
   const [lastScanStats, setLastScanStats] = useState<{ rowsScanned: number; duplicatesRemoved: number; largestDuplicateGroup: number } | null>(null);
   // Adopts App.tsx's loadedScanStats whenever it changes (a fresh reopen/
   // combine from History) — a plain upload sets lastScanStats directly via
@@ -437,6 +440,7 @@ export default function Scanner({
     setUploadedFiles(files.map((pf) => ({ name: pf.name, rows: pf.data.length })));
     const largestDuplicateGroup = Math.max(0, ...scanned.map((r) => r.duplicateGroupSize || 0));
     setLastScanStats({ rowsScanned, duplicatesRemoved, largestDuplicateGroup });
+    setScannedAt(new Date());
     setNoSignalRows(skipped);
     setDuplicateRows(merged);
     setDroppedView("none");
@@ -536,6 +540,7 @@ export default function Scanner({
     onReset();
     setBucketFileNames({ m365Tenant: "", dynamics: "", dataPlatform: "" });
     setLastScanStats(null);
+    setScannedAt(null);
     setError(null);
     setSearch("");
     setCategoryFilter("all");
@@ -612,6 +617,7 @@ export default function Scanner({
     setUploadedFiles([{ name: parsed.name, rows: parsed.data.length }]);
     const largestDuplicateGroup = Math.max(0, ...scanned.map((r) => r.duplicateGroupSize || 0));
     setLastScanStats({ rowsScanned, duplicatesRemoved, largestDuplicateGroup });
+    setScannedAt(new Date());
     setNoSignalRows(skipped);
     setDuplicateRows(merged);
     setDroppedView("none");
@@ -1201,6 +1207,7 @@ export default function Scanner({
       <div className="page-bar">
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <h2 style={{ margin: 0, fontSize: 16 }}>Main Scanner</h2>
+          {scannedAt && <span className="scan-stamp" title="When this batch was scanned. Dates in notes are judged against today in Central.">Scanned {formatCentral(scannedAt)}</span>}
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
             {uploadedFiles.map((f) => (
               <span key={f.name} className="file-chip">

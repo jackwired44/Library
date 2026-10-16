@@ -74,7 +74,9 @@ import {
   renameLeadList, deleteLeadList, addRowsToList, addExportRowsToList, removeRowFromList, type LeadList,
 } from "./lib/leadLists";
 import { loadRuleOverrides, persistRuleOverrides } from "./lib/ruleOverrides";
-import { isUnlocked, setUnlocked } from "./lib/auth";
+import { isUnlocked, setUnlocked, AUTH_EMAIL } from "./lib/auth";
+import { formatCentral, PLATFORM_TZ } from "./lib/centralTime";
+import { useNow } from "./lib/useNow";
 import {
   loadDispositionsFromDB, persistDisposition, deleteDispositionFromDB,
   createCustomDisposition, type CustomDisposition,
@@ -133,6 +135,16 @@ export default function App() {
   const [scannersOpen, setScannersOpen] = useState(() => {
     try { return localStorage.getItem("navScannersOpen") !== "0"; } catch { return true; }
   });
+  // Sidebar collapsed to an icon rail. Display preference only.
+  const [navCollapsed, setNavCollapsed] = useState(() => {
+    try { return localStorage.getItem("navCollapsed") === "1"; } catch { return false; }
+  });
+  function toggleNavCollapsed() {
+    setNavCollapsed((v) => {
+      try { localStorage.setItem("navCollapsed", v ? "0" : "1"); } catch { /* preference only */ }
+      return !v;
+    });
+  }
   function toggleScanners() {
     setScannersOpen((v) => {
       try { localStorage.setItem("navScannersOpen", v ? "0" : "1"); } catch { /* preference only */ }
@@ -827,7 +839,7 @@ export default function App() {
   if (!unlocked) return <LockScreen onUnlock={() => setUnlockedState(true)} />;
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${navCollapsed ? " nav-collapsed" : ""}`}>
       <header className="topbar">
         <div className="topbar-brand">
           <span className="topbar-mark" aria-hidden="true">W</span>
@@ -835,50 +847,76 @@ export default function App() {
           <span className="topbar-sub">Wired CIO</span>
         </div>
         <div className="topbar-spacer" />
+        <TopbarWelcome />
         {/* Which build is this? An old copy of the HTML looks identical to
             a new one, which once cost an entire session to work out. The
             commit and build time are baked in at compile time by
             vite.config.ts, so the page can answer it itself. */}
-        <span
-          className="topbar-sub"
-          title="Build this page was compiled from — commit and time (UTC)"
-          style={{ fontFamily: "var(--font-mono, monospace)", fontSize: 11, opacity: 0.75, marginRight: 10, whiteSpace: "nowrap" }}
-        >
-          build {__BUILD_ID__}
+        <span className="topbar-build" title="Build this page was compiled from — commit and time (UTC)">
+          {__BUILD_ID__}
         </span>
-        <button onClick={() => { setUnlocked(false); setUnlockedState(false); }} className="icon-btn" title="Lock this page again">
-          🔒 Lock
+        <button
+          type="button"
+          onClick={() => setNotesPanelTab("cheatsheet")}
+          className="topbar-icon"
+          aria-label="Settings"
+          title="Settings: rules, thresholds and keywords (Cheat Sheet)"
+        >
+          <NavIcon name="settings" />
+        </button>
+        <button
+          type="button"
+          onClick={() => { setUnlocked(false); setUnlockedState(false); }}
+          className="topbar-signout"
+          aria-label="Sign out"
+          title="Sign out (locks this page again)"
+        >
+          <NavIcon name="signout" />
+          <span>Sign out</span>
         </button>
       </header>
 
-      <aside className="sidebar">
+      <aside className="sidebar" aria-label="Main navigation">
+        <button
+          type="button"
+          className="sidebar-collapse"
+          onClick={toggleNavCollapsed}
+          aria-label={navCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          title={navCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          <NavIcon name={navCollapsed ? "expand" : "collapse"} />
+          {!navCollapsed && <span className="side-nav-label">Collapse</span>}
+        </button>
         <nav className="sidebar-nav">
           <button
             className={`side-nav-btn${view === "home" ? " active" : ""}`}
             onClick={() => setView("home")}
+            title="Home"
           >
-            Home
+            <NavIcon name="home" />
+            <span className="side-nav-label">Home</span>
           </button>
 
           {/* Scanners: collapsible. Kept open while one of them is on
-              screen, so collapsing can never hide where you are. */}
+              screen, so collapsing can never hide where you are. With the
+              sidebar collapsed to icons they always show. */}
           <button
             className="sidebar-group"
             onClick={toggleScanners}
             aria-expanded={scannersOpen || SCANNER_NAV.some((i) => i.key === view)}
-            style={{ display: "flex", width: "100%", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
           >
-            <span>{scannersOpen || SCANNER_NAV.some((i) => i.key === view) ? "▾" : "▸"}</span>
+            <span className="sidebar-group-caret">{scannersOpen || SCANNER_NAV.some((i) => i.key === view) ? "▾" : "▸"}</span>
             <span>Scanners</span>
           </button>
-          {(scannersOpen || SCANNER_NAV.some((i) => i.key === view)) && SCANNER_NAV.map((item) => (
+          {(navCollapsed || scannersOpen || SCANNER_NAV.some((i) => i.key === view)) && SCANNER_NAV.map((item) => (
             <button
               key={item.key}
-              className={`side-nav-btn${view === item.key ? " active" : ""}`}
-              style={{ paddingLeft: 22 }}
+              className={`side-nav-btn side-nav-sub${view === item.key ? " active" : ""}`}
               onClick={() => setView(item.key)}
+              title={item.label}
             >
-              {item.label}
+              <NavIcon name={item.key} />
+              <span className="side-nav-label">{item.label}</span>
             </button>
           ))}
 
@@ -890,8 +928,10 @@ export default function App() {
                   key={item.key}
                   className={`side-nav-btn${view === item.key || (item.key === "allleads" && (view === "library" || view === "queue")) || (item.key === "allleads" && view === "campaigns") ? " active" : ""}`}
                   onClick={() => setView(item.key)}
+                  title={item.label}
                 >
-                  <span className="side-nav-label" style={{ flex: 1 }}>{item.label}</span>
+                  <NavIcon name={item.key} />
+                  <span className="side-nav-label">{item.label}</span>
                   {item.key === "allleads" && leads.length > 0 && (
                     <span className="side-nav-count">{leads.length.toLocaleString()}</span>
                   )}
@@ -900,19 +940,21 @@ export default function App() {
             </div>
           ))}
         </nav>
-        <div style={{ marginTop: "auto", padding: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+        <div className="sidebar-foot">
           <button
             onClick={() => setView("docs")}
-            className={`btn btn-sm btn-ghost${view === "docs" ? " active" : ""}`}
+            className={`side-nav-btn${view === "docs" ? " active" : ""}`}
             aria-label="Documentation"
-          >📖 Documentation</button>
+            title="Documentation"
+          ><NavIcon name="docs" /><span className="side-nav-label">Documentation</span></button>
           <button
             onClick={() => setView("diagnostics")}
-            className={`btn btn-sm btn-ghost${view === "diagnostics" ? " active" : ""}`}
+            className={`side-nav-btn${view === "diagnostics" ? " active" : ""}`}
             aria-label="Diagnostics"
-          >🩺 Diagnostics</button>
-          <button onClick={() => setNotesPanelTab("cheatsheet")} className="btn btn-sm btn-ghost">❓ Cheat Sheet</button>
-          <button onClick={() => setNotesPanelTab("notes")} className="btn btn-sm btn-ghost">📝 Platform notes</button>
+            title="Diagnostics"
+          ><NavIcon name="diagnostics" /><span className="side-nav-label">Diagnostics</span></button>
+          <button onClick={() => setNotesPanelTab("cheatsheet")} className="side-nav-btn" aria-label="Cheat Sheet" title="Cheat Sheet"><NavIcon name="cheatsheet" /><span className="side-nav-label">Cheat Sheet</span></button>
+          <button onClick={() => setNotesPanelTab("notes")} className="side-nav-btn" aria-label="Platform notes" title="Platform notes"><NavIcon name="notes" /><span className="side-nav-label">Platform notes</span></button>
         </div>
       </aside>
 
@@ -1198,5 +1240,66 @@ export default function App() {
         )
       )}
     </div>
+  );
+}
+
+/** Who is signed in, a welcome, and today's date and time in Central, the
+ *  platform's clock. Per Jack: "have the user name logged in displayed and
+ *  welcome with the time somewhere and date so the platform stays
+ *  registering the date". Sign-in accepts one email (AUTH_EMAIL), so that is
+ *  who is signed in; the name shown is a display name kept in this browser,
+ *  click it to change it. */
+function TopbarWelcome() {
+  const now = useNow(15_000);
+  const [name, setName] = useState(() => {
+    try { return localStorage.getItem("platformUserName") || "Jack"; } catch { return "Jack"; }
+  });
+  function rename() {
+    const next = window.prompt("Name shown in the top bar", name)?.trim();
+    if (!next) return;
+    setName(next);
+    try { localStorage.setItem("platformUserName", next); } catch { /* preference only */ }
+  }
+  const hour = Number(new Intl.DateTimeFormat("en-US", { timeZone: PLATFORM_TZ, hour: "numeric", hourCycle: "h23" }).format(now));
+  const greet = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  return (
+    <div className="topbar-welcome">
+      <span className="topbar-greet">{greet},</span>
+      <button type="button" className="topbar-user" onClick={rename} title={`Signed in as ${AUTH_EMAIL}. Click to change the name shown.`}>
+        <span className="topbar-avatar" aria-hidden="true">{name.slice(0, 1).toUpperCase()}</span>
+        <span>{name}</span>
+      </button>
+      <span className="topbar-clock" title="Platform clock (Central). The scanner judges every date in a note against today in Central.">
+        {formatCentral(now)}
+      </span>
+    </div>
+  );
+}
+
+/** Line icons for the sidebar: one stroke weight, currentColor, so they
+ *  take the item's ink and stay legible in both themes. */
+const NAV_ICON_PATHS: Record<string, string> = {
+  home: "M3 10.5 12 3l9 7.5M5 9v11h5v-6h4v6h5V9",
+  scanner: "M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2M4 12h16",
+  scanner2: "M12 3 3 7.5 12 12l9-4.5L12 3ZM3 12l9 4.5 9-4.5M3 16.5 12 21l9-4.5",
+  scanner3: "M15 7a4 4 0 1 1-3.9 4.9L4 19v-3h2v-2h2l1.1-1.1A4 4 0 0 1 15 7Zm1.5 2.5h.01",
+  allleads: "M16 19v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1M9.5 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM21 19v-1a4 4 0 0 0-3-3.9M15.5 4.1a3 3 0 0 1 0 5.8",
+  lists: "M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01",
+  history: "M3 12a9 9 0 1 0 2.6-6.4L3 8M3 3v5h5M12 7v5l3 2",
+  docs: "M4 5a2 2 0 0 1 2-2h12v16H6a2 2 0 0 0-2 2V5Zm0 14a2 2 0 0 1 2-2h12M8 7h6",
+  diagnostics: "M3 12h4l2.5-6 5 12 2.5-6h4",
+  cheatsheet: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm-2.5-11.5a2.5 2.5 0 1 1 3.4 2.3c-.6.3-.9.8-.9 1.4v.3M12 17h.01",
+  notes: "M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8l-5-5Zm0 0v5h5M8.5 13h7M8.5 17h5",
+  settings: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7.4-3a7.4 7.4 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7.5 7.5 0 0 0-2-1.2L14.5 3h-5l-.4 2.6a7.5 7.5 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6a7.4 7.4 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7.5 7.5 0 0 0 2 1.2l.4 2.6h5l.4-2.6a7.5 7.5 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2Z",
+  signout: "M15 4h3a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-3M10 16l-4-4 4-4M6 12h10",
+  collapse: "M11 17 6 12l5-5M18 17l-5-5 5-5",
+  expand: "M13 17l5-5-5-5M6 17l5-5-5-5",
+};
+function NavIcon({ name }: { name: string }) {
+  const d = NAV_ICON_PATHS[name] || NAV_ICON_PATHS.lists;
+  return (
+    <svg className="side-nav-icon" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d={d} />
+    </svg>
   );
 }
