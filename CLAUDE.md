@@ -6654,3 +6654,20 @@ meeting with microsoft".
 - Book9-30: notes carrying a time/weekday outside Timeline 3 → 0 (the leaks
   were "01:36 …" and "confirmed meeting for Wednesday").
 - `NOTE_RULES_VERSION` bumped. snippet-truth 113 → 117.
+
+### 2026-10-16: downloads say what they leave out; name-only Apollo match needs the company (scanner-platform-v29)
+
+Per Jack, on a 7-file Main upload: "says all strong signal is 91 but has 887
+as the number". The scan counts were right (887 + 742 + 575 = 2,204; 2,204 +
+2,883 no signal + 512 duplicates = 5,599). The downloads leave out every lead
+already in Apollo ("Leave them out of downloads"), and nothing said so.
+- Under Final downloads: "Downloads hold N of M Strong Signal leads. X are
+  left out because they are already in Apollo", with "Include them" (and
+  "Leave them out again" once included).
+- **A name-only Apollo match now needs the company to agree**
+  (`apolloHitFor`, `sameCompany`/`normCompanyName` in `lib/apolloRoster.ts`):
+  "John Smith" at a different company is a different person and was being
+  taken out of every download. Email matches are unchanged. When either side
+  has no company, the name match stands (still labelled "name only"). Every
+  caller passes the lead's company. Suite `apollo-name-match` (9);
+  `apollo-roster-live` 16 → 17.

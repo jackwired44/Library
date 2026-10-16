@@ -85,6 +85,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('every lead stays in the table, Apollo matches included', /Nia Rowe/.test(r) && /Zed Quinn/.test(r) && /Lou Park/.test(r), r);
   const dl = async () => (await page.locator('.dl-strip').first().innerText()).replace(/\s+/g, ' ');
   ok('  but the downloads count only the new person', /M365 \/ Azure\s*1\b/.test(await dl()), await dl());
+  ok('  and the page says how many Strong Signal leads that leaves out', /Downloads hold 1 of 3 Strong Signal leads\.\s*2 are left out because they are already in Apollo/.test(await main()), (await main()).slice(0, 900));
   ok('  Zed carries an In Apollo badge (email match)', /Zed Quinn[^|]*In Apollo(?!\?)/.test(r), r);
   ok('  Lou carries an In Apollo? badge (name only)', /Lou Park[^|]*In Apollo\?/.test(r), r);
   ok('  Nia carries none', !/Nia Rowe[^|]*In Apollo/.test(r), r);

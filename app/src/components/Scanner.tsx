@@ -673,7 +673,7 @@ export default function Scanner({
     if (!results || !apolloIndex) return m;
     for (const r of results) {
       const f = r.row.__f;
-      const hit = apolloHitFor({ email: f.email, contact: getFullName(f) }, apolloIndex);
+      const hit = apolloHitFor({ email: f.email, contact: getFullName(f), company: f.company }, apolloIndex);
       if (hit) m.set(r.id, hit);
     }
     return m;
@@ -1002,6 +1002,10 @@ export default function Scanner({
   // two — the files can never disagree about who qualified.
   function mergedRows() {
     return ACTIVE_BUCKET_KEYS.flatMap((bk) => bucketRowsFor(bk));
+  }
+  /** Strong Signal rows the downloads would hold with nothing left out. */
+  function exportRowsForBucketsCount(scoped: ResultRow[]) {
+    return ACTIVE_BUCKET_KEYS.reduce((n, bk) => n + exportRowsForBucket(scoped, bk).length, 0);
   }
   function exportMerged() {
     downloadCSV(MERGED_FILE_NAME, mergedRows(), EXPORT_LABELS);
@@ -1471,6 +1475,29 @@ export default function Scanner({
         <span className="control-spacer" />
         <span className="dl-hint">Two product-line files, plus one combined file holding the same leads.</span>
       </div>
+      {(() => {
+        // Per Jack: "says all strong signal is 91 but has 887 as the number".
+        // The downloads leave out leads already in Apollo; say how many, so
+        // the two numbers never look like a bug.
+        const allSignal = results ? exportRowsForBucketsCount(applyFacets(results, { ...facets, tier: "all", category: "all" })) : 0;
+        const leftOut = allSignal - mergedRows().length;
+        if (leftOut <= 0) return null;
+        return (
+          <div className="scan-note" aria-label="Left out of downloads" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <span>
+              Downloads hold <strong>{mergedRows().length.toLocaleString()}</strong> of {allSignal.toLocaleString()} Strong Signal leads.
+              {" "}<strong>{leftOut.toLocaleString()}</strong> {leftOut === 1 ? "is" : "are"} left out because {leftOut === 1 ? "it is" : "they are"} already in Apollo.
+            </span>
+            <button className="btn btn-sm btn-secondary" onClick={() => setHideInApollo(false)}>Include them</button>
+          </div>
+        );
+      })()}
+      {!hideInApollo && apolloHits.size > 0 && (
+        <div className="scan-note" style={{ color: "var(--muted)" }}>
+          Downloads include leads already in Apollo.{" "}
+          <button className="btn btn-sm btn-ghost" onClick={() => setHideInApollo(true)}>Leave them out again</button>
+        </div>
+      )}
       {renamingBucket && (
         <div className="dl-rename">
           <span className="rd-label" style={{ marginBottom: 0 }}>{BUCKET_META[renamingBucket].label} filename</span>

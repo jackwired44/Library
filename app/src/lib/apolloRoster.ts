@@ -42,6 +42,9 @@ export type ApolloHow = "email" | "name";
 export interface ApolloHit {
   how: ApolloHow;
   name: string;
+  /** The company Apollo has them at, when known. A name-only match must
+   *  agree with it (see apolloHitFor). */
+  company?: string;
   sequences: string[];
   uploadedAt?: string;
 }
@@ -92,10 +95,10 @@ export function buildRosterIndex(roster: ApolloRosterEntry[], leads: StoredLead[
   const byEmail = new Map<string, ApolloHit>();
   const byName = new Map<string, ApolloHit | null>();
   const people = new Set<string>();
-  const add = (email: string, name: string, sequences: string[], uploadedAt?: string, more: string[] = []) => {
+  const add = (email: string, name: string, sequences: string[], uploadedAt?: string, more: string[] = [], company = "") => {
     const e = normEmail(email);
     const n = normPersonName(name);
-    const hit = { name, sequences, ...(uploadedAt ? { uploadedAt } : {}) };
+    const hit = { name, sequences, ...(company ? { company } : {}), ...(uploadedAt ? { uploadedAt } : {}) };
     if (e.includes("@")) { byEmail.set(e, { how: "email", ...hit }); people.add(`e:${e}`); }
     for (const x of more.map(normEmail)) if (x.includes("@") && !byEmail.has(x)) byEmail.set(x, { how: "email", ...hit });
     if (n.includes(" ")) {
@@ -106,19 +109,41 @@ export function buildRosterIndex(roster: ApolloRosterEntry[], leads: StoredLead[
       if (!e.includes("@")) people.add(`x:${n}`);
     }
   };
-  for (const r of roster) add(r.email, r.name, r.sequences, r.uploadedAt, r.emails);
+  for (const r of roster) add(r.email, r.name, r.sequences, r.uploadedAt, r.emails, r.company);
   for (const l of leads) {
     // A live check's result is shown, but never feeds the "already in
     // Apollo" exclusion. Per Jack: "no calls or downloads".
     if (!l.apollo || l.apollo.live) continue;
-    add(l.email, l.contact, sequenceLabels(l.apollo.sequences));
+    add(l.email, l.contact, sequenceLabels(l.apollo.sequences), undefined, [], l.company);
   }
   return { byEmail, byName, size: people.size };
 }
 
-/** Is this row's person already in Apollo? Email first, then a unique name. */
+/** A company name reduced to what identifies it ("Acme, Inc." → "acme"). */
+export function normCompanyName(s: unknown): string {
+  return String(s ?? "").toLowerCase()
+    .replace(/&/g, " and ").replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\b(?:the|inc|incorporated|llc|l l c|ltd|limited|corp|corporation|co|company|plc|pllc|lp|llp|group|holdings)\b/g, " ")
+    .replace(/\s+/g, " ").trim();
+}
+/** Do two company names plausibly name the same company? One reduced name
+ *  contains the other ("Acme" / "Acme Manufacturing"). */
+export function sameCompany(a: unknown, b: unknown): boolean {
+  const x = normCompanyName(a), y = normCompanyName(b);
+  if (!x || !y) return false;
+  return x === y || x.includes(y) || y.includes(x);
+}
+
+/**
+ * Is this row's person already in Apollo? Email first, then a unique name.
+ *
+ * A name-only match needs the company to agree. "John Smith" at a different
+ * company is a different person, and calling him "in Apollo" takes a real
+ * new lead out of every download. When either side has no company there is
+ * nothing to check against, so the name match stands (labelled "name only").
+ */
 export function apolloHitFor(
-  row: { email?: unknown; contact?: unknown },
+  row: { email?: unknown; contact?: unknown; company?: unknown },
   index: RosterIndex | null,
 ): ApolloHit | null {
   if (!index || index.size === 0) return null;
@@ -129,7 +154,11 @@ export function apolloHitFor(
   }
   const n = normPersonName(row.contact);
   if (!n.includes(" ")) return null;
-  return index.byName.get(n) ?? null;
+  const hit = index.byName.get(n) ?? null;
+  if (!hit) return null;
+  const rowCo = normCompanyName(row.company);
+  if (rowCo && hit.company && normCompanyName(hit.company) && !sameCompany(rowCo, hit.company)) return null;
+  return hit;
 }
 
 export async function loadApolloRoster(): Promise<ApolloRosterEntry[]> {
@@ -154,7 +183,7 @@ export function apolloSequencesFor(
   l: StoredLead, index: RosterIndex | null,
 ): { name: string; active: boolean }[] | null {
   if (l.apollo) return l.apollo.sequences.map((s) => ({ name: s.name, active: s.status === "active" }));
-  const hit = apolloHitFor({ email: l.email, contact: l.contact }, index);
+  const hit = apolloHitFor({ email: l.email, contact: l.contact, company: l.company }, index);
   if (!hit) return null;
   return hit.sequences.map((label) => ({ name: label.replace(/\s*\(active\)$/, ""), active: /\(active\)$/.test(label) }));
 }

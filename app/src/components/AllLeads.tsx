@@ -374,12 +374,12 @@ export default function AllLeads({
         verdict: verdictOf(l.tier),
         addedAt: seqs.reduce((m, x) => (x.addedAt && x.addedAt > m ? x.addedAt : m), ""),
         taskDoneAt: (a?.tasks ?? []).reduce((m, t) => (t.status === "completed" && t.at > m ? t.at : m), ""),
-        inApollo: apolloHitFor({ email: l.email, contact: l.contact }, apolloIndex)
+        inApollo: apolloHitFor({ email: l.email, contact: l.contact, company: l.company }, apolloIndex)
           ?? (a ? { how: "sync" as const, name: l.contact, sequences: seqs.map((x) => (x.status === "active" ? `${x.name} (active)` : x.name)) } : null),
-        owners: ownersOf([...seqs.map((x) => x.name), ...(apolloHitFor({ email: l.email, contact: l.contact }, apolloIndex)?.sequences ?? [])], a?.live?.owner),
+        owners: ownersOf([...seqs.map((x) => x.name), ...(apolloHitFor({ email: l.email, contact: l.contact, company: l.company }, apolloIndex)?.sequences ?? [])], a?.live?.owner),
         // What a download leaves out — exactly as before the live check:
         // the pulled uploads and an imported sync, never a live result.
-        exportBlocked: !!apolloHitFor({ email: l.email, contact: l.contact }, apolloIndex) || (!!a && !a.live),
+        exportBlocked: !!apolloHitFor({ email: l.email, contact: l.contact, company: l.company }, apolloIndex) || (!!a && !a.live),
       });
     }
     return m;

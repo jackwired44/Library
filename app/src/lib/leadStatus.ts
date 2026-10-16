@@ -138,7 +138,7 @@ export function derivedStatus(l: StoredLead): LeadStatus {
     if (a.sequences.length > 0) return "finished";
   }
   if (!a && statusRoster) {
-    const hit = apolloHitFor({ email: l.email, contact: l.contact }, statusRoster);
+    const hit = apolloHitFor({ email: l.email, contact: l.contact, company: l.company }, statusRoster);
     if (hit?.sequences.some((x) => /\(active\)$/.test(x))) return "in-sequence";
     if (hit?.sequences.length) return "finished";
   }

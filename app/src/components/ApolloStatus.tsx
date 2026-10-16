@@ -135,7 +135,7 @@ function rowFor(l: StoredLead, index: RosterIndex | null): Row {
       : "Apollo sync";
     return { lead: l, seqs, how, status: statusOfSeqs(seqs) };
   }
-  const hit = apolloHitFor({ email: l.email, contact: l.contact }, index);
+  const hit = apolloHitFor({ email: l.email, contact: l.contact, company: l.company }, index);
   if (!hit) return l.apolloCheckedAt
     ? { lead: l, seqs: [], how: `Apollo check ${l.apolloCheckedAt.slice(0, 10)}`, status: "out" }
     : { lead: l, seqs: [], how: "not checked yet", status: "unchecked" };

@@ -936,7 +936,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
     const m = new Map<string, ApolloHit>();
     if (!result || !apolloIndex) return m;
     for (const r of result.rows) {
-      const hit = apolloHitFor({ email: r.lead.email, contact: r.lead.contact }, apolloIndex);
+      const hit = apolloHitFor({ email: r.lead.email, contact: r.lead.contact, company: r.lead.company }, apolloIndex);
       if (hit) m.set(r.id, hit);
     }
     return m;

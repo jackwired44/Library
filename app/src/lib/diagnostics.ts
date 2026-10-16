@@ -65,7 +65,7 @@ export function runDiagnostics(leads: StoredLead[], apolloIndex: RosterIndex | n
     if (l.apollo?.live && !l.apolloCheckedAt) liveWithoutCheck++;
     if (l.apolloCheckedAt && l.apolloCheckedAt < staleCut) stale++;
     if (!l.apollo) {
-      const hit = apolloHitFor({ email: l.email, contact: l.contact }, apolloIndex);
+      const hit = apolloHitFor({ email: l.email, contact: l.contact, company: l.company }, apolloIndex);
       if (hit && hit.how === "name") nameOnly++;
     }
     if ((l.apollo?.sequences ?? []).some((s) => /bounc/i.test(s.reason || ""))) bounced++;
