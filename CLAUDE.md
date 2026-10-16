@@ -6533,3 +6533,20 @@ already have", on a real partner-led Azure note (Truist / Infosys).
   `NOTE_RULES_VERSION` whenever the Main note rules change.** A lead with
   no stored raw row (filed before raw rows were kept) cannot be rewritten
   and keeps its note. Suite `note-refresh-live` (12).
+
+### 2026-10-16: M365 / Azure notes made less specific (scanner-platform-v29)
+
+Per Jack: "notes need to be tweaked … less specific for the reps", his own
+model line "Customer has 6 copilot licenses and want to expand across all
+305 E3 users", and "it doesnt matter if microsoft is pitching them we can
+still partner with them".
+- The lead sentence keeps its main clause only (`mainClause`: drops "with a
+  focus on…", "to ensure…", "including…", ", and …", brackets, dashes);
+  cap 110 chars. Pain quote capped at 70.
+- No "Mentions <SKU list>" after the lead; only a count the lead lacks
+  (" N seats.").
+- "Looking for Azure architecture support." with no list of areas.
+- "Microsoft is already pitching them X" is gone from every note. Product
+  Area still steers the Azure ask; "Partner on record" / "Goes direct with
+  Microsoft" stay.
+- `NOTE_RULES_VERSION` bumped, so stored leads refresh again on next load.

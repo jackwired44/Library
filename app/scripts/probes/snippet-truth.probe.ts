@@ -360,8 +360,11 @@ const DIR = scanPA([
   { note: "Renewing Microsoft 365 E3 for 300 users this year.", pa: "Datadog", company: "Datadog", email: "laura@datadoghq.com" },
   { note: "Renewing Microsoft 365 business standard for 25 users.", pa: "M365" },
 ]);
-ok("a Microsoft product in Product Area reads as what they are being pitched",
-   !!DIR[0] && /Microsoft is already pitching them Azure\./.test(DIR[0].notesSummary),
+// Per Jack: "it doesnt matter if microsoft is pitching them we can still
+// partner with them" — no pitching clause, but the Product Area still steers
+// the ask to Azure.
+ok("a Microsoft product in Product Area adds no pitching clause, still steers the ask",
+   !!DIR[0] && !/already pitching/.test(DIR[0].notesSummary) && /Ask how Azure is managed today/.test(DIR[0].notesSummary),
    DIR[0] ? DIR[0].notesSummary : "(no row)");
 ok("Microsoft itself reads as going direct",
    !!DIR[1] && /Goes direct with Microsoft\./.test(DIR[1].notesSummary),
@@ -476,8 +479,18 @@ ok("a row with no SKU and no Product Area still states what matched",
   const [az] = scanPA([{ note: "SA - 9/Mar - Follow-up sent to the partner requesting an update on the current project status and estimated ACR. Client Info: Acme Bank Account ID: 9-ZZF Referral ID: 7426adc0 Notes: Microsoft Partner is engaging with Acme Bank to enable the Microsoft Foundry Platform with a focus on Agent Service. Help Needed from Microsoft ========== We seek Microsoft's assistance: - Support in implementing the analytics platform on Microsoft Azure to ensure seamless integration and scalability. - Guidance on cloud migration strategies and connectivity to enable efficient data access across multiple sources. - Assistance with optimizing performance and security leveraging Azure services.", pa: "AI Ready with Surface Copilot PCs" }]);
   const s = az ? az.notesSummary : "(no row)";
   ok("partner-led Azure note opens on what the row is about", /Partner is engaging with Acme Bank/.test(s) && !/Follow-up sent/i.test(s), s);
-  ok("  states the Azure architecture support it is after", /Looking for Azure architecture support \(integration, data connectivity, scaling\)/.test(s), s);
+  ok("  states the Azure architecture support it is after", /Looking for Azure architecture support\./.test(s), s);
   ok("  and closes on the existing Azure ask", /Ask how Azure is managed today, internal IT or an external partner/.test(s), s);
+}
+
+// Per Jack: "Customer has 6 copilot licenses and want to expand across all
+// 305 E3 users this is great for m365 azure" — the plain sentence is the
+// note, with no product list or "already pitching them" clause added.
+{
+  const [cp] = scan(["Customer has 6 copilot licenses and want to expand across all 305 E3 users."]);
+  const s = cp ? stripSnippetPrefix(cp.notesSummary) : "(no row)";
+  ok("a plain expansion sentence is the note as written, then the ask",
+     /^Customer has 6 copilot licenses and want to expand across all 305 E3 users\. Ask how they manage licensing today/.test(s), s);
 }
 
 console.log(`\n${pass}/${pass + fail} checks passed`);

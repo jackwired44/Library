@@ -3127,7 +3127,17 @@ function firstWords(s: string, n: number): string {
  *  - Nothing quotable (contact fields, dates, scorecard text) gives "", and
  *    the brief falls back to what it said before.
  */
-const NOTE_LEAD_MAX = 170;
+const NOTE_LEAD_MAX = 110;
+/** Per Jack: "less specific for the reps". Keep a sentence's main clause
+ *  and drop the detail hung off it ("…with a focus on Agent Service and
+ *  Foundry IQ", "…to ensure seamless integration"), when what is left
+ *  still says something. */
+const DETAIL_TAIL_RE = /\s+(?:with\s+a\s+focus\s+on|focus(?:ed|ing)\s+on|to\s+ensure|in\s+order\s+to|such\s+as|including|which|that\s+will|leveraging|as\s+well\s+as)\b|,\s+(?:and|which|including|as|with|while|where|so|replace|plus)\b|\s*[;(]|\s+[-–]\s+/i;
+function mainClause(s: string): string {
+  const m = DETAIL_TAIL_RE.exec(s);
+  if (!m || m.index < 25) return s;
+  return s.slice(0, m.index).replace(/[,;:\s-]+$/, "") + ".";
+}
 const LEAD_PRODUCT_RE = /\b(microsoft|m365|o365|office|d365|dynamics|azure|entra|intune|purview|copilot|power\s*(?:bi|apps|automate|platform)|teams|business\s*(?:central|basic|standard|premium)|defender|exchange|sharepoint|onedrive|fabric|e[1357]|f[13]|a[135]|g[135]|crm|erp|windows\s*365|visio|project)\b/i;
 const LEAD_INTENT_RE = /\b(want\w*|looking|evaluat\w*|interest\w*|planning|plan\s+to|seek\w*|need\w*|migrat\w*|mov(?:e|ing)|explor\w*|consider\w*|upgrad\w*|replac\w*|request\w*|asked|purchas\w*|buy\w*|implement\w*|deploy\w*|shift\w*|switch\w*|expand\w*|frustrat\w*|struggl\w*|help|assist\w*)\b/i;
 function stripCrmChrome(t: string): string {
@@ -3169,7 +3179,7 @@ function noteLead(fullText: string, anchor: string, skip?: RegExp): string {
   const t = stripCrmChrome(cleanText(fullText)).replace(/\s(?:Notes|Description|Summary|Overview)\s*:\s+/g, ". ");
   if (!t) return "";
   const finish = (x: string) => {
-    const cut = truncateAtWord(cleanLeadSentence(x), NOTE_LEAD_MAX);
+    const cut = truncateAtWord(mainClause(cleanLeadSentence(x)), NOTE_LEAD_MAX);
     if (!cut.safe || !cut.text) return "";
     const out = normalizeSentence(cut.text);
     return out.endsWith("….") ? out.slice(0, -1) : out;
@@ -3236,7 +3246,7 @@ function noteLead(fullText: string, anchor: string, skip?: RegExp): string {
  * none, the ask goes after it instead.
  */
 const M365_PAIN_RE = /\b(frustrat\w*|struggl\w*|issues?\s+with|problems?\s+with|throttl\w*|not\s+sufficient|insufficient|too\s+expensive|expensive|overpay\w*|price\s+increase|cost\s+(?:concerns?|pressure|savings?|reduction)|reduce\s+(?:costs?|spend)|outages?|downtime|unable\s+to|can'?t\s+\w+|cannot\s+\w+|fail(?:ed|ing|s)?\b|difficult\w*|security\s+(?:risk|incident|issues?|concerns?)|breach\w*|phish\w*|ransomware|hack\w*|end\s+of\s+(?:life|support)|aging|legacy|fragmented|sprawl|limited\s+(?:staff|budget|it|resources|bandwidth)|slow|unresponsive|poor\s+support|move\s+away\s+from\s+their\s+current\s+partner|shift\w*\s+back\s+to\s+direct)\b/i;
-const PAIN_MAX = 110;
+const PAIN_MAX = 70;
 function statedPain(fullText: string, lead: string): string {
   const t = stripCrmChrome(cleanText(fullText));
   for (const raw of splitSentences(t)) {
@@ -3250,11 +3260,16 @@ function statedPain(fullText: string, lead: string): string {
     for (const p of parts) { if (m.index >= at && m.index < at + p.length + 2) { clause = p; break; } at += p.length + 2; }
     if (clause.length < 15) clause = u;
     if (/^[^A-Za-z]/.test(clause.trim()) || /\b(?:goals?|focused on|clarification|identify|assess|recommend\w*|response stated|acknowledged|opportunit\w*|determin\w*|feedback|eligib\w*)\b/i.test(clause) || /^[^(]*\)/.test(clause)) continue;
-    const cut = truncateAtWord(clause.trim(), PAIN_MAX);
+    const cut = truncateAtWord(mainClause(clause.trim()).replace(/\.$/, ""), PAIN_MAX);
     if (!cut.safe || !cut.text) continue;
     return cut.text.replace(/[.;,:\s]+$/, "");
   }
   return "";
+}
+/** The biggest seat/user count in the facts clause, as " N seats.", or "". */
+function seatsLine(what: string): string {
+  const ns = [...what.matchAll(/\b(\d[\d,]*)\s*(?:seats?|users)\b/g)].map((m) => Number(m[1].replace(/,/g, "")));
+  return ns.length ? ` ${Math.max(...ns)} seats.` : "";
 }
 /** Every number the stated-facts clause carries already appears in the lead. */
 function leadCovers(lead: string, what: string): boolean {
@@ -3266,23 +3281,15 @@ function leadCovers(lead: string, what: string): boolean {
  * Per Jack, on a real partner-led Azure note: "big thing here is they are
  * looking for azure architecture support and might need ongoing support".
  * When the row asks for help building or running something on Azure, say
- * that in one line, naming at most three areas the row itself names.
+ * that in one line.
  */
 const AZURE_HELP_RE = /\b(help\s+needed|seek\w*\s+(?:microsoft'?s\s+)?(?:assistance|help|support)|need\w*\s+(?:help|support|assistance|guidance)|looking\s+for\s+(?:help|support|guidance)|architecture\s+(?:support|guidance|help)|technical\s+architecture)\b/i;
 /** The help request itself, or one bullet of its list. */
 const AZURE_HELP_LIST_RE = new RegExp(`${AZURE_HELP_RE.source}|^(?:assistance|support|guidance|collaboration)\\b`, "i");
-const AZURE_HELP_AREAS: Array<[RegExp, string]> = [
-  [/\bintegrat\w*/i, "integration"],
-  [/\b(?:connectivity|data\s+access)\b/i, "data connectivity"],
-  [/\bscal(?:e|ing|ability|able)\b/i, "scaling"],
-  [/\bmigrat\w*/i, "migration"],
-  [/\bperformance\b/i, "performance"],
-  [/\bsecurity\b/i, "security"],
-];
 function azureSupportClause(fullText: string): string {
   if (!/\bazure\b/i.test(fullText) || !AZURE_HELP_RE.test(fullText)) return "";
-  const areas = AZURE_HELP_AREAS.filter(([re]) => re.test(fullText)).map(([, l]) => l).slice(0, 3);
-  return `Looking for Azure architecture support${areas.length ? ` (${areas.join(", ")})` : ""}.`;
+  // Per Jack, "a bit less specific": the need, not a list of areas.
+  return "Looking for Azure architecture support.";
 }
 
 export function buildCallBrief(
@@ -3393,7 +3400,11 @@ export function buildCallBrief(
   const size = seats != null && seats >= LARGE_ESTATE_SEATS ? " Large estate." : "";
 
   // WHERE THEY ARE GOING / WHO HANDLES IT — see directionClause.
-  const direction = directionClause(productArea, company, email, runsProduct || product);
+  const directionFull = directionClause(productArea, company, email, runsProduct || product);
+  // Per Jack: "it doesnt matter if microsoft is pitching them we can still
+  // partner with them" — that clause is dropped everywhere. Who handles it
+  // (a named partner, or direct) still stays.
+  const direction = /^Microsoft is already pitching/.test(directionFull) ? "" : directionFull;
   // A row can qualify on a platform gate alone — an Azure migration, a
   // Google→Microsoft move — naming no SKU and carrying no usable Product
   // Area. 19 of 742 real Strong Signal rows land here. Rather than open on
@@ -3412,7 +3423,7 @@ export function buildCallBrief(
   // the row is about rather than repeating it.
   const lead = noteLead(fullText, dynHit?.snippet || licensing?.snippet || platform?.hits[0]?.snippet || "", azureHelp ? AZURE_HELP_LIST_RE : undefined);
   const stated = [lead
-    ? (what && !leadCovers(lead, what) ? `${lead} ${what.replace(/^Runs /, "Mentions ")}` : lead)
+    ? (what && !leadCovers(lead, what) ? `${lead}${seatsLine(what)}` : lead)
     : noted, azureHelp].filter(Boolean).join(" ");
 
   // WHAT ELSE THE ROW SAYS — quoted, windowed to the match, dropped when

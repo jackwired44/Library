@@ -17,7 +17,7 @@ import { NOTE_SEP, noteSegments, type StoredLead } from "./leadStore";
 import { loadRawNotesMany, newestRaw, type RawNotes } from "./rawNotes";
 
 /** Bump when the Main note rules change, so stored notes refresh once. */
-export const NOTE_RULES_VERSION = "2026-10-16-problem-first";
+export const NOTE_RULES_VERSION = "2026-10-16-less-specific";
 const VERSION_KEY = "mainNoteRulesVersion";
 
 /** Today's Main Scanner note for one lead's stored raw row, with its
