@@ -130,7 +130,7 @@ const himmel = scan(["Hybrid today, on-premises Exchange still running. Active D
 ok("files as M365 / Azure, not Dynamics", himmel?.category === "m365Tenant", String(himmel?.category));
 ok("is still Strong Signal", himmel?.tier === "signal", String(himmel?.tier));
 ok("'not looking for anything fancy' is not read as the deal reversing", !/reverses|reversed/i.test(himmel?.notesSummary ?? ""), himmel?.notesSummary);
-ok("each SKU keeps its own count (55 and 26)", /Business Standard \(55 seats\)/.test(himmel?.notesSummary ?? "") && /Business Premium \(26 seats\)/.test(himmel?.notesSummary ?? ""), himmel?.notesSummary);
+ok("each SKU keeps its own count (55 and 26)", /\b55\b[^.]*Business Standard|Business Standard \(55 seats\)/.test(himmel?.notesSummary ?? "") && /\b26\b[^.]*Business Premium|Business Premium \(26 seats\)/.test(himmel?.notesSummary ?? ""), himmel?.notesSummary);
 const noErp = scan(["We have no ERP today and run everything on spreadsheets."])[0];
 ok("'no ERP' alone is not a Dynamics lead", !noErp || noErp.category !== "dynamics365", noErp ? noErp.category : "no row");
 const wantErp = scan(["We need a new ERP for 40 users, currently on spreadsheets."])[0];

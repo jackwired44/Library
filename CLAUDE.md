@@ -6498,3 +6498,26 @@ all jacks".
   the sequence name ("Carly Main Sequence"), else the Apollo contact owner.
 - Suites: nav helpers map "In Apollo" to All leads → Apollo standing and open
   folded panels; two locators widened for the file date and the copy button.
+
+### 2026-10-16: M365 / Azure notes lead with the problem or need (scanner-platform-v29)
+
+Per Jack: "this is how i want the azure m365 notes to be framed the problem
+or what they are looking for what or need then the basic ask phrases we
+already have", on a real partner-led Azure note (Truist / Infosys).
+- The note opens on the row's own most relevant sentence (`noteLead`):
+  CRM chrome, section banners ("Help Needed ====") and a location tail are
+  stripped; a label like "Notes:" starts a new sentence; seller pipeline
+  chatter (follow-up sent, requesting an update, ACR, forecasting) never
+  leads. A short form line ("Service - Power BI Pro - 20 users") still
+  reads "Wants Power BI Pro for 20 users."; a sentence is never wrapped in
+  "Wants".
+- A row asking for help building/running on Azure adds `Looking for Azure
+  architecture support (integration, data connectivity, scaling).` — only
+  areas the row names, max three (`azureSupportClause`), and takes the
+  Azure ask.
+- A pain the row states anywhere is quoted as `Flagged "…"` (`statedPain`);
+  goals, seller tasks and requirements are not pain.
+- The asks are unchanged.
+- snippet-truth +3 checks (the Truist shape); four assertions re-pointed
+  from the old "Runs …" wording to the facts (SKUs and counts still
+  present). Dynamics notes untouched.

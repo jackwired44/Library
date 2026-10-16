@@ -3106,6 +3106,185 @@ function firstWords(s: string, n: number): string {
   return w.replace(/[(,;:].*$/, "").trim();
 }
 
+/**
+ * The brief's FIRST sentence, taken from the raw note. Per Jack: "the matched
+ * snippet should change for the first sentence be more relevant to the raw
+ * note in main scanner".
+ *
+ * It used to open on "Runs <SKUs>.", which says nothing about what the lead
+ * wrote and is often false: "service-M365 A1-14 user" is an inbound form
+ * ASKING for M365 A1, not running it, and a long note about migrating three
+ * Hyper-V VMs to Azure opened on no fact at all.
+ *
+ *  - A short CRM form line ("Service Industry - D365 Business Central - 20
+ *    users") becomes "Wants <product> for <N> users." Both parts are the
+ *    row's own words.
+ *  - A real note gives its most relevant sentence: the one saying what the
+ *    customer wants, sharing words with the match that qualified the row,
+ *    stripped of CRM chrome (emails, timestamps, "Referrer:", "Comment |",
+ *    the "LF - 24/Sep -" seller tags, the "<industry> - <product> -" lead-in)
+ *    and of "The customer stated that", which becomes "They".
+ *  - Nothing quotable (contact fields, dates, scorecard text) gives "", and
+ *    the brief falls back to what it said before.
+ */
+const NOTE_LEAD_MAX = 170;
+const LEAD_PRODUCT_RE = /\b(microsoft|m365|o365|office|d365|dynamics|azure|entra|intune|purview|copilot|power\s*(?:bi|apps|automate|platform)|teams|business\s*(?:central|basic|standard|premium)|defender|exchange|sharepoint|onedrive|fabric|e[1357]|f[13]|a[135]|g[135]|crm|erp|windows\s*365|visio|project)\b/i;
+const LEAD_INTENT_RE = /\b(want\w*|looking|evaluat\w*|interest\w*|planning|plan\s+to|seek\w*|need\w*|migrat\w*|mov(?:e|ing)|explor\w*|consider\w*|upgrad\w*|replac\w*|request\w*|asked|purchas\w*|buy\w*|implement\w*|deploy\w*|shift\w*|switch\w*|expand\w*|frustrat\w*|struggl\w*|help|assist\w*)\b/i;
+function stripCrmChrome(t: string): string {
+  return t
+    .replace(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, " ")
+    .replace(/\b\d{4}-\d\d-\d\d(?:[ T]\d\d:\d\d(?::\d\d)?)?(?:\s*(?:PDT|PST|EDT|EST|CDT|CST|UTC))?\s*:?/g, " ")
+    .replace(/\bReferrer\s*:[^;|]*[;|]?/gi, " ")
+    .replace(/\bSupport\s*Ticket\s*ID\s*:.*$/i, " ")
+    .replace(/\bComments?\s*:/gi, " ")
+    .replace(/\bComment\s*\|/gi, " ")
+    .replace(/(?:^|\s)[A-Z]{2,4}\s*-\s*\d{1,2}\/[A-Za-z]{3,9}\s*-\s*/g, " ")
+    .replace(/\b1C1E\b/g, " ")
+    .replace(/^[\s:;|,-]+/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+const FORM_LABEL_RE = /^(?:f[13]\s+)?(?:support\s+(?:f[13]\s+)?)?(?:services?(?:\s+industry)?|support|product|education|industry|user|users|government|healthcare|retail|manufacturing)$/i;
+const MEETING_CHROME_RE = /\b(follow[- ]up\s+meeting|next\s+(?:conversation|step|meeting|call)|meeting\s+notes|has\s+been\s+scheduled|agreed\s+to\s+(?:hold|meet)|generated\s+by\s+ai|check\s+for\s+accuracy|i'?m\s+following\s+up|my\s+role|opportunity\s+(?:is\s+being\s+)?created|growth\s+opportunity\s+created|not\s+been\s+contacted|new\s+booking|assigned\s+to|created\s+by)\b/i;
+/** The seller chasing their own pipeline, not anything the customer said. */
+const SELLER_CHATTER_RE = /\b(follow[- ]?up\s+sent|requesting\s+an\s+update|no\s+confirmation|pending\s+(?:partner\s+)?feedback|forecast\w*|pipeline\s+visibility|remain\w*\s+under\s+review|ACR)\b/i;
+const CUSTOMER_SUBJECT_RE = /\b(customer|client|they|their|company|organi[sz]ation|team|we|cu)\b/i;
+function cleanLeadSentence(u: string): string {
+  let t = u.trim()
+    .replace(/^[-–•*\s]+/, "")
+    .replace(/^(?:situation|description|business\s+need|need|objective|summary|context|current\s+infrastructure|scope)\s*[:-]\s*/i, "")
+    .replace(/^(.{0,100}?)\s+-\s+(?=(?:the\s+)?(?:customer|client|they|we|company|our)\b)/i, "")
+    .replace(/^(?:the\s+)?(?:customer|client)\s+(?:has\s+)?(?:stated|said|mentioned|confirmed|indicated|noted|shared|explained|expressed)\s+(?:that\s+)?(?=they\b)/i, "")
+    // "Truist Bank - Truist Plaza Branch in Atlanta, United States, to …"
+    .replace(/\s+-\s+[^,.]{0,60}?\bin\s+[A-Z][\w .]+,\s+(?:United States|USA|US|Canada|United Kingdom|UK)\b,?/g, "")
+    // Section banners: "Help Needed from Microsoft ==========".
+    .replace(/^.{0,60}?={3,}\s*/, "")
+    .replace(/^cu\b/i, "Customer")
+    .replace(/\bCU\b/g, "customer");
+  return t.trim();
+}
+function noteLead(fullText: string, anchor: string, skip?: RegExp): string {
+  // "…Referral ID: 7426… Notes: Microsoft Partner is engaging…" — a label
+  // opens the real sentence, so break there or it is glued to the IDs.
+  const t = stripCrmChrome(cleanText(fullText)).replace(/\s(?:Notes|Description|Summary|Overview)\s*:\s+/g, ". ");
+  if (!t) return "";
+  const finish = (x: string) => {
+    const cut = truncateAtWord(cleanLeadSentence(x), NOTE_LEAD_MAX);
+    if (!cut.safe || !cut.text) return "";
+    const out = normalizeSentence(cut.text);
+    return out.endsWith("….") ? out.slice(0, -1) : out;
+  };
+  // A BANT block's "Need" field IS what the customer wants, in one line.
+  const need = /\bNeed\s*[-:]\s*(.{15,220}?)(?=\s+(?:Timeline|Partner|Budget|Authority)\s*[-:]|$)/i.exec(t);
+  if (need && LEAD_PRODUCT_RE.test(need[1]) && !hasForbiddenContent(need[1])) {
+    const out = finish(need[1]);
+    if (out) return out;
+  }
+  // A CRM form line: a few dash-separated fields ending in a quantity.
+  if (t.length <= 160 && !/[.!?]\s+\S/.test(t)) {
+    const segs = t.split(/\s*[-–:]\s+|\s+[-–:]\s*|(?<=[a-z0-9)])-(?=[A-Za-z0-9])/i).map((x) => x.trim()).filter(Boolean);
+    let n: number | null = null;
+    for (const sg of segs.slice(-2)) {
+      const q = /^(?:users?\s*)?(\d{1,6})\s*(?:users?|seats?|licen[cs]es?)?\.?$/i.exec(sg);
+      if (q) n = Number(q[1]);
+    }
+    const said: string[] = [];
+    const products: string[] = [];
+    for (const raw of segs) {
+      if (FORM_LABEL_RE.test(raw) || /^(?:users?\s*)?\d{1,6}\s*(?:users?|seats?|licen[cs]es?)?\.?$/i.test(raw)) continue;
+      const sg = raw.replace(/\s+f[13]\s+services?$/i, "").replace(/^(?:f[13]\s+)?(?:support\s+(?:f[13]\s+)?)?(?:services?(?:\s+industry)?\s+)?/i, "").trim();
+      if (!sg) continue;
+      if (sg.split(/\s+/).length >= 5 && LEAD_INTENT_RE.test(sg)) said.push(sg);
+      // A product field is a short noun phrase — "Microsoft 365 E3", not a
+      // clause like "reviewed E3 renewal, 90 seats" or "They run Office 365".
+      else if (LEAD_PRODUCT_RE.test(sg) && sg.split(/\s+/).length <= 7 &&
+        !/[,;]|\b(?:they|we|our|their|i|is|are|was|run|runs|renew\w*|review\w*|created|recommended|looking|need\w*|want\w*|for|this|follow)\b|\d+\/\d+/i.test(sg)) products.push(sg);
+    }
+    if (products.length) {
+      const ask = n != null && n > 0 && !(n >= 1900 && n <= 2100)
+        ? `Wants ${products.join(" + ")} for ${n} ${n === 1 ? "user" : "users"}.`
+        : `Wants ${products.join(" + ")}.`;
+      return said.length ? `${normalizeSentence(cleanLeadSentence(said[0]))} ${ask}` : ask;
+    }
+  }
+  const anchorWords = new Set((anchor.toLowerCase().match(/[a-z][a-z0-9]{3,}/g) ?? []));
+  let best = "", bestScore = -1;
+  splitSentences(t).forEach((raw, i) => {
+    const u = cleanLeadSentence(raw);
+    if (u.length < 25 || hasForbiddenContent(u)) return;
+    let sc = 0;
+    if (LEAD_INTENT_RE.test(u)) sc += 3;
+    if (LEAD_PRODUCT_RE.test(u)) sc += 2;
+    if (CUSTOMER_SUBJECT_RE.test(u)) sc += 1;
+    if (MEETING_CHROME_RE.test(u)) sc -= 4;
+    if (SELLER_CHATTER_RE.test(u)) return;
+    if (skip && skip.test(u)) sc -= 6;
+    if (/\b\d{2,6}\s*(?:users?|seats?|licen[cs]es?|employees)\b/i.test(u)) sc += 1;
+    let shared = 0;
+    for (const w of u.toLowerCase().match(/[a-z][a-z0-9]{3,}/g) ?? []) if (anchorWords.has(w)) shared++;
+    sc += Math.min(shared, 3);
+    if (i === 0) sc += 0.5;
+    if (sc > bestScore) { bestScore = sc; best = u; }
+  });
+  if (!best || bestScore < 4) return "";
+  return finish(best);
+}
+/**
+ * The pain the row STATES, for M365 / Azure. Per Jack: "we need to have the
+ * notes be a bit more focused on the pain point less general especially with
+ * m365 and azure". Quoted from the row, never inferred: when the row states
+ * none, the ask goes after it instead.
+ */
+const M365_PAIN_RE = /\b(frustrat\w*|struggl\w*|issues?\s+with|problems?\s+with|throttl\w*|not\s+sufficient|insufficient|too\s+expensive|expensive|overpay\w*|price\s+increase|cost\s+(?:concerns?|pressure|savings?|reduction)|reduce\s+(?:costs?|spend)|outages?|downtime|unable\s+to|can'?t\s+\w+|cannot\s+\w+|fail(?:ed|ing|s)?\b|difficult\w*|security\s+(?:risk|incident|issues?|concerns?)|breach\w*|phish\w*|ransomware|hack\w*|end\s+of\s+(?:life|support)|aging|legacy|fragmented|sprawl|limited\s+(?:staff|budget|it|resources|bandwidth)|slow|unresponsive|poor\s+support|move\s+away\s+from\s+their\s+current\s+partner|shift\w*\s+back\s+to\s+direct)\b/i;
+const PAIN_MAX = 110;
+function statedPain(fullText: string, lead: string): string {
+  const t = stripCrmChrome(cleanText(fullText));
+  for (const raw of splitSentences(t)) {
+    const u = cleanLeadSentence(raw);
+    if (!M365_PAIN_RE.test(u) || hasForbiddenContent(u) || MEETING_CHROME_RE.test(u)) continue;
+    if (lead && lead.toLowerCase().includes(u.slice(0, 40).toLowerCase())) return "";
+    // Quote the clause around the pain word, not the whole sentence.
+    const m = M365_PAIN_RE.exec(u)!;
+    const parts = u.split(/[,;]\s+|\s+-\s+/);
+    let at = 0, clause = u;
+    for (const p of parts) { if (m.index >= at && m.index < at + p.length + 2) { clause = p; break; } at += p.length + 2; }
+    if (clause.length < 15) clause = u;
+    if (/^[^A-Za-z]/.test(clause.trim()) || /\b(?:goals?|focused on|clarification|identify|assess|recommend\w*|response stated|acknowledged|opportunit\w*|determin\w*|feedback|eligib\w*)\b/i.test(clause) || /^[^(]*\)/.test(clause)) continue;
+    const cut = truncateAtWord(clause.trim(), PAIN_MAX);
+    if (!cut.safe || !cut.text) continue;
+    return cut.text.replace(/[.;,:\s]+$/, "");
+  }
+  return "";
+}
+/** Every number the stated-facts clause carries already appears in the lead. */
+function leadCovers(lead: string, what: string): boolean {
+  const nums = what.match(/\b\d+\b/g) ?? [];
+  return nums.every((n) => new RegExp(`\\b${n}\\b`).test(lead));
+}
+
+/**
+ * Per Jack, on a real partner-led Azure note: "big thing here is they are
+ * looking for azure architecture support and might need ongoing support".
+ * When the row asks for help building or running something on Azure, say
+ * that in one line, naming at most three areas the row itself names.
+ */
+const AZURE_HELP_RE = /\b(help\s+needed|seek\w*\s+(?:microsoft'?s\s+)?(?:assistance|help|support)|need\w*\s+(?:help|support|assistance|guidance)|looking\s+for\s+(?:help|support|guidance)|architecture\s+(?:support|guidance|help)|technical\s+architecture)\b/i;
+/** The help request itself, or one bullet of its list. */
+const AZURE_HELP_LIST_RE = new RegExp(`${AZURE_HELP_RE.source}|^(?:assistance|support|guidance|collaboration)\\b`, "i");
+const AZURE_HELP_AREAS: Array<[RegExp, string]> = [
+  [/\bintegrat\w*/i, "integration"],
+  [/\b(?:connectivity|data\s+access)\b/i, "data connectivity"],
+  [/\bscal(?:e|ing|ability|able)\b/i, "scaling"],
+  [/\bmigrat\w*/i, "migration"],
+  [/\bperformance\b/i, "performance"],
+  [/\bsecurity\b/i, "security"],
+];
+function azureSupportClause(fullText: string): string {
+  if (!/\bazure\b/i.test(fullText) || !AZURE_HELP_RE.test(fullText)) return "";
+  const areas = AZURE_HELP_AREAS.filter(([re]) => re.test(fullText)).map(([, l]) => l).slice(0, 3);
+  return `Looking for Azure architecture support${areas.length ? ` (${areas.join(", ")})` : ""}.`;
+}
+
 export function buildCallBrief(
   category: CategoryKey,
   licensing: LicensingResult | null,
@@ -3221,15 +3400,29 @@ export function buildCallBrief(
   // the ask with nothing in front of it, name the thing that matched and
   // say plainly that the row carries no product detail.
   const matchedArea = platform?.hits[0]?.category ?? "";
-  const stated = what || direction
+  const noted = what || direction
     ? what
     : matchedArea ? `${matchedArea}, no products or seat count named in the row.` : "";
+  // The first sentence leads with what the raw note says. The SKU clause
+  // stays only when it carries a count the lead sentence does not, and then
+  // says "Mentions", since naming a product is not the same as running it.
+
+  const azureHelp = azureSupportClause(fullText);
+  // The help request is already said by azureHelp, so the lead goes to what
+  // the row is about rather than repeating it.
+  const lead = noteLead(fullText, dynHit?.snippet || licensing?.snippet || platform?.hits[0]?.snippet || "", azureHelp ? AZURE_HELP_LIST_RE : undefined);
+  const stated = [lead
+    ? (what && !leadCovers(lead, what) ? `${lead} ${what.replace(/^Runs /, "Mentions ")}` : lead)
+    : noted, azureHelp].filter(Boolean).join(" ");
 
   // WHAT ELSE THE ROW SAYS — quoted, windowed to the match, dropped when
   // absent. Never inferred: ~94% of real rows say none of this.
   const anchor = dynHit?.snippet || licensing?.snippet || "";
   const incumbent = dynamics ? nearestIn(fullText, anchor, INCUMBENT_PLATFORM_RE) : "";
-  const pain = nearestIn(fullText, anchor, PAIN_RE);
+  // Per Jack, M365 / Azure notes should be "more focused on the pain point".
+  // The windowed PAIN_RE quote comes first; failing that, any pain the row
+  // states anywhere (statedPain), still quoted, never inferred.
+  const pain = nearestIn(fullText, anchor, PAIN_RE) || (dynamics ? "" : statedPain(fullText, lead));
 
   // A LEAD THAT SAID NO STILL READS AS A LIVE DEAL WITHOUT THIS.
   //
@@ -3265,7 +3458,8 @@ export function buildCallBrief(
   // that qualified it.
   const azureDirection =
     /\bazure\b/i.test(productArea) ||
-    (platform?.hits ?? []).some((h) => h.category === "Azure" || h.category === "Microsoft Fabric");
+    (platform?.hits ?? []).some((h) => h.category === "Azure" || h.category === "Microsoft Fabric") ||
+    !!azureHelp;
   const area: "dynamics" | "licensing" | "azure" =
     dynamics ? "dynamics" : azureDirection ? "azure" : hits.length > 0 ? "licensing" : "azure";
 

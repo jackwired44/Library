@@ -340,8 +340,10 @@ console.log("\n== Jack's three-clause shape ==");
 // pain is." Three clauses: what they run, where they are going / who
 // handles it, then the ask.
 const [runs2] = scan(["They run Office 365 E3 and Microsoft 365 Copilot across the business."]);
-ok("the installed base leads with “Runs …”",
-   !!runs2 && /Runs /.test(runs2.notesSummary), runs2 ? runs2.notesSummary : "(no row)");
+// The note now opens on the row's own sentence when it says what they run
+// (per Jack: lead with what the raw note says), "Runs …" otherwise.
+ok("the installed base leads with what they run",
+   !!runs2 && /\b(?:Runs|They run) /.test(runs2.notesSummary), runs2 ? runs2.notesSummary : "(no row)");
 ok("  naming both SKUs the row wrote, joined with “and”",
    !!runs2 && /Office 365 E3 and Microsoft 365 Copilot/i.test(runs2.notesSummary),
    runs2 ? runs2.notesSummary : "(no row)");
@@ -387,7 +389,7 @@ console.log("\n== the ask follows the direction, not the installed base ==");
 // STILL the Azure one, because Azure is what the opportunity is about.
 const [jack] = scanPA([{ note: "They run Office 365 E3 and Microsoft 365 Copilot across the business.", pa: "Azure Virtual Desktop" }]);
 ok("an Azure direction takes the Azure ask even when M365 SKUs are named",
-   !!jack && /Runs /.test(jack.notesSummary) && /Ask how Azure is managed today/.test(jack.notesSummary),
+   !!jack && /\b(?:Runs|They run) /.test(jack.notesSummary) && /Ask how Azure is managed today/.test(jack.notesSummary),
    jack ? jack.notesSummary : "(no row)");
 
 console.log("\n== the Dynamics line states facts instead of asking ==");
@@ -441,7 +443,7 @@ console.log("\n== a count with no SKU to hang it on is still kept ==");
 // licensing engine never reads it.
 const [noSku] = scan(["Looking to move from Google Workspace to Microsoft 365 for 120 users."]);
 ok("a stated count survives a row that names no SKU",
-   !!noSku && /120 seats stated\./.test(noSku.notesSummary), noSku ? noSku.notesSummary : "(no row)");
+   !!noSku && /\b120 (?:seats|users)\b/.test(noSku.notesSummary), noSku ? noSku.notesSummary : "(no row)");
 ok("  and it is NOT joined to a product the row never wrote",
    !!noSku && !/120 seats on /.test(noSku.notesSummary), noSku ? noSku.notesSummary : "(no row)");
 // The same path must not read a phone number, a ticket id or an
@@ -465,6 +467,18 @@ const [thin] = scan(["We are moving from Google Workspace to Microsoft 365."]);
 ok("a row with no SKU and no Product Area still states what matched",
    !!thin && !/^Ask /.test(stripSnippetPrefix(thin.notesSummary)),
    thin ? thin.notesSummary : "(no row)");
+
+// Per Jack, on a real partner-led Azure note (Truist / Infosys): frame the
+// problem or what they need first, then the existing ask. Seller pipeline
+// chatter ("Follow-up sent to the partner requesting an update…") never
+// leads.
+{
+  const [az] = scanPA([{ note: "SA - 9/Mar - Follow-up sent to the partner requesting an update on the current project status and estimated ACR. Client Info: Acme Bank Account ID: 9-ZZF Referral ID: 7426adc0 Notes: Microsoft Partner is engaging with Acme Bank to enable the Microsoft Foundry Platform with a focus on Agent Service. Help Needed from Microsoft ========== We seek Microsoft's assistance: - Support in implementing the analytics platform on Microsoft Azure to ensure seamless integration and scalability. - Guidance on cloud migration strategies and connectivity to enable efficient data access across multiple sources. - Assistance with optimizing performance and security leveraging Azure services.", pa: "AI Ready with Surface Copilot PCs" }]);
+  const s = az ? az.notesSummary : "(no row)";
+  ok("partner-led Azure note opens on what the row is about", /Partner is engaging with Acme Bank/.test(s) && !/Follow-up sent/i.test(s), s);
+  ok("  states the Azure architecture support it is after", /Looking for Azure architecture support \(integration, data connectivity, scaling\)/.test(s), s);
+  ok("  and closes on the existing Azure ask", /Ask how Azure is managed today, internal IT or an external partner/.test(s), s);
+}
 
 console.log(`\n${pass}/${pass + fail} checks passed`);
 if (fail) process.exit(1);
