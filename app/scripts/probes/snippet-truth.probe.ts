@@ -623,5 +623,22 @@ ok("a row with no SKU and no Product Area still states what matched",
   ok("a partner ask leads, as written, and is not said twice", /^Customer is looking for an MSP to take over their Microsoft 365 tenant and security\./.test(c4) && !/Wants to work with a partner/.test(c4), c4);
 }
 
+// Per Jack: "if a note has date or time just scrap it unless its a direct
+// meeting with microsoft".
+{
+  const [t1] = scan(["01:36 Potential Interest in Copilot and Cowork Agents: Darren inquired about the usefulness of Copilot for the sales team."]);
+  const a5 = t1 ? stripSnippetPrefix(t1.notesSummary) : "(no row)";
+  ok("a sentence carrying a clock time is scrapped", !/01:36|\b\d{1,2}:\d\d\b/.test(a5), a5);
+  const [t2] = scan(["Customer interested in Microsoft 365 E5 security, confirmed meeting for Wednesday at 2pm."]);
+  const b5 = t2 ? stripSnippetPrefix(t2.notesSummary) : "(no row)";
+  ok("a weekday or time never reaches the note", !/Wednesday|2pm/i.test(b5), b5);
+  const [t3] = scan(["Customer has a meeting with Microsoft on Thursday to review moving 200 users to Microsoft 365 E5."]);
+  const c5 = t3 ? stripSnippetPrefix(t3.notesSummary) : "(no row)";
+  ok("a direct meeting with Microsoft is kept, as written", /meeting with Microsoft on Thursday/.test(c5), c5);
+  const [t4] = scan(["Customer has a meeting with Microsoft partner Contoso on Thursday to review Microsoft 365 E5 for 200 users."]);
+  const d5 = t4 ? stripSnippetPrefix(t4.notesSummary) : "(no row)";
+  ok("  but a meeting with a Microsoft PARTNER is not exempt", !/Thursday/.test(d5), d5);
+}
+
 console.log(`\n${pass}/${pass + fail} checks passed`);
 if (fail) process.exit(1);

@@ -20,7 +20,7 @@ import type { ResultRow } from "./detection";
 import { loadRawNotesMany, newestRaw, type RawNotes } from "./rawNotes";
 
 /** Bump when the Main note rules change, so stored notes refresh once. */
-export const NOTE_RULES_VERSION = "2026-10-16-needs-as-written";
+export const NOTE_RULES_VERSION = "2026-10-16-no-dated-sentences";
 const VERSION_KEY = "mainNoteRulesVersion";
 
 /** Today's Main Scanner read of one lead's stored raw row, or null when

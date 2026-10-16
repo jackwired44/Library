@@ -1201,11 +1201,25 @@ export function cleanNoteText(note: string): string {
     .replace(/\s{2,}/g, " ")
     .trim();
 }
+/** A clock time or a named day. "today" is left out on purpose: in these
+ *  notes it nearly always means "currently" ("on SAP today"). */
+const TIME_RE = /\b\d{1,2}(?:[:.][0-5]\d)?\s*(?:a\.?m\.?|p\.?m\.?)(?![a-z])|\b(?:[01]?\d|2[0-3]):[0-5]\d\b|\b(?:mon|tues|wednes|thurs|fri|satur|sun)day\b|\b(?:tomorrow|yesterday|tonight)\b/i;
+/**
+ * Per Jack: "if a note has date or time just scrap it unless its a direct
+ * meeting with microsoft". A meeting WITH Microsoft itself (not a Microsoft
+ * partner) is the one dated sentence worth keeping, date included.
+ */
+const MS_MEETING_RE = /\b(?:meeting|call|session|workshop|briefing|demo|review|sync)\s+(?:(?:is|was|has\s+been)\s+)?(?:scheduled\s+|booked\s+|set\s+(?:up\s+)?)?with\s+(?:the\s+)?(?:microsoft|msft)\b(?!\s+(?:partners?|resellers?|csp))|\b(?:microsoft|msft)\s+(?:meeting|call|session|workshop|briefing)\b|\bmeet(?:ing)?\s+(?:directly\s+)?with\s+(?:the\s+)?(?:microsoft|msft)\b(?!\s+(?:partners?|resellers?|csp))/i;
+export function isMicrosoftMeeting(s: string): boolean { return MS_MEETING_RE.test(s); }
+/** Carries a date or a time, and is not a direct meeting with Microsoft. */
+export function isDatedSentence(s: string): boolean {
+  return (DATE_RE.test(s) || TIME_RE.test(s)) && !MS_MEETING_RE.test(s);
+}
 function hasForbiddenContent(s: string) {
   URL_RE.lastIndex = 0;
   if (URL_RE.test(s)) { URL_RE.lastIndex = 0; return true; }
   URL_RE.lastIndex = 0;
-  return DATE_RE.test(s) || BILLING_BANT_RE.test(s) || SERIAL_RE.test(s) || EMAIL_RE.test(s)
+  return isDatedSentence(s) || BILLING_BANT_RE.test(s) || SERIAL_RE.test(s) || EMAIL_RE.test(s)
     || EMAIL_FRAGMENT_RE.test(s) || PHONE_RE.test(s) || CONTACT_FIELD_RE.test(s)
     // Microsoft's propensity scorecard is not a sentence the lead said, and
     // quoting it produced the fragments Jack flagged — "Unknown
@@ -3085,8 +3099,8 @@ function dynamicsReason(fullText: string): string {
     if (!m) continue;
     let clause = u.slice(m.index).replace(/^(?:because|due\s+to|since|as)\s+/i, "");
     clause = clause.split(/[;]|\s+[-–]\s+|,\s+(?:and|but)\s+/)[0];
-    // Checked on the clause, not the sentence: a sentence carrying a date
-    // ("by Q2 2027 because …") still has a quotable reason.
+    // Checked on the clause: the timeline has its own line, and the quoted
+    // reason itself never carries a date or time.
     if (hasForbiddenContent(clause)) continue;
     // Evaluating, demoing or the seller's own partner work is not a reason
     // the customer gave.
@@ -3344,7 +3358,8 @@ function noteLead(fullText: string, anchor: string, skip?: RegExp): string {
       const ask = n != null && n > 0 && !(n >= 1900 && n <= 2100)
         ? `Wants ${products.join(" + ")} for ${n} ${n === 1 ? "user" : "users"}.`
         : `Wants ${products.join(" + ")}.`;
-      return said.length ? `${normalizeSentence(cleanLeadSentence(said[0]))} ${ask}` : ask;
+      const keep = said.filter((x) => !isDatedSentence(x));
+      return keep.length ? `${normalizeSentence(cleanLeadSentence(keep[0]))} ${ask}` : ask;
     }
   }
   const anchorWords = new Set((anchor.toLowerCase().match(/[a-z][a-z0-9]{3,}/g) ?? []));
@@ -3352,7 +3367,12 @@ function noteLead(fullText: string, anchor: string, skip?: RegExp): string {
   splitSentences(t).forEach((raw, i) => {
     // The timeline is reported on its own line, so a date inside the
     // sentence ("… by Q1 2027") is cut rather than costing the sentence.
-    const u = stripTimelinePhrase(cleanLeadSentence(raw));
+    // Per Jack: a sentence carrying a date or time is scrapped outright,
+    // unless it is a direct meeting with Microsoft — then it stays as written.
+    const whole = cleanLeadSentence(raw);
+    const msMeeting = isMicrosoftMeeting(whole);
+    if (!msMeeting && isDatedSentence(whole)) return;
+    const u = msMeeting ? whole : stripTimelinePhrase(whole);
     if (u.length < 25 || hasForbiddenContent(u)) return;
     let sc = 0;
     // Per Jack: "anything indicating cybersecurity or it support or a
@@ -3367,7 +3387,7 @@ function noteLead(fullText: string, anchor: string, skip?: RegExp): string {
     if (LEAD_INTENT_RE.test(u)) sc += 3;
     if (LEAD_PRODUCT_RE.test(u)) sc += 2;
     if (CUSTOMER_SUBJECT_RE.test(u)) sc += 1;
-    if (MEETING_CHROME_RE.test(u)) sc -= 4;
+    if (MEETING_CHROME_RE.test(u) && !msMeeting) sc -= 4;
     if (SELLER_CHATTER_RE.test(u)) return;
     if (skip && skip.test(u)) sc -= 6;
     if (/\b\d{2,6}\s*(?:users?|seats?|licen[cs]es?|employees)\b/i.test(u)) sc += 1;

@@ -6635,3 +6635,22 @@ still partner with them".
   own wording instead of cutting to the main clause, starting at the need
   verb when the sentence is long. "Wants to work with a partner." is not
   repeated when the opening line already names a partner/MSP/CSP.
+
+### 2026-10-16: dated sentences are scrapped from Main notes (scanner-platform-v29)
+
+Per Jack: "if a note has date or time just scrap it unless its a direct
+meeting with microsoft".
+- `isDatedSentence` (`lib/detection.ts`): a sentence carrying a date
+  (DATE_RE) or a clock time / weekday / tomorrow / yesterday (`TIME_RE`) is
+  dropped whole from the note's opening line, the pain quote and the form
+  line, instead of having the date phrase cut out. "today" is not a date
+  here (it means "currently" in these notes).
+- Exception: `isMicrosoftMeeting` — a meeting/call/session WITH Microsoft
+  itself (not a Microsoft partner/reseller/CSP) is kept as written, date
+  included, and is not penalised as meeting chrome.
+- Kept on purpose: the separate "Timeline: …" clause Jack asked for earlier
+  ("if theres a timeline of when they want it"), and the Dynamics "Why:"
+  reason, which is checked at clause level so it never prints a date.
+- Book9-30: notes carrying a time/weekday outside Timeline 3 → 0 (the leaks
+  were "01:36 …" and "confirmed meeting for Wednesday").
+- `NOTE_RULES_VERSION` bumped. snippet-truth 113 → 117.
