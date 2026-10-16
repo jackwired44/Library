@@ -213,8 +213,11 @@ export default function AllLeads({
   leads, companyProfiles = [], onApplySync, initialSequence = "",
   sequenceNames = [], onSetPlan, onSetStatus, funnels = [], initialStatus, initialPreset,
   apolloIndex = null, rosterPulledAt = "", onPullApollo, onCheckLeads, lists = [], onAddToList,
-  emailChecks = [], onImportVerifier,
+  emailChecks = [], onImportVerifier, noteRefresh = null, onRefreshNotes,
 }: {
+  /** Rewriting stored Main notes with today's rules — see lib/noteRefresh.ts. */
+  noteRefresh?: { done: number; total: number; changed: number; finished: boolean } | null;
+  onRefreshNotes?: () => void;
   /** Verifier results per email — see lib/deliverability.ts. */
   emailChecks?: EmailCheck[];
   onImportVerifier?: (files: ParsedFile[]) => Promise<VerifierImport>;
@@ -877,6 +880,23 @@ export default function AllLeads({
             {leads.length.toLocaleString()} lead{leads.length === 1 ? "" : "s"} stored from all three scanners
           </p>
         </div>
+        {onRefreshNotes && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+            {noteRefresh && (
+              <span className="muted" aria-live="polite">
+                {noteRefresh.finished
+                  ? `Notes refreshed · ${noteRefresh.changed.toLocaleString()} updated`
+                  : `Refreshing notes… ${noteRefresh.done.toLocaleString()} of ${noteRefresh.total.toLocaleString()}`}
+              </span>
+            )}
+            <button
+              className="btn btn-secondary btn-sm"
+              disabled={!!noteRefresh && !noteRefresh.finished}
+              onClick={onRefreshNotes}
+              title="Rewrite every Main Scanner lead's newest note from its stored CSV row with today's note rules. Tier, score and Apollo data are not changed."
+            >↻ Refresh notes</button>
+          </div>
+        )}
       </div>
 
       {/* Apollo state is only as fresh as the last sync, so its age is

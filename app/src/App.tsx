@@ -36,6 +36,7 @@ import {
   type LibraryEntry, type LibraryGroup,
 } from "./lib/library";
 import { applyCompetitorDQ } from "./lib/companyProfiles";
+import { refreshMainNotes, noteRulesStale, markNoteRulesCurrent } from "./lib/noteRefresh";
 import {
   loadLeads, saveLeads, mergeLeads, leadKeyOfInput, type StoredLead, type LeadInput,
 } from "./lib/leadStore";
@@ -165,6 +166,29 @@ export default function App() {
   const [leadLists, setLeadLists] = useState<LeadList[]>([]);
   /** Every lead ever scanned, all three scanners. See lib/leadStore.ts. */
   const [leads, setLeads] = useState<StoredLead[]>([]);
+  /** Rewriting stored Main notes with today's note rules — see lib/noteRefresh.ts. */
+  const [noteRefresh, setNoteRefresh] = useState<{ done: number; total: number; changed: number; finished: boolean } | null>(null);
+  async function runNoteRefresh(from?: StoredLead[], overrides: RuleOverrides = ruleOverrides) {
+    const base = from ?? leadsRef.current;
+    setNoteRefresh({ done: 0, total: base.filter((l) => l.source === "main").length, changed: 0, finished: false });
+    try {
+      const changed = await refreshMainNotes(base, overrides, (done, total) =>
+        setNoteRefresh((p) => ({ done, total, changed: p?.changed ?? 0, finished: false })));
+      if (changed.length) {
+        const byKey = new Map(changed.map((l) => [l.key, l]));
+        // Only the note moves; apply onto the latest state so nothing that
+        // changed while this ran is lost.
+        setLeads((prev) => prev.map((l) => { const n = byKey.get(l.key); return n ? { ...l, notes: n.notes } : l; }));
+        const current = new Map(leadsRef.current.map((l) => [l.key, l]));
+        await saveLeads(changed.map((c) => ({ ...(current.get(c.key) ?? c), notes: c.notes })));
+      }
+      markNoteRulesCurrent();
+      setNoteRefresh((p) => ({ done: p?.total ?? 0, total: p?.total ?? 0, changed: changed.length, finished: true }));
+    } catch (e) {
+      setNoteRefresh(null);
+      setError(`Notes could not be refreshed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
   const apolloIndex = useMemo(() => buildRosterIndex(apolloRoster, leads), [apolloRoster, leads]);
   setStatusRoster(apolloIndex);
   const leadsRef = useRef(leads);
@@ -311,6 +335,10 @@ export default function App() {
           saveLeads(cleaned.filter((l) => cleared.has(l.key))).catch(() => {});
         }
         setLeads(cleaned);
+        // New note rules: rewrite every stored Main note once, in the
+        // background. Per Jack: "update all the leads in here with the new
+        // note rule".
+        if (noteRulesStale() && cleaned.some((l) => l.source === "main")) void runNoteRefresh(cleaned, rules);
         setFunnels(storedFunnels);
         setRouting(storedRouting);
         if (blocked.length) {
@@ -1016,6 +1044,8 @@ export default function App() {
             onAddToList={addExportRowsToLists}
             emailChecks={emailChecks}
             onImportVerifier={importVerifierFiles}
+            noteRefresh={noteRefresh}
+            onRefreshNotes={() => void runNoteRefresh()}
           />
         )}
         {view === "campaigns" && (

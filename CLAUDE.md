@@ -6521,3 +6521,15 @@ already have", on a real partner-led Azure note (Truist / Infosys).
 - snippet-truth +3 checks (the Truist shape); four assertions re-pointed
   from the old "Runs …" wording to the facts (SKUs and counts still
   present). Dynamics notes untouched.
+- **Stored leads get the new note too** (per Jack: "update all the leads
+  in here with the new note rule"). `lib/noteRefresh.ts` re-runs today's
+  Main Scanner over each Main lead's stored CSV row (raw note + columns)
+  and replaces only the NEWEST note segment. Tier, score, product area,
+  Apollo and plan fields are untouched; the stored "(38) ▲" mark is kept
+  (the score isn't changing); older dated segments are history and stay.
+  Runs once automatically on load whenever `NOTE_RULES_VERSION` changes
+  (localStorage `mainNoteRulesVersion`), in chunks so the page stays
+  usable, and on demand from All leads' "↻ Refresh notes". **Bump
+  `NOTE_RULES_VERSION` whenever the Main note rules change.** A lead with
+  no stored raw row (filed before raw rows were kept) cannot be rewritten
+  and keeps its note. Suite `note-refresh-live` (12).

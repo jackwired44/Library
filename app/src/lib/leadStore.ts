@@ -281,7 +281,7 @@ function fillBlank(existing: string, incoming: string): string {
  *   3. A hard character cap, oldest segments dropped first, so one
  *      pathological row cannot grow without limit.
  */
-const NOTE_SEP = "\n";
+export const NOTE_SEP = "\n";
 /** The generated question a brief ends on. Everything from "Ask " to the
  *  end, which is exactly how buildCallBrief and the CSP note compose it. */
 const ASK_TAIL_RE = /\s*(?:Ask (?:if|how|what|who)\b.*)$/is;
