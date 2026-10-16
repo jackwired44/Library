@@ -130,7 +130,11 @@ const himmel = scan(["Hybrid today, on-premises Exchange still running. Active D
 ok("files as M365 / Azure, not Dynamics", himmel?.category === "m365Tenant", String(himmel?.category));
 ok("is still Strong Signal", himmel?.tier === "signal", String(himmel?.tier));
 ok("'not looking for anything fancy' is not read as the deal reversing", !/reverses|reversed/i.test(himmel?.notesSummary ?? ""), himmel?.notesSummary);
-ok("each SKU keeps its own count (55 and 26)", /\b55\b[^.]*Business Standard|Business Standard \(55 seats\)/.test(himmel?.notesSummary ?? "") && /\b26\b[^.]*Business Premium|Business Premium \(26 seats\)/.test(himmel?.notesSummary ?? ""), himmel?.notesSummary);
+// Per Jack, a migration note is "what they are wanting to migrate and if
+// theres a clear timeline", so the SKU list gives way to the move; the
+// estate's biggest stated count still rides along, and no count is ever
+// pinned to a SKU that did not state it.
+ok("a migration note names the move and carries the stated count", /Moving entirely to the cloud\. 55 seats\./.test(himmel?.notesSummary ?? "") && !/26 seats on|Business Standard \(26/.test(himmel?.notesSummary ?? ""), himmel?.notesSummary);
 const noErp = scan(["We have no ERP today and run everything on spreadsheets."])[0];
 ok("'no ERP' alone is not a Dynamics lead", !noErp || noErp.category !== "dynamics365", noErp ? noErp.category : "no row");
 const wantErp = scan(["We need a new ERP for 40 users, currently on spreadsheets."])[0];

@@ -6,55 +6,67 @@
 // the other columns, see lib/rawNotes.ts) and replaces the NEWEST note
 // segment with the fresh brief.
 //
-// Only the note moves. Tier, score, product area and every Apollo / plan
-// field are left exactly as they are, so no lead changes bucket, export or
-// download because of this. The score/band mark at the front of the note
-// ("(50) ▲") is kept from the stored note for the same reason. Older dated
-// segments are history and are not rewritten. Custom and CSP leads are
-// untouched: their note rules did not change.
+// The scan verdict moves with the note — tier, score and product area — the
+// same way a re-upload of the same lead already updates them (see
+// mergeLeads). Per Jack, on a lead the old rules called Strong Signal:
+// "this is bad lead". A lead marked not-a-fit (notFit) keeps its Bad Lead
+// verdict; only its note is rewritten. Every Apollo / plan / status field
+// is left alone. Older dated note segments are history and are not
+// rewritten. Custom and CSP leads are untouched: their rules did not change.
 import { scanParsedFiles, stripSnippetPrefix, DEFAULT_RULE_OVERRIDES, type RuleOverrides } from "./detection";
 import { NOTE_SEP, noteSegments, type StoredLead } from "./leadStore";
+import { leadInputsFromResults } from "./leadFiling";
+import type { ResultRow } from "./detection";
 import { loadRawNotesMany, newestRaw, type RawNotes } from "./rawNotes";
 
 /** Bump when the Main note rules change, so stored notes refresh once. */
-export const NOTE_RULES_VERSION = "2026-10-16-less-specific";
+export const NOTE_RULES_VERSION = "2026-10-16-migrations-purchase-dq";
 const VERSION_KEY = "mainNoteRulesVersion";
 
-/** Today's Main Scanner note for one lead's stored raw row, with its
- *  score/band mark, or "" when there is no raw row or nothing matches. */
-export function currentMainNote(raw: RawNotes | undefined, overrides: RuleOverrides = DEFAULT_RULE_OVERRIDES): string {
+/** Today's Main Scanner read of one lead's stored raw row, or null when
+ *  there is no raw row or the row no longer matches anything. */
+export function currentMainScan(raw: RawNotes | undefined, overrides: RuleOverrides = DEFAULT_RULE_OVERRIDES): ResultRow | null {
   const text = newestRaw(raw);
-  if (!raw || !text) return "";
+  if (!raw || !text) return null;
   const rows = raw.rows ?? [];
   const fields: Record<string, string> = { ...(rows[rows.length - 1]?.fields ?? {}) };
   const notesCol = Object.keys(fields).find((k) => /comment|note|description/i.test(k)) || "Comments";
   fields[notesCol] = text;
   try {
-    const r = scanParsedFiles([{ name: raw.segments[0]?.file || "lead", fields: Object.keys(fields), data: [fields] }], overrides).results[0];
-    return r?.notesSummary || "";
+    return scanParsedFiles([{ name: raw.segments[0]?.file || "lead", fields: Object.keys(fields), data: [fields] }], overrides).results[0] ?? null;
   } catch {
-    return "";
+    return null;
   }
 }
+/** Today's note text (with its score/band mark), or "". */
+export function currentMainNote(raw: RawNotes | undefined, overrides: RuleOverrides = DEFAULT_RULE_OVERRIDES): string {
+  return currentMainScan(raw, overrides)?.notesSummary || "";
+}
 
-/** The lead with its newest note segment replaced, or the same object when
+/** The lead with today's verdict and newest note, or the same object when
  *  nothing would change. */
-export function withRefreshedNote(lead: StoredLead, fresh: string): StoredLead {
+export function withRefreshedScan(lead: StoredLead, row: ResultRow): StoredLead {
+  const fresh = row.notesSummary || "";
   const body = stripSnippetPrefix(fresh).trim();
-  if (!body) return lead;
+  const input = leadInputsFromResults([row])[0];
+  const keepVerdict = !!lead.notFit;
   const segs = noteSegments(lead.notes);
   const top = segs[0]?.text ?? "";
-  const oldBody = stripSnippetPrefix(top);
-  // Keep the stored score/band mark — the lead's score is not being changed.
-  const mark = top.slice(0, top.length - oldBody.length) || fresh.slice(0, fresh.length - stripSnippetPrefix(fresh).length);
-  const next = `${mark}${body}`;
-  if (next === top) return lead;
-  const lines = segs.map((s, i) => {
-    const text = i === 0 ? next : s.text;
-    return s.date ? `${s.date} · ${text}` : text;
-  });
-  if (!lines.length) lines.push(next);
-  return { ...lead, notes: lines.join(NOTE_SEP) };
+  // A lead someone marked not-a-fit keeps its own mark; otherwise the
+  // fresh score/band mark rides with the fresh verdict.
+  const mark = keepVerdict
+    ? top.slice(0, top.length - stripSnippetPrefix(top).length)
+    : fresh.slice(0, fresh.length - body.length);
+  const nextTop = body ? `${mark}${body}` : top;
+  const lines = segs.length
+    ? segs.map((s, i) => { const text = i === 0 ? nextTop : s.text; return s.date ? `${s.date} · ${text}` : text; })
+    : [nextTop];
+  const notes = lines.join(NOTE_SEP);
+  const next: StoredLead = keepVerdict
+    ? { ...lead, notes }
+    : { ...lead, notes, tier: input.tier || lead.tier, score: input.score, productArea: input.productArea || lead.productArea };
+  const same = next.notes === lead.notes && next.tier === lead.tier && next.score === lead.score && next.productArea === lead.productArea;
+  return same ? lead : next;
 }
 
 export function noteRulesStale(): boolean {
@@ -81,9 +93,9 @@ export async function refreshMainNotes(
     const slice = main.slice(i, i + chunk);
     const raw = await loadRawNotesMany(slice.map((l) => l.key));
     for (const l of slice) {
-      const fresh = currentMainNote(raw.get(l.key), overrides);
-      if (!fresh) continue;
-      const next = withRefreshedNote(l, fresh);
+      const row = currentMainScan(raw.get(l.key), overrides);
+      if (!row) continue;
+      const next = withRefreshedScan(l, row);
       if (next !== l) changed.push(next);
     }
     onProgress?.(Math.min(i + chunk, main.length), main.length);

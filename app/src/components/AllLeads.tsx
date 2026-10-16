@@ -893,8 +893,8 @@ export default function AllLeads({
               className="btn btn-secondary btn-sm"
               disabled={!!noteRefresh && !noteRefresh.finished}
               onClick={onRefreshNotes}
-              title="Rewrite every Main Scanner lead's newest note from its stored CSV row with today's note rules. Tier, score and Apollo data are not changed."
-            >↻ Refresh notes</button>
+              title="Rewrite every Main Scanner lead's newest note from its stored CSV row with today's rules, including its tier and score. Apollo data, lists and anything marked not-a-fit are not changed."
+            >↻ Refresh with today's rules</button>
           </div>
         )}
       </div>

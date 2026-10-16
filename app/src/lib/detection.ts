@@ -1853,7 +1853,19 @@ export const PERSONAL_PROSPECT_LABEL = "Personal Prospect";
 /* ------------------------------------------------------------------ */
 export const CRM_OPPORTUNITY_DQ_LABEL = "Existing CRM opportunity notes, not a fresh lead";
 export const SMALL_PROJECT_DQ_LABEL = "Small one-off project / free consultancy request";
+export const PURCHASE_DONE_DQ_LABEL = "Purchase already made or in progress";
 export const DQ_RULES: { label: string; pattern: RegExp }[] = [
+  {
+    // Per Jack, on "The purchase is pending because the admin assistant has
+    // the payment card": "nothing like this this is bad lead". The customer
+    // has already bought (or is mid-checkout) on their own — a closed
+    // transaction, not someone to call. Deliberately NOT "direct purchase"
+    // on its own: "55 Business Standard … purchased directly; no partner
+    // today" is a real lead.
+    label: PURCHASE_DONE_DQ_LABEL,
+    pattern:
+      /\bpurchase\s+(?:is\s+)?(?:pending|completed|complete|done|finali[sz]ed)\b|\b(?:completed|made|finali[sz]ed)\s+the\s+purchase\b|\bclose\s+as:\s*won\b|\bproof\s+of\s+purchase\b|\bpending\s+payment\b|\bpayment\s+card\b|\balready\s+(?:purchased|bought)\b/i,
+  },
   {
     label: "Single seat/user or freelancer",
     pattern:
@@ -3150,7 +3162,19 @@ function stripCrmChrome(t: string): string {
     .replace(/\bComment\s*\|/gi, " ")
     .replace(/(?:^|\s)[A-Z]{2,4}\s*-\s*\d{1,2}\/[A-Za-z]{3,9}\s*-\s*/g, " ")
     .replace(/\b1C1E\b/g, " ")
-    .replace(/^[\s:;|,-]+/, "")
+    // Microsoft's mandatory-field form: "First Comment (Mandatory fields):
+    // - Tenant ID: <guid> - Organization details: …". The headers and IDs
+    // are form chrome; each " - Label:" starts a new field, so it becomes a
+    // sentence break rather than gluing every field into one "sentence".
+    .replace(/\b(?:(?:first|second|third|fourth|final|third\s+and\s+final)\s+)?comment\s*\(mandatory\s+fields\)\s*:?/gi, " ")
+    .replace(/\b(?:tenant|account|referral|opportunity)\s*id\s*:\s*[\w-]+/gi, " ")
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, " ")
+    .replace(/\bclose\s+as\s*:\s*\w+/gi, " ")
+    .replace(/\s[-–]\s(?=[A-Z][\w ()/&]{2,40}:)/g, ". ")
+    .replace(/\b(?:organi[sz]ation\s+details|forecast\s+status|reason\s+of\s+the\s+forecast\s+status|pop\s*\(proof\s+of\s+purchase\))\s*:\s*/gi, ". ")
+    .replace(/(?:^|\s)(?:\d{1,2}\)\s*)+(?=\S)/g, " ")
+    .replace(/\.(?:\s*\.)+/g, ".")
+    .replace(/^[\s:;|,.-]+/, "")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -3266,10 +3290,18 @@ function statedPain(fullText: string, lead: string): string {
   }
   return "";
 }
-/** The biggest seat/user count in the facts clause, as " N seats.", or "". */
-function seatsLine(what: string): string {
-  const ns = [...what.matchAll(/\b(\d[\d,]*)\s*(?:seats?|users)\b/g)].map((m) => Number(m[1].replace(/,/g, "")));
-  return ns.length ? ` ${Math.max(...ns)} seats.` : "";
+/** The counts in the facts clause the lead sentence does not already
+ *  carry: the biggest seat/user count, and an employee count — per Jack,
+ *  "make sure we are not missing any user count or employee count". */
+function seatsLine(what: string, lead = ""): string {
+  const has = (n: number) => new RegExp(`\\b${n}\\b`).test(lead);
+  const users = [...what.matchAll(/\b(\d[\d,]*)\s*(seats?|users)\b/g)].map((m) => ({ n: Number(m[1].replace(/,/g, "")), u: m[2] }));
+  const top = users.sort((a, b) => b.n - a.n)[0];
+  const emp = /\b(\d[\d,]*)\s*employees\b/.exec(what);
+  const out: string[] = [];
+  if (top && !has(top.n)) out.push(`${top.n} ${/^user/.test(top.u) ? "users" : "seats"}.`);
+  if (emp && !has(Number(emp[1].replace(/,/g, "")))) out.push(`${emp[1]} employees.`);
+  return out.length ? ` ${out.join(" ")}` : "";
 }
 /** Every number the stated-facts clause carries already appears in the lead. */
 function leadCovers(lead: string, what: string): boolean {
@@ -3290,6 +3322,99 @@ function azureSupportClause(fullText: string): string {
   if (!/\bazure\b/i.test(fullText) || !AZURE_HELP_RE.test(fullText)) return "";
   // Per Jack, "a bit less specific": the need, not a list of areas.
   return "Looking for Azure architecture support.";
+}
+
+/* --- MIGRATIONS: what is moving, and when ---------------------------- *
+ * Per Jack: "for migrations just need to know what they are wanting to
+ * migrate and if theres a clear timeline". Read off the row's own words;
+ * when the row never says what is moving, this returns "" and the normal
+ * brief is used instead — nothing is guessed.
+ */
+const MIGRATION_DEST = "(azure|the\\s+cloud|cloud|microsoft\\s*365|m365|office\\s*365|o365|sharepoint(?:\\s+online)?|one\\s*drive|(?:ms\\s+|microsoft\\s+)?teams|exchange\\s+online|microsoft|fabric|intune|entra(?:\\s+id)?)";
+const MIGRATION_WHAT_RE = new RegExp(
+  "\\b(?:migrat\\w*|mov(?:e|es|ing)|transition\\w*|lift(?:ing)?\\s+and\\s+shift\\w*|re-?host\\w*|shift\\w*)\\s+" +
+  "(?:(?:all|their|our|the|its|entire|existing|remaining|current|of|over|off)\\s+)*" +
+  "([^.;:!?]{3,70}?)\\s+(?:to|into|onto)\\s+(?:the\\s+)?" + MIGRATION_DEST + "\\b", "i");
+const MIGRATION_FROM_RE = new RegExp(
+  "\\bfrom\\s+(?:their\\s+|the\\s+|an?\\s+)?([^.;:!?]{3,50}?)\\s+(?:to|into)\\s+(?:the\\s+)?" + MIGRATION_DEST + "\\b", "i");
+const MIGRATION_BARE_RE = new RegExp(
+  "\\b(?:migrat\\w*|mov(?:e|ing))\\s+(?:entirely|fully|completely)?\\s*(?:to|into)\\s+(?:the\\s+)?" + MIGRATION_DEST + "\\b", "i");
+const titleDest = (d: string) => {
+  const t = d.replace(/^the\s+/i, "").trim();
+  if (/^azure$/i.test(t)) return "Azure";
+  if (/^(?:cloud)$/i.test(t)) return "the cloud";
+  if (/^(?:m365|microsoft\s*365|o365|office\s*365)$/i.test(t)) return "Microsoft 365";
+  return t.replace(/\b[a-z]/g, (c) => c.toUpperCase()).replace(/\bOnedrive\b/, "OneDrive").replace(/\bSharepoint\b/, "SharePoint");
+};
+/** A timeline for the move: the row's labelled "Timeline:", or a quarter,
+ *  month-year or relative window written near the migration sentence.
+ *  A bare numeric date is skipped — in these exports it is usually the
+ *  note's own stamp ("9/22/2026"), not when the move happens. */
+function migrationTimeline(t: string, at: number): string {
+  const labelled = TIMELINE_LABEL_RE.exec(t);
+  if (labelled) {
+    const v = labelled[1].trim().replace(/[,;]$/, "");
+    if (v && !/^(?:not\b.*|n\/?a|none|tbd|unknown|pending|-+|next|to be \w+)$/i.test(v)) return v.length > 48 ? v.slice(0, 45).trimEnd() + "\u2026" : v;
+  }
+  const near = t.slice(Math.max(0, at - 200), at + 300);
+  for (const re of TIMELINE_PATTERNS) {
+    const m = re.exec(near);
+    if (!m) continue;
+    if (re.source.includes("[/-]")) {
+      // Numeric: keep it only when it is still ahead — a past date is the
+      // note's own stamp, a future one is when the move is planned.
+      const [a, b, c] = m[0].split(/[/-]/).map(Number);
+      const y = c < 100 ? 2000 + c : c;
+      const d = new Date(y, a - 1, b);
+      if (isNaN(d.getTime()) || d.getTime() < Date.now()) continue;
+    }
+    return m[0].trim();
+  }
+  return "";
+}
+function migrationClause(fullText: string, google: boolean): { what: string; when: string; bare?: boolean } | null {
+  const t = stripCrmChrome(cleanText(fullText));
+  if (google) {
+    const g = new RegExp(G_SRC, "i").exec(t);
+    const src = g ? g[0].replace(/\s+/g, " ").replace(/^gmail$/i, "Gmail").replace(/^google\s*work\w*$/i, "Google Workspace") : "Google";
+    const d = new RegExp(MS_DST, "i").exec(t.slice(g ? g.index : 0));
+    return { what: `Moving off ${src} to ${d ? titleDest(d[0]) : "Microsoft 365"}.`, when: migrationTimeline(t, g ? g.index : 0) };
+  }
+  // Per Jack: "if a company is looking to migrate to azure or on prem to
+  // azure just be direct with the notes". On-prem → Azure, and a named
+  // workload moving to Azure, read as one plain line.
+  const onPrem = /\bon[\s-]?prem(?:ise|ises)?\b[^.;]{0,80}?\b(?:to|into|→|->)\s+(?:the\s+)?(azure|cloud)\b/i.exec(t);
+  if (onPrem) return { what: `Migrating on-prem to ${titleDest(onPrem[1])}.`, when: migrationTimeline(t, onPrem.index) };
+  const workload = /\b(server\s+estate|servers?|vms?|virtual\s+machines?|workloads?|infrastructure|data\s*cent(?:er|re)s?|databases?|file\s+servers?|applications?|apps?)\b[^.;]{0,60}?\b(?:move|moving|migrat\w*|lift(?:ing)?\s+and\s+shift\w*)\s+(?:to|into)\s+(azure)\b/i.exec(t);
+  if (workload) {
+    const noun = workload[1].toLowerCase().replace(/^vms?$/, "VMs").replace(/^server estate$/, "the server estate");
+    return { what: `Migrating ${noun} to Azure.`, when: migrationTimeline(t, workload.index) };
+  }
+  let at = 0;
+  for (const raw of splitSentences(t)) {
+    const pos = t.indexOf(raw, at); if (pos >= 0) at = pos;
+    const u = cleanLeadSentence(raw);
+    if (hasForbiddenContent(u) || SELLER_CHATTER_RE.test(u)) continue;
+    const m = MIGRATION_WHAT_RE.exec(u);
+    if (m) {
+      const what = m[1].replace(/^(?:from|off)\s+/i, "").replace(/\s+/g, " ").trim();
+      if (what.split(" ").length <= 9 && !/\b(?:forward|ahead|away|quickly|along)\b$/i.test(what) && !/^(?:entirely|fully|completely|everything)$/i.test(what)) {
+        return { what: `Migrating ${what} to ${titleDest(m[2])}.`, when: migrationTimeline(t, at) };
+      }
+      // "We want to move entirely to cloud" — no object, but a plain
+      // statement of the whole move.
+      if (/^(?:entirely|fully|completely|everything)$/i.test(what)) {
+        return { what: `Moving ${what.toLowerCase()} to ${titleDest(m[2])}.`, when: migrationTimeline(t, at) };
+      }
+    }
+    const f = MIGRATION_FROM_RE.exec(u);
+    if (f && f[1].split(" ").length <= 7) return { what: `Moving from ${f[1].trim()} to ${titleDest(f[2])}.`, when: migrationTimeline(t, at) };
+  }
+  // "move entirely to the cloud" names no object. It is only used when the
+  // row has no better opening line of its own (see buildCallBrief).
+  const b = MIGRATION_BARE_RE.exec(t);
+  if (b) return { what: `Moving to ${titleDest(b[1])}.`, when: migrationTimeline(t, b.index), bare: true };
+  return null;
 }
 
 export function buildCallBrief(
@@ -3423,7 +3548,7 @@ export function buildCallBrief(
   // the row is about rather than repeating it.
   const lead = noteLead(fullText, dynHit?.snippet || licensing?.snippet || platform?.hits[0]?.snippet || "", azureHelp ? AZURE_HELP_LIST_RE : undefined);
   const stated = [lead
-    ? (what && !leadCovers(lead, what) ? `${lead}${seatsLine(what)}` : lead)
+    ? (what && !leadCovers(lead, what) ? `${lead}${seatsLine(what, lead)}` : lead)
     : noted, azureHelp].filter(Boolean).join(" ");
 
   // WHAT ELSE THE ROW SAYS — quoted, windowed to the match, dropped when
@@ -3460,6 +3585,35 @@ export function buildCallBrief(
       known,
       `Row reverses: "${reversal.toLowerCase()}".`,
       "Ask what changed and what would reopen it.",
+    ].filter(Boolean).join(" "));
+  }
+
+  // MIGRATIONS: what is moving and when, then the ask — nothing else.
+  const migrating = !!(platform?.isGoogleToMicrosoft || platform?.isGoogleWorkspaceMigration);
+  const mig = migrating ? migrationClause(fullText, !!platform?.isGoogleWorkspaceMigration) : null;
+  // A bare "moving to the cloud" only stands in when the row has no
+  // opening line of its own — never over a real one like "Customer has 6
+  // copilot licenses and want to expand across all 305 E3 users".
+  // The move leads unless the row's own opening line is a concrete
+  // licensing ASK (a want/expand/need, not an inventory) with a stated count — "Customer has 6 copilot licenses
+  // and want to expand across all 305 E3 users", which Jack called out as
+  // the right note, keeps that line even if a move is mentioned further
+  // down. A bare "moving to the cloud" (no object) never replaces a line.
+  const leadIsCountedAsk = /\b\d[\d,]*\s+(?:[A-Za-z0-9]+\s+){0,2}(?:users?|seats?|licen[cs]es?|employees)\b/i.test(lead)
+    && /\b(?:want\w*|expand\w*|add(?:ing)?|need\w*|looking|buy\w*|grow\w*|upgrad\w*)\b/i.test(lead)
+    && !/\b(?:migrat\w*|mov(?:e|es|ing)\b|on[\s-]?prem)/i.test(lead);
+  const migration = mig && !leadIsCountedAsk && (!mig.bare || !lead) ? mig.what : "";
+  if (migration && mig) {
+    const when = mig.when;
+    const azureMove = /\b(?:Azure|the cloud)\.$/.test(migration);
+    return sentenceCase([
+      // A stated user/employee count still rides along — per Jack, never
+      // drop one.
+      what ? `${migration}${seatsLine(what, migration)}` : migration,
+      when ? `Timeline: ${when.replace(/[.\s]+$/, "")}.` : "",
+      azureMove
+        ? briefQuestions("azure", false, false)
+        : briefQuestions(hits.length > 0 || /Microsoft 365|Google/.test(migration) ? "licensing" : "azure", false, false),
     ].filter(Boolean).join(" "));
   }
 

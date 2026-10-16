@@ -176,11 +176,11 @@ export default function App() {
         setNoteRefresh((p) => ({ done, total, changed: p?.changed ?? 0, finished: false })));
       if (changed.length) {
         const byKey = new Map(changed.map((l) => [l.key, l]));
-        // Only the note moves; apply onto the latest state so nothing that
-        // changed while this ran is lost.
-        setLeads((prev) => prev.map((l) => { const n = byKey.get(l.key); return n ? { ...l, notes: n.notes } : l; }));
+        // Only the note and the scan verdict move; apply onto the latest state
+        // so nothing that changed while this ran is lost.
+        setLeads((prev) => prev.map((l) => { const n = byKey.get(l.key); return n ? { ...l, notes: n.notes, tier: n.tier, score: n.score, productArea: n.productArea } : l; }));
         const current = new Map(leadsRef.current.map((l) => [l.key, l]));
-        await saveLeads(changed.map((c) => ({ ...(current.get(c.key) ?? c), notes: c.notes })));
+        await saveLeads(changed.map((c) => ({ ...(current.get(c.key) ?? c), notes: c.notes, tier: c.tier, score: c.score, productArea: c.productArea })));
       }
       markNoteRulesCurrent();
       setNoteRefresh((p) => ({ done: p?.total ?? 0, total: p?.total ?? 0, changed: changed.length, finished: true }));

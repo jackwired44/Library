@@ -3,7 +3,10 @@
 // rule". An old-style note is planted on a stored lead, the rules-version
 // marker is rolled back, and a reload must rewrite it — keeping the stored
 // score mark, the tier and older dated segments — while Custom/CSP leads
-// and the manual ↻ Refresh notes button behave.
+// and the manual ↻ Refresh with today's rules button behave. The scan
+// verdict refreshes too: a lead the old rules called Strong Signal that
+// today's rules call a Bad Lead becomes one, unless someone marked it
+// not-a-fit by hand.
 const BASE = process.env.BASE || 'http://localhost:4173';
 const EXE = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const { chromium } = require('playwright');
@@ -14,7 +17,11 @@ const csv = (head, rows) => [head.join(',')].concat(rows.map(r => r.map(q).join(
 const HEAD = ['Company', 'Full Name', 'Title', 'Email', 'msp_primaryproductcodename', 'Comments'];
 const NOTE = 'SA - 9/Mar - Follow-up sent to the partner requesting an update on the current project status and estimated ACR. Client Info: Acme Bank Account ID: 9-ZZF Referral ID: 7426adc0 Notes: Microsoft Partner is engaging with Acme Bank to enable the Microsoft Foundry Platform with a focus on Agent Service. Help Needed from Microsoft ========== We seek Microsoft\'s assistance: - Support in implementing the analytics platform on Microsoft Azure to ensure seamless integration and scalability. - Guidance on cloud migration strategies and connectivity to enable efficient data access across multiple sources.';
 const FILE = path.join(os.tmpdir(), 'note-refresh.csv');
-fs.writeFileSync(FILE, csv(HEAD, [['ACME BANK', 'Pat Lee', 'CIO', 'pat@acmebank.com', 'AI Ready with Surface Copilot PCs', NOTE]]));
+const PENDING = 'In the 09/25 session the customer confirmed 3 Microsoft 365 Business Standard licenses at the nonprofit price. The purchase is pending because the admin assistant has the payment card. Uses Google for email and will keep it.';
+fs.writeFileSync(FILE, csv(HEAD, [
+  ['ACME BANK', 'Pat Lee', 'CIO', 'pat@acmebank.com', 'AI Ready with Surface Copilot PCs', NOTE],
+  ['RAMPS NONPROFIT', 'Ann Ray', 'Director', 'ann@rampsnp.org', 'Microsoft 365', PENDING],
+]));
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail++, console.log(`  FAIL ${n}${d ? ' — ' + d : ''}`)); };
@@ -57,35 +64,44 @@ const putLead = (db, l) => new Promise((res) => { const t = db.transaction('lead
   // newest segment with a score mark of its own.
   const old = { ...acme, notes: '2026-10-01 · (38) ▲ Runs Copilot. Partner on record: AI Ready with Surface Copilot PCs. Ask how they manage licensing today, in-house or through a partner, and where the pain is.\n2026-09-01 · (30) ▲ Older history line.' };
   await idb(page, putLead, old);
+  const ramps = leads.find(l => /ramps/i.test(l.company));
+  ok('a pending-purchase row scans as a Bad Lead today', !!ramps && /^Bad Lead/.test(ramps.tier), ramps && ramps.tier);
+  await idb(page, putLead, { ...ramps, tier: 'Strong Signal', score: 80 });
   await page.evaluate(() => localStorage.setItem('mainNoteRulesVersion', 'old'));
   await page.reload(); await unlock();
   await page.waitForFunction(() => localStorage.getItem('mainNoteRulesVersion') !== 'old', null, { timeout: 60000 });
   await sleep(800);
 
   leads = await idb(page, getAll);
+  const rampsAfter = leads.find(l => l.key === ramps.key);
+  ok('a stored Strong Signal the new rule calls bad becomes a Bad Lead', /^Bad Lead/.test(rampsAfter.tier), rampsAfter.tier);
+  ok('  its note no longer reads as a High lead', !/\) ▲ /.test(rampsAfter.notes.split('\n')[0]), rampsAfter.notes);
   const after = leads.find(l => l.key === acme.key);
   const top = (after.notes || '').split('\n')[0];
   ok('reload rewrites the stale note with today\'s rule', /Partner is engaging with Acme Bank/.test(top) && /Looking for Azure architecture support/.test(top), top);
   ok('  closes on the Azure ask, not the old licensing one', /Ask how Azure is managed today/.test(top) && !/manage licensing/.test(top), top);
-  ok('  keeps its date and its stored score mark', /^2026-10-01 · \(38\) ▲ /.test(top), top);
+  ok('  keeps its date and carries a score mark', /^2026-10-01 · \(\d{1,3}\) [▲▼▸✕] /.test(top), top);
   ok('  leaves the older dated segment alone', /\n2026-09-01 · \(30\) ▲ Older history line\.$/.test(after.notes), after.notes);
-  ok('  tier and score untouched', after.tier === acme.tier && after.score === acme.score, `${after.tier}/${after.score}`);
+  ok('  tier and score match today\'s scan', after.tier === acme.tier && after.score === acme.score, `${after.tier}/${after.score}`);
 
   // Plant again with the marker current, so the reload does NOT refresh on
-  // its own and the button is what rewrites it.
-  await idb(page, putLead, old);
+  // its own and the button is what rewrites it. This time it is marked
+  // not-a-fit by hand, which a refresh must never undo.
+  await idb(page, putLead, { ...old, tier: 'Bad Lead', notFit: 'Hand-marked' });
   await page.reload(); await unlock(); await sleep(800);
   leads = await idb(page, getAll);
   ok('a current marker does not refresh again on load', /Runs Copilot/.test(leads.find(l => l.key === acme.key).notes));
   await page.locator('.side-nav-btn', { hasText: 'All leads' }).first().click(); await sleep(800);
-  const btn = page.locator('button', { hasText: '↻ Refresh notes' });
-  ok('All leads offers ↻ Refresh notes', await btn.count() === 1);
+  const btn = page.locator('button', { hasText: '↻ Refresh with today' });
+  ok('All leads offers ↻ Refresh with today\'s rules', await btn.count() === 1);
   await btn.click();
   await page.waitForFunction(() => /Notes refreshed/.test(document.querySelector('main')?.textContent || ''), null, { timeout: 60000 });
   const msg = (await page.locator('main').innerText()).match(/Notes refreshed · [\d,]+ updated/);
   ok('  the button reports what it updated', !!msg && /1 updated/.test(msg[0]), msg && msg[0]);
   leads = await idb(page, getAll);
-  ok('  and rewrote the note', /Looking for Azure architecture support/.test(leads.find(l => l.key === acme.key).notes.split('\n')[0]));
+  const hand = leads.find(l => l.key === acme.key);
+  ok('  and rewrote the note', /Looking for Azure architecture support/.test(hand.notes.split('\n')[0]), hand.notes);
+  ok('  but a hand-marked not-a-fit lead stays a Bad Lead', hand.tier === 'Bad Lead' && hand.notFit === 'Hand-marked', hand.tier);
   ok('no page errors', errs.length === 0, errs.join(' | '));
 
   await b.close();

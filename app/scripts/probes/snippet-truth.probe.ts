@@ -100,7 +100,13 @@ const factsTraceable = (snippet: string, row: string): true | string => {
     // reading rather than quoted wording.
     if (/^(?:partner: |direct with Microsoft$|already on Dynamics$)/i.test(c)) continue;
     // A bare seat count on its own is checked by the count sweep below.
-    if (/^\d+\s+seats$/i.test(c)) continue;
+    if (/^\d+\s+(?:seats|users|employees)$/i.test(c)) continue;
+    // Migration line: "Moving off X to Y" / "Migrating X to Y" — X is the
+    // row's own words; Y is a normalised destination name, so only X is
+    // checked. "Timeline: …" is checked like any other timeline below.
+    const mig = /^(?:Moving off|Moving from|Migrating)\s+(.+?)\s+to\s+.+$/i.exec(c);
+    if (/^Moving (?:to|entirely|fully|completely)\b/i.test(c)) continue;
+    if (/^Timeline:\s*/i.test(c)) continue;
     // A timeline is the row's own wording, but it is often a date the row
     // writes in a different format than the brief prints, so it is checked
     // by its digits rather than as a phrase.
@@ -115,7 +121,9 @@ const factsTraceable = (snippet: string, row: string): true | string => {
     const reversed = /^reversed:\s*"(.+?)"?$/i.exec(c);
     const quoted = /^"(.+?)"?$/.exec(c);
     const flagged = /^Flagged\s+"(.+)"$/i.exec(c);
-    if (runs) {
+    if (mig) {
+      claims = [mig[1].replace(/^Google Workspace$/i, "Google Work")];
+    } else if (runs) {
       claims = runs[1].split(/\s*,\s*|\s+and\s+/)
         .map((x) => x.replace(/\s*\(\d+\s*seats\)\s*$/i, "").trim()).filter(Boolean);
     } else if (seatsOn) claims = [seatsOn[2]];
@@ -491,6 +499,54 @@ ok("a row with no SKU and no Product Area still states what matched",
   const s = cp ? stripSnippetPrefix(cp.notesSummary) : "(no row)";
   ok("a plain expansion sentence is the note as written, then the ask",
      /^Customer has 6 copilot licenses and want to expand across all 305 E3 users\. Ask how they manage licensing today/.test(s), s);
+}
+
+// Per Jack, on "The purchase is pending because the admin assistant has the
+// payment card": "nothing like this this is bad lead". A purchase already
+// made or in progress is a closed transaction, not a call.
+{
+  const [pend] = scan(["Customer confirmed 3 Microsoft 365 Business Standard licenses. The purchase is pending because the admin assistant has the payment card. Uses Google for email and will keep it."]);
+  ok("a pending purchase is a Bad Lead, even with a Google tag", !!pend && pend.tier === "dq" && pend.dqReasons.includes("Purchase already made or in progress"), pend ? `${pend.tier} ${pend.dqReasons}` : "(no row)");
+  const [won] = scan(["Close as: Won. POP (Proof of Purchase): Purchase completed by the customer during the session, 2 Microsoft 365 Business Premium licenses."]);
+  ok("  so is a completed one", !!won && won.tier === "dq", won ? won.tier : "(no row)");
+  const [direct] = scan(["Microsoft 365 estate: 55 Business Standard and 26 Business Premium licenses, purchased directly with Microsoft; no partner today. Looking for a partner to run an Azure migration."]);
+  ok("  but buying direct today is not a purchase-done Bad Lead", !!direct && !direct.dqReasons.includes("Purchase already made or in progress"), direct ? `${direct.tier} ${direct.dqReasons}` : "(no row)");
+  const [form] = scan(["First Comment (Mandatory fields): - Tenant ID: 6184af29-e23e-4fda-b9f1-158d5917ff54 - Organization details: Logistics firm, 120 employees. - Need: Looking to move from Google Workspace to Microsoft 365 for 120 users with a partner."]);
+  const fs = form ? stripSnippetPrefix(form.notesSummary) : "(no row)";
+  ok("the mandatory-field form header and tenant id never open the note", !!form && !/Mandatory fields|Tenant ID|6184af29/i.test(fs), fs);
+}
+
+// Per Jack: "for migrations just need to know what they are wantin to
+// mirgatet and if theres a clear timeline".
+{
+  const [g] = scan(["We are moving from Google Workspace to Microsoft 365 for 40 users in Q1 2027 and want a partner to run it."]);
+  const gs = g ? stripSnippetPrefix(g.notesSummary) : "(no row)";
+  ok("a Google move reads as what is moving, the count and the timeline", /^Moving off Google Workspace to Microsoft 365\. 40 (?:users|seats)\. Timeline: Q1 2027\. Ask /.test(gs), gs);
+  const [a] = scan(["Looking to migrate our file servers and SQL databases to Azure by end of the year with a partner."]);
+  const as = a ? stripSnippetPrefix(a.notesSummary) : "(no row)";
+  ok("an Azure move names what is migrating and when", /^Migrating file servers and SQL databases to Azure\. Timeline: end of the year\. Ask how Azure/.test(as), as);
+  const [past] = scan(["9/22/2025 - Looking to migrate their on-premises servers to Azure with a partner."]);
+  const ps = past ? stripSnippetPrefix(past.notesSummary) : "(no row)";
+  ok("  a past note stamp is never read as the timeline", !!past && !/Timeline/.test(ps), ps);
+  const [cp] = scan(["Customer has 6 copilot licenses and want to expand across all 305 E3 users. They also plan to move to Azure."]);
+  const cs = cp ? stripSnippetPrefix(cp.notesSummary) : "(no row)";
+  ok("  a vague 'move to Azure' never replaces a real opening line", /^Customer has 6 copilot licenses/.test(cs), cs);
+}
+
+// Per Jack, on this exact note: "this is a great lead and note". Pinned so
+// later note changes cannot lose its shape.
+{
+  const [cm] = scan(["CU needs a partner to create the tenant in USA f1 Services - Microsoft 365 Business Premium - 28 User"]);
+  const s2 = cm ? cm.notesSummary : "(no row)";
+  ok("the Christian Monahan note keeps its shape", /^\(\d+\) ▲ Customer needs a partner to create the tenant in USA\. Wants Microsoft 365 Business Premium for 28 users\. Ask how they manage licensing today/.test(s2), s2);
+}
+
+// Per Jack: "if a company is looking to migrate to azure or on prem to azure
+// just be direct with the notes".
+{
+  const [op] = scan(["We are looking to move from on-premises to Azure next quarter with a partner."]);
+  const o = op ? stripSnippetPrefix(op.notesSummary) : "(no row)";
+  ok("on-prem to Azure reads as one direct line", /^Migrating on-prem to Azure\. Timeline: next quarter\. Ask how Azure/.test(o), o);
 }
 
 console.log(`\n${pass}/${pass + fail} checks passed`);

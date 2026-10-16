@@ -6550,3 +6550,38 @@ still partner with them".
   Area still steers the Azure ask; "Partner on record" / "Goes direct with
   Microsoft" stay.
 - `NOTE_RULES_VERSION` bumped, so stored leads refresh again on next load.
+
+### 2026-10-16: purchase-done Auto-DQ, migration notes, form chrome, verdict refresh (scanner-platform-v29)
+
+- **Auto-DQ "Purchase already made or in progress"** (`PURCHASE_DONE_DQ_LABEL`),
+  per Jack on "The purchase is pending because the admin assistant has the
+  payment card": "nothing like this this is bad lead". Fires on purchase
+  pending/completed, "completed the purchase", "Close as: Won", "proof of
+  purchase", "payment card", "pending payment", "already purchased". Not on
+  "purchased directly" alone (a direct buyer can still be a real lead). Wins
+  over the Google tag like every other DQ.
+- **Microsoft's mandatory-field form** ("First Comment (Mandatory fields): -
+  Tenant ID: <guid> - Organization details: …") never opens a note:
+  `stripCrmChrome` drops the header, IDs, GUIDs, "Close as", and turns each
+  " - Label:" into a sentence break.
+- **Migration notes**, per Jack: "just need to know what they are wantin to
+  migrate and if theres a clear timeline", "on prem to azure just be direct".
+  `migrationClause`: "Migrating 3 Hyper-V VMs to Azure." / "Migrating on-prem
+  to Azure." / "Moving off Google Workspace to Microsoft 365." + a stated
+  count + "Timeline: …" (labelled, a quarter/month/relative window near the
+  move, or a FUTURE numeric date; a past numeric date is the note's stamp)
+  + the existing ask. Nothing else. Falls back to the normal brief when the
+  row never says what is moving. A row whose opening line is a counted
+  licensing ASK ("Customer has 6 copilot licenses and want to expand across
+  all 305 E3 users", which Jack called the right note) keeps that line.
+- Employee counts ride along again (`seatsLine`), per "never miss a user or
+  employee count".
+- **The refresh now updates the verdict too** (tier, score, product area),
+  same as a re-upload does, so a stored Strong Signal that a new rule calls
+  bad becomes a Bad Lead. A lead marked not-a-fit by hand keeps its verdict.
+  Button renamed "↻ Refresh with today's rules". `NOTE_RULES_VERSION` bumped.
+- Christian Monahan's note ("Customer needs a partner to create the tenant
+  in USA. Wants Microsoft 365 Business Premium for 28 users.") is pinned as
+  a test — Jack: "this is a great lead and note".
+- Suites: snippet-truth 94 → 100, note-refresh-live 12 → 16; dynamics-views'
+  Himmel check re-pointed to the migration shape.
