@@ -6623,3 +6623,15 @@ still partner with them".
   Book9-30 carry either.
 - `NOTE_RULES_VERSION` bumped. snippet-truth 105 → 110; dynamics-brief,
   dynamics-count, dynamics-views locators moved to the new Dynamics shape.
+- **Security / IT-support / partner needs lead, as written** (per Jack:
+  "anything indicating cybersecurity or it support or a partner needs to be
+  direct as its written"). `NEED_TOPIC_RE` (cybersecurity, security
+  evaluation/posture/gaps, endpoint protection, antivirus, EDR, phishing,
+  DLP, conditional access, identity protection, IT support, help desk,
+  managed IT/MSP, co-managed, outsourced IT, ongoing support) or a confirmed
+  partner ask boosts that sentence to the opening line — only when it says
+  someone needs it (a need verb), never a bare feature list or the seller's
+  own pitch ("We also discussed …"). `finishAsWritten` keeps the sentence's
+  own wording instead of cutting to the main clause, starting at the need
+  verb when the sentence is long. "Wants to work with a partner." is not
+  repeated when the opening line already names a partner/MSP/CSP.

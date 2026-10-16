@@ -609,5 +609,19 @@ ok("a row with no SKU and no Product Area still states what matched",
   ok("no link and no mangled characters in a note", !/https?:|www\.|\u00e2\u20ac|\uFFFD/.test(u3) && /Business Premium for 30 users/.test(u3), u3);
 }
 
+// Per Jack: "anything indicating cybersecurity or it support or a partner
+// needs to be direct as its written".
+{
+  const [sec] = scan(["The customer currently uses Microsoft 365 Business Premium and is evaluating Microsoft 365 E5, primarily for enhanced antivirus, endpoint protection, and broader security capabilities."]);
+  const a4 = sec ? stripSnippetPrefix(sec.notesSummary) : "(no row)";
+  ok("a security need leads, as written", /^Evaluating Microsoft 365 E5, primarily for enhanced antivirus, endpoint protection, and broader security capabilities\./.test(a4), a4);
+  const [its] = scan(["We need ongoing IT support and a help desk for our 40 users, our current provider is unresponsive."]);
+  const b4 = its ? stripSnippetPrefix(its.notesSummary) : "(no row)";
+  ok("an IT-support need leads, as written", /^We need ongoing IT support and a help desk for our 40 users/.test(b4), b4);
+  const [msp] = scan(["Customer is looking for an MSP to take over their Microsoft 365 tenant and security."]);
+  const c4 = msp ? stripSnippetPrefix(msp.notesSummary) : "(no row)";
+  ok("a partner ask leads, as written, and is not said twice", /^Customer is looking for an MSP to take over their Microsoft 365 tenant and security\./.test(c4) && !/Wants to work with a partner/.test(c4), c4);
+}
+
 console.log(`\n${pass}/${pass + fail} checks passed`);
 if (fail) process.exit(1);

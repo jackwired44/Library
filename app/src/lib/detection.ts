@@ -3256,6 +3256,7 @@ function stripCrmChrome(t: string): string {
     .replace(/\bComment\s*\|/gi, " ")
     .replace(/(?:^|\s)[A-Z]{2,4}\s*-\s*\d{1,2}\/[A-Za-z]{3,9}\s*-\s*/g, " ")
     .replace(/\b1C1E\b/g, " ")
+    .replace(/\*\*|__/g, "")
     // Microsoft's mandatory-field form: "First Comment (Mandatory fields):
     // - Tenant ID: <guid> - Organization details: …". The headers and IDs
     // are form chrome; each " - Label:" starts a new field, so it becomes a
@@ -3354,6 +3355,15 @@ function noteLead(fullText: string, anchor: string, skip?: RegExp): string {
     const u = stripTimelinePhrase(cleanLeadSentence(raw));
     if (u.length < 25 || hasForbiddenContent(u)) return;
     let sc = 0;
+    // Per Jack: "anything indicating cybersecurity or it support or a
+    // partner needs to be direct as its written" — that need leads.
+    // Only a sentence that says someone NEEDS it — not a bare feature list
+    // ("License utilization, security posture, device compliance) …") and
+    // not the seller describing their own pitch ("We also discussed …").
+    NEED_VERB_RE.lastIndex = 0;
+    const needVerb = NEED_VERB_RE.test(u); NEED_VERB_RE.lastIndex = 0;
+    const sellerPitch = /^(?:we\s+(?:also\s+)?(?:discussed|introduced|presented|shared|positioned)|requested\s+discussion\s+areas)\b/i.test(u) || /^[^.]*\)\s/.test(u) && !/\(/.test(u.split(")")[0]);
+    if ((NEED_TOPIC_RE.test(u) && needVerb && !sellerPitch) || partnerAskMatch(u)) sc += 5;
     if (LEAD_INTENT_RE.test(u)) sc += 3;
     if (LEAD_PRODUCT_RE.test(u)) sc += 2;
     if (CUSTOMER_SUBJECT_RE.test(u)) sc += 1;
@@ -3368,7 +3378,30 @@ function noteLead(fullText: string, anchor: string, skip?: RegExp): string {
     if (sc > bestScore) { bestScore = sc; best = u; }
   });
   if (!best || bestScore < 4) return "";
+  // A security / IT-support / partner need is kept as written — not cut
+  // down to its main clause, which is exactly where the need usually sits
+  // ("evaluating E5, primarily for antivirus and endpoint protection").
+  if (NEED_TOPIC_RE.test(best) || partnerAskMatch(best)) return finishAsWritten(best) || finish(best);
   return finish(best);
+}
+/** Cybersecurity and IT-support needs, as the row words them. */
+const NEED_TOPIC_RE = /\b(?:cyber\s*security|cybersecurity|security\s+(?:evaluation|assessment|posture|gaps?|infrastructure|requirements?|capabilities|concerns?|stack|review|audit|hardening|maturity|program|tools?)|secur(?:e|ing)\s+(?:their|the|our)\s+\w+|endpoint\s+(?:protection|security|detection)|antivirus|anti-?virus|\bedr\b|\bxdr\b|\bmdr\b|phishing|ransomware|data\s+loss\s+prevention|\bdlp\b|conditional\s+access|identity\s+(?:protection|and\s+access)|zero\s+trust|\bsiem\b|it\s+support|help\s*desk|service\s+desk|managed\s+(?:it|services?|service\s+provider)|\bmsp\b|co-?managed|outsourc\w*\s+(?:it|their\s+it)|ongoing\s+(?:it\s+)?support)\b/i;
+const NEED_VERB_RE = /\b(?:need\w*|want\w*|looking|seek\w*|interest\w*|request\w*|requir\w*|priorit\w*|goals?|focus\w*|evaluat\w*|explor\w*|plan\w*|help|assist\w*|improv\w*|strengthen\w*|expand\w*|implement\w*|deploy\w*)\b/gi;
+function finishAsWritten(sentence: string): string {
+  let u = cleanLeadSentence(sentence);
+  const topic = NEED_TOPIC_RE.exec(u) ?? (partnerAskMatch(u) ? { index: u.toLowerCase().indexOf("partner") } : null);
+  if (u.length > NOTE_LEAD_MAX && topic) {
+    // Start at the need verb nearest before the topic, so the line reads
+    // "needs a security evaluation …" rather than opening mid-sentence.
+    let start = 0;
+    for (const m of u.matchAll(NEED_VERB_RE)) { if (m.index! <= topic.index && topic.index - m.index! <= 80) { start = m.index!; break; } }
+    u = u.slice(start);
+    u = u.charAt(0).toUpperCase() + u.slice(1);
+  }
+  const cut = truncateAtWord(u, NOTE_LEAD_MAX + 30);
+  if (!cut.safe || !cut.text) return "";
+  const out = normalizeSentence(cut.text);
+  return out.endsWith("….") ? out.slice(0, -1) : out;
 }
 /**
  * The pain the row STATES, for M365 / Azure. Per Jack: "we need to have the
@@ -3668,7 +3701,7 @@ export function buildCallBrief(
   // The help request is already said by azureHelp, so the lead goes to what
   // the row is about rather than repeating it.
   const lead = noteLead(fullText, dynHit?.snippet || licensing?.snippet || platform?.hits[0]?.snippet || "", azureHelp ? AZURE_HELP_LIST_RE : undefined);
-  const stance = /\bpartner\b/i.test(lead) && /^Wants to work with a partner\.$/.test(stanceBase) ? "" : stanceBase;
+  const stance = /\b(?:partner|msp|csp|reseller|consultant|integrator|managed\s+service)/i.test(lead) && /^Wants to work with a partner\.$/.test(stanceBase) ? "" : stanceBase;
   // "Direct with Microsoft today, wants to work with a partner." already
   // says what the Product Area's "Goes direct with Microsoft." would.
   const dirShown = columnDirect && /^Direct with Microsoft today/.test(stance) ? "" : direction;
