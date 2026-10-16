@@ -511,8 +511,12 @@ const MIGRATION_LABEL = "Migration / Modernization";
 // A bare "Google" is never a source on its own — "found us on Google",
 // Google Analytics and Google Ads are not a mailbox. A move already made
 // is excluded separately (GOOGLE_MOVE_DONE_RE, googleMoveIn).
-const G_SRC = "(?:google\\s*workspaces?|g[\\s-]?suite|google\\s*apps|gmail|google\\s*(?:mail|drive|docs|sheets|calendar|meet))";
-const MS_DST = "(?:microsoft(?:\\s*365)?|office\\s*365|o365|m365|outlook|exchange(?:\\s*online)?|sharepoint|one\\s*drive|ms\\s*teams)";
+// Widened 2026-10-16 per Jack, "make sure no google migration leads slip
+// through": "Google Workplace" (the common misnaming), "GWS", "G.Suite",
+// Google Chat / Voice / email, and bare "Teams" as a destination ("Google
+// Meet to Teams") all produced no row before.
+const G_SRC = "(?:google\\s*work(?:space|place)s?|gws|g[\\s.-]?suite|google\\s*apps|gmail|google\\s*(?:mail|e-?mail|drive|docs|sheets|calendar|meet|chat|voice))";
+const MS_DST = "(?:microsoft(?:\\s*365)?|office\\s*365|o365|m365|outlook|exchange(?:\\s*online)?|sharepoint|one\\s*drive|(?:ms\\s*|microsoft\\s*)?teams(?:\\s*phone)?)";
 const GOOGLE_TO_MICROSOFT_SRC =
   `\\b${G_SRC}\\b.{0,120}?\\b(?:to|onto|into|towards?|over\\s*to|for|with)\\s*(?:the\\s*|a\\s*)?(?:\\w+\\s*){0,2}?${MS_DST}\\b` +
   `|\\b${MS_DST}\\b.{0,60}?\\b(?:replac\\w*|instead\\s*of|away\\s*from|off\\s*of|from)\\b.{0,20}?\\b${G_SRC}\\b` +
@@ -527,7 +531,22 @@ const GOOGLE_TO_MICROSOFT_SRC =
   //    Ads, Analytics, Search, Maps, reviews or Cloud, and not an
   //    @gmail.com address (the lookbehind) — none of those is a mailbox
   //    platform the company runs on.
-  `|(?<!@)\\b(?:google\\s*workspaces?|g[\\s-]?suite|google\\s*apps\\s*(?:for\\s*(?:work|business))?)\\b` +
+  `|(?<!@)\\b(?:google\\s*work(?:space|place)s?|gws|g[\\s.-]?suite|google\\s*apps\\s*(?:for\\s*(?:work|business))?|gmail\\s*for\\s*(?:business|work))\\b` +
+  // Email hosted with Google, or Google named as the current platform:
+  // "their email is hosted with Google", "Current platform: Google".
+  `|\\b(?:hosted|hosts?)\\s+(?:with|on|by|through)\\s+google\\b|\\be-?mail\\s+(?:is\\s+)?(?:still\\s+)?(?:with|on|through|via)\\s+google\\b` +
+  `|\\bcurrent(?:ly)?\\s*(?:e-?mail\\s*|mail\\s*)?(?:platform|provider|system|suite|environment)\\s*(?:is|:|-)\\s*google\\b` +
+  // On Google in plain words: "currently on Google", "still using Google",
+  // "Google for email", "Google as their productivity suite".
+  `|\\b(?:currently|still|today|now)\\s+(?:on|using|uses|with|in)\\s+google\\b(?!\\s*(?:ads|analytics|search|maps|reviews?|cloud|my\\s*business|business\\s*profile))` +
+  `|\\bgoogle\\s+(?:for|as)\\s+(?:their\\s+|our\\s+|the\\s+)?(?:e-?mail|mail|productivity|documents?|docs|files?|file\\s*storage|collaboration|calendar|office)\\b` +
+  // Considering it: a comparison against Google, or Google vs Microsoft.
+  `|\\bcompar\\w*\\s+(?:against|to|with|between)\\s+(?:their\\s+|the\\s+)?(?:current\\s+)?(?:google|${G_SRC})\\b` +
+  `|\\b(?:google|${G_SRC})\\s*(?:vs\\.?|versus|or)\\s*${MS_DST}\\b|\\b${MS_DST}\\s*(?:vs\\.?|versus|or)\\s*(?:google|${G_SRC})\\b` +
+  // Google Cloud -> Azure is a Google -> Microsoft move too. A bare GCP
+  // mention ("multi-cloud, AWS and Google") is not; it needs direction.
+  `|\\b(?:google\\s*cloud(?:\\s*platform)?|gcp)\\b.{0,80}?\\b(?:to|onto|into|over\\s*to)\\s*(?:the\\s*)?(?:microsoft\\s*)?azure\\b` +
+  `|\\b(?:migrat\\w*|mov(?:e|es|ing)|switch\\w*|leav\\w*)\\s*(?:\\w+\\s*){0,2}?(?:off(?:\\s*of)?|from|away\\s*from)\\s*(?:google\\s*cloud(?:\\s*platform)?|gcp)\\b` +
   `|\\b(?:on|uses?|using|runs?|running)\\s+(?:gmail|google\\s*(?:mail|drive|email)|google\\s+for\\s+(?:their\\s+)?(?:e-?mail|mail))\\b(?!\\s*(?:ads|analytics|search|maps|reviews?|cloud|my\\s*business|business\\s*profile))`;
 const ONGOING_PARTNER_SRC =
   "\\b(msp|managed\\s*(?:it\\s*)?services?|managed\\s*service\\s*providers?|co-?managed\\s*it|outsourced?\\s*it|it\\s*outsourcing|long[\\s-]?term\\s*(?:partner|relationship)|ongoing\\s*(?:it\\s*)?support|dedicated\\s*(?:it\\s*)?partner|trusted\\s*(?:it\\s*)?partner|strategic\\s*(?:it\\s*)?partner|extension\\s*of\\s*(?:our|their|my)\\s*team|third[\\s-]?party\\s*(?:support|help|it)|3rd[\\s-]?party\\s*(?:support|help|it)|committed\\s*(?:it\\s*)?relationship|(?:full|deep)\\s*(?:partner\\s*)?engagement|partner\\s*engagement)\\b";
@@ -623,6 +642,14 @@ const GOOGLE_TO_MICROSOFT_RE = new RegExp(GOOGLE_TO_MICROSOFT_SRC, "i");
  *  since leaving Google". Not a project to call about. */
 const GOOGLE_MOVE_DONE_RE =
   /\b(?:migrated|moved|switched|transitioned|converted)\b[^.;]{0,100}\b(?:ago|last\s*year|previously|already|back\s*in|in\s*20\d\d|years?\s*back)\b|\balready\s*(?:on|migrated|moved|using)\b[^.;]{0,40}\b(?:microsoft|m365|o365|office\s*365)\b/i;
+/** Still on Google — overrides the "already done" reading. "Already using
+ *  Microsoft 365 for Teams but email still on Google Workspace" and "switched
+ *  phone systems previously but still on Google Workspace" are live Google
+ *  leads; the done-language there is about something else. */
+const GOOGLE_STILL_ON_RE = new RegExp(
+  `\\bstill\\s+(?:on|using|uses|use|in|with|running|hosted\\s+(?:on|with|by))\\s+(?:the\\s+)?(?:google|${G_SRC})\\b` +
+  `|\\b(?:google|${G_SRC})\\b[^.;]{0,30}\\bstill\\b`, "i");
+
 /**
  * A Dynamics user count written the way people actually write one. Per
  * Jack: "make sure dynamics leads always include the user count if there is
@@ -666,7 +693,12 @@ const GOOGLE_REVERSE_RE = new RegExp(
 /** A Google lead: on Google Workspace, interested in leaving it, or moving
  *  to Microsoft — and not a move already made or one going the other way. */
 export function googleMoveIn(text: string): boolean {
-  return GOOGLE_TO_MICROSOFT_RE.test(text) && !GOOGLE_MOVE_DONE_RE.test(text) && !GOOGLE_REVERSE_RE.test(text);
+  // Per Jack: "if it indicates at all they are on google or considering a
+  // migration at all tag it" — so staying on Google by choice still tags
+  // (they ARE on Google). Only a move already made, or one going the other
+  // way, is excluded.
+  if (!GOOGLE_TO_MICROSOFT_RE.test(text) || GOOGLE_REVERSE_RE.test(text)) return false;
+  return !GOOGLE_MOVE_DONE_RE.test(text) || GOOGLE_STILL_ON_RE.test(text);
 }
 export const ONGOING_PARTNER_RE = new RegExp(ONGOING_PARTNER_SRC, "i");
 // Security design/hardening work is also a Strong Signal boost, same
@@ -1819,6 +1851,8 @@ export const PERSONAL_PROSPECT_LABEL = "Personal Prospect";
 /* ------------------------------------------------------------------ */
 /* Auto-DQ ("Bad Leads") — cross-cutting, always wins over category/tier */
 /* ------------------------------------------------------------------ */
+export const CRM_OPPORTUNITY_DQ_LABEL = "Existing CRM opportunity notes, not a fresh lead";
+export const SMALL_PROJECT_DQ_LABEL = "Small one-off project / free consultancy request";
 export const DQ_RULES: { label: string; pattern: RegExp }[] = [
   {
     label: "Single seat/user or freelancer",
@@ -1847,7 +1881,7 @@ export const DQ_RULES: { label: string; pattern: RegExp }[] = [
   // Per Jack: the goal is a longer-term partner engagement, not a one-off
   // job or free advice — added when tightening M365/Azure.
   {
-    label: "Small one-off project / free consultancy request",
+    label: SMALL_PROJECT_DQ_LABEL,
     pattern:
       /\bone[\s-]?off\s*(?:project|job|gig)\b|\bsmall\s*project\b|\bone[\s-]?time\s*project\b|\bquick\s*(?:project|job|gig)\b|\bshort[\s-]?term\s*project\b|\bfree\s*consult(?:ation|ing)?\b|\bpick\s*(?:your|someone'?s|my)\s*brain\b|\bjust\s*(?:need|want)(?:s|ing)?\s*(?:some\s*)?(?:free\s*)?advice\b|\bquick\s*question\b|\bno\s*budget\b|\bnot\s*looking\s*to\s*(?:hire|engage|pay)\b/i,
   },
@@ -1859,7 +1893,7 @@ export const DQ_RULES: { label: string; pattern: RegExp }[] = [
   // interest. Excluded regardless of what platform/licensing language
   // happens to also be nearby (e.g. "security posture").
   {
-    label: "Existing CRM opportunity notes, not a fresh lead",
+    label: CRM_OPPORTUNITY_DQ_LABEL,
     pattern:
       /\bowner\s*of\s*this\s*opportunity\b|\bopportunity\s*owner\b|\badvancing\s*the\s*sales\s*cycle\b|\bexecutive\s*engagement\b|\bpartner\s*:\s*[a-z]/i,
   },
@@ -2273,12 +2307,26 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
   // no demotion it comes out Strong Signal. The count has to actually pull
   // the tier down for the licensing case.
   const subThreshold = !!(licensing && licensing.status === "dq");
-  if (tier === "signal" && subThreshold) tier = "mention";
+  // A Google -> Microsoft move is never demoted by seat count, the Dynamics
+  // new-platform test or the small-project rule. Per Jack: "if theyre on
+  // google thats a lead" and "make sure no google migration leads slip
+  // through". It is a migration project, not a licensing deal, so the same
+  // reasoning that exempts Dynamics from the seat floor applies. Every other
+  // Auto-DQ (not interested, competitor, CRM opportunity notes, happy with
+  // current provider, ...) still wins.
+  const googleLead = !!platform?.isGoogleWorkspaceMigration;
+  // Per Jack: "those are hot leads" — any Google tag is Strong Signal.
+  if (googleLead) tier = "signal";
+  if (tier === "signal" && subThreshold && !googleLead) tier = "mention";
   // Per Jack: "dynamics leads have to have a signal indicating it is truly
   // about a new platform". A Dynamics lead stays Strong only when the notes
   // show they are moving onto a platform — see newPlatformSignal. Without
   // one it is Needs Review: still visible, still filed under Dynamics.
-  if (tier === "signal" && autoCategory === "dynamics365" && !newPlatformSignal(resolved.comments)) tier = "mention";
+  if (tier === "signal" && autoCategory === "dynamics365" && !googleLead && !newPlatformSignal(resolved.comments)) tier = "mention";
+  // A Google lead also survives the CRM-opportunity rule: on Jack's 9/30
+  // file every real Google row was a Microsoft seller's opportunity note,
+  // and all of them were landing in Bad Leads.
+  if (googleLead) dqReasons = dqReasons.filter((r) => r !== SMALL_PROJECT_DQ_LABEL && r !== CRM_OPPORTUNITY_DQ_LABEL);
   // Personal-email carve-out: if the ONLY DQ reason is a free/personal
   // email domain AND the row already cleared Strong Signal on its own
   // content, don't DQ it — tag it PERSONAL_PROSPECT_LABEL and let it

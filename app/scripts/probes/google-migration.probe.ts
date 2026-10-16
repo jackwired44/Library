@@ -41,9 +41,32 @@ for (const n of [
   "Uses Gmail; their sales teams are growing fast.",
   "Running Google Drive for file storage today.",
   "They are on Google for email right now.",
+  // 2026-10-16, "make sure no google migration leads slip through" /
+  // "if it indicates at all they are on google or considering a migration
+  // at all tag it" / "those are hot leads".
+  "Moving 5 users from Google Workspace to Microsoft 365 Business Standard.",
+  "Already using Microsoft 365 for Teams but email still on Google Workspace, want to consolidate.",
+  "They switched phone systems previously but are still on Google Workspace for email.",
+  "Currently on Google Workplace, want Microsoft 365.",
+  "Using GWS today, looking at M365.",
+  "Google Meet to Teams migration.",
+  "Quick question: how hard is moving from Google Workspace to M365?",
+  "No budget yet but wants off G Suite.",
+  "Gmail for business, 40 users, want Outlook.",
+  "Google Voice to Teams Phone.",
+  "Current platform: Google. Interested in Microsoft 365.",
+  "G.Suite to O365",
+  "Their email is hosted with Google.",
+  "Uses Google for email and will keep it.",
+  "Currently on Google, interested in M365.",
+  "Comparison against current Google Workspace",
+  "Google Workspace vs Microsoft 365 pricing requested",
+  "Moving from Google Cloud to Azure.",
+  "Thinking about moving away from Gmail.",
+  "Small nonprofit. Organization email still hosted on Gmail. - Forecast status: Committed - Reason of the forecast status: in the next stage of the sales cycle.",
 ]) {
   const r = scan(n);
-  ok(JSON.stringify(n.slice(0, 60)), !!r && r.isGoogleWorkspaceMigration === true && m365SubViewOf(r) === "google" && topPriorityReason(r) === "google", show(r));
+  ok(JSON.stringify(n.slice(0, 60)), !!r && r.isGoogleWorkspaceMigration === true && r.tier === "signal" && m365SubViewOf(r) === "google" && topPriorityReason(r) === "google", show(r));
 }
 
 console.log("\n== not a move to Microsoft — never pinned as Google ==");
@@ -59,6 +82,7 @@ for (const n of [
   "Hosts their app on Google Cloud, asked about Dynamics 365.",
   "Contact is john.doe@gmail.com, asked about Business Central for 20 users.",
   "Already on Microsoft 365 since leaving Google, wants Intune.",
+  "Multi-cloud optimization including AWS and Google.",
 ]) {
   const r = scan(n);
   ok(JSON.stringify(n.slice(0, 60)), !r || !r.isGoogleWorkspaceMigration, show(r));

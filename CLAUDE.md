@@ -6431,3 +6431,27 @@ sequences", and "recognized and green lighted in here".
 - Suites: `deliverability` (50), `upload-check-live` 12 → 26; `all-leads`
   search locator re-pointed to its placeholder (the cutoff input now sits
   above it). 53 suites / 2,130 checks; `csp-download` needs the real export.
+
+### 2026-10-16: no Google lead slips through (scanner-platform-v29)
+
+Per Jack: "make sure no google migration leads slip through", "if it
+indicates at all they are on google or considering a migration at all tag
+it", "those are hot leads".
+- **Tagged on any sign of Google**: "Google Workplace", GWS, G.Suite, Google
+  Chat/Voice/email, bare "Teams" as a destination, "hosted with Google",
+  "current platform: Google", "currently on Google", "Google for email",
+  a comparison against Google / Google vs M365, Google Cloud/GCP → Azure.
+  "Still on Google" overrides "already/previously" done-language, and
+  staying on Google by choice still tags (they are on Google). Excluded:
+  a move already made, a move TO Google, "found us on Google", Ads/
+  Analytics/Cloud mentions with no direction, an @gmail.com address.
+- **A Google tag is always Strong Signal**: no seat-floor demotion, no
+  Dynamics new-platform demotion, and immune to the small-project and
+  CRM-opportunity-notes Auto-DQs (`SMALL_PROJECT_DQ_LABEL`,
+  `CRM_OPPORTUNITY_DQ_LABEL`). Every other Auto-DQ still wins.
+- Book9-30.csv: all 3 real Google rows were in Bad Leads under the CRM
+  opportunity rule; now Strong Signal. Nothing else on that file moved
+  (171→174 Strong, 112→109 Bad). `google-migration` 33 → 54 checks.
+- Left as is: a Google lead that also names Dynamics files under Dynamics
+  365 (category priority), so it carries the ★ Google pin but is not on
+  the M365 / Azure Google tab.
