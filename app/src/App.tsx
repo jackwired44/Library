@@ -51,12 +51,12 @@ import Campaigns from "./components/Campaigns";
 import Overview from "./components/Overview";
 import { appendRawNotes } from "./lib/rawNotes";
 import { setStatusRoster, verdictOf, withStatusOverride, type LeadStatus } from "./lib/leadStatus";
-import ApolloStatus from "./components/ApolloStatus";
 import {
   DEFAULT_ROUTING, loadRouting, withPlan, type RoutingRules,
 } from "./lib/sequenceRouting";
 import { leadInputsFromResults, leadInputsFromRows2, leadInputsFromNoSignal, leadInputsFromDuplicates } from "./lib/leadFiling";
 import AllLeads, { type LeadsPreset } from "./components/AllLeads";
+import ApolloStatus from "./components/ApolloStatus";
 import ApolloSyncPanel from "./components/ApolloSyncPanel";
 import RateLimitNote from "./components/RateLimitNote";
 import { loadEmailChecks, saveEmailChecks, readVerifierFiles, indexChecks, type EmailCheck } from "./lib/deliverability";
@@ -108,7 +108,6 @@ const SCANNER_NAV: { key: View; label: string }[] = [
 const NAV_GROUPS: { title: string; items: { key: View; label: string }[] }[] = [
   { title: "Leads", items: [
     { key: "allleads", label: "All leads" },
-    { key: "queue", label: "In Apollo" },
   ] },
   { title: "Archive", items: [
     { key: "lists", label: "Lists" },
@@ -861,7 +860,7 @@ export default function App() {
               {g.items.map((item) => (
                 <button
                   key={item.key}
-                  className={`side-nav-btn${view === item.key || (item.key === "allleads" && view === "library") || (item.key === "queue" && view === "campaigns") ? " active" : ""}`}
+                  className={`side-nav-btn${view === item.key || (item.key === "allleads" && (view === "library" || view === "queue")) || (item.key === "allleads" && view === "campaigns") ? " active" : ""}`}
                   onClick={() => setView(item.key)}
                 >
                   <span className="side-nav-label" style={{ flex: 1 }}>{item.label}</span>
@@ -970,26 +969,8 @@ export default function App() {
             }
           />
         )}
-        {(view === "queue" || view === "campaigns") && (
-          // Per Jack: "campaigns or sequences can be in apollo queue". The
-          // queue (where leads are headed) and the live sequences (how
-          // they are doing) are one place now.
-          <div className="seg" role="tablist" aria-label="Apollo view" style={{ marginBottom: 12 }}>
-            <button role="tab" aria-selected={view === "queue"} className={`seg-btn${view === "queue" ? " active" : ""}`} onClick={() => setView("queue")}>
-              Leads in Apollo
-            </button>
-            <button role="tab" aria-selected={view === "campaigns"} className={`seg-btn${view === "campaigns" ? " active" : ""}`} onClick={() => setView("campaigns")}>
-              Sequences{funnels.length > 0 ? ` (${funnels.length})` : ""}
-            </button>
-          </div>
-        )}
-        {view === "queue" && (
-          // Per Jack: "the apollo queue isnt what i want … i want to be able
-          // to see if a lead is active in apollo from here and if so which
-          // sequence", and "i dont want to push the leads over". Read-only.
-          <ApolloStatus leads={leads} apolloIndex={apolloIndex} rosterPulledAt={rosterPulledAt} onPullApollo={pullApollo} onCheckLeads={checkLeadsLive} lists={leadLists} onAddToList={addExportRowsToLists} />
-        )}
-        {(view === "allleads" || view === "library") && (
+
+        {(view === "allleads" || view === "library" || view === "campaigns" || view === "queue") && (
           // The Lead library lives inside All leads now. Per Jack: "re do
           // lead libary and build it into all leads". Every lead the
           // Library ever filed is already in the lead store, so the table
@@ -999,10 +980,21 @@ export default function App() {
             <button role="tab" aria-selected={view === "allleads"} className={`seg-btn${view === "allleads" ? " active" : ""}`} onClick={() => setView("allleads")}>
               Leads{leads.length > 0 ? ` (${leads.length.toLocaleString()})` : ""}
             </button>
+            <button role="tab" aria-selected={view === "queue"} className={`seg-btn${view === "queue" ? " active" : ""}`} onClick={() => setView("queue")}>
+              Apollo standing
+            </button>
+            <button role="tab" aria-selected={view === "campaigns"} className={`seg-btn${view === "campaigns" ? " active" : ""}`} onClick={() => setView("campaigns")}>
+              Sequences{funnels.length > 0 ? ` (${funnels.length})` : ""}
+            </button>
             <button role="tab" aria-selected={view === "library"} className={`seg-btn${view === "library" ? " active" : ""}`} onClick={() => setView("library")}>
               Monthly files{libraryEntries.length > 0 ? ` (${libraryEntries.length})` : ""}
             </button>
           </div>
+        )}
+        {view === "queue" && (
+          // Per Jack: "push all leads and in apollo into one cleaner tab". The
+          // Apollo standing view lives inside All leads now, one sidebar entry.
+          <ApolloStatus leads={leads} apolloIndex={apolloIndex} rosterPulledAt={rosterPulledAt} onPullApollo={pullApollo} onCheckLeads={checkLeadsLive} lists={leadLists} onAddToList={addExportRowsToLists} />
         )}
         {view === "allleads" && (
           <AllLeads

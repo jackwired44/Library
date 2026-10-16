@@ -139,6 +139,9 @@ interface Derived {
   /** In Apollo already: matched by a sync, or found among the uploads
    *  pulled from Apollo. Null when neither knows them. */
   inApollo: ApolloHit | { how: "sync"; name: string; sequences: string[]; uploadedAt?: string } | null;
+  /** Whose sequences this lead is in: the name on the sequence ("Carly Main
+   *  Sequence", "Jack Main Backup Sequence"), else the Apollo contact owner. */
+  owners: string[];
   /** Left out of downloads: pulled uploads or an imported sync only. */
   exportBlocked: boolean;
 }
@@ -166,6 +169,25 @@ const monthLabel = (ym: string) =>
 /** A tier-filter value meaning "the top verdict on any scanner": High
  *  priority (Main, CSP) or Strong Signal (Custom, older Main rows). */
 const TOP = "__top";
+/** The owners a filter offers: the people whose names head the sequences. */
+const SEQUENCE_OWNERS = ["Carly", "Jack"] as const;
+function ownersOf(sequenceNames: string[], liveOwner?: string): string[] {
+  const out = new Set<string>();
+  for (const n of sequenceNames) for (const o of SEQUENCE_OWNERS) if (new RegExp(`\\b${o}\\b`, "i").test(n)) out.add(o);
+  if (!out.size && liveOwner) out.add(liveOwner.split(/\s+/)[0]);
+  return [...out];
+}
+async function copyText(text: string): Promise<boolean> {
+  try { await navigator.clipboard.writeText(text); return true; } catch { /* sandboxed frame: fall back */ }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    const ok = document.execCommand("copy");
+    ta.remove();
+    return ok;
+  } catch { return false; }
+}
 const TOP_TIER_SET = new Set(["High priority", "Strong Signal"]);
 
 /** The two views Jack asked for by name: strong leads nobody has touched,
@@ -251,6 +273,9 @@ export default function AllLeads({
   const [sizeF, setSizeF] = useState("all");
   const [apolloF, setApolloF] = useState<ApolloFilter>(initialPreset ? PRESET[initialPreset].apollo : "all");
   const [seqF, setSeqF] = useState(initialSequence || "all");
+  // Per Jack: "filter by owner of sequence also so i can see all carlys or all jacks".
+  const [ownerF, setOwnerF] = useState<string>("all");
+  const [copiedKey, setCopiedKey] = useState("");
   const [planF, setPlanF] = useState<PlanFilter>("all");
   const [planSeqF, setPlanSeqF] = useState("all");
   const [filesF, setFilesF] = useState<FilesFilter>("all");
@@ -348,6 +373,7 @@ export default function AllLeads({
         taskDoneAt: (a?.tasks ?? []).reduce((m, t) => (t.status === "completed" && t.at > m ? t.at : m), ""),
         inApollo: apolloHitFor({ email: l.email, contact: l.contact }, apolloIndex)
           ?? (a ? { how: "sync" as const, name: l.contact, sequences: seqs.map((x) => (x.status === "active" ? `${x.name} (active)` : x.name)) } : null),
+        owners: ownersOf([...seqs.map((x) => x.name), ...(apolloHitFor({ email: l.email, contact: l.contact }, apolloIndex)?.sequences ?? [])], a?.live?.owner),
         // What a download leaves out — exactly as before the live check:
         // the pulled uploads and an imported sync, never a live result.
         exportBlocked: !!apolloHitFor({ email: l.email, contact: l.contact }, apolloIndex) || (!!a && !a.live),
@@ -390,7 +416,7 @@ export default function AllLeads({
   const fromT = from ? Date.parse(`${from}T00:00:00`) : null;
   const toT = to ? Date.parse(`${to}T23:59:59.999`) : null;
 
-  type Key = "inApollo" | "verdict" | "company" | "contact" | "level" | "fn" | "month" | "dates" | "status" | "search" | "notes" | "standing" | "lane" | "ready" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "plan" | "planSeq" | "files" | "fileName" | "date";
+  type Key = "inApollo" | "verdict" | "company" | "contact" | "level" | "fn" | "month" | "dates" | "status" | "search" | "notes" | "standing" | "lane" | "ready" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "owner" | "plan" | "planSeq" | "files" | "fileName" | "date";
   const tests = useMemo(() => {
     const t: Record<Key, (l: StoredLead, d: Derived) => boolean> = {
       inApollo: (l, d) => inApolloF === "all"
@@ -437,6 +463,7 @@ export default function AllLeads({
         }
       },
       seq: (l) => seqF === "all" || (l.apollo?.sequences ?? []).some((x) => x.name === seqF),
+      owner: (_l, d) => ownerF === "all" || (ownerF === "none" ? d.owners.length === 0 : d.owners.includes(ownerF)),
       plan: (l) => planF === "all"
         || (planF === "none" ? !l.plan : l.plan?.status === planF),
       planSeq: (l) => planSeqF === "all" || l.plan?.sequence === planSeqF,
@@ -445,12 +472,14 @@ export default function AllLeads({
       fileName: (l) => fileNameF === "all" || l.sourceFiles.includes(fileNameF),
       date: (l) => {
         if (fromT === null && toT === null) return true;
-        const t = Date.parse(l.firstSeenAt);
+        // The CSV's own date (the date the file states, else when it was
+        // uploaded), so a range walks back through the files by month.
+        const t = Date.parse(l.receivedOn ? `${l.receivedOn.slice(0, 10)}T12:00:00` : l.firstSeenAt);
         return (fromT === null || t >= fromT) && (toT === null || t <= toT);
       },
     };
     return t;
-  }, [inApolloF, verdictF, companyF, companyStats, contactF, levelF, fnF, monthF, dateF, statusF, q, kq, nq, rawIndex, standingF, laneF, readyOnly, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, planF, planSeqF, filesF, fileNameF, fromT, toT]);
+  }, [inApolloF, verdictF, companyF, companyStats, contactF, levelF, fnF, monthF, dateF, statusF, q, kq, nq, rawIndex, standingF, laneF, readyOnly, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, ownerF, planF, planSeqF, filesF, fileNameF, fromT, toT]);
 
   const passes = (l: StoredLead, skip?: Key) => {
     const d = derived.get(l.key)!;
@@ -516,6 +545,51 @@ export default function AllLeads({
     return [...m.entries()].sort((a, b) => (first.get(b[0]) || "").localeCompare(first.get(a[0]) || "") || a[0].localeCompare(b[0]));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leads, derived, tests]);
+
+  const ownerCounts = useMemo(() => facet("owner", (_l, d) => (d.owners.length ? d.owners : ["none"])),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [leads, derived, tests]);
+
+  /** Every month a CSV is dated, newest first, counted against the other filters. */
+  const csvMonths = useMemo(() => [...facet("month", (_l, d) => d.month).entries()].sort((a, b) => b[0].localeCompare(a[0])),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [leads, derived, tests]);
+
+  /** The uploaded files filed under the month each CSV is dated, newest
+   *  month first. A file's date is the date in its name ("Book9-30",
+   *  "10-1-26 big") when it states one, else the date its leads say they
+   *  were received, else the upload date. */
+  const fileMonths = useMemo(() => {
+    const upload = new Map<string, string>();
+    const recv = new Map<string, string>();
+    for (const l of leads) for (const f of l.sourceFiles) {
+      const at = l.fileSeen?.find((x) => x.file === f)?.at || l.firstSeenAt || "";
+      if (at && (!upload.has(f) || at < upload.get(f)!)) upload.set(f, at);
+      if (l.receivedOn && (!recv.has(f) || l.receivedOn > recv.get(f)!)) recv.set(f, l.receivedOn);
+    }
+    const dateOf = (f: string): string => {
+      const up = (upload.get(f) || "").slice(0, 10);
+      const year = up.slice(0, 4) || String(new Date().getFullYear());
+      const m = /(?:^|[^\d])(\d{1,2})[-_.](\d{1,2})(?:[-_.](\d{2,4}))?(?:[^\d]|$)/.exec(f);
+      if (m) {
+        const mo = Number(m[1]), dd = Number(m[2]);
+        if (mo >= 1 && mo <= 12 && dd >= 1 && dd <= 31) {
+          const y = m[3] ? (m[3].length === 2 ? `20${m[3]}` : m[3]) : year;
+          return `${y}-${String(mo).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
+        }
+      }
+      return (recv.get(f) || up).slice(0, 10);
+    };
+    const groups = new Map<string, [string, number, string][]>();
+    for (const [f, n] of fileOptions) {
+      const d = dateOf(f);
+      const mk = d.slice(0, 7);
+      if (!groups.has(mk)) groups.set(mk, []);
+      groups.get(mk)!.push([f, n, d]);
+    }
+    for (const list of groups.values()) list.sort((a, b) => b[2].localeCompare(a[2]) || a[0].localeCompare(b[0]));
+    return [...groups.entries()].sort((a, b) => (b[0] || "").localeCompare(a[0] || ""));
+  }, [leads, fileOptions]);
 
   const laneCounts = useMemo(() => {
     const m = facet("lane", (_l, d) => d.lane);
@@ -626,7 +700,7 @@ export default function AllLeads({
   if (fnF !== "all") chips.push({ label: FUNCTION_META[fnF].label, clear: () => setFnF("all") });
   if (verdictF !== "all") chips.push({ label: VERDICT_META[verdictF].label, clear: () => setVerdictF("all") });
   if (companyF !== "all") chips.push({ label: companyF === "multi" ? "2+ leads at the company" : "Only lead at the company", clear: () => setCompanyF("all") });
-  if (monthF !== "all") chips.push({ label: `Received ${monthLabel(monthF)}`, clear: () => setMonthF("all") });
+  if (monthF !== "all") chips.push({ label: `CSV month ${monthLabel(monthF)}`, clear: () => setMonthF("all") });
   if (dateF !== "all") chips.push({ label: DATE_LABEL[dateF], clear: () => setDateF("all") });
   if (statusF !== "all") chips.push({ label: `Status: ${STATUS_META[statusF].label}`, clear: () => setStatusF("all") });
   if (sourceF !== "all") chips.push({ label: LEAD_SOURCE_META[sourceF].label, clear: () => setSourceF("all") });
@@ -636,6 +710,7 @@ export default function AllLeads({
   if (sizeF !== "all") chips.push({ label: `Employees: ${SIZE_BUCKETS.find((b) => b.key === sizeF)?.label ?? "unknown"}`, clear: () => setSizeF("all") });
   if (apolloF !== "all") chips.push({ label: APOLLO_LABEL[apolloF], clear: () => setApolloF("all") });
   if (seqF !== "all") chips.push({ label: `In: ${seqF}`, clear: () => setSeqF("all") });
+  if (ownerF !== "all") chips.push({ label: ownerF === "none" ? "No sequence owner" : `${ownerF}'s sequences`, clear: () => setOwnerF("all") });
   if (planF !== "all") chips.push({ label: PLAN_LABEL[planF], clear: () => setPlanF("all") });
   if (planSeqF !== "all") chips.push({ label: `Headed for: ${planSeqF}`, clear: () => setPlanSeqF("all") });
   if (filesF !== "all") chips.push({ label: FILES_LABEL[filesF], clear: () => setFilesF("all") });
@@ -806,7 +881,8 @@ export default function AllLeads({
 
       {/* Apollo state is only as fresh as the last sync, so its age is
           stated here, every time. */}
-      <div className="panel" style={{ marginBottom: 10 }}>
+      <details className="panel fold" style={{ marginBottom: 10 }}>
+        <summary className="fold-head"><b>Apollo</b><span className="muted">{rosterPulledAt ? ` · uploads pulled ${rosterPulledAt.slice(0, 10)}` : " · uploads not pulled yet"} · pull, lookup list, import sync</span></summary>
         <div className="panel-body" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", fontSize: 12.5 }}>
           <b>Apollo</b>
           {ageDays === null ? (
@@ -890,11 +966,12 @@ export default function AllLeads({
             )}
           </div>
         )}
-      </div>
+      </details>
 
       {/* ---- the vault at a glance: the three buckets, then who has been
              reached. Click to filter, click again to clear. ---- */}
-      <div className="panel" style={{ marginBottom: 10 }}>
+      <details className="panel fold" style={{ marginBottom: 10 }}>
+        <summary className="fold-head"><b>Breakdown</b><span className="muted"> · stored as, outreach</span></summary>
         <div className="panel-body" style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "flex-start" }}>
           <div>
             <div className="section-label" style={{ marginBottom: 4 }}>Stored as</div>
@@ -931,7 +1008,7 @@ export default function AllLeads({
             </div>
           </div>
         </div>
-      </div>
+      </details>
 
       {/* ---- where every lead stands in Apollo ---- */}
       <div className="panel" aria-label="Apollo standing" style={{ marginBottom: 10 }}>
@@ -940,6 +1017,13 @@ export default function AllLeads({
             {standingCounts.total > 0 && <span className="muted"> ({Math.round((standingCounts.checked / standingCounts.total) * 100)}%)</span>}</span>
         </div>
         <div className="panel-body" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <button className="vault-tile" aria-pressed={standingF === "noseq" && tierF === TOP}
+                  title="Strong Signal (and CSP High priority) leads that are not in Apollo, or are in Apollo with no sequence."
+                  style={{ borderColor: standingF === "noseq" && tierF === TOP ? "#B5443B" : undefined, borderWidth: 2 }}
+                  onClick={() => { const on = standingF === "noseq" && tierF === TOP; setStandingF(on ? "all" : "noseq"); setTierF(on ? "all" : TOP); }}>
+            <span className="vault-num" style={{ color: "#B5443B" }}>★</span>
+            <span><b>Strong Signal, never sequenced</b></span>
+          </button>
           <button className="vault-tile" aria-pressed={standingF === "needs"} title="Never reached, never put in a sequence, or not in Apollo."
                   style={{ borderColor: standingF === "needs" ? "#B5443B" : undefined }}
                   onClick={() => setStandingF(standingF === "needs" ? "all" : "needs")}>
@@ -967,7 +1051,8 @@ export default function AllLeads({
       </div>
 
       {/* ---- email deliverability: recognised and green-lit before Apollo ---- */}
-      <div className="panel" aria-label="Email deliverability" style={{ marginBottom: 10 }}>
+      <details className="panel fold" aria-label="Email deliverability" style={{ marginBottom: 10 }}>
+        <summary className="fold-head"><b>Email deliverability</b><span className="muted"> · {laneCounts.green.toLocaleString()} of {laneCounts.total.toLocaleString()} green-lit</span></summary>
         <div className="panel-head" style={{ fontSize: 12.5, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           <span><b style={{ color: "#1F7A4D" }}>{laneCounts.green.toLocaleString()}</b> of {laneCounts.total.toLocaleString()} green-lit to email
             <span className="muted"> · Apollo's own verdict from the check, plus any verifier results</span></span>
@@ -1015,7 +1100,7 @@ export default function AllLeads({
           })}
         </div>
         {verifyNote && <div className="panel-body" style={{ paddingTop: 0, fontSize: 12 }} aria-label="Verifier notice">{verifyNote}</div>}
-      </div>
+      </details>
 
       {/* ---- toolbar: the basics in the open, everything else behind Filters ---- */}
       <div className="toolbar">
@@ -1035,9 +1120,33 @@ export default function AllLeads({
             {(["main", "smc", "csp"] as LeadSource[]).map((s) => <option key={s} value={s}>{LEAD_SOURCE_META[s].label} ({sourceCounts[s].toLocaleString()})</option>)}
           </select>
           <select className="field" aria-label="Uploaded file" value={fileNameF} onChange={(e) => setFileNameF(e.target.value)}
-                  title="Every CSV you have uploaded, newest first. Pick one to work just that file's leads." style={{ maxWidth: 260 }}>
+                  title="Every CSV you have uploaded, filed under the month it is dated, newest first." style={{ maxWidth: 260 }}>
             <option value="all">Uploaded file: any ({fileOptions.length.toLocaleString()})</option>
-            {fileOptions.map(([f, n]) => <option key={f} value={f}>{f} ({n.toLocaleString()})</option>)}
+            {fileMonths.map(([mk, files]) => (
+              <optgroup key={mk} label={mk ? monthLabel(mk) : "Undated"}>
+                {files.map(([f, n, d]) => <option key={f} value={f}>{f}{d ? ` · ${d.slice(5).replace("-", "/")}` : ""} ({n.toLocaleString()})</option>)}
+              </optgroup>
+            ))}
+          </select>
+          <select className="field" aria-label="CSV month" value={monthF} onChange={(e) => setMonthF(e.target.value)}
+                  title="The month the CSV is dated. Goes back as far as your files do.">
+            <option value="all">CSV month: any</option>
+            {csvMonths.map(([k, n]) => (
+              <option key={k} value={k}>{monthLabel(k)} ({n.toLocaleString()})</option>
+            ))}
+          </select>
+          <span style={{ display: "inline-flex", gap: 4, alignItems: "center" }} title="CSV date range: any dates, as far back as you like.">
+            <input type="date" className="field" value={from} onChange={(e) => setFrom(e.target.value)} aria-label="CSV date from" />
+            <span className="muted">→</span>
+            <input type="date" className="field" value={to} onChange={(e) => setTo(e.target.value)} aria-label="CSV date to" />
+          </span>
+          <select className="field" aria-label="Sequence owner" value={ownerF} onChange={(e) => setOwnerF(e.target.value)}
+                  title="Whose sequences: the name on the sequence (Carly Main Sequence, Jack Main Sequence), else the Apollo contact owner.">
+            <option value="all">Sequence owner: anyone</option>
+            {[...new Set([...SEQUENCE_OWNERS, ...[...ownerCounts.keys()].filter((k) => k !== "none")])].map((o) => (
+              <option key={o} value={o}>{o}'s ({(ownerCounts.get(o) || 0).toLocaleString()})</option>
+            ))}
+            <option value="none">No sequence owner ({(ownerCounts.get("none") || 0).toLocaleString()})</option>
           </select>
           <select className="field" aria-label="Tier" value={tierF} onChange={(e) => setTierF(e.target.value)}>
             <option value="all">Tier: any</option>
@@ -1186,15 +1295,6 @@ export default function AllLeads({
               </select>
             </label>
             <label>
-              <div className="section-label">Received (month)</div>
-              <select className="field" aria-label="Received month" style={{ width: "100%" }} value={monthF} onChange={(e) => setMonthF(e.target.value)}>
-                <option value="all">Any</option>
-                {[...facets.month.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([k, n]) => (
-                  <option key={k} value={k}>{monthLabel(k)} ({n.toLocaleString()})</option>
-                ))}
-              </select>
-            </label>
-            <label>
               <div className="section-label">Dates in the notes</div>
               <select className="field" aria-label="Dates in notes" style={{ width: "100%" }} value={dateF}
                       onChange={(e) => setDateF(e.target.value as Derived["dateKind"] | "all")}>
@@ -1204,14 +1304,6 @@ export default function AllLeads({
                 ))}
               </select>
             </label>
-            <div>
-              <div className="section-label">First uploaded</div>
-              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <input type="date" className="field" value={from} onChange={(e) => setFrom(e.target.value)} aria-label="First seen from" />
-                <span>→</span>
-                <input type="date" className="field" value={to} onChange={(e) => setTo(e.target.value)} aria-label="First seen to" />
-              </div>
-            </div>
           </div>
         </div>
       )}
@@ -1384,6 +1476,17 @@ export default function AllLeads({
                   <td className="pin pin-1 strong" title={l.company}>{l.company || "—"}</td>
                   <td title={[l.contact, l.title, l.email, LANE_META[d.lane].hint].filter(Boolean).join(" · ")}>
                     {l.contact || "—"}
+                    {(l.contact || l.company) && (
+                      <button className="btn btn-sm btn-ghost" style={{ padding: "0 4px", marginLeft: 4, fontSize: 11 }}
+                              aria-label={`Copy ${l.contact || l.company}`}
+                              title="Copy name and company"
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                if (await copyText([l.contact, l.company].filter(Boolean).join(" — "))) {
+                                  setCopiedKey(l.key); setTimeout(() => setCopiedKey((k) => (k === l.key ? "" : k)), 1200);
+                                }
+                              }}>{copiedKey === l.key ? "✓" : "⧉"}</button>
+                    )}
                     {d.lane !== "no-email" && <span className="pill" data-lane={d.lane} style={{ marginLeft: 6, fontSize: 10.5, color: LANE_META[d.lane].color, background: LANE_META[d.lane].bg }}>{LANE_META[d.lane].short}</span>}
                   </td>
                   <td title={`${VERDICT_META[d.verdict].hint}\nScanner's word: ${l.tier || "—"}`}>

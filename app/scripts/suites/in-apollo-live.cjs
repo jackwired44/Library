@@ -34,7 +34,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   page.on('pageerror', e => errs.push('PAGEERROR ' + e.message));
   page.on('dialog', d => d.accept());
   page.setDefaultTimeout(120000);
-  const nav = async name => { await page.locator('.side-nav-btn', { hasText: name }).first().click(); await sleep(700); };
+  const nav = async name => { const inApollo = name === 'In Apollo'; await page.locator('.side-nav-btn', { hasText: inApollo ? 'All leads' : name }).first().click(); await sleep(400); if (inApollo) await page.locator('.seg-btn', { hasText: 'Apollo standing' }).first().click(); await sleep(600); await page.evaluate(() => document.querySelectorAll('details.fold').forEach((d) => { d.open = true; })); await sleep(100); };
   const main = async () => (await page.locator('main').innerText()).replace(/\s+/g, ' ');
   const rows = async () => (await page.locator('.data-table tbody tr').allInnerTexts()).join(' | ');
 
@@ -52,7 +52,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await page.setInputFiles('main label:has-text("Import sync") input[type=file]', SYNC); await sleep(1200);
 
   console.log('\n== the nav item is In Apollo, not a queue ==');
-  ok('sidebar says In Apollo', await page.locator('.side-nav-btn', { hasText: 'In Apollo' }).count() === 1);
+  ok('Apollo standing is a tab inside All leads, not its own sidebar item', await page.locator('.side-nav-btn', { hasText: 'In Apollo' }).count() === 0);
   ok('no Apollo queue in the sidebar', await page.locator('.side-nav-btn', { hasText: 'Apollo queue' }).count() === 0);
 
   console.log('\n== it shows who is active, and in which sequence ==');

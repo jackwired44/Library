@@ -64,7 +64,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   page.on('dialog', d => d.accept());
   page.setDefaultTimeout(120000);
 
-  const nav = async name => { await page.locator('.side-nav-btn', { hasText: name }).first().click(); await sleep(700); };
+  const nav = async name => { const inApollo = name === 'In Apollo'; await page.locator('.side-nav-btn', { hasText: inApollo ? 'All leads' : name }).first().click(); await sleep(400); if (inApollo) await page.locator('.seg-btn', { hasText: 'Apollo standing' }).first().click(); await sleep(600); await page.evaluate(() => document.querySelectorAll('details.fold').forEach((d) => { d.open = true; })); await sleep(100); };
   const allLeadsText = async () => (await page.locator('main').innerText()).replace(/\s+/g, ' ');
 
   await page.goto(BASE); await sleep(700);
@@ -229,7 +229,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   console.log('\n== go through any uploaded CSV, then make a list from it ==');
   const fileSel = page.locator('select[aria-label="Uploaded file"]');
   const fileOpts = await fileSel.locator('option').allInnerTexts();
-  ok('every uploaded CSV is in the file picker with its lead count', fileOpts.some(o => /all-leads-csp\.csv \(2\)/.test(o)) && fileOpts.some(o => /all-leads-main\.csv \(3\)/.test(o)), fileOpts.join(' | '));
+  ok('every uploaded CSV is in the file picker with its lead count', fileOpts.some(o => /all-leads-csp\.csv( · [\d/]+)? \(2\)/.test(o)) && fileOpts.some(o => /all-leads-main\.csv( · [\d/]+)? \(3\)/.test(o)), fileOpts.join(' | '));
   await fileSel.selectOption('all-leads-csp.csv'); await sleep(700);
   t = await allLeadsText();
   ok('  picking one works just that file', /\b2 of 5\b/.test(t) && /CSP ALPHA CO/.test(t) && !/MAIN ALPHA CO/.test(t), t.slice(0, 300));

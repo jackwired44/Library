@@ -6470,3 +6470,31 @@ it", "those are hot leads".
   not in apollo or in apollo but not in sequence". A tile in In Apollo and
   All leads, plus "★ Strong Signal, never sequenced" in In Apollo.
   "Not checked yet" is not counted: unknown is not the same as not in Apollo.
+
+### 2026-10-16: All leads is one tab; condensed; CSV dates; copy; sequence owner (scanner-platform-v29)
+
+Per Jack: "push all leads and in apollo into one cleaner tab", "condense the
+page … drop down for boxes … filter by date on the csv … store the csv with
+their proper months dated in order", "go back in the dates", "a copy clip by
+their name and add the company", "filter by owner of sequence … all carlys or
+all jacks".
+- **One sidebar entry, All leads**, with sub-tabs Leads · Apollo standing ·
+  Sequences · Monthly files. In Apollo is no longer its own sidebar item; its
+  view is the Apollo standing sub-tab (kept whole: per-row Check, step N of M,
+  status CSV, hourly-limit notice, main sequences are not in the Leads table).
+- **Folded panels**: Apollo (pull / lookup list / import sync), Breakdown and
+  Email deliverability are `<details className="panel fold">`, closed by
+  default, one line each. Apollo standing tiles stay open, plus a
+  "★ Strong Signal, never sequenced" tile.
+- **CSV dates** in the open toolbar: CSV month (every month the files go back
+  to, newest first) and a CSV date range. The range now reads the CSV's own
+  date (`receivedOn`, else upload), not first-seen.
+- **Uploaded file picker grouped by month**, newest first, each file with its
+  date: the date in its name ("Book9-30", "10-1-26 big") if any, else its
+  leads' received date, else upload date (`fileMonths`).
+- **⧉ copy** beside every contact name copies "Name — Company" (clipboard,
+  falling back to execCommand inside the artifact frame).
+- **Sequence owner filter**: Carly's / Jack's / No sequence owner, read from
+  the sequence name ("Carly Main Sequence"), else the Apollo contact owner.
+- Suites: nav helpers map "In Apollo" to All leads → Apollo standing and open
+  folded panels; two locators widened for the file date and the copy button.
