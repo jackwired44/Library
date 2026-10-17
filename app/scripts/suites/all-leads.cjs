@@ -111,9 +111,9 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('  each scanner is identified on its own rows',
      /Main/.test(afterCsp) && /CSP/.test(afterCsp));
   // The scanner's own tier word lives in More filters → Scanner's own tier.
-  await page.locator('button.filter-btn').first().click(); await sleep(400);
+  await page.locator('button[aria-label="More filters"]').first().click(); await sleep(400);
   const tierOpts = await page.locator('select[aria-label="Tier"]').innerText();
-  await page.locator('button.filter-btn').first().click(); await sleep(300);
+  await page.locator('button[aria-label="More filters"]').first().click(); await sleep(300);
   ok('  CSP keeps its OWN tier vocabulary, not the Main Scanner\'s',
      /High priority|Medium priority|Low priority/.test(tierOpts), tierOpts);
 
@@ -149,14 +149,14 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('  selecting it keeps all five', /\b5 of 5\b/.test(await allLeadsText()));
   await apolloSel.selectOption('all'); await sleep(500);
   // Per Jack: "dont have duplicates of filter options".
-  await page.locator('button.filter-btn').first().click(); await sleep(400);
+  await page.locator('button[aria-label="More filters"]').first().click(); await sleep(400);
   const labels = await page.$$eval('main select[aria-label]', els => els.map(e => e.getAttribute('aria-label')));
   const filterLabels = labels.filter(l => !/^(Sort|Set status|Apollo batch|Add to list|Rows per page|How far back)$/.test(l));
   const dupes = filterLabels.filter((l, i) => filterLabels.indexOf(l) !== i);
   ok('every filter appears once', dupes.length === 0, JSON.stringify(dupes));
   ok('  the file picker is not repeated in More filters', !labels.includes('Source file'), JSON.stringify(labels));
   ok('  no Breakdown tiles repeating Stored as / Outreach', await page.locator('summary', { hasText: 'Breakdown' }).count() === 0);
-  await page.locator('button.filter-btn').first().click(); await sleep(300);
+  await page.locator('button[aria-label="More filters"]').first().click(); await sleep(300);
 
   console.log('\n== re-scanning the same file merges rather than duplicating ==');
   await nav('Main Scanner');

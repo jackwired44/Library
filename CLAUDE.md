@@ -6756,3 +6756,26 @@ steps or values are stored here; only the match and a link back.
 - The import file is generated in a Claude session from HubSpot, Notion and
   Echo (read-only) and kept in the scratchpad, never in the repo.
 - Suite: `touchpoints-meetings-live` (24).
+
+### 2026-10-17: All leads filters de-duplicated, customizable, sheet dates (scanner-platform-v29)
+
+- **One place per filter** (per Jack: "dont have duplicates of filter
+  options"). Top row: search, keywords in notes, sort, count, export. Second
+  row: Stored as, Outreach, Scanner, Uploaded file, More filters. More
+  filters groups the rest once (The lead / The company / Apollo / Dates and
+  files / Queue). Apollo standing lives only on its tiles. Removed: the
+  Breakdown tiles, the second file picker, the "Apollo state" calls filter
+  (presets still set it and show it as a chip). The suite `all-leads`
+  asserts no select aria-label repeats.
+- **Customize All leads** (shared `components/Customize.tsx`, also Home's):
+  show/hide each panel (Apollo, standing tiles, Email deliverability,
+  Search & filters, actions bar) and each table column (`data-col` on
+  every th/td, hidden by an injected style). localStorage
+  `allLeadsHiddenParts`. Search & filters folds behind its own arrow
+  (`allLeadsFiltersOpen`). Display preferences only.
+- **Numbered sheets** (per Jack: "anything prior to sheet 82 is before may
+  of 2026"): `isPreMaySheet` / `arrivalOf` in `lib/leadFiling.ts`. A file
+  named Sheet 10–81 with no date of its own files under "Before May 2026"
+  (month key `2026-04~`, date-range 2026-04-30), never under its upload
+  month and never with a made-up day. Sheet 1–9 is ignored (Excel default
+  names). Suite `sheet-dates-live`.

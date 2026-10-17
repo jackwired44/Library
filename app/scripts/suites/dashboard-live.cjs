@@ -114,7 +114,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('Cy: contact made (a call back is a real conversation), 4 emails', /Contact made/.test(r) && /Call Back Scheduled/.test(r) && /3 calls · 4 emails/.test(await tip('Cy Webb')), r);
   r = await row('Di Park');
   ok('Di: no Apollo record reads as Not in Apollo, never as never-contacted', /Not in Apollo/.test(r), r);
-  if (!(await page.locator('select[aria-label="Position"]').count())) { await page.locator('button.filter-btn').first().click(); await sleep(400); }
+  if (!(await page.locator('select[aria-label="Position"]').count())) { await page.locator('button[aria-label="More filters"]').first().click(); await sleep(400); }
   await page.selectOption('select[aria-label="Position"]', 'csuite'); await sleep(400);
   ok('the Position filter reads the title (Di is C-suite)', /Di Park/.test(await text()));
   await page.selectOption('select[aria-label="Position"]', 'all'); await sleep(300);

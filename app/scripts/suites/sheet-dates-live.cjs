@@ -42,7 +42,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('Sheet 83 is not before May', groupOf('BookSheet83') && groupOf('BookSheet83') !== 'Before May 2026', groupOf('BookSheet83'));
   ok('Excel\'s default Sheet1 is not treated as an early sheet', groupOf('Sheet1') !== 'Before May 2026', groupOf('Sheet1'));
   ok('the Before May group shows no made-up day', groups.find(g => g.label === 'Before May 2026')?.files.every(f => !/· \d\d\/\d\d/.test(f)), JSON.stringify(groups));
-  await page.locator('button.filter-btn').first().click(); await sleep(400);
+  await page.locator('button[aria-label="More filters"]').first().click(); await sleep(400);
   const months = await page.$$eval('select[aria-label="CSV month"] option', os => os.map(o => o.textContent));
   ok('CSV month offers Before May 2026 with its 1 lead', months.some(m => /^Before May 2026 \(1\)$/.test(m)), JSON.stringify(months));
   const idx = months.findIndex(m => /^Before May 2026/.test(m));

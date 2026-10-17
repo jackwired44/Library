@@ -12,6 +12,7 @@
 // disagree with the screens it summarises. Apollo-derived numbers are only
 // as fresh as the last sync, so the sync's age is stated beside them.
 import { arrivalOf } from "../lib/leadFiling";
+import Customize, { loadHiddenSet, saveHiddenSet } from "./Customize";
 import { useEffect, useMemo, useState } from "react";
 import { LEAD_SOURCE_META, hasActiveSequence, type LeadSource, type StoredLead } from "../lib/leadStore";
 import { TOP_TIERS, holdReason, type RoutingRules } from "../lib/sequenceRouting";
@@ -122,56 +123,6 @@ const HOME_WIDGETS = [
 type WidgetId = (typeof HOME_WIDGETS)[number]["id"];
 const HIDDEN_KEY = "homeHiddenWidgets";
 
-function loadHidden(): Set<WidgetId> {
-  try {
-    const raw = localStorage.getItem(HIDDEN_KEY);
-    const ids = raw ? (JSON.parse(raw) as string[]) : [];
-    return new Set(ids.filter((x) => HOME_WIDGETS.some((w) => w.id === x)) as WidgetId[]);
-  } catch { return new Set(); }
-}
-
-function CustomizeHome({ hidden, onChange }: { hidden: Set<WidgetId>; onChange: (h: Set<WidgetId>) => void }) {
-  const [open, setOpen] = useState(false);
-  const groups = [...new Set(HOME_WIDGETS.map((w) => w.group))];
-  const toggle = (id: WidgetId) => { const n = new Set(hidden); if (n.has(id)) n.delete(id); else n.add(id); onChange(n); };
-  const setGroup = (g: string, show: boolean) => {
-    const n = new Set(hidden);
-    for (const w of HOME_WIDGETS) if (w.group === g) { if (show) n.delete(w.id); else n.add(w.id); }
-    onChange(n);
-  };
-  return (
-    <div className="filter-wrap">
-      <button className={`filter-btn${hidden.size ? " on" : ""}`} onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-        ⚙ Customize{hidden.size > 0 && <span className="filter-count">{HOME_WIDGETS.length - hidden.size}/{HOME_WIDGETS.length}</span>}
-      </button>
-      {open && <>
-        <div className="filter-pop-backdrop" onClick={() => setOpen(false)} />
-        <div className="filter-pop" role="dialog" aria-label="Customize home">
-          {groups.map((g) => (
-            <div className="filter-group" key={g}>
-              <div className="filter-group-title" style={{ display: "flex", gap: 8 }}>
-                <span style={{ flex: 1 }}>{g}</span>
-                <button className="btn btn-sm btn-ghost" style={{ padding: "0 4px", fontSize: 11 }} onClick={() => setGroup(g, true)}>All</button>
-                <button className="btn btn-sm btn-ghost" style={{ padding: "0 4px", fontSize: 11 }} onClick={() => setGroup(g, false)}>None</button>
-              </div>
-              {HOME_WIDGETS.filter((w) => w.group === g).map((w) => (
-                <label key={w.id} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, padding: "3px 0", cursor: "pointer" }}>
-                  <input type="checkbox" checked={!hidden.has(w.id)} onChange={() => toggle(w.id)} />
-                  {w.label}
-                </label>
-              ))}
-            </div>
-          ))}
-          <div className="filter-group" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span className="muted" style={{ fontSize: 11.5 }}>Saved in this browser.</span>
-            <button className="btn btn-sm btn-ghost" disabled={!hidden.size} onClick={() => onChange(new Set())}>Show everything</button>
-          </div>
-        </div>
-      </>}
-    </div>
-  );
-}
-
 export default function Overview({
   leads, funnels, historyEntries, companyProfiles, rules, onNavigate, onOpenStatus, onOpenPreset, apolloIndex = null, topPanel,
 }: {
@@ -190,11 +141,8 @@ export default function Overview({
   /** Rendered right under the page header (the Apollo status panel). */
   topPanel?: React.ReactNode;
 }) {
-  const [hidden, setHiddenState] = useState<Set<WidgetId>>(loadHidden);
-  const setHidden = (h: Set<WidgetId>) => {
-    setHiddenState(h);
-    try { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...h])); } catch { /* preference only */ }
-  };
+  const [hidden, setHiddenState] = useState<Set<string>>(() => loadHiddenSet(HIDDEN_KEY, HOME_WIDGETS));
+  const setHidden = (h: Set<string>) => { setHiddenState(h); saveHiddenSet(HIDDEN_KEY, h); };
   const show = (id: WidgetId) => !hidden.has(id);
   const [runs, setRuns] = useState<Run2[]>([]);
   useEffect(() => {
@@ -392,7 +340,7 @@ export default function Overview({
           <p className="page-sub">{today} · {scopeNote} · {syncNote}</p>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <CustomizeHome hidden={hidden} onChange={setHidden} />
+          <Customize items={HOME_WIDGETS} hidden={hidden} onChange={setHidden} label="Customize home" />
           <button className="btn btn-sm btn-secondary" onClick={() => onNavigate("scanner")}>⬆ Upload leads</button>
           <button className="btn btn-sm btn-primary" onClick={() => onNavigate("allleads")}>All leads →</button>
         </div>
