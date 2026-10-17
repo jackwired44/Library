@@ -23,6 +23,7 @@ import {
 } from "../lib/leadStore";
 import { SYNC_STALE_DAYS, syncAgeDays, leadsToSync } from "../lib/apolloSync";
 import { parseCSVFile, toCSV, downloadBlob } from "../lib/csv";
+import { arrivalOf, isPreMaySheet, sheetNumberOf, PRE_MAY_2026_MONTH, PRE_MAY_2026_LABEL } from "../lib/leadFiling";
 import { engagementOf, engagementLabel, isCustomer, ENGAGEMENT_SOURCE_META, type EngagementMatch } from "../lib/engagements";
 import type { ParsedFile } from "../lib/detection";
 import { downloadCampaignCSV } from "../lib/campaignExport";
@@ -167,7 +168,7 @@ const DATE_LABEL: Record<Derived["dateKind"], string> = {
   none: "No dates mentioned",
 };
 
-const monthLabel = (ym: string) =>
+const monthLabel = (ym: string) => ym === PRE_MAY_2026_MONTH ? PRE_MAY_2026_LABEL :
   new Date(`${ym}-15T12:00:00`).toLocaleDateString(undefined, { month: "long", year: "numeric" });
 
 /** A tier-filter value meaning "the top verdict on any scanner": High
@@ -372,7 +373,7 @@ export default function AllLeads({
         files: l.sourceFiles.length,
         status: statusOf(l),
         reached: wasReached(a),
-        month: (l.receivedOn || l.firstSeenAt).slice(0, 7),
+        month: arrivalOf(l).month,
         dateKind: dateKindOf(l.noteDates),
         nextDate: soonestUpcoming(l.noteDates),
         level: titleLevel(l.title),
@@ -488,7 +489,8 @@ export default function AllLeads({
         if (fromT === null && toT === null) return true;
         // The CSV's own date (the date the file states, else when it was
         // uploaded), so a range walks back through the files by month.
-        const t = Date.parse(l.receivedOn ? `${l.receivedOn.slice(0, 10)}T12:00:00` : l.firstSeenAt);
+        const arr = arrivalOf(l);
+        const t = Date.parse(arr.approx || l.receivedOn ? `${arr.date}T12:00:00` : l.firstSeenAt);
         return (fromT === null || t >= fromT) && (toT === null || t <= toT);
       },
     };
@@ -508,7 +510,7 @@ export default function AllLeads({
     const out = leads.filter((l) => passes(l));
     const d = (l: StoredLead) => derived.get(l.key)!;
     const cmp: Record<SortKey, (a: StoredLead, b: StoredLead) => number> = {
-      received: (a, b) => (b.receivedOn || b.firstSeenAt).localeCompare(a.receivedOn || a.firstSeenAt) || b.lastSeenAt.localeCompare(a.lastSeenAt),
+      received: (a, b) => arrivalOf(b).date.localeCompare(arrivalOf(a).date) || b.lastSeenAt.localeCompare(a.lastSeenAt),
       last: (a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt),
       first: (a, b) => b.firstSeenAt.localeCompare(a.firstSeenAt),
       company: (a, b) => (a.company || "￿").localeCompare(b.company || "￿"),
@@ -592,16 +594,18 @@ export default function AllLeads({
           return `${y}-${String(mo).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
         }
       }
+      if (!recv.get(f) && isPreMaySheet(f)) return "";
       return (recv.get(f) || up).slice(0, 10);
     };
     const groups = new Map<string, [string, number, string][]>();
     for (const [f, n] of fileOptions) {
       const d = dateOf(f);
-      const mk = d.slice(0, 7);
+      // An early numbered sheet has no date, only "before May 2026".
+      const mk = d ? d.slice(0, 7) : isPreMaySheet(f) ? PRE_MAY_2026_MONTH : "";
       if (!groups.has(mk)) groups.set(mk, []);
       groups.get(mk)!.push([f, n, d]);
     }
-    for (const list of groups.values()) list.sort((a, b) => b[2].localeCompare(a[2]) || a[0].localeCompare(b[0]));
+    for (const list of groups.values()) list.sort((a, b) => b[2].localeCompare(a[2]) || (sheetNumberOf(b[0]) ?? 0) - (sheetNumberOf(a[0]) ?? 0) || a[0].localeCompare(b[0]));
     return [...groups.entries()].sort((a, b) => (b[0] || "").localeCompare(a[0] || ""));
   }, [leads, fileOptions]);
 
@@ -729,7 +733,11 @@ export default function AllLeads({
   if (planSeqF !== "all") chips.push({ label: `Headed for: ${planSeqF}`, clear: () => setPlanSeqF("all") });
   if (filesF !== "all") chips.push({ label: FILES_LABEL[filesF], clear: () => setFilesF("all") });
   if (fileNameF !== "all") chips.push({ label: `File: ${fileNameF}`, clear: () => setFileNameF("all") });
-  if (from || to) chips.push({ label: `First seen ${from || "…"} → ${to || "…"}`, clear: () => { setFrom(""); setTo(""); } });
+  if (from || to) chips.push({ label: `CSV date ${from || "…"} → ${to || "…"}`, clear: () => { setFrom(""); setTo(""); } });
+  // How many of the More filters panel's own filters are on — the badge on
+  // its button. The open filters and the tiles show their own state.
+  const moreCount = [lineF, tierF, levelF, fnF, industryF, sizeF, companyF, seqF, ownerF, inApolloF, monthF, dateF, filesF, planF, planSeqF]
+    .filter((v) => v !== "all").length + (from || to ? 1 : 0);
   const clearAll = () => chips.forEach((c) => c.clear());
 
   /* ---- actions ---- */
@@ -1023,48 +1031,6 @@ export default function AllLeads({
         )}
       </details>
 
-      {/* ---- the vault at a glance: the three buckets, then who has been
-             reached. Click to filter, click again to clear. ---- */}
-      <details className="panel fold" style={{ marginBottom: 10 }}>
-        <summary className="fold-head"><b>Breakdown</b><span className="muted"> · stored as, outreach</span></summary>
-        <div className="panel-body" style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "flex-start" }}>
-          <div>
-            <div className="section-label" style={{ marginBottom: 4 }}>Stored as</div>
-            <div style={{ display: "flex", gap: 6 }}>
-              {VERDICT_ORDER.map((v) => {
-                const on = verdictF === v; const m = VERDICT_META[v];
-                return (
-                  <button key={v} onClick={() => setVerdictF(on ? "all" : v)} title={m.hint} aria-pressed={on}
-                    className="vault-tile" style={{ borderColor: on ? m.color : undefined, background: on ? m.bg : undefined }}>
-                    <span className="vault-num" style={{ color: m.color }}>{verdictCounts[v].toLocaleString()}</span>
-                    <span>{m.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <div>
-            <div className="section-label" style={{ marginBottom: 4 }} title="From the Apollo sync only. A lead no sync has matched counts as never touched.">Outreach (from Apollo)</div>
-            <div style={{ display: "flex", gap: 6 }}>
-              {([
-                ["untouched", "Never touched", contactCounts.never + contactCounts.unknown, "No call or email on record — in Apollo untouched, or not in Apollo at all."],
-                ["attempted", "Attempted, not reached", contactCounts.attempted, "Called or emailed; every call was no answer, voicemail or gatekeeper."],
-                ["made", "Contact made", contactCounts.made + contactCounts.meeting + contactCounts.no, "A real conversation is on record, whatever the outcome."],
-              ] as const).map(([k, label, n, hint]) => {
-                const on = contactF === k;
-                return (
-                  <button key={k} onClick={() => setContactF(on ? "all" : k)} title={hint} aria-pressed={on}
-                    className="vault-tile" style={{ borderColor: on ? "var(--accent)" : undefined }}>
-                    <span className="vault-num">{n.toLocaleString()}</span>
-                    <span>{label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      </details>
-
       {/* ---- where every lead stands in Apollo ---- */}
       <div className="panel" aria-label="Apollo standing" style={{ marginBottom: 10 }}>
         <div className="panel-head" style={{ fontSize: 12.5 }}>
@@ -1072,10 +1038,10 @@ export default function AllLeads({
             {standingCounts.total > 0 && <span className="muted"> ({Math.round((standingCounts.checked / standingCounts.total) * 100)}%)</span>}</span>
         </div>
         <div className="panel-body" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          <button className="vault-tile" aria-pressed={standingF === "noseq" && tierF === TOP}
+          <button className="vault-tile" aria-pressed={standingF === "noseq" && verdictF === "strong"}
                   title="Strong Signal (and CSP High priority) leads that are not in Apollo, or are in Apollo with no sequence."
-                  style={{ borderColor: standingF === "noseq" && tierF === TOP ? "#B5443B" : undefined, borderWidth: 2 }}
-                  onClick={() => { const on = standingF === "noseq" && tierF === TOP; setStandingF(on ? "all" : "noseq"); setTierF(on ? "all" : TOP); }}>
+                  style={{ borderColor: standingF === "noseq" && verdictF === "strong" ? "#B5443B" : undefined, borderWidth: 2 }}
+                  onClick={() => { const on = standingF === "noseq" && verdictF === "strong"; setStandingF(on ? "all" : "noseq"); setVerdictF(on ? "all" : "strong"); }}>
             <span className="vault-num" style={{ color: "#B5443B" }}>★</span>
             <span><b>Strong Signal, never sequenced</b></span>
           </button>
@@ -1157,7 +1123,10 @@ export default function AllLeads({
         {verifyNote && <div className="panel-body" style={{ paddingTop: 0, fontSize: 12 }} aria-label="Verifier notice">{verifyNote}</div>}
       </details>
 
-      {/* ---- toolbar: the basics in the open, everything else behind Filters ---- */}
+      {/* ---- toolbar. Per Jack: "dont have duplicates of filter options make
+             this more straight forward". Every filter lives in exactly one
+             place: the four most-used in the open, the rest grouped under
+             More filters, Apollo standing on its tiles above. ---- */}
       <div className="toolbar">
         <div className="toolbar-row">
           <input className="field" placeholder="Search company, contact, email, notes, industry, file…"
@@ -1169,80 +1138,6 @@ export default function AllLeads({
                  style={{ flex: 1, minWidth: 220, maxWidth: 340 }} />
           {!nq.empty && rawIndexState === "loading" && <span className="muted" style={{ fontSize: 12 }}>Reading original notes…</span>}
           {!nq.empty && rawIndexState === "error" && <span style={{ fontSize: 12, color: "#B5443B" }}>Original notes could not be read; searching scan notes only.</span>}
-          <select className="field" aria-label="Scanner" value={sourceF}
-                  onChange={(e) => setSourceF(e.target.value as LeadSource | "all")}>
-            <option value="all">Scanner: any ({(sourceCounts.main + sourceCounts.smc + sourceCounts.csp).toLocaleString()})</option>
-            {(["main", "smc", "csp"] as LeadSource[]).map((s) => <option key={s} value={s}>{LEAD_SOURCE_META[s].label} ({sourceCounts[s].toLocaleString()})</option>)}
-          </select>
-          <select className="field" aria-label="Uploaded file" value={fileNameF} onChange={(e) => setFileNameF(e.target.value)}
-                  title="Every CSV you have uploaded, filed under the month it is dated, newest first." style={{ maxWidth: 260 }}>
-            <option value="all">Uploaded file: any ({fileOptions.length.toLocaleString()})</option>
-            {fileMonths.map(([mk, files]) => (
-              <optgroup key={mk} label={mk ? monthLabel(mk) : "Undated"}>
-                {files.map(([f, n, d]) => <option key={f} value={f}>{f}{d ? ` · ${d.slice(5).replace("-", "/")}` : ""} ({n.toLocaleString()})</option>)}
-              </optgroup>
-            ))}
-          </select>
-          <select className="field" aria-label="CSV month" value={monthF} onChange={(e) => setMonthF(e.target.value)}
-                  title="The month the CSV is dated. Goes back as far as your files do.">
-            <option value="all">CSV month: any</option>
-            {csvMonths.map(([k, n]) => (
-              <option key={k} value={k}>{monthLabel(k)} ({n.toLocaleString()})</option>
-            ))}
-          </select>
-          <span style={{ display: "inline-flex", gap: 4, alignItems: "center" }} title="CSV date range: any dates, as far back as you like.">
-            <input type="date" className="field" value={from} onChange={(e) => setFrom(e.target.value)} aria-label="CSV date from" />
-            <span className="muted">→</span>
-            <input type="date" className="field" value={to} onChange={(e) => setTo(e.target.value)} aria-label="CSV date to" />
-          </span>
-          <select className="field" aria-label="Sequence owner" value={ownerF} onChange={(e) => setOwnerF(e.target.value)}
-                  title="Whose sequences: the name on the sequence (Carly Main Sequence, Jack Main Sequence), else the Apollo contact owner.">
-            <option value="all">Sequence owner: anyone</option>
-            {[...new Set([...SEQUENCE_OWNERS, ...[...ownerCounts.keys()].filter((k) => k !== "none")])].map((o) => (
-              <option key={o} value={o}>{o}'s ({(ownerCounts.get(o) || 0).toLocaleString()})</option>
-            ))}
-            <option value="none">No sequence owner ({(ownerCounts.get("none") || 0).toLocaleString()})</option>
-          </select>
-          <select className="field" aria-label="Tier" value={tierF} onChange={(e) => setTierF(e.target.value)}>
-            <option value="all">Tier: any</option>
-            <option value={TOP}>Top tier (all scanners)</option>
-            {tiers.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
-          <select className="field" aria-label="Outreach" value={contactF}
-                  onChange={(e) => setContactF(e.target.value as ContactState | "all" | "untouched")}
-                  title="Has anyone got through? Read from the Apollo sync.">
-            <option value="all">Outreach: any</option>
-            <option value="untouched">Never touched — no outreach on record ({(contactCounts.never + contactCounts.unknown).toLocaleString()})</option>
-            {CONTACT_ORDER.map((x) => <option key={x} value={x}>{CONTACT_META[x].label} ({contactCounts[x].toLocaleString()})</option>)}
-          </select>
-          <select className="field" aria-label="In Apollo" value={inApolloF}
-                  onChange={(e) => setInApolloF(e.target.value as InApolloFilter)}
-                  title="Already a contact in Apollo — from your pulled uploads or a sync">
-            <option value="all">Apollo: any</option>
-            <option value="not">Not in Apollo — safe to upload ({inApolloCounts.not.toLocaleString()})</option>
-            <option value="in">Already in Apollo ({inApolloCounts.in.toLocaleString()})</option>
-            <option value="checked-in">Apollo check: found ({checkCounts.found.toLocaleString()})</option>
-            <option value="checked-not">Apollo check: not found ({checkCounts.notFound.toLocaleString()})</option>
-            <option value="unchecked">Apollo check: not checked yet ({checkCounts.unchecked.toLocaleString()})</option>
-          </select>
-          <select className="field" aria-label="At company" value={companyF}
-                  onChange={(e) => setCompanyF(e.target.value as "all" | "multi" | "single")}
-                  title="How many leads we hold at this lead's company">
-            <option value="all">At company: any</option>
-            <option value="multi">2+ leads at the company</option>
-            <option value="single">Only lead at the company</option>
-          </select>
-          <select className="field" aria-label="Position" value={levelF}
-                  onChange={(e) => setLevelF(e.target.value as TitleLevel | "all")}
-                  title="Seniority read from the contact's job title. 'Contact role' is a tenant or CRM role like Company Administrator, not a job title.">
-            <option value="all">Position: any</option>
-            {LEVEL_ORDER.map((x) => <option key={x} value={x}>{LEVEL_META[x].label} ({levelCounts[x].toLocaleString()})</option>)}
-          </select>
-          <div className="filter-wrap" style={{ position: "relative" }}>
-            <button className="filter-btn btn btn-sm btn-secondary" onClick={() => setFiltersOpen((v) => !v)} aria-expanded={filtersOpen}>
-              Filters{chips.length > 0 && <span className="filter-count"> {chips.length}</span>}
-            </button>
-          </div>
           <select className="field" aria-label="Sort" value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
             {(Object.keys(SORT_LABEL) as SortKey[]).map((k) => <option key={k} value={k}>Sort: {SORT_LABEL[k]}</option>)}
           </select>
@@ -1262,20 +1157,83 @@ export default function AllLeads({
             );
           })()}
         </div>
+        <div className="toolbar-row">
+          <select className="field" aria-label="Stored as" value={verdictF} onChange={(e) => setVerdictF(e.target.value as Verdict | "all")}
+                  title="Strong Signal, Needs Review or Bad Lead — the verdict from the scanner that stored it.">
+            <option value="all">Stored as: any</option>
+            {VERDICT_ORDER.map((v) => <option key={v} value={v}>{VERDICT_META[v].label} ({verdictCounts[v].toLocaleString()})</option>)}
+          </select>
+          <select className="field" aria-label="Outreach" value={contactF}
+                  onChange={(e) => setContactF(e.target.value as ContactState | "all" | "untouched")}
+                  title="Has anyone got through? From Apollo's calls and emails.">
+            <option value="all">Outreach: any</option>
+            <option value="untouched">Never touched ({(contactCounts.never + contactCounts.unknown).toLocaleString()})</option>
+            {CONTACT_ORDER.map((x) => <option key={x} value={x}>{CONTACT_META[x].label} ({contactCounts[x].toLocaleString()})</option>)}
+          </select>
+          <select className="field" aria-label="Scanner" value={sourceF}
+                  onChange={(e) => setSourceF(e.target.value as LeadSource | "all")}>
+            <option value="all">Scanner: any ({(sourceCounts.main + sourceCounts.smc + sourceCounts.csp).toLocaleString()})</option>
+            {(["main", "smc", "csp"] as LeadSource[]).map((s) => <option key={s} value={s}>{LEAD_SOURCE_META[s].label} ({sourceCounts[s].toLocaleString()})</option>)}
+          </select>
+          <select className="field" aria-label="Uploaded file" value={fileNameF} onChange={(e) => setFileNameF(e.target.value)}
+                  title="Every CSV you have uploaded, filed under the month it is dated, newest first." style={{ maxWidth: 260 }}>
+            <option value="all">Uploaded file: any ({fileOptions.length.toLocaleString()})</option>
+            {fileMonths.map(([mk, files]) => (
+              <optgroup key={mk} label={mk ? monthLabel(mk) : "Undated"}>
+                {files.map(([f, n, d]) => <option key={f} value={f}>{f}{d ? ` · ${d.slice(5).replace("-", "/")}` : ""} ({n.toLocaleString()})</option>)}
+              </optgroup>
+            ))}
+          </select>
+          <div className="filter-wrap" style={{ position: "relative" }}>
+            <button className="filter-btn btn btn-sm btn-secondary" onClick={() => setFiltersOpen((v) => !v)} aria-expanded={filtersOpen}>
+              More filters{moreCount > 0 && <span className="filter-count"> {moreCount}</span>}
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* ---- the filter panel ---- */}
+      {/* ---- More filters: each filter once, grouped by what it asks ---- */}
       {filtersOpen && facets && (
         <div className="panel" style={{ marginBottom: 10 }}>
           <div className="panel-body" style={{
             display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 12, fontSize: 12.5,
           }}>
+            <div className="filter-group-title" style={{ gridColumn: "1 / -1", fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--muted)", marginTop: 4 }}>The lead</div>
             <label>
               <div className="section-label">Product line</div>
               <select className="field" style={{ width: "100%" }} aria-label="Product line" value={lineF} onChange={(e) => setLineF(e.target.value)}>
                 <option value="all">Any</option>{opts(facets.line)}
               </select>
             </label>
+            <label>
+              <div className="section-label">Scanner's own tier</div>
+              <select className="field" style={{ width: "100%" }} aria-label="Tier" value={tierF} onChange={(e) => setTierF(e.target.value)}
+                      title="The scanner's exact word — High / Medium / Low priority, Strong Signal, Needs Review. Stored as (above) groups these into three.">
+                <option value="all">Any</option>
+                <option value={TOP}>Top tier (all scanners)</option>
+                {tiers.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </label>
+            <label>
+              <div className="section-label">Position</div>
+              <select className="field" style={{ width: "100%" }} aria-label="Position" value={levelF}
+                      onChange={(e) => setLevelF(e.target.value as TitleLevel | "all")}
+                      title="Seniority read from the contact's job title.">
+                <option value="all">Any</option>
+                {LEVEL_ORDER.map((x) => <option key={x} value={x}>{LEVEL_META[x].label} ({levelCounts[x].toLocaleString()})</option>)}
+              </select>
+            </label>
+            <label>
+              <div className="section-label">Function</div>
+              <select className="field" aria-label="Function" style={{ width: "100%" }} value={fnF}
+                      onChange={(e) => setFnF(e.target.value as TitleFunction | "all")}>
+                <option value="all">Any</option>
+                {(Object.keys(FUNCTION_META) as TitleFunction[]).map((k) => (
+                  <option key={k} value={k}>{FUNCTION_META[k].label} ({(facets.fn.get(k) || 0).toLocaleString()})</option>
+                ))}
+              </select>
+            </label>
+            <div className="filter-group-title" style={{ gridColumn: "1 / -1", fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--muted)", marginTop: 4 }}>The company</div>
             <label>
               <div className="section-label">Industry (from Apollo)</div>
               <select className="field" style={{ width: "100%" }} aria-label="Industry" value={industryF} onChange={(e) => setIndustryF(e.target.value)}>
@@ -1293,21 +1251,82 @@ export default function AllLeads({
               </select>
             </label>
             <label>
-              <div className="section-label">In Apollo</div>
-              <select className="field" style={{ width: "100%" }} aria-label="Apollo state" value={apolloF} onChange={(e) => setApolloF(e.target.value as ApolloFilter)}>
+              <div className="section-label">Leads at the company</div>
+              <select className="field" style={{ width: "100%" }} aria-label="At company" value={companyF}
+                      onChange={(e) => setCompanyF(e.target.value as "all" | "multi" | "single")}>
                 <option value="all">Any</option>
-                {(Object.keys(APOLLO_LABEL) as (keyof typeof APOLLO_LABEL)[]).map((k) => (
-                  <option key={k} value={k}>{APOLLO_LABEL[k]} ({(facets.apollo.get(k) || 0).toLocaleString()})</option>
-                ))}
+                <option value="multi">2+ leads at the company</option>
+                <option value="single">Only lead at the company</option>
               </select>
             </label>
+            <div className="filter-group-title" style={{ gridColumn: "1 / -1", fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--muted)", marginTop: 4 }}>Apollo</div>
             <label>
-              <div className="section-label">Apollo sequence they're in</div>
+              <div className="section-label">Sequence they're in</div>
               <select className="field" style={{ width: "100%" }} aria-label="Apollo sequence" value={seqF} onChange={(e) => setSeqF(e.target.value)}>
                 <option value="all">Any</option>{opts(facets.seq)}
               </select>
             </label>
+            <label>
+              <div className="section-label">Sequence owner</div>
+              <select className="field" style={{ width: "100%" }} aria-label="Sequence owner" value={ownerF} onChange={(e) => setOwnerF(e.target.value)}
+                      title="The name on the sequence (Carly Main Sequence, Jack Main Sequence), else the Apollo contact owner.">
+                <option value="all">Anyone</option>
+                {[...new Set([...SEQUENCE_OWNERS, ...[...ownerCounts.keys()].filter((k) => k !== "none")])].map((o) => (
+                  <option key={o} value={o}>{o}'s ({(ownerCounts.get(o) || 0).toLocaleString()})</option>
+                ))}
+                <option value="none">No sequence owner ({(ownerCounts.get("none") || 0).toLocaleString()})</option>
+              </select>
+            </label>
+            <label>
+              <div className="section-label">In your Apollo uploads</div>
+              <select className="field" style={{ width: "100%" }} aria-label="In Apollo" value={inApolloF}
+                      onChange={(e) => setInApolloF(e.target.value as InApolloFilter)}
+                      title="Matched among the uploads pulled from Apollo or an imported sync — the leads a download leaves out. Where each lead stands after a live check is on the Apollo standing tiles.">
+                <option value="all">Any</option>
+                <option value="not">Not in Apollo — safe to upload ({inApolloCounts.not.toLocaleString()})</option>
+                <option value="in">Already in Apollo ({inApolloCounts.in.toLocaleString()})</option>
+              </select>
+            </label>
+            <div className="filter-group-title" style={{ gridColumn: "1 / -1", fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--muted)", marginTop: 4 }}>Dates and files</div>
+            <label>
+              <div className="section-label">CSV month</div>
+              <select className="field" style={{ width: "100%" }} aria-label="CSV month" value={monthF} onChange={(e) => setMonthF(e.target.value)}
+                      title="The month the CSV is dated. Goes back as far as your files do.">
+                <option value="all">Any</option>
+                {csvMonths.map(([k, n]) => (
+                  <option key={k} value={k}>{monthLabel(k)} ({n.toLocaleString()})</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <div className="section-label">CSV date range</div>
+              <span style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                <input type="date" className="field" value={from} onChange={(e) => setFrom(e.target.value)} aria-label="CSV date from" style={{ flex: 1, minWidth: 0 }} />
+                <span className="muted">→</span>
+                <input type="date" className="field" value={to} onChange={(e) => setTo(e.target.value)} aria-label="CSV date to" style={{ flex: 1, minWidth: 0 }} />
+              </span>
+            </label>
+            <label>
+              <div className="section-label">Dates in the notes</div>
+              <select className="field" aria-label="Dates in notes" style={{ width: "100%" }} value={dateF}
+                      onChange={(e) => setDateF(e.target.value as Derived["dateKind"] | "all")}>
+                <option value="all">Any</option>
+                {(Object.keys(DATE_LABEL) as Derived["dateKind"][]).map((k) => (
+                  <option key={k} value={k}>{DATE_LABEL[k]} ({(facets.dates.get(k) || 0).toLocaleString()})</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <div className="section-label">How many files</div>
+              <select className="field" style={{ width: "100%" }} aria-label="File count" value={filesF} onChange={(e) => setFilesF(e.target.value as FilesFilter)}>
+                <option value="all">Any</option>
+                {(Object.keys(FILES_LABEL) as (keyof typeof FILES_LABEL)[]).map((k) => (
+                  <option key={k} value={k}>{FILES_LABEL[k]} ({(facets.files.get(k) || 0).toLocaleString()})</option>
+                ))}
+              </select>
+            </label>
             {onSetPlan && (<>
+            <div className="filter-group-title" style={{ gridColumn: "1 / -1", fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--muted)", marginTop: 4 }}>Queue</div>
             <label>
               <div className="section-label">Queue status</div>
               <select className="field" style={{ width: "100%" }} aria-label="Queue status" value={planF} onChange={(e) => setPlanF(e.target.value as PlanFilter)}>
@@ -1324,41 +1343,6 @@ export default function AllLeads({
               </select>
             </label>
             </>)}
-            <label>
-              <div className="section-label">How many files</div>
-              <select className="field" style={{ width: "100%" }} aria-label="File count" value={filesF} onChange={(e) => setFilesF(e.target.value as FilesFilter)}>
-                <option value="all">Any</option>
-                {(Object.keys(FILES_LABEL) as (keyof typeof FILES_LABEL)[]).map((k) => (
-                  <option key={k} value={k}>{FILES_LABEL[k]} ({(facets.files.get(k) || 0).toLocaleString()})</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <div className="section-label">On this file</div>
-              <select className="field" style={{ width: "100%" }} aria-label="Source file" value={fileNameF} onChange={(e) => setFileNameF(e.target.value)}>
-                <option value="all">Any</option>{opts(facets.fileName)}
-              </select>
-            </label>
-            <label>
-              <div className="section-label">Function</div>
-              <select className="field" aria-label="Function" style={{ width: "100%" }} value={fnF}
-                      onChange={(e) => setFnF(e.target.value as TitleFunction | "all")}>
-                <option value="all">Any</option>
-                {(Object.keys(FUNCTION_META) as TitleFunction[]).map((k) => (
-                  <option key={k} value={k}>{FUNCTION_META[k].label} ({(facets.fn.get(k) || 0).toLocaleString()})</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <div className="section-label">Dates in the notes</div>
-              <select className="field" aria-label="Dates in notes" style={{ width: "100%" }} value={dateF}
-                      onChange={(e) => setDateF(e.target.value as Derived["dateKind"] | "all")}>
-                <option value="all">Any</option>
-                {(Object.keys(DATE_LABEL) as Derived["dateKind"][]).map((k) => (
-                  <option key={k} value={k}>{DATE_LABEL[k]} ({(facets.dates.get(k) || 0).toLocaleString()})</option>
-                ))}
-              </select>
-            </label>
           </div>
         </div>
       )}

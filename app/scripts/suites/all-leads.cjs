@@ -110,8 +110,12 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('  by name', /CSP ALPHA CO/.test(afterCsp) && /CSP BETA CO/.test(afterCsp));
   ok('  each scanner is identified on its own rows',
      /Main/.test(afterCsp) && /CSP/.test(afterCsp));
+  // The scanner's own tier word lives in More filters → Scanner's own tier.
+  await page.locator('button.filter-btn').first().click(); await sleep(400);
+  const tierOpts = await page.locator('select[aria-label="Tier"]').innerText();
+  await page.locator('button.filter-btn').first().click(); await sleep(300);
   ok('  CSP keeps its OWN tier vocabulary, not the Main Scanner\'s',
-     /High priority|Medium priority|Low priority/.test(afterCsp), afterCsp.slice(0, 400));
+     /High priority|Medium priority|Low priority/.test(tierOpts), tierOpts);
 
   console.log('\n== search and filters ==');
   const search = page.locator('main input[placeholder^="Search company"]');
@@ -132,18 +136,27 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('the panel says it has never been synced', /Not synced/.test(t), t.slice(0, 300));
   ok('  and warns that nothing therefore reads as in Apollo yet',
      /nothing here reads as "in Apollo" yet/i.test(t));
-  // The Apollo filter now lives in the Filters panel.
-  await page.locator('button.filter-btn').first().click(); await sleep(500);
-  const apolloSel = page.locator('select[aria-label="Apollo state"]');
-  ok('the Apollo filter offers "Never called"',
-     /Never called/.test(await apolloSel.innerText()));
+  // One filter per question: outreach is the Outreach dropdown in the open
+  // (the duplicate "Apollo state" calls filter is gone).
+  const apolloSel = page.locator('select[aria-label="Outreach"]');
+  ok('the Outreach filter offers "Never touched"',
+     /Never touched/.test(await apolloSel.innerText()));
   ok('  and with nothing synced it counts every lead',
-     /Never called \(5\)/.test(await apolloSel.innerText()), await apolloSel.innerText());
-  ok('  "No Apollo record" also counts every lead',
-     /No Apollo record \(5\)/.test(await apolloSel.innerText()));
-  await apolloSel.selectOption('never-called'); await sleep(600);
+     /Never touched \(5\)/.test(await apolloSel.innerText()), await apolloSel.innerText());
+  ok('  "Not in Apollo" also counts every lead',
+     /Not in Apollo \(5\)/.test(await apolloSel.innerText()));
+  await apolloSel.selectOption('untouched'); await sleep(600);
   ok('  selecting it keeps all five', /\b5 of 5\b/.test(await allLeadsText()));
   await apolloSel.selectOption('all'); await sleep(500);
+  // Per Jack: "dont have duplicates of filter options".
+  await page.locator('button.filter-btn').first().click(); await sleep(400);
+  const labels = await page.$$eval('main select[aria-label]', els => els.map(e => e.getAttribute('aria-label')));
+  const filterLabels = labels.filter(l => !/^(Sort|Set status|Apollo batch|Add to list|Rows per page|How far back)$/.test(l));
+  const dupes = filterLabels.filter((l, i) => filterLabels.indexOf(l) !== i);
+  ok('every filter appears once', dupes.length === 0, JSON.stringify(dupes));
+  ok('  the file picker is not repeated in More filters', !labels.includes('Source file'), JSON.stringify(labels));
+  ok('  no Breakdown tiles repeating Stored as / Outreach', await page.locator('summary', { hasText: 'Breakdown' }).count() === 0);
+  await page.locator('button.filter-btn').first().click(); await sleep(300);
 
   console.log('\n== re-scanning the same file merges rather than duplicating ==');
   await nav('Main Scanner');

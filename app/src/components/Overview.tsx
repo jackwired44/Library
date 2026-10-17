@@ -11,6 +11,7 @@
 // the Custom/CSP run records), so this page adds no data path and cannot
 // disagree with the screens it summarises. Apollo-derived numbers are only
 // as fresh as the last sync, so the sync's age is stated beside them.
+import { arrivalOf } from "../lib/leadFiling";
 import { useEffect, useMemo, useState } from "react";
 import { LEAD_SOURCE_META, hasActiveSequence, type LeadSource, type StoredLead } from "../lib/leadStore";
 import { TOP_TIERS, holdReason, type RoutingRules } from "../lib/sequenceRouting";
@@ -47,7 +48,7 @@ const LINE_LABEL: Record<Line, string> = {
 };
 
 /** When a lead arrived: the file's own date, else when it was uploaded. */
-const arrived = (l: StoredLead) => l.receivedOn || l.firstSeenAt.slice(0, 10);
+const arrived = (l: StoredLead) => arrivalOf(l).date;
 
 function rangeStart(r: Range, now = new Date()): string | null {
   if (r === "all") return null;

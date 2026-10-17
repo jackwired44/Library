@@ -45,6 +45,39 @@ export function receivedOnFromFileName(name: string, now = new Date()): string |
   return real(y) ? iso(y) : undefined;
 }
 
+/**
+ * Jack's numbered sheets ("BookSheet75", "Sheet 80") carry no date at all.
+ * Per Jack: "anything prior to sheet 82 is before may of 2026". So a sheet
+ * numbered under 82 is known to be from before May 2026 — the month is not
+ * known, and nothing pretends it is: it files under its own "Before May
+ * 2026" month rather than a guessed one, and a date-range filter treats it
+ * as the last day of April. Numbers under 10 are left alone: "Sheet1" is
+ * Excel's default name, not one of these.
+ */
+export const SHEET_DATED_FROM = 82;
+export const PRE_MAY_2026_MONTH = "2026-04~"; // sorts between May and April
+export const PRE_MAY_2026_DATE = "2026-04-30";
+export const PRE_MAY_2026_LABEL = "Before May 2026";
+
+export function sheetNumberOf(name: string): number | null {
+  const m = /sheet\s*[-_#]?\s*(\d{1,4})(?!\d)/i.exec(String(name || ""));
+  return m ? Number(m[1]) : null;
+}
+export function isPreMaySheet(name: string): boolean {
+  const n = sheetNumberOf(name);
+  return n !== null && n >= 10 && n < SHEET_DATED_FROM;
+}
+
+/** When a lead arrived, for grouping and filtering: the file's own date,
+ *  else "before May 2026" when its earliest file is an early numbered
+ *  sheet, else the upload date. `month` is a YYYY-MM key, or
+ *  PRE_MAY_2026_MONTH. */
+export function arrivalOf(l: { receivedOn?: string; firstSeenAt: string; sourceFiles: string[] }): { date: string; month: string; approx: boolean } {
+  if (l.receivedOn) return { date: l.receivedOn.slice(0, 10), month: l.receivedOn.slice(0, 7), approx: false };
+  if (l.sourceFiles.some(isPreMaySheet)) return { date: PRE_MAY_2026_DATE, month: PRE_MAY_2026_MONTH, approx: true };
+  return { date: l.firstSeenAt.slice(0, 10), month: l.firstSeenAt.slice(0, 7), approx: false };
+}
+
 /** Scanner2's kind is the lead source directly; Main is its own. */
 export function sourceOfKind(kind: ScannerKind): LeadSource {
   return kind === "csp" ? "csp" : "smc";
