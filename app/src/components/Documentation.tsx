@@ -16,6 +16,9 @@ import { SMC_PRODUCTS, DEFAULT_SMC_SCORE_RULES, DEFAULT_SMC_WEIGHTS, SMC_FACTOR_
  * the engines run on. Change a rule and this page changes with it, so it
  * cannot drift into being wrong.
  */
+import { ENGAGEMENT_SOURCES, ENGAGEMENT_SOURCE_META } from "../lib/engagements";
+import { STATUS_META as APOLLO_STANDING } from "./ApolloStatus";
+
 export default function Documentation() {
   const [open, setOpen] = useState<string>("compare");
   const sec = (id: string, title: string, body: React.ReactNode, sub?: string) => (
@@ -489,6 +492,26 @@ export default function Documentation() {
         </>
       ), `${EXPORT_LABELS.length} columns on Main and Custom, ${CSP_EXPORT_LABELS.length} on CSP`)}
 
+      {sec("touchpoints", "Touchpoints and the Meetings lock", (
+        <>
+          <p style={{ margin: 0 }}>
+            <b>Touchpoints.</b> Checking a lead in Apollo also reads every call Apollo logged to that contact (Trellus dials
+            included, since they log into Apollo) and every sequence email sent to them. All leads shows the totals in a
+            Touchpoints column; the lead record lists each call with its date, outcome, who dialled and the sequence step.
+            Read-only searches; nothing is written to Apollo.
+          </p>
+          <H>Meetings: account manager only</H>
+          <p style={{ margin: 0 }}>
+            A lead is <b>{APOLLO_STANDING.account.label}</b> when a deal or sales meeting is on file for it in{" "}
+            {ENGAGEMENT_SOURCES.map((k) => ENGAGEMENT_SOURCE_META[k].label).join(", ")}: matched by the lead's own email,
+            else its work email domain, else its company name (so every contact at that company). A won deal reads
+            Customer. These leads stay visible, but are left out of every download and every "needs a sequence" list, and
+            one still active in a sequence is flagged to pull out. Load the records with All leads → Apollo →
+            Import deals &amp; meetings (columns: Source, Company, Domain, Email, Contact, Stage, Date, Link). Re-importing a
+            source replaces it. Only the match and a link back are kept; deal details stay in Switchboard, Notion and Echo.
+          </p>
+        </>
+      ), "Calls and emails per lead, and who the account manager owns")}
       {sec("capacity", "Capacity and storage", (
         <>
           <H>Measured on the real 24 MB / 9,265-row CSP export</H>

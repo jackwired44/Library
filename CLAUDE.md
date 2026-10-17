@@ -6715,3 +6715,44 @@ with the time … and date".
   In-page DOM rather than `window.prompt`, which a sandboxed frame can
   block. The seven download suites set `askFileName=0` via addInitScript;
   suite `download-name-live` (7) tests the box.
+
+### 2026-10-17: Touchpoints from Apollo + the Meetings lock (scanner-platform-v29)
+
+Per Jack: "this platform manages leads and where they stand in apollo so i
+can better manage all the leads and understand how many touch points have
+been made calls or emails", then "for any lead in here that has ever been
+logged in notion or hubspot as a deal mark them as so and they are not to be
+contacted" and "we need to have a meetings column ... we arent to reach out
+again and the account manager should only". Also: "i dont want to copy
+functions of switchboard or echo" — so no transcripts, recaps, deal next
+steps or values are stored here; only the match and a link back.
+- **Touchpoints** (`readTouchpoints`, `lib/apolloLive.ts`): the live Apollo
+  check now also reads `phone_calls_search {contact_id}` (outcome names from
+  its `phone_call_stats_facets`; Trellus dials log into Apollo, so both
+  dialers are covered) and `emailer_messages_search` once per sequence the
+  contact is in (it cannot filter by contact, so it searches by name and
+  keeps only this contact_id). Fills callCount / outcomes / history (with
+  `CallEvent.by` = caller) / emailCount / new `emailStats`. A touchpoint read
+  failing never loses the contact match. All leads has a Touchpoints column;
+  the lead record shows the caller per call and opens/replies. This replaces
+  the old "live check never changes call numbers" rule, per Jack's ask.
+- **Meetings lock** (`lib/engagements.ts`, new store `STORE_ENGAGEMENTS`,
+  DB_VERSION 23→24, in the backup): deals and sales meetings from HubSpot,
+  Notion and Echo, imported as a CSV (Source, Company, Domain, Email,
+  Contact, Stage, Date, Link) via All leads → Apollo → "⬆ Import deals &
+  meetings". Re-importing a source replaces it. Match: lead email, else work
+  email domain (free domains never), else normalised company name (≥4
+  chars) — company-wide on purpose. A matched lead's Apollo standing is the
+  new first status **"Account manager only"** (`account`, ApolloStatus.tsx),
+  so it leaves Needs a sequence / never sequenced / Ready everywhere; it is
+  `exportBlocked` (out of every download); a won deal reads "Customer · AM
+  only"; one still active in a sequence shows "⚠ still active in a
+  sequence". The Meetings column and a red banner on the lead record show
+  the deal/meeting. App feeds `engagementIndex` into the `apolloIndex` memo
+  deps so every view recomputes on import.
+- The live page's Apollo grant must list `apollo_phone_calls_search` and
+  `apollo_emailer_messages_search` for touchpoints to fill; without them the
+  check still reads sequences and Touchpoints shows "?".
+- The import file is generated in a Claude session from HubSpot, Notion and
+  Echo (read-only) and kept in the scratchpad, never in the repo.
+- Suite: `touchpoints-meetings-live` (24).

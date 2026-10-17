@@ -50,6 +50,9 @@ export interface ApolloLeadState {
   /** Emails Apollo sent this contact. Optional: older sync files carried
    *  calls only, and a missing count must read as unknown, not zero. */
   emailCount?: number;
+  /** What happened to those emails, from a live check (one email search per
+   *  sequence the contact is in). Absent when not read. */
+  emailStats?: { sent: number; opened: number; replied: number; bounced: number };
   /** Outcome name -> how many times, e.g. {"No Answer": 14, "Left Voicemail": 2}. */
   outcomes: Record<string, number>;
   lastOutcome: string;
@@ -112,6 +115,8 @@ export interface TaskEvent {
 export interface CallEvent {
   at: string;
   outcome: string;
+  /** Who dialled, from a live check. */
+  by?: string;
   sequence?: string;
   step?: number | null;
 }

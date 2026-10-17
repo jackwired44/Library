@@ -34,6 +34,7 @@ import {
 } from "../lib/companyProfiles";
 import { VERDICT_META, verdictOf } from "../lib/leadStatus";
 import { apolloSequencesFor, type RosterIndex } from "../lib/apolloRoster";
+import { engagementOf, isCustomer, ENGAGEMENT_SOURCE_META } from "../lib/engagements";
 
 const muted = { color: "var(--muted)" } as const;
 const dash = <span style={muted}>&mdash;</span>;
@@ -183,6 +184,7 @@ export default function LeadDetail({
   const employees = employeeCountOf(profile);
   const syncAge = a ? Math.floor((Date.now() - new Date(a.syncedAt).getTime()) / 86400000) : null;
   const outcomes = a ? Object.entries(a.outcomes).sort((x, y) => y[1] - x[1]) : [];
+  const engaged = engagementOf(lead);
   const dates = lead.noteDates ?? [];
   const intentDates = dates.filter(isIntentDate);
   const loggedDates = dates.filter((d) => !isIntentDate(d));
@@ -282,6 +284,19 @@ export default function LeadDetail({
               </div>
             );
             return (
+              <>
+              {engaged && (
+                <div aria-label="Account manager only" style={{ border: "1px solid #E7C3C3", background: "#F6E3E3", color: "#7A1F1F", borderRadius: 10, padding: "10px 14px", marginTop: 12, fontSize: 13 }}>
+                  <b>{isCustomer(engaged) ? "Customer · account manager only" : "Account manager only"}</b> — a deal or sales meeting is on file. Don't reach out; the account manager owns this.
+                  {engaged.items.slice(0, 5).map((e, i) => (
+                    <div key={i} style={{ fontSize: 12, marginTop: 3 }}>
+                      {ENGAGEMENT_SOURCE_META[e.source].label} {ENGAGEMENT_SOURCE_META[e.source].kind}: {[e.company, e.stage, e.at].filter(Boolean).join(" · ")}
+                      {e.url && <> · <a href={e.url} target="_blank" rel="noreferrer">open</a></>}
+                    </div>
+                  ))}
+                  <div style={{ fontSize: 11.5, opacity: 0.8, marginTop: 3 }}>Matched by {engaged.how}.</div>
+                </div>
+              )}
               <div aria-label="Lead summary" style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 14, marginTop: 12 }}>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 14 }}>
                   {fact("Signal", <>
@@ -340,6 +355,7 @@ export default function LeadDetail({
                   {lead.mobilePhone && <span>{lead.mobilePhone} <span style={muted}>mobile</span></span>}
                 </div>
               </div>
+              </>
             );
           })()}
 
@@ -511,6 +527,7 @@ export default function LeadDetail({
                 <div>
                   <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
                     Emails sent: {a.emailCount === undefined ? <span style={{ fontWeight: 400, ...muted }}>not in this sync</span> : a.emailCount}
+                    {a.emailStats && <span style={{ fontWeight: 400, ...muted }}> · {a.emailStats.opened} opened · {a.emailStats.replied} replied{a.emailStats.bounced ? ` · ${a.emailStats.bounced} bounced` : ""}</span>}
                   </div>
                   <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
                     Calls: {a.callCount === 0 ? "none" : a.callCount}
@@ -532,6 +549,7 @@ export default function LeadDetail({
                         <div key={i} style={{ fontSize: 12.5, padding: "2px 0" }}>
                           <span style={{ ...muted, fontVariantNumeric: "tabular-nums" }}>{h.at}</span>{" "}
                           <b>{h.outcome}</b>
+                          {h.by && <span style={muted}> · {h.by}</span>}
                           {h.sequence && <span style={muted}> · {h.sequence}{h.step != null ? ` step ${h.step}` : ""}</span>}
                         </div>
                       ))}

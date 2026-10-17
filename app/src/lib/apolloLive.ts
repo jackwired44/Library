@@ -46,6 +46,10 @@ export interface LiveHandle {
   server: string;
   contactsTool: string;
   sequencesTool: string | null;
+  /** Calls and sequence emails, for touchpoint counts. Null when the page's
+   *  Apollo grant doesn't list them; the check then reads sequences only. */
+  callsTool?: string | null;
+  emailsTool?: string | null;
 }
 
 /** The viewer's Apollo connector, if this page can reach it. */
@@ -64,7 +68,10 @@ export async function connectApollo(): Promise<LiveHandle> {
     const contacts = s.tools.find((t) => t.name.toLowerCase().endsWith("contacts_search"));
     if (!contacts) continue;
     const seqs = s.tools.find((t) => t.name.toLowerCase().endsWith("emailer_campaigns_search"));
-    return { mcp, server: s.server, contactsTool: contacts.name, sequencesTool: seqs?.name ?? null };
+    const calls = s.tools.find((t) => t.name.toLowerCase().endsWith("phone_calls_search"));
+    const emails = s.tools.find((t) => t.name.toLowerCase().endsWith("emailer_messages_search"));
+    return { mcp, server: s.server, contactsTool: contacts.name, sequencesTool: seqs?.name ?? null,
+      callsTool: calls?.name ?? null, emailsTool: emails?.name ?? null };
   }
   throw new Error("Apollo isn't connected for this page — connect it in claude.ai Settings → Connectors, then try again.");
 }
@@ -317,6 +324,87 @@ export function apolloStateFrom(c: Rec, meta: Map<string, SequenceMeta>, prev: A
   };
 }
 
+/* ------------------------------------------------------- touchpoints */
+//
+// Per Jack: "this platform manages leads and where they stand in apollo so i
+// can better manage all the leads and understand how many touch points have
+// been made calls or emails". Every Trellus dial is logged into Apollo as a
+// call, so Apollo's call log covers both dialers.
+//
+// Shapes observed from real calls in the build session:
+//   phone_calls_search {contact_id} -> phone_calls[].{start_time, caller_name,
+//     phone_call_outcome_id, campaign_name, campaign_position},
+//     faceting.phone_call_stats_facets[].{value, display_name, count},
+//     pagination.total_entries
+//   emailer_messages_search {emailer_campaign_id, q_keywords} ->
+//     emailer_messages[].{contact_id, status, delivered, opened, replied, bounced}
+//     (it cannot filter by contact, so each sequence is searched by name and
+//     narrowed to this contact's id).
+
+export interface Touchpoints {
+  callCount: number; outcomes: Record<string, number>; lastOutcome: string; lastCallAt: string;
+  history: import("./leadStore").CallEvent[];
+  emailCount?: number; emailStats?: { sent: number; opened: number; replied: number; bounced: number };
+}
+
+const MAX_CALL_PAGES = 5;
+
+export async function readTouchpoints(h: LiveHandle, c: Rec, signal?: AbortSignal): Promise<Touchpoints | null> {
+  const id = str(c.id);
+  if (!id || !h.callsTool) return null;
+  const outcomeName = new Map<string, string>();
+  const calls: Rec[] = [];
+  let total = 0;
+  for (let page = 1; page <= MAX_CALL_PAGES; page++) {
+    const res = await h.mcp.callTool(h.server, h.callsTool,
+      { contact_id: id, per_page: 100, page, sort_by_field: "start_time", sort_ascending: false }, { cache: false, signal });
+    const p = (res.payload ?? {}) as Rec;
+    const list = Array.isArray(p.phone_calls) ? (p.phone_calls as Rec[]) : [];
+    const facets = Array.isArray((p.faceting as Rec | undefined)?.phone_call_stats_facets) ? ((p.faceting as Rec).phone_call_stats_facets as Rec[]) : [];
+    for (const f of facets) if (str(f.value)) outcomeName.set(str(f.value), str(f.display_name).trim());
+    // The search can return calls for other contacts if a filter is ignored;
+    // only this contact's count.
+    calls.push(...list.filter((x) => !str(x.contact_id) || str(x.contact_id) === id));
+    total = Number(((p.pagination ?? {}) as Rec).total_entries || 0);
+    if (!list.length || calls.length >= total) break;
+  }
+  const history = calls.map((x) => ({
+    at: str(x.start_time).slice(0, 10),
+    outcome: outcomeName.get(str(x.phone_call_outcome_id)) || "No disposition",
+    ...(str(x.caller_name) ? { by: str(x.caller_name) } : {}),
+    ...(str(x.campaign_name) ? { sequence: str(x.campaign_name) } : {}),
+    ...(x.campaign_position != null ? { step: Number(x.campaign_position) || null } : {}),
+  })).sort((a, b) => b.at.localeCompare(a.at));
+  const outcomes: Record<string, number> = {};
+  for (const e of history) outcomes[e.outcome] = (outcomes[e.outcome] ?? 0) + 1;
+  const out: Touchpoints = {
+    callCount: Math.max(total, history.length), outcomes,
+    lastOutcome: history[0]?.outcome ?? "", lastCallAt: history[0]?.at ?? "", history,
+  };
+  if (h.emailsTool) {
+    const seqIds = [...new Set((Array.isArray(c.contact_campaign_statuses) ? (c.contact_campaign_statuses as Rec[]) : [])
+      .map((x) => str(x.emailer_campaign_id)).filter(Boolean))];
+    const name = str(c.name) || `${str(c.first_name)} ${str(c.last_name)}`.trim();
+    const stats = { sent: 0, opened: 0, replied: 0, bounced: 0 };
+    let read = true;
+    for (const sid of seqIds) {
+      if (!name) { read = false; break; }
+      const res = await h.mcp.callTool(h.server, h.emailsTool,
+        { emailer_campaign_id: sid, q_keywords: name, per_page: "50" }, { cache: false, signal });
+      const list = Array.isArray((res.payload as Rec | undefined)?.emailer_messages) ? ((res.payload as Rec).emailer_messages as Rec[]) : [];
+      for (const m of list) {
+        if (str(m.contact_id) !== id) continue;
+        if (m.delivered === true || str(m.status) === "completed") stats.sent++;
+        if (m.opened === true) stats.opened++;
+        if (m.replied === true) stats.replied++;
+        if (m.bounced === true) stats.bounced++;
+      }
+    }
+    if (read) { out.emailCount = stats.sent; out.emailStats = stats; }
+  }
+  return out;
+}
+
 /** Apollo allows this many contact searches an hour (measured: the 401st
  *  call in an hour is refused with a rate-limit error). */
 export const APOLLO_LOOKUPS_PER_HOUR = 400;
@@ -357,7 +445,19 @@ export async function checkLeadsInApollo(opts: {
       const list = Array.isArray((res.payload as Rec | undefined)?.contacts) ? ((res.payload as Rec).contacts as Rec[]) : [];
       const c = pickContact(lead, list);
       const at = new Date().toISOString();
-      if (c) { p.found++; batch.push({ key: lead.key, at, apollo: apolloStateFrom(c, meta, lead.apollo, at, lead.email) }); }
+      if (c) {
+        p.found++;
+        let state = apolloStateFrom(c, meta, lead.apollo, at, lead.email);
+        // Touchpoints are a second read; one failing never loses the match.
+        try {
+          const t = await readTouchpoints(h, c, opts.signal);
+          if (t) state = { ...state, ...t, callsUnknown: false };
+        } catch (err) {
+          if (opts.signal?.aborted) return false;
+          if (isRateLimitError(err) && !p.rateLimitedAt) p.rateLimitedAt = new Date().toISOString();
+        }
+        batch.push({ key: lead.key, at, apollo: state });
+      }
       else { p.notFound++; batch.push({ key: lead.key, at, apollo: null }); }
     } catch (err) {
       if (opts.signal?.aborted) return false;

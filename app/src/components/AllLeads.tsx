@@ -23,6 +23,7 @@ import {
 } from "../lib/leadStore";
 import { SYNC_STALE_DAYS, syncAgeDays, leadsToSync } from "../lib/apolloSync";
 import { parseCSVFile, toCSV, downloadBlob } from "../lib/csv";
+import { engagementOf, engagementLabel, isCustomer, ENGAGEMENT_SOURCE_META, type EngagementMatch } from "../lib/engagements";
 import type { ParsedFile } from "../lib/detection";
 import { downloadCampaignCSV } from "../lib/campaignExport";
 import { MIN_EMPLOYEES } from "../lib/leadQualify";
@@ -142,8 +143,11 @@ interface Derived {
   /** Whose sequences this lead is in: the name on the sequence ("Carly Main
    *  Sequence", "Jack Main Backup Sequence"), else the Apollo contact owner. */
   owners: string[];
-  /** Left out of downloads: pulled uploads or an imported sync only. */
+  /** Left out of downloads: pulled uploads or an imported sync, or a deal
+   *  or meeting on file (Account manager only). */
   exportBlocked: boolean;
+  /** A deal or sales meeting covering this lead — HubSpot, Notion or Echo. */
+  engaged: EngagementMatch | null;
 }
 
 type InApolloFilter = "all" | "not" | "in" | "checked-in" | "checked-not" | "unchecked";
@@ -214,7 +218,11 @@ export default function AllLeads({
   sequenceNames = [], onSetPlan, onSetStatus, funnels = [], initialStatus, initialPreset,
   apolloIndex = null, rosterPulledAt = "", onPullApollo, onCheckLeads, lists = [], onAddToList,
   emailChecks = [], onImportVerifier, noteRefresh = null, onRefreshNotes,
+  engagementCount = 0, onImportEngagements,
 }: {
+  /** Deals and meetings on file — see lib/engagements.ts. */
+  engagementCount?: number;
+  onImportEngagements?: (files: ParsedFile[]) => Promise<{ imported: number; skipped: number; bySource: Record<string, number> }>;
   /** Rewriting stored Main notes with today's rules — see lib/noteRefresh.ts. */
   noteRefresh?: { done: number; total: number; changed: number; finished: boolean } | null;
   onRefreshNotes?: () => void;
@@ -343,6 +351,7 @@ export default function AllLeads({
       const a = l.apollo;
       const seqs = a?.sequences ?? [];
       const bucket = c.employees === null ? null : SIZE_BUCKETS.find((b) => b.test(c!.employees!));
+      const engaged = engagementOf(l);
       m.set(l.key, {
         lane: laneOf(l.email, checkIndex.get((l.email || "").trim().toLowerCase()), catchAllMin, l.apollo?.live),
         standing: apolloStandingOf(l, apolloIndex),
@@ -379,7 +388,9 @@ export default function AllLeads({
         owners: ownersOf([...seqs.map((x) => x.name), ...(apolloHitFor({ email: l.email, contact: l.contact, company: l.company }, apolloIndex)?.sequences ?? [])], a?.live?.owner),
         // What a download leaves out — exactly as before the live check:
         // the pulled uploads and an imported sync, never a live result.
-        exportBlocked: !!apolloHitFor({ email: l.email, contact: l.contact, company: l.company }, apolloIndex) || (!!a && !a.live),
+        // A deal or meeting on file: account manager only, never downloaded.
+        exportBlocked: !!engaged || !!apolloHitFor({ email: l.email, contact: l.contact, company: l.company }, apolloIndex) || (!!a && !a.live),
+        engaged,
       });
     }
     return m;
@@ -837,6 +848,21 @@ export default function AllLeads({
     }
   }
 
+  const [engageNote, setEngageNote] = useState("");
+  async function importEngagementFile(files: FileList | null) {
+    if (!files?.length || !onImportEngagements) return;
+    try {
+      const parsed = await Promise.all([...files].map((f) => parseCSVFile(f)));
+      const r = await onImportEngagements(parsed as ParsedFile[]);
+      const parts = Object.entries(r.bySource).map(([k, n]) => `${n.toLocaleString()} ${ENGAGEMENT_SOURCE_META[k as keyof typeof ENGAGEMENT_SOURCE_META]?.label ?? k}`);
+      setEngageNote(r.imported
+        ? `Imported ${r.imported.toLocaleString()} deals and meetings (${parts.join(" · ")})${r.skipped ? ` · ${r.skipped} rows skipped` : ""}. Leads they cover are now Account manager only.`
+        : `Nothing imported${r.skipped ? ` — ${r.skipped} rows had no source or nothing to match on` : ""}. The file needs Source, Company, Domain or Email columns.`);
+    } catch (e) {
+      setEngageNote(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   async function importSyncFile(files: FileList | null) {
     if (!files?.length || !onApplySync || syncing) return;
     setSyncing(true); setSyncReport(null);
@@ -948,7 +974,16 @@ export default function AllLeads({
               </label>
             </>
           )}
+          {onImportEngagements && (
+            <label className="btn btn-sm btn-ghost" style={{ cursor: "pointer" }}
+                   title="Deals and sales meetings from HubSpot, Notion and Echo. A lead they cover becomes Account manager only: kept, never downloaded, never in 'needs a sequence'. Re-importing a source replaces it.">
+              ⬆ Import deals &amp; meetings{engagementCount ? ` (${engagementCount.toLocaleString()} on file)` : ""}
+              <input type="file" accept=".csv,text/csv" multiple hidden aria-label="Import deals and meetings"
+                     onChange={(e) => { void importEngagementFile(e.target.files); e.target.value = ""; }} />
+            </label>
+          )}
         </div>
+        {engageNote && <div className="panel-body" style={{ paddingTop: 0, fontSize: 12 }} aria-label="Deals and meetings notice">{engageNote}</div>}
         {(pull || pullError || apolloIndex) && (
           <div className="panel-body" style={{ paddingTop: 0, fontSize: 12 }} aria-label="Apollo uploads">
             {pull && !pull.done && (
@@ -1394,7 +1429,7 @@ export default function AllLeads({
             {checking
               ? <button className="btn btn-sm btn-secondary" onClick={() => checkAbort.current?.abort()}>Stop Apollo check</button>
               : <button className="btn btn-sm btn-primary" disabled={!checkTargets.length} onClick={() => runCheck()}
-                        title={"Looks each lead up in Apollo: whether they're a contact, which sequence, which step, finished and why.\nOne free, read-only search per lead. Nothing is written to Apollo, and call counts and downloads don't change."}>
+                        title={"Looks each lead up in Apollo: whether they're a contact, which sequence, which step, finished and why.\nAlso reads every call and sequence email Apollo logged to them, so Touchpoints fills in. Read-only searches: nothing is written to Apollo."}>
                   ⟳ Check {checkTargets.length.toLocaleString()} in Apollo{selected.size ? " (selected)" : checkDue.length > checkTargets.length ? ` of ${checkDue.length.toLocaleString()} due` : ""}
                 </button>}
             {!selected.size && (
@@ -1472,7 +1507,9 @@ export default function AllLeads({
               <th title="The date the file states, or the upload date if it states none">Received</th>
               <th className="num" title="How many different CSV files this lead was in">Uploads</th>
               <th title="Every lead we hold at this company">At company</th>
+              <th title="A deal or sales meeting on file in HubSpot, Notion or Echo. These are Account manager only: not to be reached out to again.">Meetings</th>
               <th title="Already a contact in Apollo — from your pulled uploads or a sync">In Apollo</th>
+              <th className="num" title="Calls and emails Apollo has logged to this lead">Touchpoints</th>
               <th title="Has anyone got through? From the Apollo sync.">Outreach</th>
               <th title="The latest call disposition in Apollo">Disposition</th>
               <th title="The Apollo sequence this lead is in, from the last sync">Sequence</th>
@@ -1521,12 +1558,30 @@ export default function AllLeads({
                     {!co || co.contacts < 2 ? <span className="muted">1</span>
                       : <>{co.contacts}<span className="muted"> · {co.worked} worked</span></>}
                   </td>
+                  <td data-col="meetings" title={d.engaged ? d.engaged.items.map((e) => `${ENGAGEMENT_SOURCE_META[e.source].label} ${ENGAGEMENT_SOURCE_META[e.source].kind}: ${[e.company, e.stage, e.at].filter(Boolean).join(" · ")}`).concat(`Matched by ${d.engaged.how}`).join("\n") : "No deal or meeting on file"}>
+                    {d.engaged ? (
+                      <>
+                        <span className="pill" style={{ color: "#7A1F1F", background: "#F6E3E3" }}>{isCustomer(d.engaged) ? "Customer · AM only" : "Account manager only"}</span>
+                        <div className="muted" style={{ fontSize: 11 }}>{engagementLabel(d.engaged)}</div>
+                        {d.active && <div style={{ fontSize: 11, color: "#B5443B" }}>⚠ still active in a sequence</div>}
+                      </>
+                    ) : <span className="muted">—</span>}
+                  </td>
                   <td title={d.inApollo ? [`Matched by ${d.inApollo.how === "sync" ? "an Apollo sync" : d.inApollo.how}`, d.inApollo.uploadedAt ? `Uploaded to Apollo ${d.inApollo.uploadedAt}` : "", ...d.inApollo.sequences].filter(Boolean).join("\n") : "Not found among your Apollo uploads"}>
                     {d.inApollo
                       ? <span className="pill" style={{ color: "#0A66C2", background: "#EAF3FC" }}>In Apollo{d.inApollo.uploadedAt ? ` · ${d.inApollo.uploadedAt}` : ""}</span>
                       : l.apolloCheckedAt
                         ? <span className="muted" title={`Searched Apollo ${l.apolloCheckedAt.slice(0, 10)} — no matching contact`}>Not found · {l.apolloCheckedAt.slice(5, 10)}</span>
                         : <span className="muted">No</span>}
+                  </td>
+                  <td className="num" data-col="touches" title={a ? (a.callsUnknown ? "Calls not read yet — run an Apollo check" : outcomeSummary(a) || "No calls logged") : "Not matched in Apollo"}>
+                    {!a ? <span className="muted">—</span> : <>
+                      {a.callsUnknown ? <span className="muted">?</span> : a.callCount} call{a.callCount === 1 && !a.callsUnknown ? "" : "s"}
+                      <span className="muted"> · {a.emailCount ?? "?"} email{a.emailCount === 1 ? "" : "s"}</span>
+                      {a.emailStats && (a.emailStats.opened > 0 || a.emailStats.replied > 0) && (
+                        <div className="muted" style={{ fontSize: 11 }}>{a.emailStats.opened} opened · {a.emailStats.replied} replied</div>
+                      )}
+                    </>}
                   </td>
                   <td title={`${cm.hint}${a ? `\n${a.callCount} call${a.callCount === 1 ? "" : "s"}${a.emailCount !== undefined ? ` · ${a.emailCount} email${a.emailCount === 1 ? "" : "s"}` : ""}` : ""}`}>
                     <span className="pill" style={{ color: cm.color, background: cm.bg }}>{cm.label}</span>

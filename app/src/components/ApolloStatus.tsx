@@ -19,6 +19,7 @@ import { stripSnippetPrefix, type ExportRow } from "../lib/detection";
 import type { LeadList } from "../lib/leadLists";
 import type { StoredLead } from "../lib/leadStore";
 import { apolloHitFor, type RosterIndex } from "../lib/apolloRoster";
+import { engagementOf } from "../lib/engagements";
 import { DEFAULT_PULL_MONTHS, type PullProgress, type CheckProgress } from "../lib/apolloLive";
 import { VERDICT_META, VERDICT_ORDER, verdictOf, type Verdict } from "../lib/leadStatus";
 
@@ -27,8 +28,9 @@ import { VERDICT_META, VERDICT_ORDER, verdictOf, type Verdict } from "../lib/lea
 // So an ended sequence is split by whether Apollo says the person was
 // reached, and "not checked yet" is its own state rather than being
 // counted as "not in Apollo" — the two mean very different things.
-export type Status = "active" | "finished" | "reached" | "none" | "out" | "unchecked";
+export type Status = "account" | "active" | "finished" | "reached" | "none" | "out" | "unchecked";
 export const STATUS_META: Record<Status, { label: string; short: string; hint: string; color: string; bg: string }> = {
+  account: { label: "Account manager only", short: "Account manager", hint: "A deal or sales meeting is on file for this lead or its company (HubSpot, Notion or Echo). Not to be reached out to again; the account manager owns it.", color: "#7A1F1F", bg: "#F6E3E3" },
   active: { label: "Active in a sequence", short: "Active", hint: "In Apollo and live in at least one sequence right now.", color: "#0A66C2", bg: "#EAF3FC" },
   finished: { label: "Sequence ended, never reached", short: "Ended · not reached", hint: "Every sequence they were in has ended or paused, and Apollo records no conversation, reply or meeting. Ready to go again.", color: "#8A5A00", bg: "#FFF4DD" },
   reached: { label: "Sequence ended, reached", short: "Ended · reached", hint: "A sequence ended because they replied, were spoken to, booked, or opted out. Not a re-add.", color: "#5B3FC4", bg: "#EEEAFC" },
@@ -36,7 +38,7 @@ export const STATUS_META: Record<Status, { label: string; short: string; hint: s
   out: { label: "Not in Apollo", short: "Not in Apollo", hint: "Looked up in Apollo and not found — never added.", color: "#B5443B", bg: "#FBEAE8" },
   unchecked: { label: "Not checked yet", short: "Not checked", hint: "Not looked up in Apollo yet. Run a check to see where it stands.", color: "#4C6167", bg: "#EEF1F2" },
 };
-export const STATUS_ORDER: Status[] = ["active", "finished", "reached", "none", "out", "unchecked"];
+export const STATUS_ORDER: Status[] = ["account", "active", "finished", "reached", "none", "out", "unchecked"];
 /** The ones to act on: never reached, or never put into a sequence. */
 export const NEEDS: ReadonlySet<Status> = new Set(["finished", "none", "out"]);
 /** Never put in a sequence at all: not in Apollo, or in Apollo with no
@@ -123,7 +125,16 @@ function listRowFor(r: Row): ExportRow {
   };
 }
 
+// Per Jack: a deal or meeting on file means "we arent to reach out again and
+// the account manager should only". It outranks every Apollo state, so the
+// lead drops out of "needs a sequence" everywhere; its sequences stay on the
+// row so one still running shows up as something to pull out.
 function rowFor(l: StoredLead, index: RosterIndex | null): Row {
+  const r = apolloRowFor(l, index);
+  return engagementOf(l) ? { ...r, status: "account" } : r;
+}
+
+function apolloRowFor(l: StoredLead, index: RosterIndex | null): Row {
   if (l.apollo) {
     const seqs = l.apollo.sequences.map((s) => ({
       name: s.name, active: s.status === "active", status: s.status, step: s.step, addedAt: s.addedAt ?? "",
@@ -238,7 +249,7 @@ export default function ApolloStatus({
   }
 
   const counts = useMemo(() => {
-    const m: Record<Status, number> = { active: 0, finished: 0, reached: 0, none: 0, out: 0, unchecked: 0 };
+    const m: Record<Status, number> = { account: 0, active: 0, finished: 0, reached: 0, none: 0, out: 0, unchecked: 0 };
     for (const r of rows) m[r.status]++;
     return { ...m, needs: m.finished + m.none + m.out, noseq: m.none + m.out };
   }, [rows]);

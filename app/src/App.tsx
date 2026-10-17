@@ -61,6 +61,7 @@ import ApolloStatus from "./components/ApolloStatus";
 import ApolloSyncPanel from "./components/ApolloSyncPanel";
 import RateLimitNote from "./components/RateLimitNote";
 import { loadEmailChecks, saveEmailChecks, readVerifierFiles, indexChecks, type EmailCheck } from "./lib/deliverability";
+import { loadEngagements, parseEngagements, replaceEngagements, buildEngagementIndex, setEngagementIndex, type Engagement } from "./lib/engagements";
 import {
   applyStickyState, attachScanResultsToContacts, loadContactsFromDB,
   mergeContactsFromParsedFiles, persistContact, type Contact,
@@ -175,6 +176,26 @@ export default function App() {
     setEmailChecks((prev) => { const m = indexChecks(prev); r.checks.forEach((c) => m.set(c.email, c)); return [...m.values()]; });
     return r;
   }
+  // Deals and sales meetings from HubSpot, Notion and Echo (lib/engagements.ts).
+  // A lead that matches one is Account manager only.
+  const [engagements, setEngagements] = useState<Engagement[]>([]);
+  useEffect(() => { loadEngagements().then(setEngagements).catch(() => setEngagements([])); }, []);
+  async function importEngagementFiles(files: ParsedFile[]) {
+    let skipped = 0;
+    const rows: Engagement[] = [];
+    for (const f of files) {
+      const cols = f.fields?.length ? f.fields : Object.keys(f.data[0] ?? {});
+      const r = parseEngagements(cols, f.data as Record<string, unknown>[]);
+      rows.push(...r.rows); skipped += r.skipped;
+    }
+    const next = await replaceEngagements(engagements, rows);
+    setEngagements(next);
+    const bySource: Record<string, number> = {};
+    for (const e of rows) bySource[e.source] = (bySource[e.source] ?? 0) + 1;
+    return { imported: rows.length, skipped, bySource };
+  }
+  const engagementIndex = useMemo(() => buildEngagementIndex(engagements), [engagements]);
+  setEngagementIndex(engagementIndex);
   const [leadLists, setLeadLists] = useState<LeadList[]>([]);
   /** Every lead ever scanned, all three scanners. See lib/leadStore.ts. */
   const [leads, setLeads] = useState<StoredLead[]>([]);
@@ -201,7 +222,10 @@ export default function App() {
       setError(`Notes could not be refreshed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
-  const apolloIndex = useMemo(() => buildRosterIndex(apolloRoster, leads), [apolloRoster, leads]);
+  // engagementIndex is a dependency on purpose: every view keys its Apollo
+  // standing off this object, and a deal import must move leads into
+  // "Account manager only" without each view threading a second index.
+  const apolloIndex = useMemo(() => buildRosterIndex(apolloRoster, leads), [apolloRoster, leads, engagementIndex]); // eslint-disable-line react-hooks/exhaustive-deps
   setStatusRoster(apolloIndex);
   const leadsRef = useRef(leads);
   leadsRef.current = leads;
@@ -1086,6 +1110,8 @@ export default function App() {
             onAddToList={addExportRowsToLists}
             emailChecks={emailChecks}
             onImportVerifier={importVerifierFiles}
+            engagementCount={engagements.length}
+            onImportEngagements={importEngagementFiles}
             noteRefresh={noteRefresh}
             onRefreshNotes={() => void runNoteRefresh()}
           />
