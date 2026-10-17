@@ -963,12 +963,16 @@ export default function Scanner({
     if (!selected.size || !month) return;
     mutateResults((list) => list.filter((r) => selected.has(r.id)).map((r) => { r.priorityMonth = month; return r; }));
   }
+  // Per Jack: "need to be able to add to list from the scanner". The
+  // ticked rows when there are any, otherwise everything the table is
+  // showing right now (its filters, tab and search applied).
   function addSelectedToList() {
-    if (!selected.size || !results) return;
+    if (!results) return;
     const isNew = listPickerValue === "__new__";
     if (isNew && !newListName.trim()) return;
     if (!isNew && !listPickerValue) return;
-    const rows = results.filter((r) => selected.has(r.id));
+    const rows = selected.size ? results.filter((r) => selected.has(r.id)) : filtered;
+    if (!rows.length) return;
     const result = onAddSelectedToList(rows, isNew ? { newName: newListName } : { existingId: listPickerValue });
     if (!result) return;
     const skipped = rows.length - result.added;
@@ -1700,6 +1704,37 @@ export default function Scanner({
       ) : (
       <>
 
+      <div className="list-strip" role="group" aria-label="Add to list">
+        <span className="bulkbar-label">Add to list</span>
+        <select value={listPickerValue} onChange={(e) => setListPickerValue(e.target.value)} className="field" aria-label="Choose a list" style={{ maxWidth: 220 }}>
+          <option value="">Choose a list…</option>
+          {leadLists.map((l) => (
+            <option key={l.id} value={l.id}>{l.name} ({l.rows.length})</option>
+          ))}
+          <option value="__new__">+ New list…</option>
+        </select>
+        {listPickerValue === "__new__" && (
+          <input
+            type="text"
+            placeholder="List name"
+            aria-label="New list name"
+            value={newListName}
+            onChange={(e) => setNewListName(e.target.value)}
+            className="field"
+            style={{ width: 170 }}
+          />
+        )}
+        <button
+          onClick={addSelectedToList}
+          disabled={!listPickerValue || (listPickerValue === "__new__" && !newListName.trim()) || (!selected.size && !filtered.length)}
+          className="btn btn-sm btn-primary"
+          title={selected.size ? "Adds the ticked leads" : "Nothing ticked, so this adds every lead the table is showing"}
+        >
+          {selected.size ? `Add ${selected.size.toLocaleString()} selected` : `Add all ${filtered.length.toLocaleString()} shown`}
+        </button>
+        {listNotice && <span style={{ fontSize: 12, color: "var(--ink-2)" }}>{listNotice}</span>}
+      </div>
+
       {selected.size > 0 && (
         <div className="bulkbar">
           <span className="bulkbar-count">{selected.size} lead{selected.size === 1 ? "" : "s"} selected</span>
@@ -1739,33 +1774,6 @@ export default function Scanner({
           <button onClick={() => setPriorityForSelected(false)} className="btn btn-sm btn-secondary">Unmark</button>
           <input type="month" value={bulkPriorityMonth} onChange={(e) => setBulkPriorityMonth(e.target.value)} className="field" />
           <button onClick={() => setPriorityMonthForSelected(bulkPriorityMonth)} className="btn btn-sm btn-secondary">Apply month</button>
-          <div className="bulkbar-divider" />
-          <span className="bulkbar-label">Add to list</span>
-          <select value={listPickerValue} onChange={(e) => setListPickerValue(e.target.value)} className="field" style={{ maxWidth: 160 }}>
-            <option value="">Choose a list…</option>
-            {leadLists.map((l) => (
-              <option key={l.id} value={l.id}>{l.name} ({l.rows.length})</option>
-            ))}
-            <option value="__new__">+ New list…</option>
-          </select>
-          {listPickerValue === "__new__" && (
-            <input
-              type="text"
-              placeholder="List name"
-              value={newListName}
-              onChange={(e) => setNewListName(e.target.value)}
-              className="field"
-              style={{ width: 130 }}
-            />
-          )}
-          <button
-            onClick={addSelectedToList}
-            disabled={!listPickerValue || (listPickerValue === "__new__" && !newListName.trim())}
-            className="btn btn-sm btn-primary"
-          >
-            Add
-          </button>
-          {listNotice && <span style={{ fontSize: 12, color: "#3A4B8C" }}>{listNotice}</span>}
           <div className="toolbar-spacer" />
           <button onClick={() => { setSelected(new Set()); setListNotice(null); }} className="btn btn-sm btn-ghost" style={{ textDecoration: "underline" }}>Clear selection</button>
         </div>

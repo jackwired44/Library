@@ -2521,3 +2521,31 @@ details.panel.fold[open] > summary.fold-head::before { content: "▾"; }
   padding: 2px 8px; border-radius: 6px; border: 1px solid var(--line);
   background: var(--bg-subtle); white-space: nowrap;
 }
+
+/* Main Scanner: always-visible Add to list strip above the table. */
+.list-strip {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 12px; margin: 8px 0;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--bg-subtle);
+}
+
+/* Name-the-file box in front of every download (lib/csv.ts). */
+.name-file-backdrop {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(16, 24, 40, 0.35);
+  display: grid; place-items: center; padding: 16px;
+}
+.name-file {
+  width: min(460px, 100%);
+  background: var(--bg-surface); color: var(--ink-1);
+  border: 1px solid var(--line-strong); border-radius: 12px;
+  box-shadow: var(--sh-lg, 0 10px 30px rgba(0,0,0,.2));
+  padding: 16px; display: flex; flex-direction: column; gap: 12px;
+}
+.name-file-title { font-weight: 600; font-size: 14px; }
+.name-file-row { display: flex; align-items: center; gap: 6px; }
+.name-file-input { flex: 1; min-width: 0; }
+.name-file-ext { font-family: var(--mono, monospace); font-size: 12px; color: var(--ink-3); }
+.name-file-skip { font-size: 12px; color: var(--ink-3); display: flex; gap: 6px; align-items: center; }
+.name-file-actions { display: flex; justify-content: flex-end; gap: 8px; }

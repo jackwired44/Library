@@ -41,6 +41,8 @@ const csv=buildCsv();
   const b=await chromium.launch({executablePath:EXE});
   const ctx=await b.newContext({viewport:{width:1500,height:1000},acceptDownloads:true});
   const page=await ctx.newPage();
+  // Downloads go straight through; the name box is tested in download-name-live.
+  await page.addInitScript(() => { try { localStorage.setItem('askFileName', '0'); } catch { /* ignore */ } });
   // Scanner2 folds its fine print behind Details; open it so this suite
   // can read the reconciliation, renewal and phone lines it checks.
   await page.addInitScript(() => { try { localStorage.setItem('scanDetailsOpen', '1'); } catch {} });

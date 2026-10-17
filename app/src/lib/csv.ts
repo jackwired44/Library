@@ -44,6 +44,63 @@ async function saveViaClaudeDownloads(fileName: string, text: string): Promise<b
   }
 }
 
+export const ASK_FILE_NAME_KEY = "askFileName";
+
+/** Per Jack: "need to be able to name the csv before i download and export
+ *  the file". Every download goes through downloadBlob, so the name box
+ *  lives here once: pre-filled with the suggested name, Enter downloads,
+ *  Esc cancels. "Don't ask again" is a per-browser preference. The
+ *  extension is kept if it is typed away, and characters a filename cannot
+ *  carry are replaced. */
+export function cleanFileName(typed: string, suggested: string): string {
+  const ext = (suggested.match(/\.[a-z0-9]{2,5}$/i) || [""])[0];
+  let name = typed.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, "-").replace(/\s+/g, " ").trim();
+  if (!name) return suggested;
+  if (ext && !name.toLowerCase().endsWith(ext.toLowerCase())) name += ext;
+  return name;
+}
+
+function chooseFileName(suggested: string): Promise<string | null> {
+  if (typeof document === "undefined") return Promise.resolve(suggested);
+  try { if (localStorage.getItem(ASK_FILE_NAME_KEY) === "0") return Promise.resolve(suggested); } catch { /* ask */ }
+  return new Promise((resolve) => {
+    const ext = (suggested.match(/\.[a-z0-9]{2,5}$/i) || [""])[0];
+    const wrap = document.createElement("div");
+    wrap.className = "name-file-backdrop";
+    wrap.innerHTML = `
+      <div class="name-file" role="dialog" aria-modal="true" aria-label="Name the file">
+        <div class="name-file-title">Name the file</div>
+        <label class="name-file-row"><input class="field name-file-input" aria-label="File name" /><span class="name-file-ext"></span></label>
+        <label class="name-file-skip"><input type="checkbox" aria-label="Don't ask again" /> Don't ask again, use the suggested name</label>
+        <div class="name-file-actions">
+          <button type="button" class="btn btn-sm btn-ghost" data-act="cancel">Cancel</button>
+          <button type="button" class="btn btn-sm btn-primary" data-act="ok">Download</button>
+        </div>
+      </div>`;
+    const input = wrap.querySelector<HTMLInputElement>(".name-file-input")!;
+    input.value = ext ? suggested.slice(0, -ext.length) : suggested;
+    wrap.querySelector<HTMLElement>(".name-file-ext")!.textContent = ext;
+    const skip = wrap.querySelector<HTMLInputElement>(".name-file-skip input")!;
+    const done = (ok: boolean) => {
+      if (ok && skip.checked) { try { localStorage.setItem(ASK_FILE_NAME_KEY, "0"); } catch { /* preference only */ } }
+      wrap.remove();
+      resolve(ok ? cleanFileName(input.value, suggested) : null);
+    };
+    wrap.addEventListener("click", (e) => {
+      const act = (e.target as HTMLElement).closest("[data-act]")?.getAttribute("data-act");
+      if (act === "ok") done(true);
+      else if (act === "cancel" || e.target === wrap) done(false);
+    });
+    wrap.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); done(true); }
+      else if (e.key === "Escape") { e.preventDefault(); done(false); }
+    });
+    document.body.appendChild(wrap);
+    input.focus();
+    input.select();
+  });
+}
+
 /**
  * Deliberately NO byte-order mark.
  *
@@ -54,7 +111,9 @@ async function saveViaClaudeDownloads(fileName: string, text: string): Promise<b
  * functional risk to a live Apollo import, traded against a cosmetic one.
  * Not worth it — the file stays plain UTF-8.
  */
-export async function downloadBlob(text: string, fileName: string, mime = "text/csv;charset=utf-8;"): Promise<void> {
+export async function downloadBlob(text: string, suggested: string, mime = "text/csv;charset=utf-8;"): Promise<void> {
+  const fileName = await chooseFileName(suggested);
+  if (!fileName) return; // cancelled in the name box
   if (await saveViaClaudeDownloads(fileName, text)) return;
   if (typeof window !== "undefined" && window.claude?.use) {
     // Inside a claude.ai viewer, but the save genuinely failed (not a

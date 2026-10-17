@@ -55,6 +55,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   const ctx = await b.newContext({ viewport: { width: 1600, height: 950 } });
   await ctx.addInitScript(FAKE);
   const page = await ctx.newPage();
+  // Downloads go straight through; the name box is tested in download-name-live.
+  await page.addInitScript(() => { try { localStorage.setItem('askFileName', '0'); } catch { /* ignore */ } });
   const errs = [];
   page.on('pageerror', e => errs.push('PAGEERROR ' + e.message));
   page.on('dialog', d => d.accept());

@@ -31,6 +31,8 @@ const smcCsv = [HEAD.join(',')].concat(samples.map((d, i) => [
   const b = await chromium.launch({ executablePath: EXE });
   const ctx = await b.newContext({ viewport: { width: 1500, height: 1000 }, acceptDownloads: true });
   const page = await ctx.newPage();
+  // Downloads go straight through; the name box is tested in download-name-live.
+  await page.addInitScript(() => { try { localStorage.setItem('askFileName', '0'); } catch { /* ignore */ } });
   const errs = [];
   page.on('pageerror', e => errs.push('PAGEERROR ' + e.message));
   page.on('console', m => { if (m.type() === 'error' && !/favicon|font|net::|googleapis|Failed to load/i.test(m.text())) errs.push('CONSOLE ' + m.text()); });

@@ -6700,3 +6700,18 @@ with the time … and date".
   Diagnostics, Cheat Sheet, Platform notes) are nav-style now; same
   handlers and aria-labels. Styles: "SHELL v2" block at the end of
   styles.css.
+
+### 2026-10-17: Add to list on the Main Scanner, name every download (scanner-platform-v29)
+
+- **Main Scanner "Add to list" is always on screen** above the table (it was
+  only inside the bulk bar after ticking rows). Ticked rows when there are
+  any, else "Add all N shown" (the table's filters applied). Moved out of
+  the bulk bar so it exists once. Suite `scanner-add-to-list` (9).
+- **Every download asks for a file name first** (per Jack: "name the csv
+  before i download"). `downloadBlob` (`lib/csv.ts`) opens a small in-page
+  box pre-filled with the suggested name: Enter downloads, Esc/Cancel
+  downloads nothing, the extension is kept and unsafe characters replaced
+  (`cleanFileName`). "Don't ask again" stores localStorage `askFileName=0`.
+  In-page DOM rather than `window.prompt`, which a sandboxed frame can
+  block. The seven download suites set `askFileName=0` via addInitScript;
+  suite `download-name-live` (7) tests the box.
