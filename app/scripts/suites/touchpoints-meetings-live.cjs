@@ -81,7 +81,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   const ctx = await b.newContext({ viewport: { width: 1700, height: 950 } });
   await ctx.addInitScript(FAKE);
   const page = await ctx.newPage();
-  await page.addInitScript(() => { try { localStorage.setItem('askFileName', '0'); } catch { /* ignore */ } });
+  await page.addInitScript(() => { try { localStorage.setItem('skipFileNameBox', '1'); } catch { /* ignore */ } });
   const errs = [];
   page.on('pageerror', e => errs.push(e.message));
   page.on('dialog', d => d.accept());

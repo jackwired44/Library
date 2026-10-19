@@ -44,12 +44,17 @@ async function saveViaClaudeDownloads(fileName: string, text: string): Promise<b
   }
 }
 
-export const ASK_FILE_NAME_KEY = "askFileName";
+/** Test harness only: set to "1" to skip the name box. There is no way to
+ *  set it from the page. Per Jack: "need to be able to rename the csv when
+ *  i download it" — an old "Don't ask again" tick (key "askFileName") had
+ *  silently switched the box off for good, so the option is gone and the
+ *  old key is ignored. */
+export const ASK_FILE_NAME_KEY = "skipFileNameBox";
 
 /** Per Jack: "need to be able to name the csv before i download and export
  *  the file". Every download goes through downloadBlob, so the name box
  *  lives here once: pre-filled with the suggested name, Enter downloads,
- *  Esc cancels. "Don't ask again" is a per-browser preference. The
+ *  Esc cancels. It asks every time. The
  *  extension is kept if it is typed away, and characters a filename cannot
  *  carry are replaced. */
 export function cleanFileName(typed: string, suggested: string): string {
@@ -62,7 +67,7 @@ export function cleanFileName(typed: string, suggested: string): string {
 
 function chooseFileName(suggested: string): Promise<string | null> {
   if (typeof document === "undefined") return Promise.resolve(suggested);
-  try { if (localStorage.getItem(ASK_FILE_NAME_KEY) === "0") return Promise.resolve(suggested); } catch { /* ask */ }
+  try { if (localStorage.getItem(ASK_FILE_NAME_KEY) === "1") return Promise.resolve(suggested); } catch { /* ask */ }
   return new Promise((resolve) => {
     const ext = (suggested.match(/\.[a-z0-9]{2,5}$/i) || [""])[0];
     const wrap = document.createElement("div");
@@ -71,7 +76,6 @@ function chooseFileName(suggested: string): Promise<string | null> {
       <div class="name-file" role="dialog" aria-modal="true" aria-label="Name the file">
         <div class="name-file-title">Name the file</div>
         <label class="name-file-row"><input class="field name-file-input" aria-label="File name" /><span class="name-file-ext"></span></label>
-        <label class="name-file-skip"><input type="checkbox" aria-label="Don't ask again" /> Don't ask again, use the suggested name</label>
         <div class="name-file-actions">
           <button type="button" class="btn btn-sm btn-ghost" data-act="cancel">Cancel</button>
           <button type="button" class="btn btn-sm btn-primary" data-act="ok">Download</button>
@@ -80,9 +84,7 @@ function chooseFileName(suggested: string): Promise<string | null> {
     const input = wrap.querySelector<HTMLInputElement>(".name-file-input")!;
     input.value = ext ? suggested.slice(0, -ext.length) : suggested;
     wrap.querySelector<HTMLElement>(".name-file-ext")!.textContent = ext;
-    const skip = wrap.querySelector<HTMLInputElement>(".name-file-skip input")!;
     const done = (ok: boolean) => {
-      if (ok && skip.checked) { try { localStorage.setItem(ASK_FILE_NAME_KEY, "0"); } catch { /* preference only */ } }
       wrap.remove();
       resolve(ok ? cleanFileName(input.value, suggested) : null);
     };

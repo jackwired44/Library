@@ -55,7 +55,7 @@ const notesOf = async page => (await page.locator('tbody tr').allInnerTexts());
   const b = await chromium.launch({ executablePath: EXE });
   const page = await (await b.newContext({ viewport: { width: 1440, height: 950 } })).newPage();
   // Downloads go straight through; the name box is tested in download-name-live.
-  await page.addInitScript(() => { try { localStorage.setItem('askFileName', '0'); } catch { /* ignore */ } });
+  await page.addInitScript(() => { try { localStorage.setItem('skipFileNameBox', '1'); } catch { /* ignore */ } });
   // Scanner2 folds its fine print behind Details; open it so this suite
   // can read the reconciliation, renewal and phone lines it checks.
   await page.addInitScript(() => { try { localStorage.setItem('scanDetailsOpen', '1'); } catch {} });

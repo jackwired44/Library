@@ -6779,3 +6779,11 @@ steps or values are stored here; only the match and a link back.
   (month key `2026-04~`, date-range 2026-04-30), never under its upload
   month and never with a made-up day. Sheet 1–9 is ignored (Excel default
   names). Suite `sheet-dates-live`.
+
+### 2026-10-19: the file-name box always asks (scanner-platform-v29)
+
+Per Jack: "need to be able to rename the csv when i download it in the
+scanner". The box existed, but its "Don't ask again" tick switched it off
+for good with no way back. The tick is gone and the old `askFileName` key is
+ignored, so every download asks. Test harnesses skip it with localStorage
+`skipFileNameBox=1` (not settable from the page).

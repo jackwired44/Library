@@ -51,12 +51,17 @@ const ok = (name, cond, detail = '') => { if (cond) { pass++; console.log('  ✓
   const [d1] = await Promise.all([page.waitForEvent('download', { timeout: 20000 }), input.press('Enter')]);
   ok('  Enter downloads under the typed name, made safe, .csv kept', d1.suggestedFilename() === 'Jack picks- Oct 17.csv', d1.suggestedFilename());
 
+  // Per Jack: "need to be able to rename the csv when i download it". It
+  // asks every time; there is no way to switch it off from the page.
+  await page.evaluate(() => localStorage.setItem('askFileName', '0'));
   await dl.click(); await sleep(300);
-  await box.locator('input[aria-label="Don\'t ask again"]').check();
+  ok('  there is no "Don\'t ask again" to switch it off', await box.count() === 1 && await box.locator('input[type=checkbox]').count() === 0);
+  ok('  an old "don\'t ask" setting no longer hides it', await box.count() === 1);
   const [d2] = await Promise.all([page.waitForEvent('download', { timeout: 20000 }), box.locator('button', { hasText: 'Download' }).click()]);
-  ok('  Download with "Don\'t ask again" uses the suggested name', d2.suggestedFilename() === suggested + '.csv', d2.suggestedFilename());
-  const [d3] = await Promise.all([page.waitForEvent('download', { timeout: 20000 }), dl.click()]);
-  ok('  and the next download skips the box', await box.count() === 0 && /\.csv$/.test(d3.suggestedFilename()), d3.suggestedFilename());
+  ok('  Download with the name untouched uses the suggested name', d2.suggestedFilename() === suggested + '.csv', d2.suggestedFilename());
+  await dl.click(); await sleep(300);
+  ok('  and the next download asks again', await box.count() === 1);
+  await box.locator('button', { hasText: 'Cancel' }).click(); await sleep(200);
   ok('no page errors', errs.length === 0, errs.join(' | '));
 
   await browser.close();
