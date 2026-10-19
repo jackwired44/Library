@@ -33,6 +33,7 @@ import {
   SIZE_BUCKETS, employeeCountOf, normalizeCompanyKey, profileForCompany, type CompanyProfile,
 } from "../lib/companyProfiles";
 import LeadDetail from "./LeadDetail";
+import { DEFAULT_RECYCLE_RULES, RECYCLE_FLOW, RECYCLE_META, recycleLabel, recycleOf, type RecycleRules } from "../lib/recycle";
 import {
   STATUS_META, STATUS_ORDER, statusOf, wasReached,
   VERDICT_META, VERDICT_ORDER, verdictOf, type Verdict,
@@ -229,6 +230,7 @@ const ALL_LEADS_PARTS = [
   { id: "col-meetings", group: "Table columns", label: "Meetings" },
   { id: "col-inapollo", group: "Table columns", label: "In Apollo" },
   { id: "col-touches", group: "Table columns", label: "Touchpoints" },
+  { id: "col-recycle", group: "Table columns", label: "Recycle" },
   { id: "col-outreach", group: "Table columns", label: "Outreach" },
   { id: "col-disposition", group: "Table columns", label: "Disposition" },
   { id: "col-sequence", group: "Table columns", label: "Sequence" },
@@ -246,8 +248,10 @@ export default function AllLeads({
   sequenceNames = [], onSetPlan, onSetStatus, funnels = [], initialStatus, initialPreset,
   apolloIndex = null, rosterPulledAt = "", onPullApollo, onCheckLeads, lists = [], onAddToList,
   emailChecks = [], onImportVerifier, noteRefresh = null, onRefreshNotes,
-  engagementCount = 0, onImportEngagements,
+  engagementCount = 0, onImportEngagements, recycleRules = DEFAULT_RECYCLE_RULES,
 }: {
+  /** Recycle rules — see lib/recycle.ts. */
+  recycleRules?: RecycleRules;
   /** Deals and meetings on file — see lib/engagements.ts. */
   engagementCount?: number;
   onImportEngagements?: (files: ParsedFile[]) => Promise<{ imported: number; skipped: number; bySource: Record<string, number> }>;
@@ -1560,6 +1564,7 @@ export default function AllLeads({
               <th data-col="meetings" title="A deal or sales meeting on file in HubSpot, Notion or Echo. These are Account manager only: not to be reached out to again.">Meetings</th>
               <th data-col="inapollo" title="Already a contact in Apollo — from your pulled uploads or a sync">In Apollo</th>
               <th data-col="touches" className="num" title="Calls and emails Apollo has logged to this lead">Touchpoints</th>
+              <th data-col="recycle" title="When an unanswered or not-interested lead comes back for a new sequence — see the Recycle tab">Recycle</th>
               <th data-col="outreach" title="Has anyone got through? From the Apollo sync.">Outreach</th>
               <th data-col="disposition" title="The latest call disposition in Apollo">Disposition</th>
               <th data-col="sequence" title="The Apollo sequence this lead is in, from the last sync">Sequence</th>
@@ -1573,6 +1578,7 @@ export default function AllLeads({
               const a = l.apollo;
               const co = companyStats.get(d.companyKey);
               const cm = CONTACT_META[d.contact];
+              const rc = recycleOf(l, recycleRules);
               const seq = a?.sequences[0];
               const total = seq ? stepsInSequence(funnels, seq.name) : null;
               return (
@@ -1633,6 +1639,12 @@ export default function AllLeads({
                       )}
                     </>}
                   </td>
+                  <td data-col="recycle" title={RECYCLE_META[rc.stage].hint}>
+                    {RECYCLE_FLOW.includes(rc.stage)
+                      ? <><span className="pill" style={{ color: RECYCLE_META[rc.stage].color, background: RECYCLE_META[rc.stage].bg }}>{RECYCLE_META[rc.stage].label}</span>
+                          {rc.recycleOn && rc.stage === "resting" && <div className="muted" style={{ fontSize: 11 }}>{recycleLabel(rc)}</div>}</>
+                      : <span className="muted" style={{ fontSize: 12 }}>{rc.stage === "building" ? rc.reason : "—"}</span>}
+                  </td>
                   <td data-col="outreach" title={`${cm.hint}${a ? `\n${a.callCount} call${a.callCount === 1 ? "" : "s"}${a.emailCount !== undefined ? ` · ${a.emailCount} email${a.emailCount === 1 ? "" : "s"}` : ""}` : ""}`}>
                     <span className="pill" style={{ color: cm.color, background: cm.bg }}>{cm.label}</span>
                   </td>
@@ -1664,7 +1676,7 @@ export default function AllLeads({
               );
             })}
             {shown.length === 0 && (
-              <tr><td colSpan={14} style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}>
+              <tr><td colSpan={15} style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}>
                 No leads match these filters. <button className="btn btn-sm btn-ghost" onClick={clearAll}>Clear all</button>
               </td></tr>
             )}
@@ -1719,6 +1731,7 @@ export default function AllLeads({
             onNext={i >= 0 && i < filtered.length - 1 ? () => go(i + 1) : undefined}
             position={i >= 0 ? `${(i + 1).toLocaleString()} of ${filtered.length.toLocaleString()}` : undefined}
             onCheckApollo={onCheckLeads ? () => runCheck([openLead]) : undefined}
+            recycleRules={recycleRules}
             checkingApollo={checking}
             funnels={funnels}
             companyLeads={(() => {

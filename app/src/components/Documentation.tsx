@@ -18,6 +18,7 @@ import { SMC_PRODUCTS, DEFAULT_SMC_SCORE_RULES, DEFAULT_SMC_WEIGHTS, SMC_FACTOR_
  */
 import { ENGAGEMENT_SOURCES, ENGAGEMENT_SOURCE_META } from "../lib/engagements";
 import { STATUS_META as APOLLO_STANDING } from "./ApolloStatus";
+import { DEFAULT_RECYCLE_RULES, RECYCLE_FLOW, RECYCLE_META } from "../lib/recycle";
 
 export default function Documentation() {
   const [open, setOpen] = useState<string>("compare");
@@ -512,6 +513,23 @@ export default function Documentation() {
           </p>
         </>
       ), "Calls and emails per lead, and who the account manager owns")}
+      {sec("recycle", "Recycle queue", (
+        <>
+          <p style={{ margin: 0 }}>
+            A lead never reached after {DEFAULT_RECYCLE_RULES.attempts} unanswered calls (no answer, voicemail, gatekeeper),
+            with no live sequence, comes back {DEFAULT_RECYCLE_RULES.restDays} days after the last attempt. A Not interested
+            comes back after {DEFAULT_RECYCLE_RULES.notInterestedMonths} months. These are the defaults; change them in All
+            leads → Recycle → Rules or in Settings. Read from Apollo's call history; a lead with none is Not checked.
+          </p>
+          <H>The workflow</H>
+          <Table head={["Stage", "What it means"]} rows={RECYCLE_FLOW.map((k) => [RECYCLE_META[k].label, RECYCLE_META[k].hint])} />
+          <p style={{ margin: "8px 0 0" }}>
+            Download for Apollo hands over a CSV shaped for a contact import (it updates the existing contact by email) and
+            moves those leads to Downloaded. Nothing is written to Apollo from here. Never recycled:{" "}
+            {RECYCLE_META.excluded.hint.replace(/\.$/, "").toLowerCase()}.
+          </p>
+        </>
+      ), `${DEFAULT_RECYCLE_RULES.attempts} unanswered, ${DEFAULT_RECYCLE_RULES.restDays} days rest`)}
       {sec("capacity", "Capacity and storage", (
         <>
           <H>Measured on the real 24 MB / 9,265-row CSP export</H>

@@ -89,6 +89,8 @@ import {
 import { enrichCompaniesViaApollo, type CompanyEnrichOutcome } from "./lib/apolloEnrich";
 import { pullTeamUploads, checkLeadsInApollo, applyCheckResults, type PullProgress, type CheckProgress } from "./lib/apolloLive";
 import type { SaveReport } from "./lib/saveReport";
+import Recycle from "./components/Recycle";
+import { countRecycle, loadRecycleRules, saveRecycleRules, type RecycleRules } from "./lib/recycle";
 import "./styles.css";
 
 export interface UploadedFile {
@@ -98,7 +100,7 @@ export interface UploadedFile {
 
 export type View =
   | "home" | "scanner" | "scanner2" | "scanner3" | "library" | "allleads"
-  | "queue" | "campaigns" | "history" | "lists" | "docs" | "diagnostics";
+  | "queue" | "recycle" | "campaigns" | "history" | "lists" | "docs" | "diagnostics";
 
 /** The three scanners, kept in their own collapsible sidebar section.
  *  Per Jack: "build the scanners into a drop down section on the left hand
@@ -584,6 +586,21 @@ export default function App() {
     });
   }
 
+  // The recycle queue — see lib/recycle.ts. The rules are a preference in
+  // this browser; the only thing stored on a lead is the download stamp.
+  const [recycleRules, setRecycleRules] = useState<RecycleRules>(() => loadRecycleRules());
+  const changeRecycleRules = (r: RecycleRules) => { setRecycleRules(r); saveRecycleRules(r); };
+  const markRecycleDownloaded = (keys: string[], on: boolean) => {
+    const now = new Date().toISOString();
+    updateLeads(keys, (l) => {
+      if (on) return { ...l, recycle: { downloadedAt: now } };
+      if (!l.recycle) return l;
+      const { recycle: _drop, ...rest } = l; void _drop;
+      return rest as StoredLead;
+    });
+  };
+  const recycleCounts = useMemo(() => countRecycle(leads, recycleRules), [leads, recycleRules, engagementIndex]);
+
   /** Hand-set a status, or null to give it back to the evidence. */
   const setLeadStatus = (keys: string[], status: LeadStatus | null) =>
     updateLeads(keys, (l) => withStatusOverride(l, status));
@@ -950,7 +967,7 @@ export default function App() {
               {g.items.map((item) => (
                 <button
                   key={item.key}
-                  className={`side-nav-btn${view === item.key || (item.key === "allleads" && (view === "library" || view === "queue")) || (item.key === "allleads" && view === "campaigns") ? " active" : ""}`}
+                  className={`side-nav-btn${view === item.key || (item.key === "allleads" && (view === "library" || view === "queue" || view === "recycle")) || (item.key === "allleads" && view === "campaigns") ? " active" : ""}`}
                   onClick={() => setView(item.key)}
                   title={item.label}
                 >
@@ -1047,6 +1064,7 @@ export default function App() {
             companyProfiles={companyProfiles}
             rules={routing}
             apolloIndex={apolloIndex}
+            recycle={{ ready: recycleCounts.by.ready, thisMonth: recycleCounts.thisMonth }}
             onNavigate={setView}
             onOpenStatus={(st) => { setLeadsStatusEntry(st); setLeadsSequenceEntry(""); setLeadsPresetEntry(""); setView("allleads"); }}
             onOpenPreset={(pr) => { setLeadsPresetEntry(pr); setLeadsStatusEntry(""); setLeadsSequenceEntry(""); setView("allleads"); }}
@@ -1064,7 +1082,7 @@ export default function App() {
           />
         )}
 
-        {(view === "allleads" || view === "library" || view === "campaigns" || view === "queue") && (
+        {(view === "allleads" || view === "library" || view === "campaigns" || view === "queue" || view === "recycle") && (
           // The Lead library lives inside All leads now. Per Jack: "re do
           // lead libary and build it into all leads". Every lead the
           // Library ever filed is already in the lead store, so the table
@@ -1076,6 +1094,9 @@ export default function App() {
             </button>
             <button role="tab" aria-selected={view === "queue"} className={`seg-btn${view === "queue" ? " active" : ""}`} onClick={() => setView("queue")}>
               Apollo standing
+            </button>
+            <button role="tab" aria-selected={view === "recycle"} className={`seg-btn${view === "recycle" ? " active" : ""}`} onClick={() => setView("recycle")}>
+              Recycle{recycleCounts.by.ready > 0 ? ` (${recycleCounts.by.ready.toLocaleString()} ready)` : ""}
             </button>
             <button role="tab" aria-selected={view === "campaigns"} className={`seg-btn${view === "campaigns" ? " active" : ""}`} onClick={() => setView("campaigns")}>
               Sequences{funnels.length > 0 ? ` (${funnels.length})` : ""}
@@ -1089,6 +1110,10 @@ export default function App() {
           // Per Jack: "push all leads and in apollo into one cleaner tab". The
           // Apollo standing view lives inside All leads now, one sidebar entry.
           <ApolloStatus leads={leads} apolloIndex={apolloIndex} rosterPulledAt={rosterPulledAt} onPullApollo={pullApollo} onCheckLeads={checkLeadsLive} lists={leadLists} onAddToList={addExportRowsToLists} />
+        )}
+        {view === "recycle" && (
+          <Recycle leads={leads} rules={recycleRules} onRulesChange={changeRecycleRules}
+                   onMarkDownloaded={markRecycleDownloaded} lists={leadLists} onAddToList={addExportRowsToLists} />
         )}
         {view === "allleads" && (
           <AllLeads
@@ -1112,6 +1137,7 @@ export default function App() {
             onImportVerifier={importVerifierFiles}
             engagementCount={engagements.length}
             onImportEngagements={importEngagementFiles}
+            recycleRules={recycleRules}
             noteRefresh={noteRefresh}
             onRefreshNotes={() => void runNoteRefresh()}
           />
@@ -1262,6 +1288,8 @@ export default function App() {
             onClose={() => setNotesPanelTab(null)}
             onSwitchToNotes={() => setNotesPanelTab("notes")}
             onSwitchToDispositions={() => setNotesPanelTab("dispositions")}
+            recycleRules={recycleRules}
+            onChangeRecycleRules={changeRecycleRules}
           />
         )
       )}

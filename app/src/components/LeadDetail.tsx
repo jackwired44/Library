@@ -14,6 +14,7 @@
 // status override and the target sequence. Everything else comes from the
 // scans and the Apollo sync, and an edit here would be overwritten by the
 // next upload of the same person.
+import { RECYCLE_FLOW, RECYCLE_META, recycleLabel, recycleOf, type RecycleRules } from "../lib/recycle";
 import { arrivalOf, PRE_MAY_2026_LABEL, SHEET_DATED_FROM } from "../lib/leadFiling";
 import { useEffect, useMemo, useState } from "react";
 import StatusPill from "./StatusPill";
@@ -126,8 +127,10 @@ function StepTrack({ funnel, step, status }: { funnel: ApolloFunnel | undefined;
 
 export default function LeadDetail({
   lead, companyProfiles, onClose, sequenceNames = [], onSetPlan, onSetStatus,
-  onPrev, onNext, position, funnels = [], companyLeads = [], onOpenLead, apolloIndex = null, onCheckApollo, checkingApollo,
+  onPrev, onNext, position, funnels = [], companyLeads = [], onOpenLead, apolloIndex = null, onCheckApollo, checkingApollo, recycleRules,
 }: {
+  /** For the one-line recycle read — see lib/recycle.ts. */
+  recycleRules?: RecycleRules;
   /** Who is in Apollo (sync + pulled uploads), for the summary's Apollo line. */
   apolloIndex?: RosterIndex | null;
   lead: StoredLead;
@@ -298,6 +301,18 @@ export default function LeadDetail({
                   <div style={{ fontSize: 11.5, opacity: 0.8, marginTop: 3 }}>Matched by {engaged.how}.</div>
                 </div>
               )}
+              {(() => {
+                const r = recycleOf(lead, recycleRules);
+                if (!RECYCLE_FLOW.includes(r.stage) && r.stage !== "building") return null;
+                const m = RECYCLE_META[r.stage];
+                return (
+                  <div aria-label="Recycle" style={{ marginTop: 10, fontSize: 13 }}>
+                    <span className="pill" style={{ color: m.color, background: m.bg }} title={m.hint}>{m.label}</span>{" "}
+                    {r.stage === "building" ? r.reason : [recycleLabel(r), r.why === "not-interested" ? "not interested" : `${r.unanswered} unanswered`,
+                      lead.recycle?.downloadedAt && (r.stage === "downloaded" || r.stage === "back") ? `downloaded ${lead.recycle.downloadedAt.slice(0, 10)}` : ""].filter(Boolean).join(" · ")}
+                  </div>
+                );
+              })()}
               <div aria-label="Lead summary" style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 14, marginTop: 12 }}>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 14 }}>
                   {fact("Signal", <>

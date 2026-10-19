@@ -157,6 +157,9 @@ export interface StoredLead {
   /** When a live Apollo lookup last checked this lead — set whether or not
    *  Apollo had them, so "not in Apollo" is a checked fact, not a gap. */
   apolloCheckedAt?: string;
+  /** The recycle queue — see lib/recycle.ts. Only the download is stored;
+   *  every other stage is derived from the Apollo call history. */
+  recycle?: { downloadedAt: string };
   /** A person's hand-set status. Wins over the derived one until cleared;
    *  absent means "let the evidence decide" — see lib/leadStatus.ts. */
   statusOverride?: StatusOverride;
@@ -238,7 +241,7 @@ export function leadKeyOfInput(i: { email?: unknown; contact?: unknown; company?
 /** A lead as a scanner hands it over, before it is keyed or merged. */
 export type LeadInput = Omit<
   StoredLead,
-  "key" | "firstSeenAt" | "lastSeenAt" | "sourceFiles" | "timesSeen" | "apollo" | "plan" | "statusOverride" | "fileSeen" | "noteDates" | "apolloCheckedAt"
+  "key" | "firstSeenAt" | "lastSeenAt" | "sourceFiles" | "timesSeen" | "apollo" | "plan" | "statusOverride" | "fileSeen" | "noteDates" | "apolloCheckedAt" | "recycle"
 > & {
   sourceFile: string;
   /** The note exactly as the CSV had it, before any scanner summarised it.

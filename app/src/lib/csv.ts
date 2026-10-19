@@ -113,10 +113,13 @@ function chooseFileName(suggested: string): Promise<string | null> {
  * functional risk to a live Apollo import, traded against a cosmetic one.
  * Not worth it — the file stays plain UTF-8.
  */
-export async function downloadBlob(text: string, suggested: string, mime = "text/csv;charset=utf-8;"): Promise<void> {
+/** Resolves true when the file was handed over, false when the name box
+ *  was cancelled or the save could not happen — so a caller that records
+ *  "downloaded" (the recycle queue) never records a download that wasn't. */
+export async function downloadBlob(text: string, suggested: string, mime = "text/csv;charset=utf-8;"): Promise<boolean> {
   const fileName = await chooseFileName(suggested);
-  if (!fileName) return; // cancelled in the name box
-  if (await saveViaClaudeDownloads(fileName, text)) return;
+  if (!fileName) return false; // cancelled in the name box
+  if (await saveViaClaudeDownloads(fileName, text)) return true;
   if (typeof window !== "undefined" && window.claude?.use) {
     // Inside a claude.ai viewer, but the save genuinely failed (not a
     // decline) — the classic <a download> fallback below is a guaranteed
@@ -139,7 +142,7 @@ export async function downloadBlob(text: string, suggested: string, mime = "text
         ? `Couldn't save "${fileName}". Try again, or run this app outside the preview (npm run dev) to download normally.`
         : `Downloads are turned off for this page, so "${fileName}" can't be saved.\n\nThis is a publish setting, not a bug in the file: the page needs republishing with the "downloads" capability restated. Nothing you can fix from here.`
     );
-    return;
+    return false;
   }
   const blob = new Blob([text], { type: mime });
   const url = URL.createObjectURL(blob);
@@ -150,6 +153,7 @@ export async function downloadBlob(text: string, suggested: string, mime = "text
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+  return true;
 }
 
 export async function downloadCSV(fileName: string, rows: Record<ExportLabel, string>[], columns: readonly ExportLabel[]): Promise<void> {

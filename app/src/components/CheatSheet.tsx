@@ -7,6 +7,8 @@
 // change the way a hand-copied description could.
 import { useState } from "react";
 import { ACTIVE_CATEGORY_KEYS, CATEGORY_META, SKU_CATALOGUE, DQ_RULES, type CategoryKey, type RuleOverrides } from "../lib/detection";
+import { RecycleRulesEditor } from "./Recycle";
+import type { RecycleRules } from "../lib/recycle";
 import { addCustomKeyword, removeCustomKeyword, setQualifyThreshold } from "../lib/ruleOverrides";
 
 interface CheatSheetProps {
@@ -19,9 +21,12 @@ interface CheatSheetProps {
   // before this shared shell existed.
   onSwitchToNotes?: () => void;
   onSwitchToDispositions?: () => void;
+  /** The recycle queue's rules — see lib/recycle.ts. */
+  recycleRules?: RecycleRules;
+  onChangeRecycleRules?: (r: RecycleRules) => void;
 }
 
-type SettingsPane = "rules" | "licensing" | "product" | "views" | "dq" | "dupes";
+type SettingsPane = "rules" | "licensing" | "product" | "views" | "dq" | "dupes" | "recycle";
 
 const PANES: { key: SettingsPane; label: string; hint: string }[] = [
   { key: "rules", label: "Hot signals", hint: "What auto-qualifies right now" },
@@ -30,9 +35,10 @@ const PANES: { key: SettingsPane; label: string; hint: string }[] = [
   { key: "views", label: "View tabs", hint: "Sub-filters inside a category" },
   { key: "dq", label: "Auto-DQ rules", hint: "What sends a lead to Bad Leads" },
   { key: "dupes", label: "Duplicates", hint: "How repeats are matched" },
+  { key: "recycle", label: "Recycle", hint: "When an unanswered lead comes back" },
 ];
 
-export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrides, onSwitchToNotes, onSwitchToDispositions }: CheatSheetProps) {
+export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrides, onSwitchToNotes, onSwitchToDispositions, recycleRules, onChangeRecycleRules }: CheatSheetProps) {
   const [pane, setPane] = useState<SettingsPane>("rules");
   return (
     <div className="settings-backdrop" onClick={onClose}>
@@ -291,6 +297,13 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
 
         <Section show={pane === "dupes"} title="Duplicates" blurb="How a repeated lead inside one upload is recognised.">
           <p>Exact match on full name + company, case and whitespace insensitive, no fuzzy matching. Scoped to the current import only — not checked against the Lead Library or History. The first row of a repeat group survives; the rest are merged into it and reported in the scan accounting line.</p>
+        </Section>
+
+        <Section show={pane === "recycle"} title="Recycle" blurb="When a lead that was worked and never answered comes back for a new sequence. Read from Apollo's call history; nothing is written to Apollo.">
+          {recycleRules && onChangeRecycleRules
+            ? <RecycleRulesEditor rules={recycleRules} onChange={onChangeRecycleRules} />
+            : <p>Open from the main app to change these.</p>}
+          <p style={{ marginTop: 10 }}>Unanswered means no answer, voicemail or gatekeeper. A lead never reached, with at least that many unanswered calls and no live sequence, comes back after the rest period. Not interested comes back after the months set. Never recycled: account manager only, do not contact, wrong number, meeting booked, Bad Leads, anyone reached, anyone in a live sequence.</p>
         </Section>
           </div>
         </div>

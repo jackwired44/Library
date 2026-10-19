@@ -109,6 +109,8 @@ const HOME_WIDGETS = [
   { id: "k-inapollo", group: "Numbers", label: "In Apollo" },
   { id: "k-insequence", group: "Numbers", label: "In a sequence now" },
   { id: "k-reached", group: "Numbers", label: "Reached" },
+  { id: "k-recycle", group: "Numbers", label: "Ready to recycle" },
+  { id: "k-recycle-month", group: "Numbers", label: "Recycling later this month" },
   { id: "c-weekly", group: "Charts", label: "Leads received per week" },
   { id: "c-status", group: "Charts", label: "Where every lead stands" },
   { id: "c-contact", group: "Charts", label: "Contact coverage" },
@@ -124,8 +126,10 @@ type WidgetId = (typeof HOME_WIDGETS)[number]["id"];
 const HIDDEN_KEY = "homeHiddenWidgets";
 
 export default function Overview({
-  leads, funnels, historyEntries, companyProfiles, rules, onNavigate, onOpenStatus, onOpenPreset, apolloIndex = null, topPanel,
+  leads, funnels, historyEntries, companyProfiles, rules, onNavigate, onOpenStatus, onOpenPreset, apolloIndex = null, topPanel, recycle,
 }: {
+  /** Recycle queue counts — see lib/recycle.ts. */
+  recycle?: { ready: number; thisMonth: number };
   /** Who is in Apollo (sync + pulled uploads) — see lib/apolloRoster.ts. */
   apolloIndex?: RosterIndex | null;
   leads: StoredLead[];
@@ -389,6 +393,10 @@ export default function Overview({
             {show("k-reached") && <KpiTile label="Reached" value={synced ? compact(m.reached) : "—"} tone={synced ? undefined : "muted"}
                      sub={synced ? `${m.meetings.toLocaleString()} meeting${m.meetings === 1 ? "" : "s"} booked` : "needs an Apollo sync"}
                      onClick={() => onOpenStatus("reached")} />}
+            {recycle && show("k-recycle") && <KpiTile label="Ready to recycle" value={compact(recycle.ready)}
+                     sub="unanswered, rested, ready for a new sequence" onClick={() => onNavigate("recycle")} />}
+            {recycle && show("k-recycle-month") && <KpiTile label="Recycling later this month" value={compact(recycle.thisMonth)}
+                     sub="still resting, back before the month ends" onClick={() => onNavigate("recycle")} />}
           </div>
 
           <div className="viz-grid">

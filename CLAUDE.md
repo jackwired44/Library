@@ -6787,3 +6787,34 @@ scanner". The box existed, but its "Don't ask again" tick switched it off
 for good with no way back. The tick is gone and the old `askFileName` key is
 ignored, so every download asks. Test harnesses skip it with localStorage
 `skipFileNameBox=1` (not settable from the page).
+
+### 2026-10-19: Recycle queue — a workflow for unanswered leads (scanner-platform-v29)
+
+Per Jack: "see when a lead that hasnt been contacted should be recontacted
+after x amount of unanswered attempts so i can recycle it down the road",
+then "itll sit in a queue where i can then re download those ones and assign
+them to a sequence in apollo … unless i can just build a manageable workflow
+here that i can see". Rules he set: **3 unanswered attempts, 22 days rest,
+Not interested comes back after 6 months** (editable; localStorage
+`recycleRules`, ignored if blank or 0).
+- `lib/recycle.ts`, `recycleOf(lead, rules)`, derived like lead status. The
+  workflow is **Resting → Ready → Downloaded → Back in a sequence**.
+  Unanswered = no answer / voicemail / gatekeeper (wrong number is dead, not
+  unanswered). It needs Apollo call history (a live check or sync); with none
+  the lead is **Not checked**, never guessed. Outside the queue: Fewer
+  attempts, Being worked (live sequence, or reached someone other than not
+  interested), Not recycled (account manager only, do not contact, wrong
+  number, meeting booked, Bad Leads).
+- **Apollo stays read-only.** The hand-off is a CSV ("Download for Apollo",
+  shaped for a contact import that updates the existing contact by email).
+  Downloading stamps `lead.recycle.downloadedAt`, the only stored field. The
+  next Apollo check that shows a live sequence moves the lead to Back in a
+  sequence. If Apollo logs a newer attempt, the stamp is history and the
+  lead goes back to Resting with a new date. `downloadBlob` now returns
+  whether the file was handed over, so a cancelled name box never stamps.
+- Where it shows: All leads → **Recycle** sub-tab (stage tiles, table,
+  download, "Back to Ready", add to list, rules), a Recycle column in All
+  leads (in Customize), Home tiles "Ready to recycle" and "Recycling later
+  this month", one line on the lead record, and a Recycle pane in Cheat
+  Sheet settings.
+- Suites: `recycle` (27), `recycle-live` (22).
