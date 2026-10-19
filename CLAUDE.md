@@ -6842,7 +6842,15 @@ active high level view like a dash or chart of where it went".
   the browser that uploaded it (IndexedDB), so Carly opening the link on her
   machine sees an empty platform. Real per-rep access needs a shared backend
   (see Access & ownership); that is Jack's call.
-- Suite `reps-live` (19).
+- **Each rep's sequences** (per Jack: "need to have associated sequences
+  fall there for carly and jack"): every sequence carrying the rep's name,
+  from the main sequences list, imported funnels, the pulled Apollo uploads
+  and the leads' own sequences, even at zero leads; main sequences first in
+  `MAIN_SEQUENCES` order. Columns: steps (from a funnel), In Apollo / Active
+  in Apollo (every pulled contact in it, stored lead or not), our leads,
+  active now, reached, meetings. Click a sequence to filter the rep's lead
+  table to it. Unassigned lists sequences named for neither rep.
+- Suite `reps-live` (24).
 
 ### 2026-10-19: raw notes locked behind the password (scanner-platform-v29)
 

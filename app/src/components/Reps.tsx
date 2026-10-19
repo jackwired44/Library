@@ -17,7 +17,9 @@ import { REPS, UNASSIGNED, ownersOfLead } from "../lib/reps";
 import { recycleOf, type RecycleRules } from "../lib/recycle";
 import { stripSnippetPrefix } from "../lib/detection";
 import { toCSV, downloadBlob } from "../lib/csv";
-import { apolloHitFor } from "../lib/apolloRoster";
+import { apolloHitFor, type ApolloRosterEntry } from "../lib/apolloRoster";
+import type { ApolloFunnel } from "../lib/apolloFunnel";
+import { MAIN_SEQUENCES } from "./ApolloStatus";
 
 const REP_KEY = "repView";
 const PAGE = 50;
@@ -66,15 +68,20 @@ function Bar({ label, n, of, color, onClick, active }: { label: string; n: numbe
   );
 }
 
-export default function Reps({ leads, apolloIndex, recycleRules }: {
+export default function Reps({ leads, apolloIndex, recycleRules, roster = [], funnels = [] }: {
+  /** Every pulled Apollo contact — for the sequences' "In Apollo" counts. */
+  roster?: ApolloRosterEntry[];
+  /** Imported sequence funnels — for step counts. */
+  funnels?: ApolloFunnel[];
   leads: StoredLead[];
   apolloIndex: RosterIndex | null;
   recycleRules: RecycleRules;
 }) {
   const [rep, setRepState] = useState<string>(() => { try { return localStorage.getItem(REP_KEY) || "Carly"; } catch { return "Carly"; } });
-  const setRep = (r: string) => { setRepState(r); setStatusF("all"); setPage(0); try { localStorage.setItem(REP_KEY, r); } catch { /* preference only */ } };
+  const setRep = (r: string) => { setRepState(r); setStatusF("all"); setSeqF(""); setPage(0); try { localStorage.setItem(REP_KEY, r); } catch { /* preference only */ } };
   const [statusF, setStatusF] = useState<LeadStatus | "all">("all");
   const [q, setQ] = useState("");
+  const [seqF, setSeqF] = useState("");
   const [page, setPage] = useState(0);
 
   const rows: Row[] = useMemo(() => leads.map((l) => {
@@ -108,30 +115,56 @@ export default function Reps({ leads, apolloIndex, recycleRules }: {
     return m;
   }, [mine]);
 
+  // Per Jack: "for rep page need to have associated sequences fall there for
+  // carly and jack". Every sequence carrying the rep's name is listed, from
+  // anywhere the platform has seen it (the main sequences, imported funnels,
+  // the pulled Apollo uploads, the leads' own sequences), even at zero
+  // leads. "In Apollo" counts every pulled contact in it, not only the
+  // contacts that are stored leads here.
   const bySequence = useMemo(() => {
-    const m = new Map<string, { total: number; active: number; reached: number; meetings: number }>();
+    type Row = { inApollo: number; activeInApollo: number; total: number; active: number; reached: number; meetings: number; steps: number | null };
+    const blank = (): Row => ({ inApollo: 0, activeInApollo: 0, total: 0, active: 0, reached: 0, meetings: 0, steps: null });
     const re = new RegExp(`\\b${rep}\\b`, "i");
+    const anyRep = new RegExp(`\\b(${REPS.join("|")})\\b`, "i");
+    const mineName = (n: string) => (rep === UNASSIGNED ? !anyRep.test(n) : re.test(n));
+    const m = new Map<string, Row>();
+    const row = (n: string) => { let e = m.get(n); if (!e) { e = blank(); m.set(n, e); } return e; };
+    if (rep !== UNASSIGNED) {
+      for (const n of MAIN_SEQUENCES) if (re.test(n)) row(n);
+      for (const f of funnels) if (re.test(f.name)) row(f.name).steps = f.steps.length || null;
+    }
+    for (const r of roster) for (const label of r.sequences) {
+      const name = label.replace(/\s*\(active\)$/, "");
+      if (rep === UNASSIGNED || !mineName(name)) continue;
+      const e = row(name);
+      e.inApollo++;
+      if (/\(active\)$/.test(label)) e.activeInApollo++;
+    }
     for (const r of mine) {
       // Count only this rep's sequences, unless the lead is theirs by
       // contact owner and no sequence carries their name.
-      const named = r.seqs.filter((n) => re.test(n));
+      const named = r.seqs.filter((n) => mineName(n));
       for (const name of rep === UNASSIGNED || !named.length ? r.seqs : named) {
-      const e = m.get(name) || { total: 0, active: 0, reached: 0, meetings: 0 };
-      e.total++;
-      if (r.active.includes(name)) e.active++;
-      if (wasReached(r.l.apollo) || r.status === "not-interested") e.reached++;
-      if (r.status === "meeting") e.meetings++;
-      m.set(name, e);
+        const e = row(name);
+        e.total++;
+        if (r.active.includes(name)) e.active++;
+        if (wasReached(r.l.apollo) || r.status === "not-interested") e.reached++;
+        if (r.status === "meeting") e.meetings++;
       }
     }
-    return [...m].sort((a, b) => b[1].total - a[1].total);
-  }, [mine, rep]);
+    for (const f of funnels) { const e = m.get(f.name); if (e && e.steps === null) e.steps = f.steps.length || null; }
+    const rank = new Map<string, number>(MAIN_SEQUENCES.map((n, i) => [n.toLowerCase(), i]));
+    return [...m].sort((a, b) =>
+      (rank.get(a[0].toLowerCase()) ?? 99) - (rank.get(b[0].toLowerCase()) ?? 99)
+      || (b[1].total + b[1].inApollo) - (a[1].total + a[1].inApollo) || a[0].localeCompare(b[0]));
+  }, [mine, rep, roster, funnels]);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return mine.filter((r) => (statusF === "all" || r.status === statusF)
+      && (!seqF || r.seqs.includes(seqF))
       && (!needle || `${r.l.contact} ${r.l.company} ${r.l.email} ${r.l.title}`.toLowerCase().includes(needle)));
-  }, [mine, statusF, q]);
+  }, [mine, statusF, q, seqF]);
   const pages = Math.max(1, Math.ceil(filtered.length / PAGE));
   const p = Math.min(page, pages - 1);
   const shown = filtered.slice(p * PAGE, p * PAGE + PAGE);
@@ -232,19 +265,36 @@ export default function Reps({ leads, apolloIndex, recycleRules }: {
         </div>
       </div>
 
-      {bySequence.length > 0 && (
-        <div className="table-card" style={{ marginBottom: 12 }}>
-          <table className="data-table" aria-label="By sequence">
-            <thead><tr><th>Sequence</th><th className="num">Leads</th><th className="num">Active now</th><th className="num">Reached</th><th className="num">Meetings</th></tr></thead>
-            <tbody>
-              {bySequence.map(([name, e]) => (
-                <tr key={name}><td>{name}</td><td className="num">{e.total.toLocaleString()}</td><td className="num">{e.active.toLocaleString()}</td>
-                  <td className="num">{e.reached.toLocaleString()}</td><td className="num">{e.meetings.toLocaleString()}</td></tr>
-              ))}
-            </tbody>
-          </table>
+      <div className="table-card" style={{ marginBottom: 12 }}>
+        <div className="panel-head" style={{ padding: "8px 12px" }}>
+          <b>{rep === UNASSIGNED ? "Sequences with no rep's name" : `${rep}'s sequences`}</b>{" "}
+          <span className="muted" style={{ fontSize: 12 }}>
+            {rep === UNASSIGNED ? "" : `every sequence named for ${rep}; `}click one to see its leads below
+          </span>
         </div>
-      )}
+        <table className="data-table" aria-label="By sequence">
+          <thead><tr>
+            <th>Sequence</th><th className="num">Steps</th>
+            <th className="num" title="Contacts in this sequence among the pulled Apollo uploads, whether or not they are stored leads here">In Apollo</th>
+            <th className="num" title="Of those, still active in the sequence">Active in Apollo</th>
+            <th className="num" title="Stored leads here in this sequence">Our leads</th>
+            <th className="num">Active now</th><th className="num">Reached</th><th className="num">Meetings</th>
+          </tr></thead>
+          <tbody>
+            {bySequence.length === 0 && <tr><td colSpan={8} className="muted" style={{ padding: 12 }}>No sequences found for {rep} yet. Pull the Apollo uploads (All leads → Apollo) or run an Apollo check.</td></tr>}
+            {bySequence.map(([name, e]) => (
+              <tr key={name} onClick={() => { setSeqF(seqF === name ? "" : name); setPage(0); }} aria-selected={seqF === name}
+                  style={{ cursor: "pointer", background: seqF === name ? "var(--surface-sunken)" : undefined }}>
+                <td style={{ fontWeight: 600 }}>{name}</td>
+                <td className="num">{e.steps ?? <span className="muted">—</span>}</td>
+                <td className="num">{e.inApollo.toLocaleString()}</td><td className="num">{e.activeInApollo.toLocaleString()}</td>
+                <td className="num">{e.total.toLocaleString()}</td><td className="num">{e.active.toLocaleString()}</td>
+                <td className="num">{e.reached.toLocaleString()}</td><td className="num">{e.meetings.toLocaleString()}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       <div className="control-strip" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
         <input className="field" placeholder="Search name, company, email" aria-label="Search rep leads" value={q} onChange={(e) => { setQ(e.target.value); setPage(0); }} style={{ minWidth: 220 }} />
@@ -252,6 +302,7 @@ export default function Reps({ leads, apolloIndex, recycleRules }: {
           <option value="all">Anywhere</option>
           {standingOrder.map((k) => <option key={k} value={k}>{STATUS_META[k].label} ({(statusCounts.get(k) || 0).toLocaleString()})</option>)}
         </select>
+        {seqF && <span className="chip" style={{ fontSize: 12 }}>Sequence: {seqF} <button className="btn btn-sm btn-ghost" aria-label="Clear sequence filter" onClick={() => setSeqF("")}>✕</button></span>}
         <span className="muted" style={{ fontSize: 12.5 }}>{filtered.length.toLocaleString()} of {mine.length.toLocaleString()} leads</span>
         <span style={{ flex: 1 }} />
         <button className="btn btn-sm btn-secondary" disabled={!filtered.length} onClick={download}>⬇ Download {filtered.length.toLocaleString()}</button>

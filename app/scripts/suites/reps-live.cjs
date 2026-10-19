@@ -104,8 +104,15 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   const stand = (await page.locator('[aria-label="Where they stand now"]').innerText()).replace(/\s+/g, ' ');
   ok('where they stand: In sequence, Meeting booked, finished', /In sequence 1/.test(stand) && /Meeting booked 1/.test(stand) && /Sequence finished 1/.test(stand), stand);
   const seqT = (await page.locator('table[aria-label="By sequence"]').innerText()).replace(/\s+/g, ' ');
-  ok('by sequence: Carly Main Sequence 2 leads, 1 active, 1 meeting', /Carly Main Sequence 2 1 1 1/.test(seqT), seqT);
-  ok('  her contact-owner lead shows its sequence too', /Wired CIO Email 1/.test(seqT), seqT);
+  ok('by sequence: Carly Main Sequence 2 leads, 1 active, 1 reached, 1 meeting', /Carly Main Sequence — 0 0 2 1 1 1/.test(seqT), seqT);
+  ok('  her contact-owner lead shows its sequence too', /Wired CIO Email — 0 0 1 /.test(seqT), seqT);
+  ok("  every sequence named for Carly is listed, even with no leads", /Carly Main Sequence Recycled — 0 0 0 0 0 0/.test(seqT), seqT);
+  ok("  Jack's sequences are not on Carly's page", !/Jack Main/.test(seqT), seqT);
+  ok('  the main sequence order leads (Recycled first)', seqT.indexOf('Carly Main Sequence Recycled') < seqT.indexOf('Carly Main Sequence —'), seqT);
+  await page.locator('table[aria-label="By sequence"] tbody tr', { hasText: 'Wired CIO Email' }).click(); await sleep(300);
+  const bySeq = (await page.locator(`table[aria-label="Carly's leads"] tbody`).innerText()).replace(/\s+/g, ' ');
+  ok('clicking a sequence filters her lead table to it', /C OWNER/.test(bySeq) && !/C ACTIVE/.test(bySeq), bySeq);
+  await page.locator('button[aria-label="Clear sequence filter"]').click(); await sleep(300);
   const leadsT = (await page.locator(`table[aria-label="Carly's leads"]`).innerText()).replace(/\s+/g, ' ');
   ok("her lead table: her 3, not Jack's", /C ACTIVE/.test(leadsT) && /C MEET/.test(leadsT) && /C OWNER/.test(leadsT) && !/J DONE/.test(leadsT), leadsT.slice(0, 300));
   ok('  the active one shows its step', /Carly Main Sequence · step 2 of 5/.test(leadsT), leadsT);
@@ -121,6 +128,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await page.locator('[aria-label="Rep"] .seg-btn', { hasText: 'Jack' }).click(); await sleep(300);
   t = await main();
   ok("Jack's page", /Where Jack's leads went/.test(t) && /J DONE/.test(t) && !/C ACTIVE/.test((await page.locator(`table[aria-label="Jack's leads"]`).innerText())));
+  const jSeq = (await page.locator('table[aria-label="By sequence"]').innerText()).replace(/\s+/g, ' ');
+  ok("Jack's sequences: Main and Main Backup, no Carly", /Jack Main Sequence — 0 0 1 /.test(jSeq) && /Jack Main Backup Sequence — 0 0 0/.test(jSeq) && !/Carly/.test(jSeq), jSeq);
   await page.reload(); await sleep(1500); await nav('Reps');
   ok('remembers the last rep', /Where Jack's leads went/.test(await main()));
   const writes = (await page.evaluate(() => window.__calls)).filter(c => !/_search$/.test(c.tool));

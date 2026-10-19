@@ -1114,7 +1114,7 @@ export default function App() {
           // Apollo standing view lives inside All leads now, one sidebar entry.
           <ApolloStatus leads={leads} apolloIndex={apolloIndex} rosterPulledAt={rosterPulledAt} onPullApollo={pullApollo} onCheckLeads={checkLeadsLive} lists={leadLists} onAddToList={addExportRowsToLists} />
         )}
-        {view === "reps" && <Reps leads={leads} apolloIndex={apolloIndex} recycleRules={recycleRules} />}
+        {view === "reps" && <Reps leads={leads} apolloIndex={apolloIndex} recycleRules={recycleRules} roster={apolloRoster} funnels={funnels} />}
         {view === "recycle" && (
           <Recycle leads={leads} rules={recycleRules} onRulesChange={changeRecycleRules}
                    onMarkDownloaded={markRecycleDownloaded} lists={leadLists} onAddToList={addExportRowsToLists} />
