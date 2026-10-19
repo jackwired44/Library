@@ -6818,3 +6818,28 @@ Not interested comes back after 6 months** (editable; localStorage
   this month", one line on the lead record, and a Recycle pane in Cheat
   Sheet settings.
 - Suites: `recycle` (27), `recycle-live` (22).
+
+### 2026-10-19: Reps page — Carly's and Jack's leads (scanner-platform-v29)
+
+Per Jack: "build a table for all of carlys leads and jacks", then "want her
+to have access to her assigned leads and see where they all stand whats
+active high level view like a dash or chart of where it went".
+- **Reps** (sidebar, under All leads; `components/Reps.tsx`). Ownership is
+  `lib/reps.ts` (`ownersOfLead`): the rep named on a sequence the lead is or
+  was in (live check or pulled uploads), else the Apollo contact owner, else
+  Unassigned. Never guessed. This is the same rule as All leads' Sequence
+  owner filter, now shared.
+- A summary table: Carly / Jack / Unassigned × leads, Strong Signal, active
+  now, finished with no contact, reached, meetings, not interested, calls,
+  emails, ready to recycle. Click a row (or the tab) to pick the rep.
+- Per rep: metric row; "Where they went" (assigned → put in a sequence →
+  called → reached → meeting, each as a share); "Where they stand now"
+  (statusOf bars, click to filter); a By sequence table; the lead table
+  (stands, active sequence and step, calls, last outcome, note) with search,
+  status filter and download. The last rep picked is remembered
+  (localStorage `repView`).
+- **Access is not separate.** This is a view, not a login. The data lives in
+  the browser that uploaded it (IndexedDB), so Carly opening the link on her
+  machine sees an empty platform. Real per-rep access needs a shared backend
+  (see Access & ownership); that is Jack's call.
+- Suite `reps-live` (19).

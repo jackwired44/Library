@@ -90,6 +90,7 @@ import { enrichCompaniesViaApollo, type CompanyEnrichOutcome } from "./lib/apoll
 import { pullTeamUploads, checkLeadsInApollo, applyCheckResults, type PullProgress, type CheckProgress } from "./lib/apolloLive";
 import type { SaveReport } from "./lib/saveReport";
 import Recycle from "./components/Recycle";
+import Reps from "./components/Reps";
 import { countRecycle, loadRecycleRules, saveRecycleRules, type RecycleRules } from "./lib/recycle";
 import "./styles.css";
 
@@ -100,7 +101,7 @@ export interface UploadedFile {
 
 export type View =
   | "home" | "scanner" | "scanner2" | "scanner3" | "library" | "allleads"
-  | "queue" | "recycle" | "campaigns" | "history" | "lists" | "docs" | "diagnostics";
+  | "queue" | "recycle" | "reps" | "campaigns" | "history" | "lists" | "docs" | "diagnostics";
 
 /** The three scanners, kept in their own collapsible sidebar section.
  *  Per Jack: "build the scanners into a drop down section on the left hand
@@ -114,6 +115,7 @@ const SCANNER_NAV: { key: View; label: string }[] = [
 const NAV_GROUPS: { title: string; items: { key: View; label: string }[] }[] = [
   { title: "Leads", items: [
     { key: "allleads", label: "All leads" },
+    { key: "reps", label: "Reps" },
   ] },
   { title: "Archive", items: [
     { key: "lists", label: "Lists" },
@@ -1111,6 +1113,7 @@ export default function App() {
           // Apollo standing view lives inside All leads now, one sidebar entry.
           <ApolloStatus leads={leads} apolloIndex={apolloIndex} rosterPulledAt={rosterPulledAt} onPullApollo={pullApollo} onCheckLeads={checkLeadsLive} lists={leadLists} onAddToList={addExportRowsToLists} />
         )}
+        {view === "reps" && <Reps leads={leads} apolloIndex={apolloIndex} recycleRules={recycleRules} />}
         {view === "recycle" && (
           <Recycle leads={leads} rules={recycleRules} onRulesChange={changeRecycleRules}
                    onMarkDownloaded={markRecycleDownloaded} lists={leadLists} onAddToList={addExportRowsToLists} />
@@ -1338,6 +1341,7 @@ const NAV_ICON_PATHS: Record<string, string> = {
   scanner2: "M12 3 3 7.5 12 12l9-4.5L12 3ZM3 12l9 4.5 9-4.5M3 16.5 12 21l9-4.5",
   scanner3: "M15 7a4 4 0 1 1-3.9 4.9L4 19v-3h2v-2h2l1.1-1.1A4 4 0 0 1 15 7Zm1.5 2.5h.01",
   allleads: "M16 19v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1M9.5 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM21 19v-1a4 4 0 0 0-3-3.9M15.5 4.1a3 3 0 0 1 0 5.8",
+  reps: "M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-6 10v-1a6 6 0 0 1 12 0v1M16 3.1a4 4 0 0 1 0 7.8M21 21v-1a6 6 0 0 0-3.5-5.5",
   lists: "M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01",
   history: "M3 12a9 9 0 1 0 2.6-6.4L3 8M3 3v5h5M12 7v5l3 2",
   docs: "M4 5a2 2 0 0 1 2-2h12v16H6a2 2 0 0 0-2 2V5Zm0 14a2 2 0 0 1 2-2h12M8 7h6",

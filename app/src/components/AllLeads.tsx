@@ -33,6 +33,7 @@ import {
   SIZE_BUCKETS, employeeCountOf, normalizeCompanyKey, profileForCompany, type CompanyProfile,
 } from "../lib/companyProfiles";
 import LeadDetail from "./LeadDetail";
+import { REPS, ownersOf } from "../lib/reps";
 import { DEFAULT_RECYCLE_RULES, RECYCLE_FLOW, RECYCLE_META, recycleLabel, recycleOf, type RecycleRules } from "../lib/recycle";
 import {
   STATUS_META, STATUS_ORDER, statusOf, wasReached,
@@ -177,13 +178,7 @@ const monthLabel = (ym: string) => ym === PRE_MAY_2026_MONTH ? PRE_MAY_2026_LABE
  *  priority (Main, CSP) or Strong Signal (Custom, older Main rows). */
 const TOP = "__top";
 /** The owners a filter offers: the people whose names head the sequences. */
-const SEQUENCE_OWNERS = ["Carly", "Jack"] as const;
-function ownersOf(sequenceNames: string[], liveOwner?: string): string[] {
-  const out = new Set<string>();
-  for (const n of sequenceNames) for (const o of SEQUENCE_OWNERS) if (new RegExp(`\\b${o}\\b`, "i").test(n)) out.add(o);
-  if (!out.size && liveOwner) out.add(liveOwner.split(/\s+/)[0]);
-  return [...out];
-}
+const SEQUENCE_OWNERS = REPS;
 async function copyText(text: string): Promise<boolean> {
   try { await navigator.clipboard.writeText(text); return true; } catch { /* sandboxed frame: fall back */ }
   try {
