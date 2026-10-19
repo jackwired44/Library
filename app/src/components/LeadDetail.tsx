@@ -28,6 +28,8 @@ import { SYNC_STALE_DAYS } from "../lib/apolloSync";
 import { realSteps, type ApolloFunnel } from "../lib/apolloFunnel";
 import { isIntentDate, soonestUpcoming, type NoteDate } from "../lib/noteDates";
 import { loadRawNotes, type RawNotes } from "../lib/rawNotes";
+import { useRawNoteUnlocked } from "../lib/rawNoteLock";
+import RawNoteLock from "./RawNoteLock";
 import { scanParsedFiles, stripSnippetPrefix } from "../lib/detection";
 import { FUNCTION_META, LEVEL_META, titleFunction, titleLevel } from "../lib/titleLevel";
 import { CONTACT_META, contactStateOf } from "../lib/leadStatus";
@@ -178,6 +180,9 @@ export default function LeadDetail({
   }, [lead.key]);
 
   const [showAllRaw, setShowAllRaw] = useState(false);
+  // Per Jack, the raw note and CSV rows stay hidden until the password is
+  // entered (lib/rawNoteLock.ts).
+  const rawUnlocked = useRawNoteUnlocked();
   const [showLogged, setShowLogged] = useState(false);
 
   const a = lead.apollo;
@@ -379,7 +384,7 @@ export default function LeadDetail({
 
           {/* ---- everything else, folded away ---- */}
           <details style={{ marginTop: 14, borderTop: "1px solid var(--border)", paddingTop: 8 }}>
-            <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 600 }}>Raw note, CSV rows and every scanned version</summary>
+            <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 600 }}>{rawUnlocked ? "" : "🔒 "}Raw note, CSV rows and every scanned version</summary>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 16, marginTop: 12 }}>
             <div style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 12 }}>
               <div style={{ fontWeight: 700, fontSize: 13 }}>Before</div>
@@ -398,9 +403,10 @@ export default function LeadDetail({
                   </div>
                 ))}
               </Row>
-              <div style={{ fontSize: 11.5, ...muted, margin: "8px 0 4px" }}>
-                Raw note{rawSegs.length > 1 ? `s (${rawSegs.length} versions)` : ""}
+              <div style={{ fontSize: 11.5, ...muted, margin: "8px 0 4px", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                Raw note{rawUnlocked && rawSegs.length > 1 ? `s (${rawSegs.length} versions)` : ""} <RawNoteLock />
               </div>
+              {rawUnlocked && (<>
               {raw === "loading" ? <div style={{ fontSize: 12, ...muted }}>Loading…</div>
                 : rawSegs.length === 0 ? (
                   <div style={{ fontSize: 12, ...muted }}>
@@ -449,6 +455,7 @@ export default function LeadDetail({
                   ))}
                 </>
               )}
+              </>)}
             </div>
 
             <div style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 12 }}>

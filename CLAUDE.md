@@ -6843,3 +6843,17 @@ active high level view like a dash or chart of where it went".
   machine sees an empty platform. Real per-rep access needs a shared backend
   (see Access & ownership); that is Jack's call.
 - Suite `reps-live` (19).
+
+### 2026-10-19: raw notes locked behind the password (scanner-platform-v29)
+
+Per Jack: "raw note needs to be locked with password and not displayed".
+- `lib/rawNoteLock.ts` + `components/RawNoteLock.tsx`. Locked by default:
+  All leads' Raw note column shows 🔒 (no text, no hover title) and the lead
+  record's "Raw note, CSV rows" section shows only a password box. The
+  sign-in password unlocks it (`checkPassword`). The unlock is in memory
+  only: a reload, Sign out or "🔓 Lock raw notes" locks it again. While
+  locked, All leads does not read raw notes for display at all.
+- Still works while locked: the "Keywords in notes" search (it filters,
+  shows nothing) and the lead record's "New note · today's rules"
+  (a scanned note, not the raw text).
+- Suite `raw-note-lock-live` (10).

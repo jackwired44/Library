@@ -33,6 +33,8 @@ import {
   SIZE_BUCKETS, employeeCountOf, normalizeCompanyKey, profileForCompany, type CompanyProfile,
 } from "../lib/companyProfiles";
 import LeadDetail from "./LeadDetail";
+import RawNoteLock from "./RawNoteLock";
+import { useRawNoteUnlocked } from "../lib/rawNoteLock";
 import { REPS, ownersOf } from "../lib/reps";
 import { DEFAULT_RECYCLE_RULES, RECYCLE_FLOW, RECYCLE_META, recycleLabel, recycleOf, type RecycleRules } from "../lib/recycle";
 import {
@@ -730,14 +732,18 @@ export default function AllLeads({
   const shown = filtered.slice((page - 1) * pageSize, page * pageSize);
   const [rawByKey, setRawByKey] = useState<Map<string, string>>(new Map());
   const shownKeys = shown.map((l) => l.key).join("\u0001");
+  // Per Jack, the raw note is locked: not even read for display until the
+  // password is entered (lib/rawNoteLock.ts).
+  const rawUnlocked = useRawNoteUnlocked();
   useEffect(() => {
     let live = true;
+    if (!rawUnlocked) { setRawByKey(new Map()); return () => { live = false; }; }
     const keys = shownKeys ? shownKeys.split("\u0001") : [];
     loadRawNotesMany(keys)
       .then((m) => { if (live) setRawByKey(new Map([...m].map(([k, r]) => [k, newestRaw(r)]))); })
       .catch(() => { if (live) setRawByKey(new Map()); });
     return () => { live = false; };
-  }, [shownKeys]);
+  }, [shownKeys, rawUnlocked]);
   const allShownSelected = shown.length > 0 && shown.every((l) => selected.has(l.key));
   const selectedLeads = useMemo(() => leads.filter((l) => selected.has(l.key)), [leads, selected]);
 
@@ -1564,7 +1570,9 @@ export default function AllLeads({
               <th data-col="disposition" title="The latest call disposition in Apollo">Disposition</th>
               <th data-col="sequence" title="The Apollo sequence this lead is in, from the last sync">Sequence</th>
               <th data-col="notes" title="The note the scanner wrote">Scanned note</th>
-              <th data-col="raw" title="The note exactly as it came in the CSV, newest upload">Raw note</th>
+              <th data-col="raw" title="The note exactly as it came in the CSV, newest upload. Locked until the password is entered.">
+                <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>Raw note <RawNoteLock compact /></span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -1664,8 +1672,10 @@ export default function AllLeads({
                     {newestNote(l.notes) || "—"}
                     {d.segs > 1 && <span className="muted"> +{d.segs - 1} earlier</span>}
                   </td>
-                  <td data-col="raw" title={rawByKey.get(l.key) || undefined} style={{ maxWidth: 300 }}>
-                    <span className="clamp-2">{rawByKey.get(l.key) || <span className="muted">—</span>}</span>
+                  <td data-col="raw" title={rawUnlocked ? rawByKey.get(l.key) || undefined : "Locked"} style={{ maxWidth: 300 }}>
+                    {rawUnlocked
+                      ? <span className="clamp-2">{rawByKey.get(l.key) || <span className="muted">—</span>}</span>
+                      : <span className="muted" aria-label="Raw note locked">🔒</span>}
                   </td>
                 </tr>
               );

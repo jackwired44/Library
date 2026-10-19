@@ -91,6 +91,7 @@ import { pullTeamUploads, checkLeadsInApollo, applyCheckResults, type PullProgre
 import type { SaveReport } from "./lib/saveReport";
 import Recycle from "./components/Recycle";
 import Reps from "./components/Reps";
+import { lockRawNotes } from "./lib/rawNoteLock";
 import { countRecycle, loadRecycleRules, saveRecycleRules, type RecycleRules } from "./lib/recycle";
 import "./styles.css";
 
@@ -909,7 +910,7 @@ export default function App() {
         </button>
         <button
           type="button"
-          onClick={() => { setUnlocked(false); setUnlockedState(false); }}
+          onClick={() => { setUnlocked(false); setUnlockedState(false); lockRawNotes(); }}
           className="topbar-signout"
           aria-label="Sign out"
           title="Sign out (locks this page again)"
