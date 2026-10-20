@@ -6959,3 +6959,30 @@ stored".
 - **All leads verdict switch**: All · Strong Signal · Needs Review · Bad Lead
   segmented buttons above the table, always visible, same filter as "Stored
   as" (CSP High/Medium/Low fold into these three via `verdictOf`).
+
+### 2026-10-20: Carly's login and her Reps view (scanner-platform-v29)
+
+Per Jack: "her user will be carly@wiredcio.com to log in and carly1 for
+password here", "she can view her leads at a high glance and view
+unclaimed leads also by filtering through csv dates and recent uploads as in
+leads not assigned to sequences", and in Reps "carly should see contact first
+and last name company email phone number or numbers scanned note and signal".
+- `lib/auth.ts`: `ACCOUNTS` (Jack, Carly), `signIn` returns the account,
+  `currentAccount`/`setCurrentAccount` (localStorage `wc-signed-in-as`).
+  Carly's password is a salted hash like Jack's. **It picks which view
+  opens, it does not wall off data**: everything in this browser is visible
+  to whoever signs in, and on another computer nothing is stored yet. Real
+  per-user access still needs a backend (Access & ownership).
+- A non-Jack sign-in lands on Reps with that rep's tab; sign-out resets to
+  Home. The top bar shows the signed-in person (display name per account).
+- Reps lead table: First name · Last name · Company (title under) · Email ·
+  Phone (work and mobile) · Signal (Strong Signal / Needs Review / Bad Lead)
+  · Stands · sequence (step, last outcome) · Calls · Scanned note. Filters:
+  Stored as, CSV month (`arrivalOf`), Uploaded file (newest first), "Not in
+  any sequence". The Unassigned tab reads "Unassigned (unclaimed)". CSV
+  download adds Mobile Phone and Signal.
+- Suite `carly-login-live` (14). Note-format re-points in `csp`,
+  `csp-live`, `csp-renewal-live`, `docs`, `download-parity`,
+  `smc-partner-live`, `wants-partner`: same facts, new wording (score head at
+  the start, "Timeline: renews", "Partner on record", "Direct with
+  Microsoft", "Latest note:").

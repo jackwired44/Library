@@ -104,7 +104,7 @@ fs.writeFileSync(CSP, csv);
   ok('Low priority holds the ghosted one (scored, penalised, still Low)', /Low priority \(1\)/.test(tiers), tiers);
   const ghost = await rowText('GHOST LLC');
   ok('  the ghosted row carries a real score, not a blank', /\(\d{1,3}\)/.test(ghost), ghost);
-  ok('  and its notes say the newest entry is the problem', /⚠ now: /.test(ghost), ghost);
+  ok('  and its notes say the newest entry is the problem', /Latest note: /.test(ghost), ghost);
   ok('Medium priority holds the middling one', /Medium priority \(1\)/.test(tiers), tiers);
   ok('no Strong Signal / Bad Leads wording on this tab', !/Strong Signal \(|Bad Leads \(|Needs Review \(/.test(tiers), tiers);
 

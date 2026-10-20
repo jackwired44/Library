@@ -76,7 +76,7 @@ import {
   renameLeadList, deleteLeadList, addRowsToList, addExportRowsToList, removeRowFromList, type LeadList,
 } from "./lib/leadLists";
 import { loadRuleOverrides, persistRuleOverrides } from "./lib/ruleOverrides";
-import { isUnlocked, setUnlocked, AUTH_EMAIL } from "./lib/auth";
+import { isUnlocked, setUnlocked, currentAccount, setCurrentAccount, AUTH_EMAIL, type Account } from "./lib/auth";
 import { formatCentral, PLATFORM_TZ } from "./lib/centralTime";
 import { useNow } from "./lib/useNow";
 import {
@@ -881,7 +881,15 @@ export default function App() {
     }
   }
 
-  if (!unlocked) return <LockScreen onUnlock={() => setUnlockedState(true)} />;
+  if (!unlocked) return <LockScreen onUnlock={(acct: Account) => {
+    // Per Jack: Carly "can view her leads at a high glance and view
+    // unclaimed leads" — a rep other than Jack lands on their own Reps view.
+    if (acct.email !== AUTH_EMAIL) {
+      try { localStorage.setItem("repView", acct.rep); } catch { /* preference only */ }
+      setView("reps");
+    }
+    setUnlockedState(true);
+  }} />;
 
   return (
     <div className={`app-shell${navCollapsed ? " nav-collapsed" : ""}`}>
@@ -911,7 +919,7 @@ export default function App() {
         </button>
         <button
           type="button"
-          onClick={() => { setUnlocked(false); setUnlockedState(false); lockRawNotes(); }}
+          onClick={() => { setUnlocked(false); setCurrentAccount(null); setUnlockedState(false); lockRawNotes(); setView("home"); }}
           className="topbar-signout"
           aria-label="Sign out"
           title="Sign out (locks this page again)"
@@ -1313,21 +1321,24 @@ export default function App() {
  *  click it to change it. */
 function TopbarWelcome() {
   const now = useNow(15_000);
+  const acct = currentAccount();
+  // Jack's display name keeps its original key; anyone else gets their own.
+  const nameKey = acct.email === AUTH_EMAIL ? "platformUserName" : `platformUserName:${acct.email}`;
   const [name, setName] = useState(() => {
-    try { return localStorage.getItem("platformUserName") || "Jack"; } catch { return "Jack"; }
+    try { return localStorage.getItem(nameKey) || acct.name; } catch { return acct.name; }
   });
   function rename() {
     const next = window.prompt("Name shown in the top bar", name)?.trim();
     if (!next) return;
     setName(next);
-    try { localStorage.setItem("platformUserName", next); } catch { /* preference only */ }
+    try { localStorage.setItem(nameKey, next); } catch { /* preference only */ }
   }
   const hour = Number(new Intl.DateTimeFormat("en-US", { timeZone: PLATFORM_TZ, hour: "numeric", hourCycle: "h23" }).format(now));
   const greet = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   return (
     <div className="topbar-welcome">
       <span className="topbar-greet">{greet},</span>
-      <button type="button" className="topbar-user" onClick={rename} title={`Signed in as ${AUTH_EMAIL}. Click to change the name shown.`}>
+      <button type="button" className="topbar-user" onClick={rename} title={`Signed in as ${acct.email}. Click to change the name shown.`}>
         <span className="topbar-avatar" aria-hidden="true">{name.slice(0, 1).toUpperCase()}</span>
         <span>{name}</span>
       </button>

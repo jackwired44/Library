@@ -101,7 +101,7 @@ const smcCsv = [HEAD.join(',')].concat(samples.map((d, i) => [
   // the ORDER (file order, so the score was invisible the moment you left
   // the app), the filename, and the set of files on offer.
   // The note closes with "High priority (83)" now, not "Score 83 — High priority".
-  const noteScore = t => { const m = /priority \((\d+)\)/i.exec(t); return m ? Number(m[1]) : -1; };
+  const noteScore = t => { const m = /^\((\d+)\) [\u25B2\u25B8\u25BC\u2715]/.exec(t); return m ? Number(m[1]) : -1; };
   const parsed = rows.map(r => r.match(/("([^"]|"")*"|[^,]*)/g).filter(x => x !== '').map(c => c.replace(/^"|"$/g, '')));
   const scores = parsed.map(c => noteScore(c[custCols.indexOf('Notes')] || ''));
   ok('every row states its score in Notes', scores.every(n => n >= 0), JSON.stringify(scores));
@@ -136,7 +136,7 @@ const smcCsv = [HEAD.join(',')].concat(samples.map((d, i) => [
   ok('High + Medium is a superset of High alone',
      hmText.split('\n').filter(Boolean).length >= custText.split('\n').filter(Boolean).length,
      `${hmText.split('\n').filter(Boolean).length} vs ${custText.split('\n').filter(Boolean).length}`);
-  ok('no Low priority lead is in it', !/Low priority \(\d+\)/.test(hmText));
+  ok('no Low priority lead is in it', !/\(\d+\) \u25BC/.test(hmText));
 
   console.log('\n== downloads follow the filters ==');
   // Per Jack: "i want to be able to download the high and medium together
@@ -195,7 +195,7 @@ const smcCsv = [HEAD.join(',')].concat(samples.map((d, i) => [
     ]);
     const f5 = path.join(os.tmpdir(), 'parity-scored.csv'); await d5.saveAs(f5);
     const txt5 = fs.readFileSync(f5, 'utf8');
-    const got = (txt5.match(/priority \((\d+)\)/g) || []).map(m => Number(m.match(/(\d+)/)[1]));
+    const got = (txt5.match(/\((\d+)\) [\u25B2\u25B8\u25BC\u2715]/g) || []).map(m => Number(m.match(/(\d+)/)[1]));
     ok('every row IN THE FILE is inside the range', got.length > 0 && got.every(n => n >= 80 && n <= 84), JSON.stringify(got));
   }
   await page.locator('button[aria-label="Clear score range"]').click(); await sleep(900);

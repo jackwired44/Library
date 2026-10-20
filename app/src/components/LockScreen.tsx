@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { checkCredentials, setUnlocked } from "../lib/auth";
+import { signIn, setUnlocked, setCurrentAccount, type Account } from "../lib/auth";
 
-export default function LockScreen({ onUnlock }: { onUnlock: () => void }) {
+export default function LockScreen({ onUnlock }: { onUnlock: (account: Account) => void }) {
   const [email, setEmail] = useState("");
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -9,11 +9,12 @@ export default function LockScreen({ onUnlock }: { onUnlock: () => void }) {
 
   async function tryUnlock() {
     setChecking(true);
-    const ok = await checkCredentials(email, value);
+    const acct = await signIn(email, value);
     setChecking(false);
-    if (ok) {
+    if (acct) {
       setUnlocked(true);
-      onUnlock();
+      setCurrentAccount(acct);
+      onUnlock(acct);
     } else {
       // Deliberately does not say WHICH field was wrong — naming it would
       // confirm a valid email to anyone guessing.

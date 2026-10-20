@@ -64,14 +64,48 @@ export async function checkPassword(input: string): Promise<boolean> {
   return (await sha256Hex(`${APP_SALT}:${input}`)) === EFFECTIVE_HASH;
 }
 
+// Per Jack: "her user will be carly@wiredcio.com to log in and carly1 for
+// password here". A second sign-in, so Carly lands on her own view. Same
+// honest ceiling as Jack's: a salted hash in the page, no server. It picks
+// WHICH VIEW opens, it does not wall off data — everything stored in this
+// browser is visible to whoever signs in here, and on another computer
+// there is nothing stored yet. Real per-user access is still a backend
+// decision (CLAUDE.md, Access & ownership).
+export interface Account { email: string; name: string; rep: string }
+const CARLY_PASSWORD_HASH = "e02a30bbbec177ab7cd55c2d71ecb04dcf56580a7e9fa4c0faebd13e831462af";
+export const ACCOUNTS: Account[] = [
+  { email: AUTH_EMAIL, name: "Jack", rep: "Jack" },
+  { email: "carly@wiredcio.com", name: "Carly", rep: "Carly" },
+];
+const ACCOUNT_KEY = "wc-signed-in-as";
+
 // Both must match. The email comparison is case- and whitespace-
 // insensitive because nobody types their own address consistently, and
 // being strict about it would only ever lock the owner out — it is not
-// the part doing the security work.
+// the part doing the security work. Returns the account, or null.
+export async function signIn(email: string, password: string): Promise<Account | null> {
+  const e = email.trim().toLowerCase();
+  const h = await sha256Hex(`${APP_SALT}:${password}`);
+  const acct = ACCOUNTS.find((a) => a.email === e);
+  if (!acct) return null;
+  const ok = acct.email === AUTH_EMAIL ? h === EFFECTIVE_HASH : h === CARLY_PASSWORD_HASH;
+  return ok ? acct : null;
+}
 export async function checkCredentials(email: string, password: string): Promise<boolean> {
-  const emailOk = email.trim().toLowerCase() === AUTH_EMAIL;
-  const passwordOk = await checkPassword(password);
-  return emailOk && passwordOk;
+  return !!(await signIn(email, password));
+}
+/** Who signed in on this browser. Jack when nothing is recorded (a session
+ *  from before Carly's login existed). */
+export function currentAccount(): Account {
+  let e = "";
+  try { e = localStorage.getItem(ACCOUNT_KEY) || ""; } catch { /* storage unavailable */ }
+  return ACCOUNTS.find((a) => a.email === e) ?? ACCOUNTS[0];
+}
+export function setCurrentAccount(a: Account | null) {
+  try {
+    if (a) localStorage.setItem(ACCOUNT_KEY, a.email);
+    else localStorage.removeItem(ACCOUNT_KEY);
+  } catch { /* storage unavailable */ }
 }
 
 export function isUnlocked(): boolean {

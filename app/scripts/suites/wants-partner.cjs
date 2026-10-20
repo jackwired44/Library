@@ -176,7 +176,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
 
   console.log('\n== it reaches the CSV ==');
   ok('the reason text flags the ask on the flagged lead',
-     /⚑ Wants partner/i.test(await page.locator('.data-table tbody tr', { hasText: 'STATES IT CO' }).innerText()),
+     /⚑ [^|]*Wants to work with a partner/i.test(await page.locator('.data-table tbody tr', { hasText: 'STATES IT CO' }).innerText()),
      (await page.locator('.data-table tbody tr', { hasText: 'STATES IT CO' }).innerText()).replace(/\s+/g, ' ').slice(0, 200));
 
   ok('no page errors', errs.length === 0, errs.join(' | '));

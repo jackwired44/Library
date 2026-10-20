@@ -20,6 +20,11 @@ import { toCSV, downloadBlob } from "../lib/csv";
 import { apolloHitFor, type ApolloRosterEntry } from "../lib/apolloRoster";
 import type { ApolloFunnel } from "../lib/apolloFunnel";
 import { MAIN_SEQUENCES } from "./ApolloStatus";
+import { arrivalOf, PRE_MAY_2026_MONTH, PRE_MAY_2026_LABEL } from "../lib/leadFiling";
+import { verdictOf, VERDICT_META, VERDICT_ORDER, type Verdict } from "../lib/leadStatus";
+
+const monthLabel = (m: string) => m === PRE_MAY_2026_MONTH ? PRE_MAY_2026_LABEL
+  : new Date(`${m}-15T12:00:00`).toLocaleDateString("en-US", { month: "long", year: "numeric" });
 
 const REP_KEY = "repView";
 const PAGE = 50;
@@ -78,11 +83,17 @@ export default function Reps({ leads, apolloIndex, recycleRules, roster = [], fu
   recycleRules: RecycleRules;
 }) {
   const [rep, setRepState] = useState<string>(() => { try { return localStorage.getItem(REP_KEY) || "Carly"; } catch { return "Carly"; } });
-  const setRep = (r: string) => { setRepState(r); setStatusF("all"); setSeqF(""); setPage(0); try { localStorage.setItem(REP_KEY, r); } catch { /* preference only */ } };
+  const setRep = (r: string) => { setRepState(r); setStatusF("all"); setSeqF(""); setPage(0); setMonthF(""); setFileF(""); try { localStorage.setItem(REP_KEY, r); } catch { /* preference only */ } };
   const [statusF, setStatusF] = useState<LeadStatus | "all">("all");
   const [q, setQ] = useState("");
   const [seqF, setSeqF] = useState("");
   const [page, setPage] = useState(0);
+  // Per Jack: Carly "can view unclaimed leads also by filtering through csv
+  // dates and recent uploads as in leads not assigned to sequences".
+  const [monthF, setMonthF] = useState("");
+  const [fileF, setFileF] = useState("");
+  const [verdictF, setVerdictF] = useState<Verdict | "all">("all");
+  const [noSeqOnly, setNoSeqOnly] = useState(false);
 
   const rows: Row[] = useMemo(() => leads.map((l) => {
     const live = (l.apollo?.sequences ?? []).map((s) => ({ name: s.name, active: s.status === "active" }));
@@ -159,24 +170,43 @@ export default function Reps({ leads, apolloIndex, recycleRules, roster = [], fu
       || (b[1].total + b[1].inApollo) - (a[1].total + a[1].inApollo) || a[0].localeCompare(b[0]));
   }, [mine, rep, roster, funnels]);
 
+  // CSV months and uploaded files among this rep's leads, newest first.
+  const months = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of mine) { const k = arrivalOf(r.l).month; m.set(k, (m.get(k) || 0) + 1); }
+    return [...m].sort((a, b) => b[0].localeCompare(a[0]));
+  }, [mine]);
+  const files = useMemo(() => {
+    const m = new Map<string, { n: number; at: string }>();
+    for (const r of mine) for (const f of r.l.sourceFiles) {
+      const e = m.get(f) ?? { n: 0, at: "" };
+      e.n++; const d = arrivalOf(r.l).date; if (d > e.at) e.at = d;
+      m.set(f, e);
+    }
+    return [...m].sort((a, b) => b[1].at.localeCompare(a[1].at) || a[0].localeCompare(b[0]));
+  }, [mine]);
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return mine.filter((r) => (statusF === "all" || r.status === statusF)
       && (!seqF || r.seqs.includes(seqF))
+      && (!monthF || arrivalOf(r.l).month === monthF)
+      && (!fileF || r.l.sourceFiles.includes(fileF))
+      && (verdictF === "all" || verdictOf(r.l.tier) === verdictF)
+      && (!noSeqOnly || r.seqs.length === 0)
       && (!needle || `${r.l.contact} ${r.l.company} ${r.l.email} ${r.l.title}`.toLowerCase().includes(needle)));
-  }, [mine, statusF, q, seqF]);
+  }, [mine, statusF, q, seqF, monthF, fileF, verdictF, noSeqOnly]);
   const pages = Math.max(1, Math.ceil(filtered.length / PAGE));
   const p = Math.min(page, pages - 1);
   const shown = filtered.slice(p * PAGE, p * PAGE + PAGE);
 
   const download = () => {
-    const cols = ["Rep", "First Name", "Last Name", "Company", "Title", "Email", "Phone", "Stored As", "Where it stands", "Active sequence", "Sequences", "Calls", "Emails", "Last outcome", "Last call", "Recycle", "Notes"] as const;
+    const cols = ["Rep", "First Name", "Last Name", "Company", "Title", "Email", "Phone", "Mobile Phone", "Signal", "Stored As", "Where it stands", "Active sequence", "Sequences", "Calls", "Emails", "Last outcome", "Last call", "Recycle", "Notes"] as const;
     const data = filtered.map((r) => {
       const [first, ...rest] = (r.l.contact || "").trim().split(/\s+/);
       const a = r.l.apollo;
       const rc = recycleOf(r.l, recycleRules);
       return {
-        Rep: rep, "First Name": first || "", "Last Name": rest.join(" "), Company: r.l.company, Title: r.l.title, Email: r.l.email, Phone: r.l.phone,
+        Rep: rep, "First Name": first || "", "Last Name": rest.join(" "), Company: r.l.company, Title: r.l.title, Email: r.l.email, Phone: r.l.phone, "Mobile Phone": r.l.mobilePhone || "", Signal: VERDICT_META[verdictOf(r.l.tier)].label,
         "Stored As": r.l.tier, "Where it stands": STATUS_META[r.status].label, "Active sequence": r.active.join(" | "), Sequences: r.seqs.join(" | "),
         Calls: a ? String(a.callCount) : "", Emails: a?.emailCount !== undefined ? String(a.emailCount) : "", "Last outcome": a?.lastOutcome || "",
         "Last call": (a?.lastCallAt || "").slice(0, 10), Recycle: rc.stage === "ready" ? "Ready" : rc.stage === "resting" ? `Resting until ${rc.recycleOn}` : "",
@@ -206,7 +236,8 @@ export default function Reps({ leads, apolloIndex, recycleRules, roster = [], fu
         </div>
         <div className="seg" role="tablist" aria-label="Rep">
           {[...REPS, UNASSIGNED].map((r) => (
-            <button key={r} role="tab" aria-selected={rep === r} className={`seg-btn${rep === r ? " active" : ""}`} onClick={() => setRep(r)}>{r}</button>
+            <button key={r} role="tab" aria-selected={rep === r} className={`seg-btn${rep === r ? " active" : ""}`} onClick={() => setRep(r)}
+                    title={r === UNASSIGNED ? "Unclaimed: no rep named on any sequence and no Apollo owner" : undefined}>{r === UNASSIGNED ? `${r} (unclaimed)` : r}</button>
           ))}
         </div>
       </div>
@@ -302,6 +333,21 @@ export default function Reps({ leads, apolloIndex, recycleRules, roster = [], fu
           <option value="all">Anywhere</option>
           {standingOrder.map((k) => <option key={k} value={k}>{STATUS_META[k].label} ({(statusCounts.get(k) || 0).toLocaleString()})</option>)}
         </select>
+        <select className="field" aria-label="Stored as" value={verdictF} onChange={(e) => { setVerdictF(e.target.value as Verdict | "all"); setPage(0); }}>
+          <option value="all">Stored as: any</option>
+          {VERDICT_ORDER.map((v) => <option key={v} value={v}>{VERDICT_META[v].label}</option>)}
+        </select>
+        <select className="field" aria-label="CSV month" value={monthF} onChange={(e) => { setMonthF(e.target.value); setPage(0); }}>
+          <option value="">CSV month: any</option>
+          {months.map(([m, n]) => <option key={m} value={m}>{monthLabel(m)} ({n.toLocaleString()})</option>)}
+        </select>
+        <select className="field" aria-label="Uploaded file" value={fileF} onChange={(e) => { setFileF(e.target.value); setPage(0); }} style={{ maxWidth: 260 }}>
+          <option value="">Uploaded file: any (newest first)</option>
+          {files.map(([f, x]) => <option key={f} value={f}>{f} · {x.at} ({x.n.toLocaleString()})</option>)}
+        </select>
+        <label style={{ fontSize: 12.5, display: "inline-flex", gap: 6, alignItems: "center" }} title="Leads not in any Apollo sequence — free to claim">
+          <input type="checkbox" checked={noSeqOnly} onChange={(e) => { setNoSeqOnly(e.target.checked); setPage(0); }} /> Not in any sequence
+        </label>
         {seqF && <span className="chip" style={{ fontSize: 12 }}>Sequence: {seqF} <button className="btn btn-sm btn-ghost" aria-label="Clear sequence filter" onClick={() => setSeqF("")}>✕</button></span>}
         <span className="muted" style={{ fontSize: 12.5 }}>{filtered.length.toLocaleString()} of {mine.length.toLocaleString()} leads</span>
         <span style={{ flex: 1 }} />
@@ -310,23 +356,32 @@ export default function Reps({ leads, apolloIndex, recycleRules, roster = [], fu
 
       <div className="table-card">
         <table className="data-table" aria-label={`${rep}'s leads`}>
-          <thead><tr><th>Contact</th><th>Stands</th><th>Sequence</th><th className="num">Calls</th><th>Last outcome</th><th>Stored as</th><th>Note</th></tr></thead>
+          {/* Per Jack: in Reps "carly should see contact first and last name
+              company email phone number or numbers scanned note and signal". */}
+          <thead><tr><th>First name</th><th>Last name</th><th>Company</th><th>Email</th><th>Phone</th><th>Signal</th><th>Stands · sequence</th><th className="num">Calls</th><th>Scanned note</th></tr></thead>
           <tbody>
-            {shown.length === 0 && <tr><td colSpan={7} className="muted" style={{ padding: 16 }}>No leads here.</td></tr>}
+            {shown.length === 0 && <tr><td colSpan={9} className="muted" style={{ padding: 16 }}>No leads here.</td></tr>}
             {shown.map((r) => {
               const m = STATUS_META[r.status]; const a = r.l.apollo;
               const step = a?.sequences.find((x) => x.status === "active");
+              const [first, ...rest] = (r.l.contact || "").trim().split(/\s+/);
+              const v = VERDICT_META[verdictOf(r.l.tier)];
+              const phones = [...new Set([r.l.phone, r.l.mobilePhone].map((x) => (x || "").trim()).filter(Boolean))];
               return (
                 <tr key={r.l.key}>
-                  <td><div style={{ fontWeight: 600 }}>{r.l.contact || "—"}</div>
-                    <div className="muted" style={{ fontSize: 12 }}>{[r.l.title, r.l.company].filter(Boolean).join(" · ")}</div>
-                    <div className="muted" style={{ fontSize: 11.5 }}>{r.l.email}</div></td>
-                  <td><span className="pill" style={{ color: m.color, background: m.bg }} title={m.hint}>{m.label}</span></td>
-                  <td style={{ fontSize: 12 }}>{r.active.length ? <><b>{r.active.join(", ")}</b>{step?.step ? <span className="muted"> · step {step.step}{step.steps ? ` of ${step.steps}` : ""}</span> : null}</> : (r.seqs.join(", ") || <span className="muted">—</span>)}</td>
+                  <td style={{ fontWeight: 600 }}>{first || "—"}</td>
+                  <td style={{ fontWeight: 600 }}>{rest.join(" ") || "—"}</td>
+                  <td style={{ fontSize: 12.5 }}>{r.l.company || "—"}{r.l.title && <div className="muted" style={{ fontSize: 11.5 }}>{r.l.title}</div>}</td>
+                  <td style={{ fontSize: 12 }}>{r.l.email || <span className="muted">—</span>}</td>
+                  <td style={{ fontSize: 12, whiteSpace: "nowrap" }}>{phones.length ? phones.map((x) => <div key={x}>{x}</div>) : <span className="muted">—</span>}</td>
+                  <td><span className="pill" style={{ color: v.color, background: v.bg }} title={`${r.l.tier} · ${v.hint}`}>{v.label}</span></td>
+                  <td style={{ fontSize: 12 }}>
+                    <span className="pill" style={{ color: m.color, background: m.bg }} title={m.hint}>{m.label}</span>
+                    <div>{r.active.length ? <><b>{r.active.join(", ")}</b>{step?.step ? <span className="muted"> · step {step.step}{step.steps ? ` of ${step.steps}` : ""}</span> : null}</> : (r.seqs.join(", ") || <span className="muted">no sequence</span>)}</div>
+                    {a?.lastOutcome && <div className="muted" style={{ fontSize: 11 }}>{a.lastOutcome}{a.lastCallAt ? ` · ${a.lastCallAt.slice(0, 10)}` : ""}</div>}
+                  </td>
                   <td className="num">{a ? (a.callsUnknown ? "?" : a.callCount) : "—"}</td>
-                  <td style={{ fontSize: 12, whiteSpace: "nowrap" }}>{a?.lastOutcome || "—"}{a?.lastCallAt && <div className="muted" style={{ fontSize: 11 }}>{a.lastCallAt.slice(0, 10)}</div>}</td>
-                  <td style={{ fontSize: 12 }}>{r.l.tier}</td>
-                  <td style={{ fontSize: 12, maxWidth: 320 }}><div style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }} title={r.l.notes}>{stripSnippetPrefix(r.l.notes || "")}</div></td>
+                  <td style={{ fontSize: 12, maxWidth: 340 }}><div style={{ display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }} title={r.l.notes}>{stripSnippetPrefix(r.l.notes || "")}</div></td>
                 </tr>
               );
             })}

@@ -61,15 +61,15 @@ const csv = [HEAD.join(',')].concat(rows.map((r, i) => [
   const all = await tableRows();
   // The note now closes with the band and score — "High priority (83)" —
   // rather than opening with "Score 83".
-  ok('all three rows scored', all.length === 3 && all.every(t => /priority \(\d+\)/.test(t)), JSON.stringify(all.map(t => (t.match(/priority \(\d+\)/) || [''])[0])));
+  ok('all three rows scored', all.length === 3 && all.every(t => /\(\d+\) [\u25B2\u25B8\u25BC\u2715]/.test(t)), JSON.stringify(all.map(t => (t.match(/\(\d+\) [\u25B2\u25B8\u25BC\u2715]/) || [''])[0])));
 
   console.log('\n== the lane shows on the row ==');
   ok('a held account names its partner', /Rackspace Technology/.test(await rowFor('Alpine Freight')), (await rowFor('Alpine Freight')).slice(0, 200));
-  ok('an open lane is flagged', /no partner on it/.test(await rowFor('Borden Labs')), (await rowFor('Borden Labs')).slice(0, 200));
-  ok('a row that states nothing shows neither', !/no partner on it|Rackspace/.test(await rowFor('Carlow Metals')), (await rowFor('Carlow Metals')).slice(0, 200));
+  ok('an open lane is flagged', /No partner on record/.test(await rowFor('Borden Labs')), (await rowFor('Borden Labs')).slice(0, 200));
+  ok('a row that states nothing shows neither', !/No partner on record|Rackspace/.test(await rowFor('Carlow Metals')), (await rowFor('Carlow Metals')).slice(0, 200));
 
   console.log('\n== the score moved, and only where it should ==');
-  const scoreOf = async co => Number(((await rowFor(co)).match(/priority \((\d+)\)/) || [])[1]);
+  const scoreOf = async co => Number(((await rowFor(co)).match(/\((\d+)\) [\u25B2\u25B8\u25BC\u2715]/) || [])[1]);
   const held0 = await scoreOf('Alpine Freight'), open0 = await scoreOf('Borden Labs'), quiet0 = await scoreOf('Carlow Metals');
   ok('the open lane outscores the silent row by the adjustment', open0 - quiet0 === 8, `${quiet0} -> ${open0}`);
   ok('the held account undercuts it by the same', quiet0 - held0 === 8, `${quiet0} -> ${held0}`);
