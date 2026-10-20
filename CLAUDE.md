@@ -6986,3 +6986,54 @@ and last name company email phone number or numbers scanned note and signal".
   `smc-partner-live`, `wants-partner`: same facts, new wording (score head at
   the start, "Timeline: renews", "Partner on record", "Direct with
   Microsoft", "Latest note:").
+
+### 2026-10-20: campaign lists, Apollo industry/size on All leads, ten review agents (scanner-platform-v29)
+
+Jack approved all three (and chose the CSV hand-off over writing to Apollo:
+**the platform stays read-only toward Apollo**).
+
+**Campaign lists** (`lib/leadLists.ts`, `components/Lists.tsx`). Per Jack:
+"have these added leads stored as lists with the created date and taggs so
+then i can move them but maintain who i am contacting", "every 45 or 60 days
+i want to cycle leads here to push to a new campign based on their company as
+well as summarizxed note".
+- `LeadList` gained optional `tags`, `campaign`, `cycleDays`, `status`
+  ("active" | "cycled"), `cycledFrom`. A list saved before these is a plain
+  list; nothing migrates.
+- Per list: "🏷 Tags & cycle" (campaign name, comma tags deduped, cycle 45 /
+  60 days / none), created date, "cycles in Nd" / "due to cycle", a tag
+  filter, and a "Due to cycle" panel at the top.
+- "↻ Cycle now" / the due panel: the leads move into a NEW list dated today
+  (named "<campaign> — <date>", same tags and cycle, sorted by company so the
+  summarized notes for one company sit together); the old list is kept as
+  history, marked cycled. Nothing is deleted.
+- "Also on": each lead shows the other active campaign lists it is on, so
+  the same person is not worked twice by two campaigns
+  (`campaignMembership`, keyed by name + company).
+- Expanded list rows show the summarized note.
+- Suite `campaign-lists-live` (11).
+
+**All leads: Apollo company data** (`AllLeads.tsx`, `App.enrichCompaniesForLeads`).
+Per Jack: "populate the leads here with indsutry from enriched apollo data
+going forward and filter thrugh employee size or company size plus remove
+leads … in active sequences".
+- "🏢 Enrich N companies": the companies behind the selection (or everything
+  matched) with no profile yet, up to `MAX_COMPANY_BATCH` (100) per click,
+  behind a confirm that states the credit cost. Same Apollo tool and
+  fillBlank merge as upload-time enrichment, then `requalifyAll`.
+- More filters → The company: "Exclude industry" (adds one industry at a
+  time, each a removable chip) beside Industry and Employees.
+- "Hide active in a sequence" toggle in the filter row (Apollo standing
+  "active").
+
+**Ten report-only agents** (`.claude/agents/*.md`, run all with
+`/platform-review`). Per Jack: "create 10 agents to maintin this and maintain
+the apollo connections each has its own practice and rules so it makes no
+decisions without me". main-scanner-rules, custom-scanner-rules,
+csp-scanner-rules, notes-format, apollo-read-only-guard, apollo-connection
+(read-only Apollo tools only, never credit-consuming ones), sequences-and-
+reps, lead-store-integrity, campaign-lists, tests-and-docs. Each: never
+edits, pushes, publishes or writes to Apollo; cites file:line/evidence;
+raises anything that changes a lead's grade, a download, access, or Apollo
+as a decision for Jack. They are Claude Code agents, not part of the
+published page, and run only when invoked.

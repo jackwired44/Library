@@ -27,11 +27,12 @@ import Customize, { loadHiddenSet, saveHiddenSet } from "./Customize";
 import { arrivalOf, isPreMaySheet, sheetNumberOf, PRE_MAY_2026_MONTH, PRE_MAY_2026_LABEL } from "../lib/leadFiling";
 import { engagementOf, engagementLabel, isCustomer, ENGAGEMENT_SOURCE_META, type EngagementMatch } from "../lib/engagements";
 import type { ParsedFile } from "../lib/detection";
+import { MAX_COMPANY_BATCH } from "../lib/apolloEnrich";
 import { partnerStanceOf } from "../lib/detection";
 import { downloadCampaignCSV } from "../lib/campaignExport";
 import { MIN_EMPLOYEES } from "../lib/leadQualify";
 import {
-  SIZE_BUCKETS, employeeCountOf, normalizeCompanyKey, profileForCompany, type CompanyProfile,
+  SIZE_BUCKETS, employeeCountOf, normalizeCompanyKey, profileForCompany, companiesNeedingEnrichment, type CompanyProfile,
 } from "../lib/companyProfiles";
 import LeadDetail from "./LeadDetail";
 import { REPS, ownersOf } from "../lib/reps";
@@ -245,7 +246,7 @@ const NO_LINE = "(no product line)";
 export default function AllLeads({
   leads, companyProfiles = [], onApplySync, initialSequence = "",
   sequenceNames = [], onSetPlan, onSetStatus, funnels = [], initialStatus, initialPreset,
-  apolloIndex = null, rosterPulledAt = "", onPullApollo, onCheckLeads, lists = [], onAddToList,
+  apolloIndex = null, rosterPulledAt = "", onPullApollo, onCheckLeads, onEnrichCompanies, lists = [], onAddToList,
   emailChecks = [], onImportVerifier, noteRefresh = null, onRefreshNotes,
   engagementCount = 0, onImportEngagements, recycleRules = DEFAULT_RECYCLE_RULES,
 }: {
@@ -265,6 +266,8 @@ export default function AllLeads({
   onAddToList?: (rows: { row: ExportRow; scanner: "main" | "smc" | "csp" }[], opts: { existingId?: string; newName?: string }) => { listId: string; added: number; skipped: number } | null;
   /** Live Apollo lookup: sequence, step and status per lead. Read-only. */
   onCheckLeads?: (leads: StoredLead[], onProgress: (p: CheckProgress) => void, signal: AbortSignal) => Promise<CheckProgress>;
+  /** Apollo company enrichment for the given leads' companies (credits). */
+  onEnrichCompanies?: (leads: StoredLead[]) => Promise<{ found: number; missed: number; errors: number; message?: string }>;
   /** Everyone known to be in Apollo — see lib/apolloRoster.ts. */
   apolloIndex?: RosterIndex | null;
   /** When Apollo uploads were last pulled. "" if never. */
@@ -322,6 +325,10 @@ export default function AllLeads({
   const [tierF, setTierF] = useState(initialPreset ? TOP : "all");
   const [lineF, setLineF] = useState("all");
   const [industryF, setIndustryF] = useState("all");
+  // Per Jack: filter by "indsutry or excluded industry employee range and
+  // the contacts not in active sequences".
+  const [exclIndustries, setExclIndustries] = useState<string[]>([]);
+  const [hideActive, setHideActive] = useState(false);
   const [sizeF, setSizeF] = useState("all");
   const [apolloF, setApolloF] = useState<ApolloFilter>(initialPreset ? PRESET[initialPreset].apollo : "all");
   const [seqF, setSeqF] = useState(initialSequence || "all");
@@ -512,13 +519,15 @@ export default function AllLeads({
       search: (_l, d) => !q || matchesKeywords(d.hay, kq),
       ready: (_l, d) => !readyOnly || (isGreenLit(d.lane) && NEEDS.has(d.standing)),
       lane: (_l, d) => laneF === "all" || (laneF === "green" ? isGreenLit(d.lane) : d.lane === laneF),
-      standing: (_l, d) => standingF === "all" || (standingF === "needs" ? NEEDS.has(d.standing) : standingF === "noseq" ? NO_SEQUENCE.has(d.standing) : d.standing === standingF),
+      standing: (_l, d) => (standingF === "all" || (standingF === "needs" ? NEEDS.has(d.standing) : standingF === "noseq" ? NO_SEQUENCE.has(d.standing) : d.standing === standingF))
+        && !(hideActive && d.standing === "active"),
       partner: (l) => !partnerKeys || partnerKeys.has(l.key),
       notes: (l) => nq.empty || matchesKeywords(`${(l.notes || "").toLowerCase()} \u0001${rawIndex?.get(l.key) ?? ""}`, nq),
       source: (l) => sourceF === "all" || l.source === sourceF,
       tier: (l) => tierF === "all" || (tierF === TOP ? TOP_TIER_SET.has(l.tier) : l.tier === tierF),
       line: (_l, d) => lineF === "all" || d.line === lineF,
-      industry: (_l, d) => industryF === "all" || d.industry === industryF,
+      industry: (_l, d) => (industryF === "all" || d.industry === industryF)
+        && !(exclIndustries.length && d.industry && exclIndustries.includes(d.industry)),
       size: (_l, d) => sizeF === "all" || d.sizeKey === sizeF,
       apollo: (_l, d) => {
         switch (apolloF) {
@@ -550,7 +559,7 @@ export default function AllLeads({
       },
     };
     return t;
-  }, [inApolloF, verdictF, companyF, companyStats, contactF, levelF, fnF, monthF, dateF, statusF, q, kq, nq, rawIndex, standingF, laneF, readyOnly, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, ownerF, planF, planSeqF, filesF, fileNameF, fromT, toT, partnerKeys]);
+  }, [inApolloF, verdictF, companyF, companyStats, contactF, levelF, fnF, monthF, dateF, statusF, q, kq, nq, rawIndex, standingF, laneF, readyOnly, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, ownerF, planF, planSeqF, filesF, fileNameF, fromT, toT, partnerKeys, exclIndustries, hideActive]);
 
   const passes = (l: StoredLead, skip?: Key) => {
     const d = derived.get(l.key)!;
@@ -774,6 +783,8 @@ export default function AllLeads({
   if (tierF !== "all") chips.push({ label: tierF === TOP ? "Top tier" : tierF, clear: () => setTierF("all") });
   if (lineF !== "all") chips.push({ label: lineF, clear: () => setLineF("all") });
   if (industryF !== "all") chips.push({ label: `Industry: ${industryF}`, clear: () => setIndustryF("all") });
+  for (const x of exclIndustries) chips.push({ label: `Not ${x}`, clear: () => setExclIndustries((v) => v.filter((y) => y !== x)) });
+  if (hideActive) chips.push({ label: "Hiding active in a sequence", clear: () => setHideActive(false) });
   if (sizeF !== "all") chips.push({ label: `Employees: ${SIZE_BUCKETS.find((b) => b.key === sizeF)?.label ?? "unknown"}`, clear: () => setSizeF("all") });
   if (apolloF !== "all") chips.push({ label: APOLLO_LABEL[apolloF], clear: () => setApolloF("all") });
   if (seqF !== "all") chips.push({ label: `In: ${seqF}`, clear: () => setSeqF("all") });
@@ -834,6 +845,26 @@ export default function AllLeads({
     return { found, notFound, unchecked };
   }, [leads]);
   const checking = !!check && !check.finished;
+
+  // Per Jack: "apollo enrichment for company data is very powerful". The
+  // companies behind the selection (or everything matched) that have no
+  // profile yet, looked up once each, credit cost stated before anything runs.
+  const [enriching, setEnriching] = useState(false);
+  const [enrichNote, setEnrichNote] = useState("");
+  const enrichTargets = useMemo(() => {
+    const pool = selected.size ? leads.filter((l) => selected.has(l.key)) : filtered;
+    return companiesNeedingEnrichment(pool.map((l) => ({ company: l.company, email: l.email })), companyProfiles);
+  }, [selected, leads, filtered, companyProfiles]);
+  async function runEnrich() {
+    if (!onEnrichCompanies || enriching || !enrichTargets.length) return;
+    const n = Math.min(enrichTargets.length, MAX_COMPANY_BATCH);
+    if (!window.confirm(`Enrich ${n.toLocaleString()} compan${n === 1 ? "y" : "ies"} from Apollo? This will consume up to ${n.toLocaleString()} Apollo credits (no charge for any not found).${enrichTargets.length > n ? ` The first ${n} of ${enrichTargets.length.toLocaleString()} per click.` : ""}`)) return;
+    setEnriching(true); setEnrichNote("");
+    const pool = selected.size ? leads.filter((l) => selected.has(l.key)) : filtered;
+    const r = await onEnrichCompanies(pool);
+    setEnriching(false);
+    setEnrichNote(`Apollo: ${r.found} found, ${r.missed} not found${r.errors ? `, ${r.errors} failed${r.message ? ` (${r.message})` : ""}` : ""}.`);
+  }
 
   async function runCheck(only?: StoredLead[]) {
     const targets = only ?? checkTargets;
@@ -1252,6 +1283,10 @@ export default function AllLeads({
             ⚑ Wants a partner{partnerF && partnerKeys && rawIndexState !== "loading" ? ` (${partnerKeys.size.toLocaleString()})` : ""}
             {partnerF && rawIndexState === "loading" ? " · reading notes…" : ""}
           </button>
+          <button className={`filter-btn${hideActive ? " on" : ""}`} aria-pressed={hideActive} onClick={() => setHideActive((v) => !v)}
+                  title="Leave out every lead that is active in an Apollo sequence right now, so a new campaign never doubles up on someone already being worked.">
+            Hide active in a sequence
+          </button>
           <select className="field" aria-label="Uploaded file" value={fileNameF} onChange={(e) => setFileNameF(e.target.value)}
                   title="Every CSV you have uploaded, filed under the month it is dated, newest first." style={{ maxWidth: 260 }}>
             <option value="all">Uploaded file: any ({fileOptions.length.toLocaleString()})</option>
@@ -1315,6 +1350,14 @@ export default function AllLeads({
               <div className="section-label">Industry (from Apollo)</div>
               <select className="field" style={{ width: "100%" }} aria-label="Industry" value={industryF} onChange={(e) => setIndustryF(e.target.value)}>
                 <option value="all">Any</option>{opts(facets.industry)}
+              </select>
+            </label>
+            <label>
+              <div className="section-label">Exclude industry</div>
+              <select className="field" style={{ width: "100%" }} aria-label="Exclude industry" value=""
+                      onChange={(e) => { const v = e.target.value; if (v) setExclIndustries((x) => x.includes(v) ? x : [...x, v]); }}>
+                <option value="">{exclIndustries.length ? `${exclIndustries.length} excluded — add another` : "None excluded"}</option>
+                {opts(facets.industry)}
               </select>
             </label>
             <label>
@@ -1486,6 +1529,16 @@ export default function AllLeads({
                     }}>
               Apply{selected.size ? ` to ${selected.size.toLocaleString()}` : ""}
             </button>
+          </>
+        )}
+        {onEnrichCompanies && (
+          <>
+            <span style={{ width: 1, height: 18, background: "var(--border)" }} />
+            <button className="btn btn-sm btn-secondary" disabled={enriching || !enrichTargets.length} onClick={() => void runEnrich()}
+                    title="Look up industry and employee count in Apollo for the companies behind these leads that have no company profile yet. Costs Apollo credits (1 per company found); you confirm the count first.">
+              {enriching ? "Enriching…" : `🏢 Enrich ${Math.min(enrichTargets.length, MAX_COMPANY_BATCH).toLocaleString()} compan${enrichTargets.length === 1 ? "y" : "ies"}${selected.size ? " (selected)" : ""}`}
+            </button>
+            {enrichNote && <span className="muted" style={{ fontSize: 12 }}>{enrichNote}</span>}
           </>
         )}
         {onCheckLeads && (

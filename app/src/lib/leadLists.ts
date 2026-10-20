@@ -29,6 +29,90 @@ export interface LeadList {
   name: string;
   createdAt: string;
   rows: ListedLeadRow[];
+  // Campaign fields. Per Jack: "have these added leads stored as lists with
+  // the created date and taggs so then i can move them but maintain who i am
+  // contacting", cycled "every 45 or 60 days … to push to a new campign".
+  // All optional: a list saved before these existed is a plain list.
+  tags?: string[];
+  /** The campaign this list feeds, e.g. "Q4 M365 licensing". */
+  campaign?: string;
+  /** Days after `createdAt` the list is due to be cycled into a new one. */
+  cycleDays?: number | null;
+  /** "cycled" once its leads were moved into a newer list. */
+  status?: "active" | "cycled";
+  /** The list this one was cycled from, if any. */
+  cycledFrom?: string;
+}
+
+export const CYCLE_CHOICES = [45, 60] as const;
+
+/** The day a campaign list is due to cycle, or null when it has no cycle. */
+export function cycleDueOn(list: LeadList): string | null {
+  if (!list.cycleDays || list.cycleDays <= 0) return null;
+  const d = new Date(list.createdAt);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setDate(d.getDate() + list.cycleDays);
+  return d.toISOString().slice(0, 10);
+}
+/** Days until (positive) or past (negative) the cycle date. */
+export function daysToCycle(list: LeadList, today = new Date()): number | null {
+  const due = cycleDueOn(list);
+  if (!due) return null;
+  const t = new Date(today.toISOString().slice(0, 10) + "T00:00:00Z").getTime();
+  return Math.round((new Date(due + "T00:00:00Z").getTime() - t) / 86_400_000);
+}
+export const isCampaignList = (l: LeadList) => !!(l.campaign || l.cycleDays || l.tags?.length);
+/** A list that is still being worked: a campaign list not yet cycled. */
+export const isActiveCampaign = (l: LeadList) => isCampaignList(l) && l.status !== "cycled";
+
+/** Every active campaign list each lead is on, keyed by the list row key
+ *  (name + company). This is "maintain who I am contacting": a lead on two
+ *  live campaigns is visible as such before it is contacted twice. */
+export function campaignMembership(lists: LeadList[]): Map<string, LeadList[]> {
+  const m = new Map<string, LeadList[]>();
+  for (const l of lists) {
+    if (!isActiveCampaign(l)) continue;
+    for (const r of l.rows) {
+      if (!r.__rowKey || r.__rowKey.startsWith("row-")) continue;
+      const arr = m.get(r.__rowKey) ?? [];
+      arr.push(l); m.set(r.__rowKey, arr);
+    }
+  }
+  return m;
+}
+
+export function updateLeadListMeta(lists: LeadList[], id: string, patch: Partial<Pick<LeadList, "tags" | "campaign" | "cycleDays" | "status">>): LeadList[] {
+  return lists.map((l) => (l.id === id ? { ...l, ...patch } : l));
+}
+/** "a, b ,c" -> ["a","b","c"], deduped, case kept from first sight. */
+export function parseTags(text: string): string[] {
+  const seen = new Set<string>(); const out: string[] = [];
+  for (const t of text.split(",").map((x) => x.trim()).filter(Boolean)) {
+    const k = t.toLowerCase(); if (seen.has(k)) continue; seen.add(k); out.push(t);
+  }
+  return out;
+}
+
+/**
+ * Cycle a campaign list: its leads move into a NEW list (today's created
+ * date, same tags and cycle, named for the campaign and today), sorted by
+ * company so the summarized notes for one company sit together, and the old
+ * list is marked cycled. Nothing is deleted; the old list stays as history
+ * of who was contacted when. Leads chosen by `keep` only (default: all).
+ */
+export function cycleLeadList(lists: LeadList[], id: string, name?: string, keep?: (r: ListedLeadRow) => boolean, now = new Date()): { lists: LeadList[]; list: LeadList | null } {
+  const src = lists.find((l) => l.id === id);
+  if (!src) return { lists, list: null };
+  const day = now.toISOString().slice(0, 10);
+  const rows = src.rows.filter(keep ?? (() => true))
+    .slice().sort((a, b) => String(a["Company Name"] || "").localeCompare(String(b["Company Name"] || "")));
+  const list: LeadList = {
+    id: newId(), name: (name || `${src.campaign || src.name} \u2014 ${day}`).trim(), createdAt: now.toISOString(), rows,
+    tags: src.tags ? [...src.tags] : undefined, campaign: src.campaign, cycleDays: src.cycleDays ?? null,
+    status: "active", cycledFrom: src.id,
+  };
+  const marked = lists.map((l) => (l.id === id ? { ...l, status: "cycled" as const } : l));
+  return { lists: [list, ...marked], list };
 }
 
 function newId() {

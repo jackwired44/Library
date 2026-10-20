@@ -73,7 +73,7 @@ import {
 } from "./lib/history";
 import {
   loadLeadListsFromDB, persistLeadList, deleteLeadListFromDB, createLeadList,
-  renameLeadList, deleteLeadList, addRowsToList, addExportRowsToList, removeRowFromList, type LeadList,
+  renameLeadList, deleteLeadList, addRowsToList, addExportRowsToList, removeRowFromList, updateLeadListMeta, cycleLeadList, type LeadList,
 } from "./lib/leadLists";
 import { loadRuleOverrides, persistRuleOverrides } from "./lib/ruleOverrides";
 import { isUnlocked, setUnlocked, currentAccount, setCurrentAccount, AUTH_EMAIL, type Account } from "./lib/auth";
@@ -87,7 +87,7 @@ import {
   loadCompanyProfilesFromDB, persistCompanyProfile, companiesNeedingEnrichment,
   upsertProfileFromApollo, type CompanyProfile,
 } from "./lib/companyProfiles";
-import { enrichCompaniesViaApollo, type CompanyEnrichOutcome } from "./lib/apolloEnrich";
+import { enrichCompaniesViaApollo, MAX_COMPANY_BATCH, type CompanyEnrichOutcome } from "./lib/apolloEnrich";
 import { pullTeamUploads, checkLeadsInApollo, applyCheckResults, type PullProgress, type CheckProgress } from "./lib/apolloLive";
 import type { SaveReport } from "./lib/saveReport";
 import Recycle from "./components/Recycle";
@@ -881,6 +881,39 @@ export default function App() {
     }
   }
 
+  /**
+   * Apollo company data for the leads Jack has filtered or selected in All
+   * leads. Per Jack: "populate the leads here with indsutry from enriched
+   * apollo data going forward and filter thrugh employee size". Same tool
+   * and merge as the upload-time enrichment; the caller confirms the credit
+   * cost first. Returns per-domain counts.
+   */
+  async function enrichCompaniesForLeads(targets: StoredLead[]): Promise<{ found: number; missed: number; errors: number; message?: string }> {
+    const need = companiesNeedingEnrichment(targets.map((l) => ({ company: l.company, email: l.email })), companyProfiles).slice(0, MAX_COMPANY_BATCH);
+    if (!need.length) return { found: 0, missed: 0, errors: 0 };
+    try {
+      const outcomes = await enrichCompaniesViaApollo(need.map((p) => p.domain));
+      let working = companyProfiles;
+      for (const o of outcomes) {
+        if (o.status !== "found" || !o.fields) continue;
+        const target = need.find((p) => p.domain === o.domain);
+        working = upsertProfileFromApollo(working, target?.companyName || o.fields.name || o.domain, o.domain, o.fields);
+      }
+      setCompanyProfiles(working);
+      working.forEach((pr) => persistCompanyProfile(pr));
+      await requalifyAll(working);
+      const errs = outcomes.filter((o) => o.status === "error");
+      return {
+        found: outcomes.filter((o) => o.status === "found").length,
+        missed: outcomes.filter((o) => o.status === "not-found").length,
+        errors: errs.length,
+        message: errs[0]?.errorMessage,
+      };
+    } catch (e) {
+      return { found: 0, missed: 0, errors: need.length, message: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
   if (!unlocked) return <LockScreen onUnlock={(acct: Account) => {
     // Per Jack: Carly "can view her leads at a high glance and view
     // unclaimed leads" — a rep other than Jack lands on their own Reps view.
@@ -1133,6 +1166,7 @@ export default function App() {
             key={`leads-${leadsSequenceEntry}-${leadsStatusEntry}-${leadsPresetEntry}`}
             leads={leads}
             companyProfiles={companyProfiles}
+            onEnrichCompanies={enrichCompaniesForLeads}
             onApplySync={applySyncFiles}
             apolloIndex={apolloIndex}
             rosterPulledAt={rosterPulledAt}
@@ -1279,6 +1313,23 @@ export default function App() {
               setLeadLists(next);
               const updated = next.find((l) => l.id === listId);
               if (updated) persistLeadList(updated);
+            }}
+            onUpdateMeta={(id, patch) => {
+              const next = updateLeadListMeta(leadLists, id, patch);
+              setLeadLists(next);
+              const updated = next.find((l) => l.id === id);
+              if (updated) persistLeadList(updated);
+            }}
+            onCycle={(id) => {
+              const src = leadLists.find((l) => l.id === id);
+              if (!src) return;
+              if (!window.confirm(`Cycle "${src.name}"? Its ${src.rows.length} leads move into a new list dated today, and this one is kept as history (marked cycled).`)) return;
+              const { lists: next, list } = cycleLeadList(leadLists, id);
+              if (!list) return;
+              setLeadLists(next);
+              persistLeadList(list);
+              const old = next.find((l) => l.id === id);
+              if (old) persistLeadList(old);
             }}
           />
         )}
