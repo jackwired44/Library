@@ -6865,3 +6865,23 @@ Per Jack: "raw note needs to be locked with password and not displayed".
   shows nothing) and the lead record's "New note · today's rules"
   (a scanned note, not the raw text).
 - Suite `raw-note-lock-live` (10).
+
+### 2026-10-20: "Wants a partner" filter, Main Scanner and All leads (scanner-platform-v29)
+
+Per Jack: "in main scanner i want to be able to filter by and in all leads
+if someeone states they want a partner".
+- **One rule**: the confirmed-ask rule behind the ⚑ badge and the notes'
+  "Wants to work with a partner." line (`partnerStanceOf` /
+  `partnerAskMatch`), read over the whole note, never a lead that says it
+  wants to buy direct, never a negated ask.
+- **Main Scanner**: `ScanResult.wantsPartner` (and optional on `ResultRow`;
+  a row from older History falls back to `isPartnerSeeking`). A
+  "⚑ Wants a partner (N)" toggle beside Duplicates / Priority, faceted
+  like every other count. View filter only: downloads and filing are
+  unchanged; "Add all N shown" lists them.
+- **All leads**: a "⚑ Wants a partner" toggle beside Scanner, with a chip.
+  Reads the original CSV note (raw note index, loaded while the filter is
+  on) and the stored note's own words (`PARTNER_NOTE_RE`: Main "Wants
+  (to work with) a partner", CSP "⚑ Wants partner"), so it works for all
+  three scanners and for leads stored before raw notes were kept.
+- Suite `partner-filter-live` (11).

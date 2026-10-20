@@ -89,6 +89,8 @@ interface Facets {
   dynSub: "all" | "businessCentral" | "salesCrm" | "other";
   dupOnly: boolean;
   prioOnly: boolean;
+  /** Only leads whose notes state they want a partner (ScanResult.wantsPartner). */
+  partnerOnly?: boolean;
   q: string;
   /** Rows to leave out — the ones already in Apollo, when hidden. */
   excludeIds?: Set<string>;
@@ -112,6 +114,9 @@ function applyFacets(rows: ResultRow[], f: Facets): ResultRow[] {
   }
   if (f.dupOnly) list = list.filter((r) => r.isDuplicate);
   if (f.prioOnly) list = list.filter((r) => r.priority);
+  // A row restored from History before this field existed reads as its
+  // ⚑ badge (isPartnerSeeking), never as a guess.
+  if (f.partnerOnly) list = list.filter((r) => r.wantsPartner ?? r.isPartnerSeeking);
   if (f.excludeIds?.size) list = list.filter((r) => !f.excludeIds!.has(r.id));
   const q = f.q.trim().toLowerCase();
   if (q) {
@@ -358,6 +363,8 @@ export default function Scanner({
   const [categoryFilter, setCategoryFilter] = useState<CategoryKey | "all">("all");
   const [duplicatesOnly, setDuplicatesOnly] = useState(false);
   const [priorityOnly, setPriorityOnly] = useState(false);
+  // Per Jack: "filter by … if someone states they want a partner".
+  const [partnerOnly, setPartnerOnly] = useState(false);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pageSize, setPageSize] = useState<number>(PAGE_SIZE);
@@ -547,6 +554,7 @@ export default function Scanner({
     setTierFilter("signal");
     setDuplicatesOnly(false);
     setPriorityOnly(false);
+    setPartnerOnly(false);
     setM365SubView("all");
     setDynamicsSubView("all");
     setParsedFiles([]);
@@ -694,6 +702,7 @@ export default function Scanner({
     dynSub: dynamicsSubView,
     dupOnly: duplicatesOnly,
     prioOnly: priorityOnly,
+    partnerOnly,
     q: search,
     // Per Jack: "says 171 strong signal show me 17". Hiding Apollo matches
     // from the TABLE made 154 Strong Signal leads vanish under a tab still
@@ -729,7 +738,7 @@ export default function Scanner({
     // never overlap - a Google lead is always M365/Azure).
     return sortTopPriorityFirst(ranked);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [results, tierFilter, categoryFilter, duplicatesOnly, priorityOnly, search, dynamicsSortDesc, sortBy, m365SubView, dynamicsSubView]);
+  }, [results, tierFilter, categoryFilter, duplicatesOnly, priorityOnly, partnerOnly, search, dynamicsSortDesc, sortBy, m365SubView, dynamicsSubView]);
 
   // Every count badge is computed with EVERY OTHER active filter applied,
   // but not its own — so the number on a button is exactly how many rows
@@ -769,9 +778,10 @@ export default function Scanner({
       },
       duplicates: n({ dupOnly: true }),
       priority: n({ prioOnly: true }),
+      partner: n({ partnerOnly: true }),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [results, tierFilter, categoryFilter, duplicatesOnly, priorityOnly, search, m365SubView, dynamicsSubView]);
+  }, [results, tierFilter, categoryFilter, duplicatesOnly, priorityOnly, partnerOnly, search, m365SubView, dynamicsSubView]);
 
   // The KPI rail describes the BATCH, not the current view — it sits next
   // to "Rows scanned", which is always the whole upload. Wiring it to the
@@ -1593,6 +1603,20 @@ export default function Scanner({
               {priorityOnly ? "Showing priority only" : `⭐ Priority (${priorityCount})`}
             </button>
           )}
+          <button
+            onClick={() => setPartnerOnly((v) => !v)}
+            className="btn btn-sm"
+            aria-pressed={partnerOnly}
+            title="Leads whose notes say they want to work with a partner, MSP or CSP. Same rule as the ⚑ partner tag; never a lead that wants to buy direct."
+            style={{
+              background: partnerOnly ? "var(--accent)" : "var(--surface)",
+              color: partnerOnly ? "#fff" : "var(--accent)",
+              borderColor: "var(--accent)",
+              fontWeight: 700,
+            }}
+          >
+            {partnerOnly ? `Showing wants a partner (${counts.partner})` : `⚑ Wants a partner (${counts.partner})`}
+          </button>
         </div>
 
         {droppedView === "none" && (

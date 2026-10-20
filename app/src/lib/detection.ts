@@ -2219,6 +2219,12 @@ export interface ScanResult {
   // pinned alongside the Google migrations. Same contract: badge and
   // order only, never category, tier, bucket or which file it downloads in.
   isPartnerSeeking: boolean;
+  // The row states they want a partner, anywhere in its notes — the same
+  // confirmed-ask rule as the ⚑ badge (partnerAskMatch), read over the
+  // whole note rather than one hit's window, and never when they say they
+  // want to buy direct. Per Jack: "filter by … if someone states they want
+  // a partner". Drives the Scanner filter only; changes nothing else.
+  wantsPartner: boolean;
   // True for a Business Central lead — drives the Scanner's separate
   // Business Central tab within the Dynamics 365 category (see "Business
   // Central view" in CLAUDE.md). Doesn't change category/bucket/export.
@@ -2485,6 +2491,8 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
     isGoogleToMicrosoft: platform ? platform.isGoogleToMicrosoft : false,
     isGoogleWorkspaceMigration: platform ? platform.isGoogleWorkspaceMigration : false,
     isPartnerSeeking: platform ? platform.isPartnerSeeking : false,
+    wantsPartner: (platform ? platform.isPartnerSeeking : false)
+      || partnerStanceOf(cleanText(resolved.comments) || combinedForDQ).wantsPartner,
     isBusinessCentral: platform ? platform.isBusinessCentral : false,
     isSalesCrm: platform ? platform.isSalesCrm : false,
     isPersonalProspect,
@@ -4253,6 +4261,9 @@ export interface ResultRow {
   /** Shopping for a partner / MSP / CSP. Pinned the same way, just below
    *  the Google migrations. */
   isPartnerSeeking: boolean;
+  /** The notes state they want a partner — see ScanResult. Optional: a row
+   *  restored from History before it existed falls back to its ⚑ badge. */
+  wantsPartner?: boolean;
   isBusinessCentral: boolean;
   isSalesCrm: boolean;
   isPersonalProspect: boolean;

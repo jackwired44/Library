@@ -27,6 +27,7 @@ import Customize, { loadHiddenSet, saveHiddenSet } from "./Customize";
 import { arrivalOf, isPreMaySheet, sheetNumberOf, PRE_MAY_2026_MONTH, PRE_MAY_2026_LABEL } from "../lib/leadFiling";
 import { engagementOf, engagementLabel, isCustomer, ENGAGEMENT_SOURCE_META, type EngagementMatch } from "../lib/engagements";
 import type { ParsedFile } from "../lib/detection";
+import { partnerStanceOf } from "../lib/detection";
 import { downloadCampaignCSV } from "../lib/campaignExport";
 import { MIN_EMPLOYEES } from "../lib/leadQualify";
 import {
@@ -236,6 +237,10 @@ const ALL_LEADS_PARTS = [
 ] as const;
 
 const NO_INDUSTRY = "(not enriched)";
+/** The words every scanner's note uses for a stated partner ask: the Main
+ *  note's "Wants to work with a partner." / Dynamics "Wants a partner.",
+ *  and the CSP note's "⚑ Wants partner". */
+const PARTNER_NOTE_RE = /\bwants?\s+(?:to\s+work\s+with\s+)?a?\s*partner\b|⚑\s*wants\s+partner/i;
 const NO_LINE = "(no product line)";
 
 /* --------------------------------------------------------------- component */
@@ -314,6 +319,7 @@ export default function AllLeads({
   const [verifyNote, setVerifyNote] = useState("");
   const checkIndex = useMemo(() => indexChecks(emailChecks), [emailChecks]);
   const [rawIndex, setRawIndex] = useState<Map<string, string> | null>(null);
+  const [partnerF, setPartnerF] = useState(false);
   const [rawIndexState, setRawIndexState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [sourceF, setSourceF] = useState<LeadSource | "all">("all");
   const [tierF, setTierF] = useState(initialPreset ? TOP : "all");
@@ -457,18 +463,32 @@ export default function AllLeads({
   // Load the original notes the first time the notes search is used, and
   // again when the lead count changes (a new upload wrote new ones).
   useEffect(() => {
-    if (nq.empty) return;
+    if (nq.empty && !partnerF) return;
     let live = true;
     setRawIndexState("loading");
     loadRawNoteSearchIndex()
       .then((m) => { if (live) { setRawIndex(m); setRawIndexState("ready"); } })
       .catch(() => { if (live) setRawIndexState("error"); });
     return () => { live = false; };
-  }, [nq.empty, leads.length]);
+  }, [nq.empty, partnerF, leads.length]);
+  // Per Jack: "filter by … if someone states they want a partner". The same
+  // confirmed-ask rule as the ⚑ badge and the notes line (partnerStanceOf),
+  // read over the original CSV note, plus the scanned note's own words for
+  // a lead stored before raw notes were kept. Worked out only while the
+  // filter is on: it reads every note.
+  const partnerKeys = useMemo(() => {
+    if (!partnerF) return null;
+    const out = new Set<string>();
+    for (const l of leads) {
+      const raw = rawIndex?.get(l.key);
+      if (PARTNER_NOTE_RE.test(l.notes || "") || (raw && partnerStanceOf(raw).wantsPartner)) out.add(l.key);
+    }
+    return out;
+  }, [partnerF, leads, rawIndex]);
   const fromT = from ? Date.parse(`${from}T00:00:00`) : null;
   const toT = to ? Date.parse(`${to}T23:59:59.999`) : null;
 
-  type Key = "inApollo" | "verdict" | "company" | "contact" | "level" | "fn" | "month" | "dates" | "status" | "search" | "notes" | "standing" | "lane" | "ready" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "owner" | "plan" | "planSeq" | "files" | "fileName" | "date";
+  type Key = "partner" | "inApollo" | "verdict" | "company" | "contact" | "level" | "fn" | "month" | "dates" | "status" | "search" | "notes" | "standing" | "lane" | "ready" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "owner" | "plan" | "planSeq" | "files" | "fileName" | "date";
   const tests = useMemo(() => {
     const t: Record<Key, (l: StoredLead, d: Derived) => boolean> = {
       inApollo: (l, d) => inApolloF === "all"
@@ -496,6 +516,7 @@ export default function AllLeads({
       ready: (_l, d) => !readyOnly || (isGreenLit(d.lane) && NEEDS.has(d.standing)),
       lane: (_l, d) => laneF === "all" || (laneF === "green" ? isGreenLit(d.lane) : d.lane === laneF),
       standing: (_l, d) => standingF === "all" || (standingF === "needs" ? NEEDS.has(d.standing) : standingF === "noseq" ? NO_SEQUENCE.has(d.standing) : d.standing === standingF),
+      partner: (l) => !partnerKeys || partnerKeys.has(l.key),
       notes: (l) => nq.empty || matchesKeywords(`${(l.notes || "").toLowerCase()} \u0001${rawIndex?.get(l.key) ?? ""}`, nq),
       source: (l) => sourceF === "all" || l.source === sourceF,
       tier: (l) => tierF === "all" || (tierF === TOP ? TOP_TIER_SET.has(l.tier) : l.tier === tierF),
@@ -532,7 +553,7 @@ export default function AllLeads({
       },
     };
     return t;
-  }, [inApolloF, verdictF, companyF, companyStats, contactF, levelF, fnF, monthF, dateF, statusF, q, kq, nq, rawIndex, standingF, laneF, readyOnly, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, ownerF, planF, planSeqF, filesF, fileNameF, fromT, toT]);
+  }, [inApolloF, verdictF, companyF, companyStats, contactF, levelF, fnF, monthF, dateF, statusF, q, kq, nq, rawIndex, standingF, laneF, readyOnly, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, ownerF, planF, planSeqF, filesF, fileNameF, fromT, toT, partnerKeys]);
 
   const passes = (l: StoredLead, skip?: Key) => {
     const d = derived.get(l.key)!;
@@ -750,6 +771,7 @@ export default function AllLeads({
   /* ---- active filter chips ---- */
   const chips: { label: string; clear: () => void }[] = [];
   if (readyOnly) chips.push({ label: "Ready to sequence", clear: () => setReadyOnly(false) });
+  if (partnerF) chips.push({ label: "⚑ Wants a partner", clear: () => setPartnerF(false) });
   if (laneF !== "all") chips.push({ label: `Email: ${laneF === "green" ? "Green-lit" : LANE_META[laneF].label}`, clear: () => setLaneF("all") });
   if (standingF !== "all") chips.push({ label: `Apollo: ${standingF === "needs" ? "Needs a sequence" : standingF === "noseq" ? "Never sequenced" : STANDING_META[standingF].label}`, clear: () => setStandingF("all") });
   if (!nq.empty) chips.push({ label: `Notes: ${noteSearch.trim()}`, clear: () => setNoteSearch("") });
@@ -1239,6 +1261,11 @@ export default function AllLeads({
             <option value="all">Scanner: any ({(sourceCounts.main + sourceCounts.smc + sourceCounts.csp).toLocaleString()})</option>
             {(["main", "smc", "csp"] as LeadSource[]).map((s) => <option key={s} value={s}>{LEAD_SOURCE_META[s].label} ({sourceCounts[s].toLocaleString()})</option>)}
           </select>
+          <button className={`filter-btn${partnerF ? " on" : ""}`} aria-pressed={partnerF} onClick={() => setPartnerF((v) => !v)}
+                  title="Leads whose notes say they want to work with a partner, MSP or CSP. Same rule as the ⚑ partner tag; never a lead that wants to buy direct. Reads the original CSV note too.">
+            ⚑ Wants a partner{partnerF && partnerKeys && rawIndexState !== "loading" ? ` (${partnerKeys.size.toLocaleString()})` : ""}
+            {partnerF && rawIndexState === "loading" ? " · reading notes…" : ""}
+          </button>
           <select className="field" aria-label="Uploaded file" value={fileNameF} onChange={(e) => setFileNameF(e.target.value)}
                   title="Every CSV you have uploaded, filed under the month it is dated, newest first." style={{ maxWidth: 260 }}>
             <option value="all">Uploaded file: any ({fileOptions.length.toLocaleString()})</option>
