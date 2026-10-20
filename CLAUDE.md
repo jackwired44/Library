@@ -6885,3 +6885,23 @@ if someeone states they want a partner".
   (to work with) a partner", CSP "⚑ Wants partner"), so it works for all
   three scanners and for leads stored before raw notes were kept.
 - Suite `partner-filter-live` (11).
+
+### 2026-10-20: working-sequence lists on Lists (scanner-platform-v29)
+
+Per Jack: "for the apollo four seqeuences we are mainly working from jack
+main sequence, carly main sequnece and their backups or recycled sequence
+create lists in here so we can view them all quickly and we can update it".
+- `components/SequenceLists.tsx`, at the top of Lists. One tab each for
+  `WORKING_SEQUENCES`: Jack Main Sequence, Jack Main Backup Sequence, Carly
+  Main Sequence, Carly Main Sequence Recycled. Matched on the exact name, so
+  Carly Main never picks up Recycled.
+- **Derived, not stored.** Each list is everyone the platform knows is in
+  that sequence: stored leads a live check or sync placed there (with step
+  and Apollo's reason), then the pulled Apollo uploads/sync roster, linked
+  to a stored lead by email or name + company. Active first.
+- Search, Active/Ended, "Stored leads only", download (CSV with sequence,
+  status, step, reason, stored tier, calls, last outcome, note), 50 a page.
+  The chosen tab is remembered (localStorage `workingSequence`).
+- "↻ Update from Apollo" is the existing read-only pull (`pullApollo`, last
+  `DEFAULT_PULL_MONTHS` months). Nothing is written to Apollo.
+- The custom Lists below it are unchanged. Suite `sequence-lists-live` (22).

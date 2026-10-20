@@ -20,6 +20,7 @@ import Scanner from "./components/Scanner";
 import LibraryView from "./components/Library";
 import HistoryView from "./components/History";
 import ListsView from "./components/Lists";
+import SequenceLists from "./components/SequenceLists";
 import LockScreen from "./components/LockScreen";
 import Scanner2 from "./components/Scanner2";
 import Documentation from "./components/Documentation";
@@ -1250,6 +1251,9 @@ export default function App() {
           />
         )}
 
+        {view === "lists" && (
+          <SequenceLists leads={leads} roster={apolloRoster} rosterPulledAt={rosterPulledAt} onPullApollo={pullApollo} />
+        )}
         {view === "lists" && (
           <ListsView
             lists={leadLists}
