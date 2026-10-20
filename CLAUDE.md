@@ -1,4 +1,4 @@
-# Wired CIO Lead Scanner — project brief for Claude Code
+# The Wired CIO Vault (Wired CIO Lead Scanner) — project brief for Claude Code
 
 Read this before touching anything. It exists so you don't have to re-derive
 product decisions from the legacy source, or re-ask Jack things he's already

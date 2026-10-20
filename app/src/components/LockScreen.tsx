@@ -36,7 +36,7 @@ export default function LockScreen({ onUnlock }: { onUnlock: (account: Account) 
       }}
     >
       <div style={{ background: "#fff", borderRadius: 16, padding: "32px 28px", width: "100%", maxWidth: 340, textAlign: "center" }}>
-        <div style={{ fontSize: 19, fontWeight: 700, color: "#081E22" }}>Wired CIO Lead Scanner</div>
+        <div style={{ fontSize: 19, fontWeight: 700, color: "#081E22" }}>The Wired CIO Vault</div>
         <div style={{ fontSize: 13, color: "#6b7480", marginTop: 6 }}>Sign in to continue.</div>
         <input
           type="email"

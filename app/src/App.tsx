@@ -934,8 +934,8 @@ export default function App() {
       <header className="topbar">
         <div className="topbar-brand">
           <span className="topbar-mark" aria-hidden="true">W</span>
-          <span>Lead Scanner</span>
-          <span className="topbar-sub">Wired CIO</span>
+          {/* Per Jack: "Name this The Wired CIO Vault". */}
+          <span>The Wired CIO Vault</span>
         </div>
         <div className="topbar-spacer" />
         <TopbarWelcome />
