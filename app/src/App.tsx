@@ -56,7 +56,7 @@ import { setStatusRoster, verdictOf, withStatusOverride, type LeadStatus } from 
 import {
   DEFAULT_ROUTING, loadRouting, withPlan, type RoutingRules,
 } from "./lib/sequenceRouting";
-import { leadInputsFromResults, leadInputsFromRows2, leadInputsFromNoSignal, leadInputsFromDuplicates } from "./lib/leadFiling";
+import { leadInputsFromResults, leadInputsFromRows2, leadInputsFromNoSignal, leadInputsFromDuplicates, estimateSheetMonths, setSheetEstimates } from "./lib/leadFiling";
 import AllLeads, { type LeadsPreset } from "./components/AllLeads";
 import ApolloStatus from "./components/ApolloStatus";
 import ApolloSyncPanel from "./components/ApolloSyncPanel";
@@ -205,6 +205,11 @@ export default function App() {
   const [leadLists, setLeadLists] = useState<LeadList[]>([]);
   /** Every lead ever scanned, all three scanners. See lib/leadStore.ts. */
   const [leads, setLeads] = useState<StoredLead[]>([]);
+  // Per Jack: Sheet files are pre-May 2026, "so lets try and guess its
+  // month". Recomputed whenever the leads change, before anything renders
+  // a month (arrivalOf reads it).
+  const sheetEstimates = useMemo(() => estimateSheetMonths(leads), [leads]);
+  setSheetEstimates(sheetEstimates);
   /** Rewriting stored Main notes with today's note rules — see lib/noteRefresh.ts. */
   const [noteRefresh, setNoteRefresh] = useState<{ done: number; total: number; changed: number; finished: boolean } | null>(null);
   async function runNoteRefresh(from?: StoredLead[], overrides: RuleOverrides = ruleOverrides) {

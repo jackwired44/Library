@@ -7037,3 +7037,27 @@ edits, pushes, publishes or writes to Apollo; cites file:line/evidence;
 raises anything that changes a lead's grade, a download, access, or Apollo
 as a decision for Jack. They are Claude Code agents, not part of the
 published page, and run only when invoked.
+
+### 2026-10-20: Sheet files are pre-May 2026, with an estimated month (scanner-platform-v29)
+
+Per Jack: "if the file csv has sheet then a number its pre may 2026", "so
+really anything from sheet 45 - sheet 82 its all pre may 2026", "from july
+2025 - april 2026 for those sheets", "so lets try and guess its month",
+"reogranize it in all leads for filtering purposes". Bookleads / BookCSPs
+stay in September (no "Sheet" in the name).
+- `isPreMaySheet` (`lib/leadFiling.ts`): "Sheet" + number 10–82 inclusive
+  (`PRE_MAY_SHEET_MIN`/`MAX`; Sheet1–9 are Excel defaults; 83+ dated
+  normally). A Sheet file now wins over any date read from inside the file.
+- `estimateSheetMonths`: start from the sheet number spread evenly over
+  July 2025 (Sheet 45) – April 2026 (Sheet 82) (`SHEET_WINDOW`,
+  `sheetMonthByNumber`); a dated event its own leads' notes mention inside
+  that window can move it LATER (the latest one is the earliest it can have
+  been exported); estimates never go backwards as the number rises; capped
+  at 30 April 2026. Computed in App on every leads change
+  (`setSheetEstimates`), read by `arrivalOf`.
+- Month key `YYYY-MM~`, label "~February 2026 (est.)" (`monthLabelOf`);
+  the old "Before May 2026" bucket (`0000-00~`) only if nothing can place a
+  sheet. All leads' CSV month filter and file picker group the sheets under
+  their estimated months, with "~" on the day; Reps and the lead record say
+  it is an estimate.
+- Suite `sheet-dates-live` re-pointed (9).

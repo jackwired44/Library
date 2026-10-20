@@ -15,7 +15,7 @@
 // scans and the Apollo sync, and an edit here would be overwritten by the
 // next upload of the same person.
 import { RECYCLE_FLOW, RECYCLE_META, recycleLabel, recycleOf, type RecycleRules } from "../lib/recycle";
-import { arrivalOf, PRE_MAY_2026_LABEL, SHEET_DATED_FROM } from "../lib/leadFiling";
+import { arrivalOf, monthLabelOf, isPreMaySheet } from "../lib/leadFiling";
 import { useEffect, useMemo, useState } from "react";
 import StatusPill from "./StatusPill";
 import {
@@ -356,10 +356,10 @@ export default function LeadDetail({
                       {lastFile.file}{files.length > 1 && <span style={muted}> +{files.length - 1} more file{files.length > 2 ? "s" : ""}</span>}
                     </div>
                   </> : dash)}
-                  {fact("Received", lead.receivedOn
+                  {fact("Received", lead.sourceFiles.some(isPreMaySheet)
+                    ? <><b>{monthLabelOf(arrivalOf(lead).month)}</b><div style={{ fontSize: 12, ...muted }}>a Sheet file: before May 2026, month estimated from dates in the notes</div></>
+                    : lead.receivedOn
                     ? <><b>{lead.receivedOn}</b><div style={{ fontSize: 12, ...muted }}>the file's own date</div></>
-                    : arrivalOf(lead).approx
-                    ? <><b>{PRE_MAY_2026_LABEL}</b><div style={{ fontSize: 12, ...muted }}>sheet numbered before {SHEET_DATED_FROM}</div></>
                     : <span style={muted}>no date in the file</span>)}
                 </div>
                 <div style={{ marginTop: 12 }}>
@@ -391,10 +391,10 @@ export default function LeadDetail({
               <div style={{ fontWeight: 700, fontSize: 13 }}>Before</div>
               <div style={{ fontSize: 11.5, ...muted, marginBottom: 8 }}>The lead exactly as it arrived.</div>
               <Row label="Received">
-                {lead.receivedOn
+                {lead.sourceFiles.some(isPreMaySheet)
+                  ? <><b>{monthLabelOf(arrivalOf(lead).month)}</b> <span style={muted}>· a Sheet file, so before May 2026; the month is estimated from dates its notes mention; first uploaded {lead.firstSeenAt.slice(0, 10)}</span></>
+                  : lead.receivedOn
                   ? <><b>{monthOf(lead.receivedOn)}</b> <span style={muted}>· {lead.receivedOn} (the file's own date)</span></>
-                  : arrivalOf(lead).approx
-                    ? <><b>{PRE_MAY_2026_LABEL}</b> <span style={muted}>· from a sheet numbered before Sheet {SHEET_DATED_FROM}; first uploaded {lead.firstSeenAt.slice(0, 10)}</span></>
                     : <><b>{monthOf(lead.firstSeenAt)}</b> <span style={muted}>· first uploaded {lead.firstSeenAt.slice(0, 10)} — the file states no date of its own</span></>}
               </Row>
               <Row label={`In ${files.length} file${files.length === 1 ? "" : "s"}`}>

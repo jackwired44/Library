@@ -20,11 +20,10 @@ import { toCSV, downloadBlob } from "../lib/csv";
 import { apolloHitFor, type ApolloRosterEntry } from "../lib/apolloRoster";
 import type { ApolloFunnel } from "../lib/apolloFunnel";
 import { MAIN_SEQUENCES } from "./ApolloStatus";
-import { arrivalOf, PRE_MAY_2026_MONTH, PRE_MAY_2026_LABEL } from "../lib/leadFiling";
+import { arrivalOf, monthLabelOf } from "../lib/leadFiling";
 import { verdictOf, VERDICT_META, VERDICT_ORDER, type Verdict } from "../lib/leadStatus";
 
-const monthLabel = (m: string) => m === PRE_MAY_2026_MONTH ? PRE_MAY_2026_LABEL
-  : new Date(`${m}-15T12:00:00`).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+const monthLabel = (m: string) => monthLabelOf(m);
 
 const REP_KEY = "repView";
 const PAGE = 50;

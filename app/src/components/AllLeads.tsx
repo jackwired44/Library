@@ -24,7 +24,7 @@ import {
 import { SYNC_STALE_DAYS, syncAgeDays, leadsToSync } from "../lib/apolloSync";
 import { parseCSVFile, toCSV, downloadBlob } from "../lib/csv";
 import Customize, { loadHiddenSet, saveHiddenSet } from "./Customize";
-import { arrivalOf, isPreMaySheet, sheetNumberOf, PRE_MAY_2026_MONTH, PRE_MAY_2026_LABEL } from "../lib/leadFiling";
+import { arrivalOf, isPreMaySheet, sheetNumberOf, sheetEstimateOf, monthLabelOf, PRE_MAY_2026_MONTH } from "../lib/leadFiling";
 import { engagementOf, engagementLabel, isCustomer, ENGAGEMENT_SOURCE_META, type EngagementMatch } from "../lib/engagements";
 import type { ParsedFile } from "../lib/detection";
 import { MAX_COMPANY_BATCH } from "../lib/apolloEnrich";
@@ -173,8 +173,7 @@ const DATE_LABEL: Record<Derived["dateKind"], string> = {
   none: "No dates mentioned",
 };
 
-const monthLabel = (ym: string) => ym === PRE_MAY_2026_MONTH ? PRE_MAY_2026_LABEL :
-  new Date(`${ym}-15T12:00:00`).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+const monthLabel = (ym: string) => monthLabelOf(ym);
 
 /** A tier-filter value meaning "the top verdict on any scanner": High
  *  priority (Main, CSP) or Strong Signal (Custom, older Main rows). */
@@ -658,14 +657,15 @@ export default function AllLeads({
           return `${y}-${String(mo).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
         }
       }
-      if (!recv.get(f) && isPreMaySheet(f)) return "";
+      // A Sheet file is pre-May: its estimate, or no day at all.
+      if (isPreMaySheet(f)) return sheetEstimateOf(f) ?? "";
       return (recv.get(f) || up).slice(0, 10);
     };
     const groups = new Map<string, [string, number, string][]>();
     for (const [f, n] of fileOptions) {
       const d = dateOf(f);
       // An early numbered sheet has no date, only "before May 2026".
-      const mk = d ? d.slice(0, 7) : isPreMaySheet(f) ? PRE_MAY_2026_MONTH : "";
+      const mk = isPreMaySheet(f) ? (d ? `${d.slice(0, 7)}~` : PRE_MAY_2026_MONTH) : d ? d.slice(0, 7) : "";
       if (!groups.has(mk)) groups.set(mk, []);
       groups.get(mk)!.push([f, n, d]);
     }
@@ -1292,7 +1292,7 @@ export default function AllLeads({
             <option value="all">Uploaded file: any ({fileOptions.length.toLocaleString()})</option>
             {fileMonths.map(([mk, files]) => (
               <optgroup key={mk} label={mk ? monthLabel(mk) : "Undated"}>
-                {files.map(([f, n, d]) => <option key={f} value={f}>{f}{d ? ` · ${d.slice(5).replace("-", "/")}` : ""} ({n.toLocaleString()})</option>)}
+                {files.map(([f, n, d]) => <option key={f} value={f}>{f}{d ? ` · ${isPreMaySheet(f) ? "~" : ""}${d.slice(5).replace("-", "/")}` : ""} ({n.toLocaleString()})</option>)}
               </optgroup>
             ))}
           </select>
@@ -1686,7 +1686,7 @@ export default function AllLeads({
                     <span className="pill" style={{ color: VERDICT_META[d.verdict].color, background: VERDICT_META[d.verdict].bg }}>{VERDICT_META[d.verdict].label}</span>
                   </td>
                   <td data-col="line">{d.line === NO_LINE ? <span className="muted">—</span> : d.line}</td>
-                  <td data-col="received">{d.month === PRE_MAY_2026_MONTH ? PRE_MAY_2026_LABEL : d.month}</td>
+                  <td data-col="received">{monthLabelOf(d.month)}</td>
                   <td data-col="uploads" className="num" title={l.sourceFiles.join("\n")}>
                     {d.files}{d.files > 1 && d.segs > 1 && <span className="muted" title="The notes differ between these uploads"> · changed</span>}
                   </td>
