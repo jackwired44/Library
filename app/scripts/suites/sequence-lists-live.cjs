@@ -19,10 +19,10 @@ fs.writeFileSync(SEED, csv(HEAD, [['SEED CO','Ada Brant','IT Director','ada@seed
 // Carly Main Sequence and Carly Main Sequence Recycled must stay apart.
 const SYNC = path.join(os.tmpdir(), 'seqlists-sync.csv');
 fs.writeFileSync(SYNC, ['Name,Email,Company,Sequences',
-  'Ada Brant,ada@seed.com,SEED CO,Jack Main Sequence:active:2',
+  'Ada Brant,ada@seed.com,SEED CO,Jack Main Sequence:active:2:2026-09-14',
   'Zed Quinn,zed@newco.com,NEW CO,Jack Main Sequence:finished:5',
   'Lou Park,lou@park.com,PARK INC,Jack Main Backup Sequence:active:1',
-  'Kim Lane,kim@lane.com,LANE CO,Carly Main Sequence:active:3',
+  'Kim Lane,kim@lane.com,LANE CO,Carly Main Sequence:active:3:2026-10-02',
   'Bo Reyes,bo@reyes.com,REYES CO,Carly Main Sequence Recycled:finished:4',
   'Ivy Holt,ivy@holt.com,HOLT CO,Some Other Sequence:active:1'].join('\n'));
 
@@ -78,10 +78,14 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('  Ada is matched to her stored lead', /Ada Brant[^|]*High priority/.test(r), r);
   ok('  Zed reads "Not stored here"', /Zed Quinn[^|]*Not stored here/.test(r), r);
   ok('  a sequence outside the four is not listed anywhere', !/Ivy Holt/.test(t));
+  ok('Ada shows her step', /Ada Brant[^|]*step 2/.test(r), r);
+  ok('  the day she was added', /Ada Brant[^|]*2026-09-14/.test(r), r);
+  ok('  and the rep', /Ada Brant[^|]*\bJack\b/.test(r), r);
 
   await tab('Carly Main Sequence').click(); await sleep(300);
   r = await rows();
   ok('Carly Main tab shows Kim only', /Kim Lane/.test(r) && !/Bo Reyes/.test(r), r);
+  ok('  Kim: step 3, added 2026-10-02, rep Carly', /Kim Lane[^|]*step 3[^|]*2026-10-02[^|]*Carly/.test(r), r);
   await tab('Carly Main Sequence Recycled').click(); await sleep(300);
   r = await rows();
   ok('Recycled tab shows Bo only', /Bo Reyes/.test(r) && !/Kim Lane/.test(r), r);
@@ -106,6 +110,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   const body = fs.readFileSync(await d.path(), 'utf8');
   ok('the CSV names the sequence and both people', /Jack Main Sequence/.test(body) && /Ada/.test(body) && /Zed/.test(body), body.slice(0, 300));
   ok('  with a status column', /Active/.test(body) && /Ended/.test(body));
+  ok('  and Rep, Step and Added columns', /Rep/.test(body) && /Step/.test(body) && /Added/.test(body) && /2026-09-14/.test(body));
 
   console.log('\n== the chosen tab is remembered ==');
   await tab('Jack Main Backup Sequence').click(); await sleep(200);

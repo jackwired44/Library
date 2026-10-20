@@ -6905,3 +6905,57 @@ create lists in here so we can view them all quickly and we can update it".
 - "↻ Update from Apollo" is the existing read-only pull (`pullApollo`, last
   `DEFAULT_PULL_MONTHS` months). Nothing is written to Apollo.
 - The custom Lists below it are unchanged. Suite `sequence-lists-live` (22).
+
+### 2026-10-20: every note in the Main Scanner format (scanner-platform-v29)
+
+Per Jack: "can we change all the notes from current form to the main scanner
+format". Confirmed first: stored notes + new scans; CSP facts kept in Main
+wording; note only, each lead keeps its own grade.
+- **Head**: every Custom and CSP note opens `(score) mark` like Main
+  (`noteHead`, `lib/scanner2.ts`): ▲ High/Strong, ▸ Medium/Review, ▼ Low
+  (CSP "excluded" is Low priority, so ▼), ✕ Bad Leads (Custom excluded).
+- **CSP** (`cspMainBody`, `lib/cspRenewal.ts`): pin (◆/★/⚑), `Wants <SKUs>
+  (N seats, $value).`, `Timeline: renews …`, `Wants to work with a partner
+  (date): reason.`, `Partner on record: X.` / `Direct with Microsoft, no
+  partner.` / `No partner on record; SHI named in notes.`, `Billing: …`,
+  `Latest note: …` when the newest entry is dead, then the licensing ask
+  (Azure-only rows get the Azure ask). No word cap, no "cold" clause, no ⏰.
+  `cspNote` (old one-line form) still exists and is still unit-tested, but
+  nothing on screen or in a download uses it.
+- **Custom** (`classifySmc`): head + `callAngle` + partner sentence + the
+  Main ask for the area the angle points at (`smcAsk`). The old
+  "· High priority (72)" tail is gone (the head carries it).
+- **Stored leads**: `refreshMainNotes` now covers all three sources. Custom/
+  CSP leads re-read their stored raw row through `scan2` with that scanner's
+  first saved rule set (`currentScanner2Note`) and replace only the newest
+  note body; the head is rebuilt from the lead's STORED score and tier
+  (`withRefreshedNoteOnly`), so no grade moves. `NOTE_RULES_VERSION` bumped,
+  so it runs once on next load. A lead with no stored raw row keeps its note.
+- Suite `notes-main-format` (16).
+
+### 2026-10-20: step, date added and rep per sequence; raw notes off the table (scanner-platform-v29)
+
+Per Jack: "need to store date added for leads in terms of the rep and
+sequence", "show the step on each", "need to have the high level visibility
+so i can come back here and see a contact and then act off how they are
+stored".
+- **Roster** (`ApolloRosterEntry.seqStates`, `ApolloHit.seqStates`): the
+  Apollo pull now loads sequence meta (`loadSequenceMeta`) and stores each
+  contact's sequences with status, step N of M, added date, end date and
+  reason (`sequencesOf`). A sync file's `Name:status:step:added` fields are
+  kept too. `apolloSequencesFor` prefers them.
+- **Working sequences** (Lists): columns Contact · Status · step · Added ·
+  Rep · Stored here · Calls · Last outcome · Note; newest-added first within
+  active; CSV gains Rep, Step, Added. Rep = the rep named in the sequence
+  (`ownersOf`).
+- **Lead record**: each sequence shows "Rep: X" and "step N of M"; a lead
+  with no live check/sync but found in the pulled uploads lists its
+  sequences with rep, step, date added and end date.
+- **Raw notes**: per Jack "only have sumarrized note visibile" and "for all
+  raw notes should be snell". The Raw note column is removed from All leads
+  (and from Customize); the lead record's raw section unlocks with its own
+  password, "snell" (salted hash in `lib/rawNoteLock.ts`), not the sign-in
+  password. Suite `raw-note-lock-live` re-pointed.
+- **All leads verdict switch**: All · Strong Signal · Needs Review · Bad Lead
+  segmented buttons above the table, always visible, same filter as "Stored
+  as" (CSP High/Medium/Low fold into these three via `verdictOf`).

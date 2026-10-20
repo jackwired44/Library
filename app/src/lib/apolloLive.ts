@@ -115,7 +115,7 @@ export function isTeamUpload(c: Rec): boolean {
 }
 
 /** One Apollo contact as a roster entry, or null if it can't be keyed. */
-export function rosterEntryOf(c: Rec, names: Map<string, string>, at: string): ApolloRosterEntry | null {
+export function rosterEntryOf(c: Rec, names: Map<string, string>, at: string, meta?: Map<string, SequenceMeta>): ApolloRosterEntry | null {
   const emails = [str(c.email), ...(Array.isArray(c.contact_emails) ? (c.contact_emails as Rec[]).map((e) => str(e.email)) : [])]
     .map(normEmail).filter((e) => e.includes("@"));
   const unique = [...new Set(emails)];
@@ -130,6 +130,10 @@ export function rosterEntryOf(c: Rec, names: Map<string, string>, at: string): A
     syncedAt: at,
     ...(unique.length > 1 ? { emails: unique } : {}),
     ...(str(c.created_at) ? { uploadedAt: str(c.created_at).slice(0, 10) } : {}),
+    // Per Jack: "store date added for leads in terms of the rep and
+    // sequence" and "show the step on each" — each sequence's status, step
+    // and the day the contact was added to it, when Apollo states them.
+    ...(meta && meta.size ? { seqStates: sequencesOf(c, meta) } : {}),
   };
 }
 
@@ -163,7 +167,12 @@ export async function pullTeamUploads(opts: {
   signal?: AbortSignal;
 }): Promise<PullProgress> {
   const h = await connectApollo();
-  const names = await loadSequenceNames(h).catch(() => new Map<string, string>());
+  // Sequence meta carries the names AND each sequence's step positions, so
+  // the pull can store "step 3 of 5" and the day added for every contact.
+  const meta = await loadSequenceMeta(h).catch(() => new Map<string, SequenceMeta>());
+  const names = meta.size
+    ? new Map([...meta].map(([id, m]) => [id, m.name] as [string, string]))
+    : await loadSequenceNames(h).catch(() => new Map<string, string>());
   const cutoff = cutoffFor(opts.months ?? DEFAULT_PULL_MONTHS);
   const at = new Date().toISOString();
   const p: PullProgress = { pages: 0, scanned: 0, kept: 0, reachedDate: "", done: false, hitCeiling: false };
@@ -189,7 +198,7 @@ export async function pullTeamUploads(opts: {
       p.scanned++;
       if (created) p.reachedDate = created;
       if (!isTeamUpload(c)) continue;
-      const e = rosterEntryOf(c, names, at);
+      const e = rosterEntryOf(c, names, at, meta);
       if (e) kept.push(e);
     }
     if (kept.length) { await opts.onEntries(kept); p.kept += kept.length; }

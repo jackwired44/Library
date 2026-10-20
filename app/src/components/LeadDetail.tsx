@@ -37,7 +37,8 @@ import {
   employeeCountOf, normalizeCompanyKey, profileForCompany, type CompanyProfile,
 } from "../lib/companyProfiles";
 import { VERDICT_META, verdictOf } from "../lib/leadStatus";
-import { apolloSequencesFor, type RosterIndex } from "../lib/apolloRoster";
+import { apolloSequencesFor, apolloHitFor, type RosterIndex } from "../lib/apolloRoster";
+import { ownersOf } from "../lib/reps";
 import { engagementOf, isCustomer, ENGAGEMENT_SOURCE_META } from "../lib/engagements";
 
 const muted = { color: "var(--muted)" } as const;
@@ -520,11 +521,36 @@ export default function LeadDetail({
             title="Apollo"
             sub={!a ? "not synced" : `synced ${syncAge === 0 ? "today" : `${syncAge} day${syncAge === 1 ? "" : "s"} ago`}${syncAge !== null && syncAge > SYNC_STALE_DAYS ? " — stale" : ""}`}
           >
-            {!a ? (
-              <div style={{ fontSize: 13, ...muted }}>
-                No call or task history on file for this lead — that comes from an Apollo sync.
-              </div>
-            ) : (
+            {!a ? (() => {
+              // Per Jack: "store date added for leads in terms of the rep and
+              // sequence" — the pulled Apollo uploads carry each sequence's
+              // status, step and day added even before a live check.
+              const hit = apolloHitFor({ email: lead.email, contact: lead.contact, company: lead.company }, apolloIndex);
+              const states = hit?.seqStates ?? [];
+              return states.length ? (
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Sequences ({states.length}) · from the Apollo pull</div>
+                  {states.map((sq, i) => (
+                    <div key={i} style={{ fontSize: 13, marginBottom: 6 }}>
+                      <b>{sq.name}</b>{" "}
+                      <span style={{ color: sq.status === "active" ? "var(--accent)" : "var(--muted)", fontSize: 12 }}>
+                        {sq.status === "active" ? "\u25CF active" : sq.status}
+                        {sq.step != null ? ` · step ${sq.step}${sq.steps ? ` of ${sq.steps}` : ""}` : ""}
+                      </span>
+                      <div style={{ fontSize: 12, ...muted }}>
+                        {ownersOf([sq.name]).length ? <>Rep: {ownersOf([sq.name]).join(", ")}</> : "Rep: not named in the sequence"}
+                        {sq.addedAt && <> · added {sq.addedAt}</>}
+                        {sq.finishedAt && <> · ended {sq.finishedAt}</>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ fontSize: 13, ...muted }}>
+                  No call or task history on file for this lead — that comes from an Apollo sync.
+                </div>
+              );
+            })() : (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16 }}>
                 <div>
                   <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
@@ -537,8 +563,9 @@ export default function LeadDetail({
                           <b>{sq.name}</b>{" "}
                           <span style={{ color: sq.status === "active" ? "var(--accent)" : "var(--muted)", fontSize: 12 }}>
                             {sq.status === "active" ? "● active" : sq.status}
-                            {sq.step != null ? ` · ${sq.status === "active" ? "on" : "stopped at"} step ${sq.step}` : ""}
+                            {sq.step != null ? ` · ${sq.status === "active" ? "on" : "stopped at"} step ${sq.step}${sq.steps ? ` of ${sq.steps}` : ""}` : ""}
                           </span>
+                          {ownersOf([sq.name]).length > 0 && <span style={{ fontSize: 12, ...muted }}> · Rep: {ownersOf([sq.name]).join(", ")}</span>}
                         </div>
                         {(sq.addedAt || sq.lastDoneAt) && (
                           <div style={{ fontSize: 12, ...muted }} title="Dated from Apollo task due dates — Apollo returns no separate enrolment or completion stamp.">

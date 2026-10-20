@@ -34,8 +34,6 @@ import {
   SIZE_BUCKETS, employeeCountOf, normalizeCompanyKey, profileForCompany, type CompanyProfile,
 } from "../lib/companyProfiles";
 import LeadDetail from "./LeadDetail";
-import RawNoteLock from "./RawNoteLock";
-import { useRawNoteUnlocked } from "../lib/rawNoteLock";
 import { REPS, ownersOf } from "../lib/reps";
 import { DEFAULT_RECYCLE_RULES, RECYCLE_FLOW, RECYCLE_META, recycleLabel, recycleOf, type RecycleRules } from "../lib/recycle";
 import {
@@ -47,7 +45,7 @@ import {
 import { stepsInSequence, type ApolloFunnel } from "../lib/apolloFunnel";
 import { apolloHitFor, type ApolloHit, type RosterIndex } from "../lib/apolloRoster";
 import { DEFAULT_PULL_MONTHS, type PullProgress, type CheckProgress } from "../lib/apolloLive";
-import { loadRawNotesMany, loadRawNoteSearchIndex, newestRaw } from "../lib/rawNotes";
+import { loadRawNoteSearchIndex } from "../lib/rawNotes";
 import { matchesKeywords, parseKeywords } from "../lib/keywords";
 import type { LeadList } from "../lib/leadLists";
 import { laneOf, indexChecks, emailsToVerify, isGreenLit, LANE_META, LANE_ORDER, DEFAULT_CATCH_ALL_MIN, type Lane, type EmailCheck, type VerifierImport } from "../lib/deliverability";
@@ -233,7 +231,6 @@ const ALL_LEADS_PARTS = [
   { id: "col-disposition", group: "Table columns", label: "Disposition" },
   { id: "col-sequence", group: "Table columns", label: "Sequence" },
   { id: "col-notes", group: "Table columns", label: "Scanned note" },
-  { id: "col-raw", group: "Table columns", label: "Raw note" },
 ] as const;
 
 const NO_INDUSTRY = "(not enriched)";
@@ -751,20 +748,9 @@ export default function AllLeads({
 
   const pages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const shown = filtered.slice((page - 1) * pageSize, page * pageSize);
-  const [rawByKey, setRawByKey] = useState<Map<string, string>>(new Map());
-  const shownKeys = shown.map((l) => l.key).join("\u0001");
-  // Per Jack, the raw note is locked: not even read for display until the
-  // password is entered (lib/rawNoteLock.ts).
-  const rawUnlocked = useRawNoteUnlocked();
-  useEffect(() => {
-    let live = true;
-    if (!rawUnlocked) { setRawByKey(new Map()); return () => { live = false; }; }
-    const keys = shownKeys ? shownKeys.split("\u0001") : [];
-    loadRawNotesMany(keys)
-      .then((m) => { if (live) setRawByKey(new Map([...m].map(([k, r]) => [k, newestRaw(r)]))); })
-      .catch(() => { if (live) setRawByKey(new Map()); });
-    return () => { live = false; };
-  }, [shownKeys, rawUnlocked]);
+  // Per Jack: "only have summarized note visible". The raw CSV note is not
+  // shown in this table at all; it lives in the lead record, behind its own
+  // password (lib/rawNoteLock.ts).
   const allShownSelected = shown.length > 0 && shown.every((l) => selected.has(l.key));
   const selectedLeads = useMemo(() => leads.filter((l) => selected.has(l.key)), [leads, selected]);
 
@@ -1572,6 +1558,20 @@ export default function AllLeads({
         </div>
       )}
 
+      {/* Per Jack: "in all leads need to be able filter by needs review strong
+          signal or bad lead" — always in view, the same filter as "Stored as". */}
+      <div className="seg" role="group" aria-label="Verdict" style={{ margin: "0 0 8px" }}>
+        <button className={`seg-btn${verdictF === "all" ? " active" : ""}`} onClick={() => setVerdictF("all")}>
+          All ({(verdictCounts.strong + verdictCounts.review + verdictCounts.bad).toLocaleString()})
+        </button>
+        {VERDICT_ORDER.map((v) => (
+          <button key={v} className={`seg-btn${verdictF === v ? " active" : ""}`} title={VERDICT_META[v].hint}
+                  onClick={() => setVerdictF(v)}>
+            {VERDICT_META[v].label} ({verdictCounts[v].toLocaleString()})
+          </button>
+        ))}
+      </div>
+
       {/* ---- the table: one page at a time, scrolling inside its own box
              so the toolbar and filters stay in view ---- */}
       <div className="table-card" style={{ maxHeight: "calc(100vh - 250px)", minHeight: 260, overflow: "auto" }}>
@@ -1597,9 +1597,6 @@ export default function AllLeads({
               <th data-col="disposition" title="The latest call disposition in Apollo">Disposition</th>
               <th data-col="sequence" title="The Apollo sequence this lead is in, from the last sync">Sequence</th>
               <th data-col="notes" title="The note the scanner wrote">Scanned note</th>
-              <th data-col="raw" title="The note exactly as it came in the CSV, newest upload. Locked until the password is entered.">
-                <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>Raw note <RawNoteLock compact /></span>
-              </th>
             </tr>
           </thead>
           <tbody>
@@ -1699,16 +1696,11 @@ export default function AllLeads({
                     {newestNote(l.notes) || "—"}
                     {d.segs > 1 && <span className="muted"> +{d.segs - 1} earlier</span>}
                   </td>
-                  <td data-col="raw" title={rawUnlocked ? rawByKey.get(l.key) || undefined : "Locked"} style={{ maxWidth: 300 }}>
-                    {rawUnlocked
-                      ? <span className="clamp-2">{rawByKey.get(l.key) || <span className="muted">—</span>}</span>
-                      : <span className="muted" aria-label="Raw note locked">🔒</span>}
-                  </td>
                 </tr>
               );
             })}
             {shown.length === 0 && (
-              <tr><td colSpan={15} style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}>
+              <tr><td colSpan={14} style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}>
                 No leads match these filters. <button className="btn btn-sm btn-ghost" onClick={clearAll}>Clear all</button>
               </td></tr>
             )}

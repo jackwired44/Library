@@ -380,7 +380,7 @@ export default function App() {
         // New note rules: rewrite every stored Main note once, in the
         // background. Per Jack: "update all the leads in here with the new
         // note rule".
-        if (noteRulesStale() && cleaned.some((l) => l.source === "main")) void runNoteRefresh(cleaned, rules);
+        if (noteRulesStale() && cleaned.length) void runNoteRefresh(cleaned, rules);
         setFunnels(storedFunnels);
         setRouting(storedRouting);
         if (blocked.length) {

@@ -12,15 +12,17 @@
 // "this is bad lead". A lead marked not-a-fit (notFit) keeps its Bad Lead
 // verdict; only its note is rewritten. Every Apollo / plan / status field
 // is left alone. Older dated note segments are history and are not
-// rewritten. Custom and CSP leads are untouched: their rules did not change.
+// rewritten. Custom and CSP leads get the Main-format note too, keeping
+// their own grade (see refreshMainNotes).
 import { scanParsedFiles, stripSnippetPrefix, DEFAULT_RULE_OVERRIDES, type RuleOverrides } from "./detection";
 import { NOTE_SEP, noteSegments, type StoredLead } from "./leadStore";
 import { leadInputsFromResults } from "./leadFiling";
 import type { ResultRow } from "./detection";
 import { loadRawNotesMany, newestRaw, type RawNotes } from "./rawNotes";
+import { scan2, emptyRuleSet, loadRuleSets, profileColumns, guessFieldMapping, type RuleSet2, type ScannerKind } from "./scanner2";
 
 /** Bump when the Main note rules change, so stored notes refresh once. */
-export const NOTE_RULES_VERSION = "2026-10-16-central-today";
+export const NOTE_RULES_VERSION = "2026-10-20-main-format-all-scanners";
 const VERSION_KEY = "mainNoteRulesVersion";
 
 /** Today's Main Scanner read of one lead's stored raw row, or null when
@@ -81,18 +83,84 @@ export function markNoteRulesCurrent(): void {
  * yields between chunks so the page stays usable. Returns only the leads
  * whose note actually changed.
  */
+/**
+ * Today's Main-format note for a Custom (SMC) or CSP lead, re-read from its
+ * stored raw row with that scanner's saved rules. Per Jack: "change all the
+ * notes from current form to the main scanner format". "" when there is no
+ * raw row or the row now reads as no signal.
+ */
+export function currentScanner2Note(raw: RawNotes | undefined, kind: ScannerKind, ruleSet?: RuleSet2): string {
+  const text = newestRaw(raw);
+  if (!raw || !text) return "";
+  const rows = raw.rows ?? [];
+  const fields: Record<string, string> = { ...(rows[rows.length - 1]?.fields ?? {}) };
+  const base = ruleSet && ruleSet.mode === kind ? ruleSet : emptyRuleSet("refresh", kind);
+  const keys = Object.keys(fields);
+  const notesCol = (base.notesColumns ?? []).find((c) => keys.includes(c))
+    || keys.find((k) => /forecast|comment|note|description/i.test(k)) || "Notes";
+  fields[notesCol] = text;
+  const all = Object.keys(fields);
+  const mapped = base.fields && Object.values(base.fields).some((c) => c && all.includes(String(c)))
+    ? base.fields
+    : guessFieldMapping(profileColumns([{ name: "lead", fields: all, data: [fields] }]));
+  try {
+    const row = scan2([{ name: raw.segments[0]?.file || "lead", fields: all, data: [fields] }],
+      { ...base, fields: mapped, notesColumns: [notesCol], dedupeColumns: [] }).rows[0];
+    return row && row.bucket !== "unmatched" ? row.snippet : "";
+  } catch {
+    return "";
+  }
+}
+
+/** The ▲ ▸ ▼ ✕ mark for a stored lead's own grade, so a rewritten note keeps
+ *  the grade it was filed with. Per Jack: note only, keep the grade. */
+function markForStored(l: StoredLead): string {
+  if (l.notFit) return "\u2715";
+  const t = (l.tier || "").toLowerCase();
+  if (/strong signal|high priority/.test(t)) return "\u25B2";
+  if (/needs review|medium priority/.test(t)) return "\u25B8";
+  if (/bad lead/.test(t)) return "\u2715";
+  return "\u25BC";
+}
+
+/** The lead with a new newest-note body and its own stored grade. */
+export function withRefreshedNoteOnly(lead: StoredLead, freshNote: string): StoredLead {
+  const body = stripSnippetPrefix(freshNote).trim();
+  if (!body) return lead;
+  const nextTop = `(${lead.score ?? 0}) ${markForStored(lead)} ${body}`;
+  const segs = noteSegments(lead.notes);
+  const lines = segs.length
+    ? segs.map((s, i) => { const text = i === 0 ? nextTop : s.text; return s.date ? `${s.date} \u00b7 ${text}` : text; })
+    : [nextTop];
+  const notes = lines.join(NOTE_SEP);
+  return notes === lead.notes ? lead : { ...lead, notes };
+}
+
 export async function refreshMainNotes(
   leads: StoredLead[],
   overrides: RuleOverrides = DEFAULT_RULE_OVERRIDES,
   onProgress?: (done: number, total: number) => void,
   chunk = 250,
 ): Promise<StoredLead[]> {
-  const main = leads.filter((l) => l.source === "main");
+  // All three scanners. A Main lead is re-graded with today's Main rules;
+  // a Custom or CSP lead gets the Main-format note and keeps its own grade.
+  const main = leads.filter((l) => l.source === "main" || l.source === "smc" || l.source === "csp");
+  const sets: Partial<Record<ScannerKind, RuleSet2>> = {};
+  for (const k of ["smc", "csp"] as ScannerKind[]) {
+    if (!main.some((l) => l.source === k)) continue;
+    try { sets[k] = (await loadRuleSets(k))[0]; } catch { /* default rules */ }
+  }
   const changed: StoredLead[] = [];
   for (let i = 0; i < main.length; i += chunk) {
     const slice = main.slice(i, i + chunk);
     const raw = await loadRawNotesMany(slice.map((l) => l.key));
     for (const l of slice) {
+      if (l.source !== "main") {
+        const fresh = currentScanner2Note(raw.get(l.key), l.source as ScannerKind, sets[l.source as ScannerKind]);
+        const next = fresh ? withRefreshedNoteOnly(l, fresh) : l;
+        if (next !== l) changed.push(next);
+        continue;
+      }
       const row = currentMainScan(raw.get(l.key), overrides);
       if (!row) continue;
       const next = withRefreshedScan(l, row);

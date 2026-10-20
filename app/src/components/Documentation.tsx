@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { EXPORT_LABELS, TOP_PRIORITY_META, TOP_PRIORITY_ORDER, QUALIFY_THRESHOLD, PRIORITY_META, CATEGORY_META, ACTIVE_CATEGORY_KEYS, DQ_RULES } from "../lib/detection";
 import { SCANNER2_EXPORT_LABELS, CSP_EXPORT_LABELS } from "../lib/scanner2";
-import { BILLING_META, POSTURE_META, DEFAULT_CSP_RULES, DEFAULT_CSP_WEIGHTS, WEIGHT_META, DEAD_PATTERNS, MOTION_PATTERNS, MOTION_WEIGHT, CSP_COLUMN_HINTS, WANTS_PARTNER_LABEL, OPEN_RENEWAL_MARK, RENEWAL_SOON_DAYS, RENEWAL_BONUS_MAX, CSP_NOTE_MAX_WORDS } from "../lib/cspRenewal";
+import { BILLING_META, POSTURE_META, DEFAULT_CSP_RULES, DEFAULT_CSP_WEIGHTS, WEIGHT_META, DEAD_PATTERNS, MOTION_PATTERNS, MOTION_WEIGHT, CSP_COLUMN_HINTS, WANTS_PARTNER_LABEL, OPEN_RENEWAL_MARK, RENEWAL_SOON_DAYS, RENEWAL_BONUS_MAX } from "../lib/cspRenewal";
 import { SMC_PRODUCTS, DEFAULT_SMC_SCORE_RULES, DEFAULT_SMC_WEIGHTS, SMC_FACTOR_META, SMC_PARTNER_META } from "../lib/smcLead";
 
 /**
@@ -296,24 +296,21 @@ export default function Documentation() {
 
           <H>The Notes line</H>
           <p style={{ margin: 0 }}>
-            One line a rep can read on a dial, capped at {CSP_NOTE_MAX_WORDS} words — less is better. It carries six
-            things, in this order:
+            Written in the Main Scanner&rsquo;s format: the score and band mark first, then short sentences a
+            rep can read on a dial, then the ask. It carries, in this order:
           </p>
           <Table
             head={["Reads", "What it answers"]}
             rows={[
-              ["⏰ Renews ~Dec (56d)", "When their renewal is. ⏰ and the day count appear inside the window; “Forecast close” is the seller’s guess, never worded as a contract."],
-              ["$504k · 285 seats on Copilot, M365 E5", "The size of the opportunity — value, a stated licence count, and what it is about. One fact, so one clause. The count is read out of the seller notes; this export has no column for it."],
-              ["no partner yet (SHI in notes) / via partner: CDW / direct with Microsoft", "Whether they go direct, through a partner, or have nobody on the record yet."],
-              ["via partner: Executech (unhappy with them)", "Pain with the partner they already have. Bound to the partner, never merely near one — so “customer still unresponsive”, which is the seller failing to reach the prospect, is not read as partner pain. Absent on ~99% of rows, which is the point."],
-              [`\u2691 ${WANTS_PARTNER_LABEL}`, "The customer has asked for a partner, dated to the entry it was written in."],
-              ["annual new, paid upfront · 45d cold · (82)", "Billing shape, how cold the record is, the score. These ride behind the four above and are what gets shed when a row runs long."],
+              ["(95) \u25B2", "The score and the band: \u25B2 High, \u25B8 Medium, \u25BC Low priority. A pin follows it: \u25C6 renewal with no partner, \u2605 perfect, \u2691 wants a partner."],
+              ["Wants M365 E5 and Copilot (285 seats, $504k).", "What it is about and the size of the opportunity. The licence count is read out of the seller notes; this export has no column for it."],
+              ["Timeline: renews ~Dec (56d).", "When their renewal is. \u201cForecast close\u201d is the seller\u2019s guess, never worded as a contract; the day count shows inside the window."],
+              ["Wants to work with a partner (12 Jun): \u2026", "The customer asked for a partner, dated to the entry it was written in."],
+              ["Partner on record: CDW. / Direct with Microsoft, no partner. / No partner on record; SHI named in notes.", "Whether they go direct, through a partner, or have nobody on the record yet. Pain with that partner rides on it in brackets."],
+              ["Billing: annual new, paid upfront.", "How they pay."],
+              ["Ask how they buy licensing today, direct or through a partner, and where the pain is.", "The question to open with. Azure-only rows get the Azure ask."],
             ]}
           />
-          <p style={{ margin: "8px 0 0", color: "var(--muted)" }}>
-            The renewal, the deal and the lane are <b>never</b> shed. The word cap counts words, not the
-            &ldquo;&middot;&rdquo; separators between clauses.
-          </p>
 
           <H>What comes out</H>
           <p style={{ margin: 0 }}>

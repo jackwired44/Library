@@ -17,6 +17,8 @@ import { normCompany, normEmail, type StoredLead } from "../lib/leadStore";
 import { DEFAULT_PULL_MONTHS, type PullProgress } from "../lib/apolloLive";
 import { stripSnippetPrefix } from "../lib/detection";
 import { toCSV, downloadBlob } from "../lib/csv";
+import { ownersOf } from "../lib/reps";
+import type { ApolloSequenceState } from "../lib/leadStore";
 
 /** The four, in the order Jack named them. Matched on the exact sequence
  *  name, so "Carly Main Sequence" never swallows "… Recycled". */
@@ -37,8 +39,12 @@ interface Person {
   company: string;
   email: string;
   active: boolean;
-  /** "step 3 of 5", Apollo's own reason it ended, when a live check read it. */
+  /** "step 3 of 5", Apollo's own reason it ended, when Apollo stated them. */
   step: string;
+  /** The day they were added to this sequence, when Apollo stated it. */
+  addedAt: string;
+  /** Who works the sequence: the rep named in it. */
+  rep: string;
   reason: string;
   lead: StoredLead | null;
 }
@@ -55,8 +61,12 @@ function leadIndex(leads: StoredLead[]) {
   return { byEmail, byNameCo };
 }
 
+const stepText = (x: ApolloSequenceState | undefined) =>
+  x?.step ? `step ${x.step}${x.steps ? ` of ${x.steps}` : ""}` : "";
+
 function peopleIn(seq: string, roster: ApolloRosterEntry[], leads: StoredLead[]): Person[] {
   const want = norm(seq);
+  const rep = ownersOf([seq]).join(", ");
   const idx = leadIndex(leads);
   const out = new Map<string, Person>();
   // A stored lead a live check placed in the sequence: freshest, and it
@@ -68,7 +78,9 @@ function peopleIn(seq: string, roster: ApolloRosterEntry[], leads: StoredLead[])
     out.set(key, {
       key, name: l.contact, company: l.company, email: l.email,
       active: s.status === "active",
-      step: s.step ? `step ${s.step}${s.steps ? ` of ${s.steps}` : ""}` : "",
+      step: stepText(s),
+      addedAt: s.addedAt || "",
+      rep,
       reason: s.reason || "",
       lead: l,
     });
@@ -78,14 +90,25 @@ function peopleIn(seq: string, roster: ApolloRosterEntry[], leads: StoredLead[])
     if (!label) continue;
     const e = normEmail(r.email);
     const key = e || `${normPersonName(r.name)}|${normCompany(r.company)}`;
-    if (out.has(key)) continue;
+    const st = r.seqStates?.find((x) => norm(x.name) === want);
+    const prev = out.get(key);
+    if (prev) {
+      // A stored lead's live check wins, but fills its blanks from the pull.
+      if (!prev.step) prev.step = stepText(st);
+      if (!prev.addedAt) prev.addedAt = st?.addedAt || "";
+      continue;
+    }
     const lead = (e && idx.byEmail.get(e)) || idx.byNameCo.get(`${normPersonName(r.name)}|${normCompany(r.company)}`) || null;
     out.set(key, {
       key, name: r.name, company: r.company, email: r.email,
-      active: /\(active\)$/.test(label), step: "", reason: "", lead,
+      active: st ? st.status === "active" : /\(active\)$/.test(label),
+      step: stepText(st), addedAt: st?.addedAt || "", rep,
+      reason: st?.reason || "", lead,
     });
   }
-  return [...out.values()].sort((a, b) => Number(b.active) - Number(a.active) || a.company.localeCompare(b.company));
+  // Active first, then most recently added.
+  return [...out.values()].sort((a, b) => Number(b.active) - Number(a.active)
+    || b.addedAt.localeCompare(a.addedAt) || a.company.localeCompare(b.company));
 }
 
 export default function SequenceLists({ leads, roster, rosterPulledAt = "", onPullApollo }: {
@@ -133,12 +156,12 @@ export default function SequenceLists({ leads, roster, rosterPulledAt = "", onPu
   };
 
   const download = () => {
-    const cols = ["Sequence", "Status", "Step", "First Name", "Last Name", "Company", "Email", "Apollo reason", "Stored here as", "Calls", "Last outcome", "Notes"] as const;
+    const cols = ["Sequence", "Rep", "Status", "Step", "Added", "First Name", "Last Name", "Company", "Email", "Apollo reason", "Stored here as", "Calls", "Last outcome", "Notes"] as const;
     const rows = filtered.map((x) => {
       const [first, ...rest] = (x.name || "").trim().split(/\s+/);
       const a = x.lead?.apollo;
       return {
-        Sequence: seq, Status: x.active ? "Active" : "Ended", Step: x.step,
+        Sequence: seq, Rep: x.rep, Status: x.active ? "Active" : "Ended", Step: x.step, Added: x.addedAt,
         "First Name": first || "", "Last Name": rest.join(" "), Company: x.company, Email: x.email,
         "Apollo reason": x.reason, "Stored here as": x.lead?.tier || "",
         Calls: a && !a.callsUnknown ? String(a.callCount) : "", "Last outcome": a?.lastOutcome || "",
@@ -198,10 +221,10 @@ export default function SequenceLists({ leads, roster, rosterPulledAt = "", onPu
 
         <div className="table-card">
           <table className="data-table" aria-label={`${seq} list`}>
-            <thead><tr><th>Contact</th><th>Status</th><th>Stored here</th><th className="num">Calls</th><th>Last outcome</th><th>Note</th></tr></thead>
+            <thead><tr><th>Contact</th><th>Status · step</th><th>Added</th><th>Rep</th><th>Stored here</th><th className="num">Calls</th><th>Last outcome</th><th>Note</th></tr></thead>
             <tbody>
               {shown.length === 0 && (
-                <tr><td colSpan={6} className="muted" style={{ padding: 14 }}>
+                <tr><td colSpan={8} className="muted" style={{ padding: 14 }}>
                   {people.length ? "Nobody matches these filters." : `Nobody known to be in ${seq} yet. Update from Apollo to read Jack's and Carly's uploads.`}
                 </td></tr>
               )}
@@ -217,6 +240,8 @@ export default function SequenceLists({ leads, roster, rosterPulledAt = "", onPu
                       {x.step && <div className="muted" style={{ fontSize: 11 }}>{x.step}</div>}
                       {x.reason && <div className="muted" style={{ fontSize: 11 }} title="Apollo's own reason">{x.reason}</div>}
                     </td>
+                    <td style={{ fontSize: 12, whiteSpace: "nowrap" }}>{x.addedAt || <span className="muted">—</span>}</td>
+                    <td style={{ fontSize: 12 }}>{x.rep || <span className="muted">—</span>}</td>
                     <td style={{ fontSize: 12 }}>{x.lead ? x.lead.tier : <span className="muted">Not stored here</span>}</td>
                     <td className="num">{a ? (a.callsUnknown ? "?" : a.callCount) : "—"}</td>
                     <td style={{ fontSize: 12 }}>{a?.lastOutcome || "—"}</td>

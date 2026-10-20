@@ -21,7 +21,7 @@ import { dbGetAll, dbPut, dbDelete, STORE_SCANNER2_RULESETS, STORE_SCANNER2_RUNS
 import {
   type CspLead, type CspRules, type CspColumnMap,
   guessCspColumns, readCspLead, classifyCsp, resolveCspRules, cspPartnerLabel, isDialable,
-  companyFromNotes, companyDomainFromEmail,
+  companyFromNotes, companyDomainFromEmail, cspMainBody,
 } from "./cspRenewal";
 // Per Jack: the Custom Scanner's downloads must be the SAME format as the
 // Main Scanner's, because that is what Apollo imports. Single-sourced from
@@ -684,6 +684,28 @@ export async function clearCuration(key: string): Promise<void> {
  * can drift: one line, single-spaced, no separator hanging off either end,
  * no doubled separators, and never empty.
  */
+/** The score/band head every note opens with, the same glyphs the Main
+ *  Scanner uses (▲ High, ▸ Medium, ▼ Low, ✕ Bad Leads). On the CSP tab
+ *  "excluded" is Low priority, not a Bad Lead, so it reads ▼. */
+export function noteHead(score: number | null | undefined, bucket: Bucket2, isCsp: boolean): string {
+  const mark = bucket === "priority" ? "\u25B2" : bucket === "review" ? "\u25B8"
+    : bucket === "excluded" && !isCsp ? "\u2715" : "\u25BC";
+  return `(${score ?? 0}) ${mark}`;
+}
+function asSentence(s: string): string {
+  const t = (s || "").trim().replace(/[.;,]+$/, "");
+  return t ? `${t[0].toUpperCase()}${t.slice(1)}.` : "";
+}
+/** The Main Scanner's asks, by the area the note points at. */
+function smcAsk(angle: string): string {
+  const area = (/(?:Looking at|Room to grow)\s*([^.:(]*)/.exec(angle)?.[1] ?? "").trim();
+  if (/D365|Dynamics|Business Central|F&O|Sales Pro/i.test(area)) {
+    return "Ask if they have looked at Dynamics before, what they run today, and what the high level pain points are.";
+  }
+  if (/Azure/i.test(area)) return "Ask how Azure is managed today, internal IT or an external partner, and where the pain is.";
+  return "Ask how they manage licensing today, in-house or through a partner, and where the pain is.";
+}
+
 export function tidyNote(why: string, fallback = "Scanned, nothing further stated"): string {
   const out = why
     .replace(/\s+/g, " ")
@@ -766,15 +788,18 @@ export function classifySmc(
    * the SMC segment, and the campaign \u2014 which printed once in the middle
    * and again at the end. That row was 404 characters; it is now ~115.
    */
+  // Main Scanner format, per Jack: "change all the notes from current form
+  // to the main scanner format". Score/band head, what they run and are
+  // looking at, partner or direct, then the ask for that area.
   const note = (b: Bucket2, ...extras: string[]) =>
-    [angle, `${CSP_BUCKET_META[b].label} (${sc.score})`, ...extras].filter(Boolean).join(" \u00b7 ");
+    [noteHead(sc.score, b, false), angle, ...extras.map(asSentence), smcAsk(angle)].filter(Boolean).join(" ");
   // Who holds the account rides along on the reason, so it lands in the
   // download's Notes column the same way the CSP tab's partner does.
   // Kept, unlike the rest of the old tail: who holds the account IS stated
   // in the file, it is three words, and "nobody on it" is a real reason to
   // dial. Present on ~3% of rows, so it barely moves the median length.
-  const partner = sc.partnerPosture === "open" ? "no partner on it"
-    : sc.partnerPosture === "held" ? `held by ${partnerNameForNote(sc.partnerName)}`
+  const partner = sc.partnerPosture === "open" ? "No partner on record"
+    : sc.partnerPosture === "held" ? `Partner on record: ${partnerNameForNote(sc.partnerName)}`
     : "";
 
   // A large-only product (Power BI) is NEVER auto-High, whatever it scores
@@ -1043,7 +1068,9 @@ export function scan2(
         c.penaltyPoints = verdict.penaltyPoints;
         csp = c;
         finalBucket = verdict.bucket;
-        snippet = tidyNote(verdict.why, "Scanned, nothing further stated");
+        snippet = finalBucket === "unmatched"
+          ? tidyNote(verdict.why, "Scanned, nothing further stated")
+          : `${noteHead(verdict.score, finalBucket, true)} ${cspMainBody(c, cspRules)}`;
         // No product line here, by design: a CSP row is an opportunity, and
         // the column that matters is who holds the customer today. See
         // cspPartnerLabel — it is what fills Product Area on the download.
@@ -1224,7 +1251,7 @@ function backfillContacts(all: Row2[], kept: Row2[]): void {
     r.lead.phone = d.phone || r.lead.phone;
     r.lead.mobilePhone = d.mobile || r.lead.mobilePhone;
     r.contactFrom = viaTpid ? "tpid" : "company";
-    r.snippet = `${r.snippet} \u00b7 Contact from another row for this account`;
+    r.snippet = `${r.snippet} Contact from another row for this account.`;
   }
 }
 

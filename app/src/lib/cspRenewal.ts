@@ -1283,6 +1283,69 @@ function capitaliseMonth(when: string): string {
 }
 
 /**
+ * The Notes line in the Main Scanner's shape. Per Jack: "can we change all
+ * the notes from current form to the main scanner format", keeping the CSP
+ * facts (renewal, value, seats, billing, who holds the account) but in
+ * Main's sentence form: what it is about, the timeline, partner or direct,
+ * then the ask. The score/band head ("(82) ▲") is added by the composer,
+ * which knows the bucket; this returns the body only.
+ */
+export function cspMainBody(lead: CspLead, rules: CspRules = DEFAULT_CSP_RULES): string {
+  const out: string[] = [];
+  const pin = lead.openRenewal ? `${OPEN_RENEWAL_MARK} ` : lead.perfect ? "\u2605 " : lead.wantsPartner ? "\u2691 " : "";
+  const skus = lead.skus.slice(0, 3);
+  const skuText = skus.length <= 1 ? skus.join("") : `${skus.slice(0, -1).join(", ")} and ${skus[skus.length - 1]}`;
+  const size = [
+    lead.seats != null && lead.seats > 0 ? `${lead.seats} seats` : "",
+    lead.value != null && lead.value > 0 ? money(lead.value) : "",
+  ].filter(Boolean).join(", ");
+  out.push(`${skuText ? `Wants ${skuText}` : "Licensing renewal"}${size ? ` (${size})` : ""}.`);
+
+  if (lead.renewal) {
+    const r = lead.renewal;
+    const when = `${r.assumed ? "~" : ""}${capitaliseMonth(r.when)}`;
+    const contract = r.kind === "renewal";
+    const t = r.daysOut == null ? `${contract ? "renews" : "forecast close"} ${when}`
+      : r.daysOut < 0 ? (contract ? `renewed ${when}` : `forecast close ${when}, passed`)
+        : r.daysOut <= RENEWAL_SOON_DAYS ? `${contract ? "renews" : "forecast close"} ${when} (${r.daysOut}d)`
+          : `${contract ? "renews" : "forecast close"} ${when}`;
+    out.push(`Timeline: ${t}.`);
+  }
+
+  if (lead.wantsPartner) {
+    const ask = lead.partnerAsk;
+    // "Wants to work with a partner: Wants a partner for licensing" says it
+    // twice, so a reason that only restates the ask is folded into it.
+    const restated = /^(?:the\s+)?(?:customer\s+)?(?:wants?|would like|is looking for|looking for|needs?)\s+(?:to\s+work\s+with\s+)?an?\s+partner\b\s*/i;
+    const reason = (ask?.why ?? "").replace(restated, "").split(/\s+/).filter(Boolean);
+    const why = reason.length ? reason.slice(0, 14).join(" ").replace(/[.;,:]+$/, "") + (reason.length > 14 ? "\u2026" : "") : "";
+    const joined = why ? (/^(?:for|to|on|with|in)\b/i.test(why) ? ` ${why}` : `: ${why}`) : "";
+    out.push(`Wants to work with a partner${ask?.when ? ` (${shortAskDate(ask.when)})` : ""}${joined}.`);
+  }
+
+  const namedPartner = /^(?:partner|reseller|csp|var|vendor|the|a|an|n\/?a|none|unknown|tbd|pending|direct)$/i
+    .test(firstWord(lead.partner).trim()) ? "" : firstWord(lead.partner);
+  const pain = lead.partnerPain ? ` (${lead.partnerPain})` : "";
+  const named = lead.partnerConflict ? `; ${firstWord(lead.partnerConflict)} named in notes` : "";
+  out.push(lead.posture === "named" && namedPartner ? `Partner on record: ${namedPartner}${pain}.`
+    : lead.posture === "microsoft" ? `Direct with Microsoft, no partner${named}${pain}.`
+      : `No partner on record${named}${pain}.`);
+
+  const billing = BILLING_META.find((b) => b.rank === lead.billingRank)?.note ?? "";
+  if (billing) out.push(`Billing: ${billing}.`);
+  if (rules.deadLatestPenalty > 0 && lead.deadInLatest && lead.deadReasons.length) {
+    out.push(`Latest note: ${lead.deadReasons.join(", ")}.`);
+  }
+
+  const azureOnly = skus.length > 0 && skus.every((k) => /azure/i.test(k));
+  const painKnown = !!lead.partnerPain;
+  out.push(azureOnly
+    ? `Ask how Azure is managed today, internal IT or an external partner${painKnown ? "" : ", and where the pain is"}.`
+    : `Ask how they buy licensing today, direct or through a partner${painKnown ? "" : ", and where the pain is"}.`);
+  return pin + out.join(" ");
+}
+
+/**
  * The Notes line. Per Jack it carries four things: **when their renewal
  * is**, **the size of the opportunity and what it is about** (which
  * licences, or Azure), and **whether they go direct or through a partner**.

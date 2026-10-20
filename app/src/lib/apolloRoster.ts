@@ -20,6 +20,7 @@
 import { STORE_APOLLO_ROSTER, dbBulkPut, dbGetAll } from "./db";
 import { normEmail, type StoredLead } from "./leadStore";
 import type { ApolloSyncRow } from "./apolloSync";
+import type { ApolloSequenceState } from "./leadStore";
 
 export interface ApolloRosterEntry {
   /** "e:<email>" or "x:<full name>". */
@@ -36,6 +37,9 @@ export interface ApolloRosterEntry {
   emails?: string[];
   /** When the contact was uploaded into Apollo — from a live pull only. */
   uploadedAt?: string;
+  /** Each sequence with its status, step and the day the contact was added
+   *  to it, when the source states them (a live pull, or a sync file). */
+  seqStates?: ApolloSequenceState[];
 }
 
 export type ApolloHow = "email" | "name";
@@ -47,6 +51,8 @@ export interface ApolloHit {
   company?: string;
   sequences: string[];
   uploadedAt?: string;
+  /** Status, step and date added per sequence, when the pull stated them. */
+  seqStates?: ApolloSequenceState[];
 }
 
 export const normPersonName = (s: unknown) =>
@@ -73,9 +79,11 @@ export function rosterFromSync(rows: ApolloSyncRow[], syncedAt = new Date().toIS
     if (!key) continue;
     const prev = out.get(key);
     const sequences = [...new Set([...(prev?.sequences ?? []), ...sequenceLabels(r.sequences)])];
+    const seqStates = [...(prev?.seqStates ?? []), ...r.sequences.filter((x) => !(prev?.seqStates ?? []).some((y) => y.name === x.name))];
     out.set(key, {
       key, name: r.contact || prev?.name || "", email: r.email || prev?.email || "",
       company: r.company || prev?.company || "", sequences, syncedAt,
+      ...(seqStates.length ? { seqStates } : {}),
     });
   }
   return [...out.values()];
@@ -95,10 +103,10 @@ export function buildRosterIndex(roster: ApolloRosterEntry[], leads: StoredLead[
   const byEmail = new Map<string, ApolloHit>();
   const byName = new Map<string, ApolloHit | null>();
   const people = new Set<string>();
-  const add = (email: string, name: string, sequences: string[], uploadedAt?: string, more: string[] = [], company = "") => {
+  const add = (email: string, name: string, sequences: string[], uploadedAt?: string, more: string[] = [], company = "", seqStates?: ApolloSequenceState[]) => {
     const e = normEmail(email);
     const n = normPersonName(name);
-    const hit = { name, sequences, ...(company ? { company } : {}), ...(uploadedAt ? { uploadedAt } : {}) };
+    const hit = { name, sequences, ...(company ? { company } : {}), ...(uploadedAt ? { uploadedAt } : {}), ...(seqStates?.length ? { seqStates } : {}) };
     if (e.includes("@")) { byEmail.set(e, { how: "email", ...hit }); people.add(`e:${e}`); }
     for (const x of more.map(normEmail)) if (x.includes("@") && !byEmail.has(x)) byEmail.set(x, { how: "email", ...hit });
     if (n.includes(" ")) {
@@ -109,7 +117,7 @@ export function buildRosterIndex(roster: ApolloRosterEntry[], leads: StoredLead[
       if (!e.includes("@")) people.add(`x:${n}`);
     }
   };
-  for (const r of roster) add(r.email, r.name, r.sequences, r.uploadedAt, r.emails, r.company);
+  for (const r of roster) add(r.email, r.name, r.sequences, r.uploadedAt, r.emails, r.company, r.seqStates);
   for (const l of leads) {
     // A live check's result is shown, but never feeds the "already in
     // Apollo" exclusion. Per Jack: "no calls or downloads".
@@ -185,5 +193,6 @@ export function apolloSequencesFor(
   if (l.apollo) return l.apollo.sequences.map((s) => ({ name: s.name, active: s.status === "active" }));
   const hit = apolloHitFor({ email: l.email, contact: l.contact, company: l.company }, index);
   if (!hit) return null;
+  if (hit.seqStates?.length) return hit.seqStates.map((s) => ({ name: s.name, active: s.status === "active" }));
   return hit.sequences.map((label) => ({ name: label.replace(/\s*\(active\)$/, ""), active: /\(active\)$/.test(label) }));
 }
