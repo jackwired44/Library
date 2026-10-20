@@ -1,7 +1,7 @@
 ---
 name: apollo-connection
 description: Verifies the Apollo connector's real request/response shapes still match what the platform parses. Read-only Apollo calls only. Report-only.
-tools: Read, Grep, Glob, Bash, mcp__Apollo_io__apollo_contacts_search, mcp__Apollo_io__apollo_emailer_campaigns_search, mcp__Apollo_io__apollo_users_search
+tools: Read, Grep, Glob, Bash, mcp__Apollo_io__apollo_contacts_search, mcp__Apollo_io__apollo_emailer_campaigns_search, mcp__Apollo_io__apollo_users_search, mcp__Apollo_io__apollo_website_visitors_domain_aggregates
 ---
 
 # apollo-connection
@@ -22,6 +22,14 @@ Check (read-only calls, smallest page sizes, never more than a few):
   `contact_campaign_statuses[].{emailer_campaign_id,status,added_at,
   current_step_position|current_step_id,finished_at,inactive_reason}`,
   `email_status`, `email_domain_catchall`, `source`, `owner_id`.
+- `apollo_website_visitors_domain_aggregates {organization_id, domain:
+  "wiredcio.com", from, to}` still answers `{error: "stats not found"}` for
+  a non-visitor, and, the first time a real visitor exists, record the
+  success shape so `lib/webVisits.ts`'s defensive reader can be tightened
+  (the success shape was not observable when it was built). Do not call
+  `apollo_website_visitor_domain_tracker_index` (it can create a tracker);
+  note instead whether wiredcio.com is still sending data, per the last
+  known receipt date in CLAUDE.md.
 - The team user ids in `TEAM_USERS` still map to Jack and Carly.
 - The tool list the published page needs (CLAUDE.md, Working style) is
   complete for every tool the code calls.

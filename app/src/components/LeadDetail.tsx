@@ -356,6 +356,11 @@ export default function LeadDetail({
                       {lastFile.file}{files.length > 1 && <span style={muted}> +{files.length - 1} more file{files.length > 2 ? "s" : ""}</span>}
                     </div>
                   </> : dash)}
+                  {lead.webVisits && fact("Website", lead.webVisits.visited
+                    ? <><b>🌐 Their company visited {lead.webVisits.domain}</b><div style={{ fontSize: 12, ...muted }}>
+                        {[lead.webVisits.visits != null ? `${lead.webVisits.visits} visits` : "", lead.webVisits.uniqueVisitors != null ? `${lead.webVisits.uniqueVisitors} people` : "", lead.webVisits.pages?.length ? `pages: ${lead.webVisits.pages.join(", ")}` : ""].filter(Boolean).join(" · ") || "details not reported"}
+                        {" "}· {lead.webVisits.from} to {lead.webVisits.to}, checked {lead.webVisits.checkedAt.slice(0, 10)}</div></>
+                    : <span style={muted}>No visit to {lead.webVisits.domain} since {lead.webVisits.from} (checked {lead.webVisits.checkedAt.slice(0, 10)})</span>)}
                   {fact("Received", lead.sourceFiles.some(isPreMaySheet)
                     ? <><b>{monthLabelOf(arrivalOf(lead).month)}</b><div style={{ fontSize: 12, ...muted }}>a Sheet file: before May 2026, month estimated from dates in the notes</div></>
                     : lead.receivedOn

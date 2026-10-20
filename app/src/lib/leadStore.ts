@@ -76,6 +76,9 @@ export interface ApolloLeadState {
      *  catch-all, and Apollo's catch-all verdict ("allow" = it will send).
      *  See lib/deliverability.ts. */
     emailStatus?: string; catchAll?: boolean; catchAllVerdict?: string; freeDomain?: boolean;
+    /** Apollo's id for this contact's company (free, from the live check).
+     *  What the website-visit check looks a company up by. */
+    orgId?: string;
   };
   callsUnknown?: boolean;
 }
@@ -175,6 +178,22 @@ export interface StoredLead {
    *  from the raw note at upload. Small on purpose: the raw text itself
    *  lives in its own store (lib/rawNotes.ts). */
   noteDates?: NoteDate[];
+  /** Did this lead's company visit wiredcio.com? From Apollo's per-company
+   *  website-visitor report (lib/webVisits.ts). Absent = never checked. */
+  webVisits?: WebVisits;
+}
+
+export interface WebVisits {
+  checkedAt: string;
+  /** The tracked domain checked, e.g. "wiredcio.com". */
+  domain: string;
+  visited: boolean;
+  visits?: number;
+  uniqueVisitors?: number;
+  pages?: string[];
+  /** The window checked, YYYY-MM-DD. */
+  from: string;
+  to: string;
 }
 
 /* ------------------------------------------------------------ match key */
@@ -241,7 +260,7 @@ export function leadKeyOfInput(i: { email?: unknown; contact?: unknown; company?
 /** A lead as a scanner hands it over, before it is keyed or merged. */
 export type LeadInput = Omit<
   StoredLead,
-  "key" | "firstSeenAt" | "lastSeenAt" | "sourceFiles" | "timesSeen" | "apollo" | "plan" | "statusOverride" | "fileSeen" | "noteDates" | "apolloCheckedAt" | "recycle"
+  "key" | "firstSeenAt" | "lastSeenAt" | "sourceFiles" | "timesSeen" | "apollo" | "plan" | "statusOverride" | "fileSeen" | "noteDates" | "apolloCheckedAt" | "recycle" | "webVisits"
 > & {
   sourceFile: string;
   /** The note exactly as the CSV had it, before any scanner summarised it.

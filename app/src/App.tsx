@@ -25,6 +25,7 @@ import LockScreen from "./components/LockScreen";
 import Scanner2 from "./components/Scanner2";
 import Documentation from "./components/Documentation";
 import Diagnostics from "./components/Diagnostics";
+import Agents from "./components/Agents";
 import BackupRestore from "./components/BackupRestore";
 import CheatSheet from "./components/CheatSheet";
 import PlatformNotes from "./components/PlatformNotes";
@@ -88,6 +89,7 @@ import {
   upsertProfileFromApollo, type CompanyProfile,
 } from "./lib/companyProfiles";
 import { enrichCompaniesViaApollo, MAX_COMPANY_BATCH, type CompanyEnrichOutcome } from "./lib/apolloEnrich";
+import { checkWebVisits, orgIdsOf, applyWebVisits, type VisitProgress } from "./lib/webVisits";
 import { pullTeamUploads, checkLeadsInApollo, applyCheckResults, type PullProgress, type CheckProgress } from "./lib/apolloLive";
 import type { SaveReport } from "./lib/saveReport";
 import Recycle from "./components/Recycle";
@@ -103,7 +105,7 @@ export interface UploadedFile {
 
 export type View =
   | "home" | "scanner" | "scanner2" | "scanner3" | "library" | "allleads"
-  | "queue" | "recycle" | "reps" | "campaigns" | "history" | "lists" | "docs" | "diagnostics";
+  | "queue" | "recycle" | "reps" | "campaigns" | "history" | "lists" | "docs" | "diagnostics" | "agents";
 
 /** The three scanners, kept in their own collapsible sidebar section.
  *  Per Jack: "build the scanners into a drop down section on the left hand
@@ -610,6 +612,18 @@ export default function App() {
   };
   const recycleCounts = useMemo(() => countRecycle(leads, recycleRules), [leads, recycleRules, engagementIndex]);
 
+  /** Per Jack: tag companies that visited wiredcio.com when we have a
+   *  contact there. Checks each company behind these leads once (read-only)
+   *  and tags every stored lead at that company. */
+  async function checkVisitsForLeads(targets: StoredLead[], onProgress: (p: VisitProgress) => void, signal: AbortSignal): Promise<VisitProgress> {
+    const ids = orgIdsOf(targets);
+    let last: VisitProgress = { total: ids.length, done: 0, visited: 0, errors: 0, finished: true };
+    const byOrg = await checkWebVisits(ids, (p) => { last = p; onProgress(p); }, signal);
+    const byKey = new Map(applyWebVisits(leads, byOrg).map((l) => [l.key, l]));
+    if (byKey.size) updateLeads([...byKey.keys()], (l) => byKey.get(l.key) ? { ...l, webVisits: byKey.get(l.key)!.webVisits } : l);
+    return last;
+  }
+
   /** Hand-set a status, or null to give it back to the evidence. */
   const setLeadStatus = (keys: string[], status: LeadStatus | null) =>
     updateLeads(keys, (l) => withStatusOverride(l, status));
@@ -1044,6 +1058,12 @@ export default function App() {
             aria-label="Diagnostics"
             title="Diagnostics"
           ><NavIcon name="diagnostics" /><span className="side-nav-label">Diagnostics</span></button>
+          <button
+            onClick={() => setView("agents")}
+            className={`side-nav-btn${view === "agents" ? " active" : ""}`}
+            aria-label="Agents"
+            title="Agents: the ten review agents, their reports, your approvals and pauses"
+          ><NavIcon name="agents" /><span className="side-nav-label">Agents</span></button>
           <button onClick={() => setNotesPanelTab("cheatsheet")} className="side-nav-btn" aria-label="Cheat Sheet" title="Cheat Sheet"><NavIcon name="cheatsheet" /><span className="side-nav-label">Cheat Sheet</span></button>
           <button onClick={() => setNotesPanelTab("notes")} className="side-nav-btn" aria-label="Platform notes" title="Platform notes"><NavIcon name="notes" /><span className="side-nav-label">Platform notes</span></button>
         </div>
@@ -1102,6 +1122,7 @@ export default function App() {
         {/* Per Jack: no per-scanner passwords. The sign-in gate still
             fronts the whole page; these two screens open like any other. */}
         {view === "docs" && <Documentation />}
+        {view === "agents" && <Agents />}
         {view === "diagnostics" && (
           <Diagnostics leads={leads} apolloIndex={apolloIndex} lists={leadLists}
                        onNavigate={(v) => { if (v === "allleads") { setLeadsStatusEntry(""); setLeadsSequenceEntry(""); setLeadsPresetEntry(""); } setView(v); }} />
@@ -1172,6 +1193,7 @@ export default function App() {
             leads={leads}
             companyProfiles={companyProfiles}
             onEnrichCompanies={enrichCompaniesForLeads}
+            onCheckVisits={checkVisitsForLeads}
             onApplySync={applySyncFiles}
             apolloIndex={apolloIndex}
             rosterPulledAt={rosterPulledAt}
@@ -1418,6 +1440,7 @@ const NAV_ICON_PATHS: Record<string, string> = {
   history: "M3 12a9 9 0 1 0 2.6-6.4L3 8M3 3v5h5M12 7v5l3 2",
   docs: "M4 5a2 2 0 0 1 2-2h12v16H6a2 2 0 0 0-2 2V5Zm0 14a2 2 0 0 1 2-2h12M8 7h6",
   diagnostics: "M3 12h4l2.5-6 5 12 2.5-6h4",
+  agents: "M12 3l2.5 5 5.5.8-4 3.9.9 5.5L12 15.6 7.1 18.2l.9-5.5-4-3.9 5.5-.8z",
   cheatsheet: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm-2.5-11.5a2.5 2.5 0 1 1 3.4 2.3c-.6.3-.9.8-.9 1.4v.3M12 17h.01",
   notes: "M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8l-5-5Zm0 0v5h5M8.5 13h7M8.5 17h5",
   settings: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7.4-3a7.4 7.4 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7.5 7.5 0 0 0-2-1.2L14.5 3h-5l-.4 2.6a7.5 7.5 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6a7.4 7.4 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7.5 7.5 0 0 0 2 1.2l.4 2.6h5l.4-2.6a7.5 7.5 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2Z",

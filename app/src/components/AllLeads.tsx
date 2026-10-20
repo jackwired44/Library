@@ -28,6 +28,7 @@ import { arrivalOf, isPreMaySheet, sheetNumberOf, sheetEstimateOf, monthLabelOf,
 import { engagementOf, engagementLabel, isCustomer, ENGAGEMENT_SOURCE_META, type EngagementMatch } from "../lib/engagements";
 import type { ParsedFile } from "../lib/detection";
 import { MAX_COMPANY_BATCH } from "../lib/apolloEnrich";
+import { orgIdsOf, TRACKED_DOMAIN, type VisitProgress } from "../lib/webVisits";
 import { partnerStanceOf } from "../lib/detection";
 import { downloadCampaignCSV } from "../lib/campaignExport";
 import { MIN_EMPLOYEES } from "../lib/leadQualify";
@@ -245,7 +246,7 @@ const NO_LINE = "(no product line)";
 export default function AllLeads({
   leads, companyProfiles = [], onApplySync, initialSequence = "",
   sequenceNames = [], onSetPlan, onSetStatus, funnels = [], initialStatus, initialPreset,
-  apolloIndex = null, rosterPulledAt = "", onPullApollo, onCheckLeads, onEnrichCompanies, lists = [], onAddToList,
+  apolloIndex = null, rosterPulledAt = "", onPullApollo, onCheckLeads, onEnrichCompanies, onCheckVisits, lists = [], onAddToList,
   emailChecks = [], onImportVerifier, noteRefresh = null, onRefreshNotes,
   engagementCount = 0, onImportEngagements, recycleRules = DEFAULT_RECYCLE_RULES,
 }: {
@@ -267,6 +268,8 @@ export default function AllLeads({
   onCheckLeads?: (leads: StoredLead[], onProgress: (p: CheckProgress) => void, signal: AbortSignal) => Promise<CheckProgress>;
   /** Apollo company enrichment for the given leads' companies (credits). */
   onEnrichCompanies?: (leads: StoredLead[]) => Promise<{ found: number; missed: number; errors: number; message?: string }>;
+  /** Apollo website-visitor check (wiredcio.com) for these leads' companies. */
+  onCheckVisits?: (leads: StoredLead[], onProgress: (p: VisitProgress) => void, signal: AbortSignal) => Promise<VisitProgress>;
   /** Everyone known to be in Apollo — see lib/apolloRoster.ts. */
   apolloIndex?: RosterIndex | null;
   /** When Apollo uploads were last pulled. "" if never. */
@@ -328,6 +331,7 @@ export default function AllLeads({
   // the contacts not in active sequences".
   const [exclIndustries, setExclIndustries] = useState<string[]>([]);
   const [hideActive, setHideActive] = useState(false);
+  const [visitedOnly, setVisitedOnly] = useState(false);
   const [sizeF, setSizeF] = useState("all");
   const [apolloF, setApolloF] = useState<ApolloFilter>(initialPreset ? PRESET[initialPreset].apollo : "all");
   const [seqF, setSeqF] = useState(initialSequence || "all");
@@ -491,7 +495,7 @@ export default function AllLeads({
   const fromT = from ? Date.parse(`${from}T00:00:00`) : null;
   const toT = to ? Date.parse(`${to}T23:59:59.999`) : null;
 
-  type Key = "partner" | "inApollo" | "verdict" | "company" | "contact" | "level" | "fn" | "month" | "dates" | "status" | "search" | "notes" | "standing" | "lane" | "ready" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "owner" | "plan" | "planSeq" | "files" | "fileName" | "date";
+  type Key = "visited" | "partner" | "inApollo" | "verdict" | "company" | "contact" | "level" | "fn" | "month" | "dates" | "status" | "search" | "notes" | "standing" | "lane" | "ready" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "owner" | "plan" | "planSeq" | "files" | "fileName" | "date";
   const tests = useMemo(() => {
     const t: Record<Key, (l: StoredLead, d: Derived) => boolean> = {
       inApollo: (l, d) => inApolloF === "all"
@@ -521,6 +525,7 @@ export default function AllLeads({
       standing: (_l, d) => (standingF === "all" || (standingF === "needs" ? NEEDS.has(d.standing) : standingF === "noseq" ? NO_SEQUENCE.has(d.standing) : d.standing === standingF))
         && !(hideActive && d.standing === "active"),
       partner: (l) => !partnerKeys || partnerKeys.has(l.key),
+      visited: (l) => !visitedOnly || !!l.webVisits?.visited,
       notes: (l) => nq.empty || matchesKeywords(`${(l.notes || "").toLowerCase()} \u0001${rawIndex?.get(l.key) ?? ""}`, nq),
       source: (l) => sourceF === "all" || l.source === sourceF,
       tier: (l) => tierF === "all" || (tierF === TOP ? TOP_TIER_SET.has(l.tier) : l.tier === tierF),
@@ -558,7 +563,7 @@ export default function AllLeads({
       },
     };
     return t;
-  }, [inApolloF, verdictF, companyF, companyStats, contactF, levelF, fnF, monthF, dateF, statusF, q, kq, nq, rawIndex, standingF, laneF, readyOnly, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, ownerF, planF, planSeqF, filesF, fileNameF, fromT, toT, partnerKeys, exclIndustries, hideActive]);
+  }, [inApolloF, verdictF, companyF, companyStats, contactF, levelF, fnF, monthF, dateF, statusF, q, kq, nq, rawIndex, standingF, laneF, readyOnly, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, ownerF, planF, planSeqF, filesF, fileNameF, fromT, toT, partnerKeys, exclIndustries, hideActive, visitedOnly]);
 
   const passes = (l: StoredLead, skip?: Key) => {
     const d = derived.get(l.key)!;
@@ -785,6 +790,7 @@ export default function AllLeads({
   if (industryF !== "all") chips.push({ label: `Industry: ${industryF}`, clear: () => setIndustryF("all") });
   for (const x of exclIndustries) chips.push({ label: `Not ${x}`, clear: () => setExclIndustries((v) => v.filter((y) => y !== x)) });
   if (hideActive) chips.push({ label: "Hiding active in a sequence", clear: () => setHideActive(false) });
+  if (visitedOnly) chips.push({ label: `🌐 Visited ${TRACKED_DOMAIN}`, clear: () => setVisitedOnly(false) });
   if (sizeF !== "all") chips.push({ label: `Employees: ${SIZE_BUCKETS.find((b) => b.key === sizeF)?.label ?? "unknown"}`, clear: () => setSizeF("all") });
   if (apolloF !== "all") chips.push({ label: APOLLO_LABEL[apolloF], clear: () => setApolloF("all") });
   if (seqF !== "all") chips.push({ label: `In: ${seqF}`, clear: () => setSeqF("all") });
@@ -864,6 +870,22 @@ export default function AllLeads({
     const r = await onEnrichCompanies(pool);
     setEnriching(false);
     setEnrichNote(`Apollo: ${r.found} found, ${r.missed} not found${r.errors ? `, ${r.errors} failed${r.message ? ` (${r.message})` : ""}` : ""}.`);
+  }
+
+  // Website visits: per Jack, "if their company searched us and we have a
+  // contact there". Only leads a live Apollo check has matched carry the
+  // company id this needs.
+  const [visits, setVisits] = useState<VisitProgress | null>(null);
+  const [visitErr, setVisitErr] = useState("");
+  const visitAbort = useRef<AbortController | null>(null);
+  const visitPool = useMemo(() => (selected.size ? leads.filter((l) => selected.has(l.key)) : filtered), [selected, leads, filtered]);
+  const visitOrgs = useMemo(() => orgIdsOf(visitPool), [visitPool]);
+  async function runVisits() {
+    if (!onCheckVisits || (visits && !visits.finished) || !visitOrgs.length) return;
+    const ac = new AbortController(); visitAbort.current = ac; setVisitErr("");
+    try { setVisits(await onCheckVisits(visitPool, setVisits, ac.signal)); }
+    catch (e) { setVisitErr(e instanceof Error ? e.message : String(e)); setVisits(null); }
+    finally { visitAbort.current = null; }
   }
 
   async function runCheck(only?: StoredLead[]) {
@@ -1287,6 +1309,10 @@ export default function AllLeads({
                   title="Leave out every lead that is active in an Apollo sequence right now, so a new campaign never doubles up on someone already being worked.">
             Hide active in a sequence
           </button>
+          <button className={`filter-btn${visitedOnly ? " on" : ""}`} aria-pressed={visitedOnly} onClick={() => setVisitedOnly((v) => !v)}
+                  title={`Leads whose company visited ${TRACKED_DOMAIN}, from Apollo's website-visitor report. Run "Check … for site visits" first.`}>
+            🌐 Visited {TRACKED_DOMAIN} ({leads.filter((l) => l.webVisits?.visited).length.toLocaleString()})
+          </button>
           <select className="field" aria-label="Uploaded file" value={fileNameF} onChange={(e) => setFileNameF(e.target.value)}
                   title="Every CSV you have uploaded, filed under the month it is dated, newest first." style={{ maxWidth: 260 }}>
             <option value="all">Uploaded file: any ({fileOptions.length.toLocaleString()})</option>
@@ -1531,6 +1557,19 @@ export default function AllLeads({
             </button>
           </>
         )}
+        {onCheckVisits && (
+          <>
+            <span style={{ width: 1, height: 18, background: "var(--border)" }} />
+            {visits && !visits.finished
+              ? <button className="btn btn-sm btn-secondary" onClick={() => visitAbort.current?.abort()}>Stop · {visits.done}/{visits.total}</button>
+              : <button className="btn btn-sm btn-secondary" disabled={!visitOrgs.length} onClick={() => void runVisits()}
+                        title={`Asks Apollo whether each company behind these leads visited ${TRACKED_DOMAIN} since July 2025, and tags every lead there. Read-only, no credits. Needs the leads to have been checked in Apollo first (that is where the company id comes from).`}>
+                  🌐 Check {visitOrgs.length.toLocaleString()} compan{visitOrgs.length === 1 ? "y" : "ies"} for site visits
+                </button>}
+            {visits?.finished && <span className="muted" style={{ fontSize: 12 }}>{visits.visited} visited {TRACKED_DOMAIN}, {visits.done - visits.visited} did not{visits.errors ? `, ${visits.errors} failed` : ""}.</span>}
+            {visitErr && <span style={{ fontSize: 12, color: "#B5443B" }}>{visitErr}</span>}
+          </>
+        )}
         {onEnrichCompanies && (
           <>
             <span style={{ width: 1, height: 18, background: "var(--border)" }} />
@@ -1681,6 +1720,12 @@ export default function AllLeads({
                               }}>{copiedKey === l.key ? "✓" : "⧉"}</button>
                     )}
                     {d.lane !== "no-email" && <span className="pill" data-lane={d.lane} style={{ marginLeft: 6, fontSize: 10.5, color: LANE_META[d.lane].color, background: LANE_META[d.lane].bg }}>{LANE_META[d.lane].short}</span>}
+                    {l.webVisits?.visited && (
+                      <span className="pill" aria-label="Visited wiredcio.com" style={{ marginLeft: 6, fontSize: 10.5, color: "#0A66C2", background: "#EAF3FC" }}
+                            title={`Their company visited ${l.webVisits.domain} (${l.webVisits.from} to ${l.webVisits.to})${l.webVisits.visits != null ? ` · ${l.webVisits.visits} visits` : ""}${l.webVisits.uniqueVisitors != null ? ` · ${l.webVisits.uniqueVisitors} people` : ""}${l.webVisits.pages?.length ? `\nPages: ${l.webVisits.pages.join(", ")}` : ""}`}>
+                        🌐 Visited us
+                      </span>
+                    )}
                   </td>
                   <td data-col="stored" title={`${VERDICT_META[d.verdict].hint}\nScanner's word: ${l.tier || "—"}`}>
                     <span className="pill" style={{ color: VERDICT_META[d.verdict].color, background: VERDICT_META[d.verdict].bg }}>{VERDICT_META[d.verdict].label}</span>

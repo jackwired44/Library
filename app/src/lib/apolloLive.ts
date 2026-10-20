@@ -329,6 +329,7 @@ export function apolloStateFrom(c: Rec, meta: Map<string, SequenceMeta>, prev: A
       ...(day(c.last_activity_date) ? { lastActivityAt: day(c.last_activity_date) } : {}),
       ...(day(c.created_at) ? { uploadedAt: day(c.created_at) } : {}),
       ...emailVerdictOf(c, email || str(c.email)),
+      ...(str(c.organization_id) ? { orgId: str(c.organization_id) } : {}),
     },
   };
 }

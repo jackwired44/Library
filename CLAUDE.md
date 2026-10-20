@@ -7061,3 +7061,47 @@ stay in September (no "Sheet" in the name).
   their estimated months, with "~" on the day; Reps and the lead record say
   it is an estimate.
 - Suite `sheet-dates-live` re-pointed (9).
+
+### 2026-10-20: The Wired CIO Vault, website visits, Agents tab (scanner-platform-v29)
+
+- **Name**: per Jack, "Name this The Wired CIO Vault" — browser tab, sign-in
+  screen, top bar. The bundle file keeps its path
+  (`wired-cio-lead-scanner-app.html`) so his bookmark still works.
+- **Website visits** (`lib/webVisits.ts`). Per Jack: tag a company "if their
+  company searched us and we have a contact there", from Apollo's website-
+  visitor data on wiredcio.com. Rehearsed live: the team tracks
+  wiredcio.com (checked once with Jack's OK via the tracker index; it
+  already existed, nothing was created) but **Apollo last received data
+  from it on 2026-07-19** — the pixel may have stopped. Person-level visitor
+  filters only reach back 90 days and returned nothing. The per-company
+  report (`apollo_website_visitors_domain_aggregates {organization_id,
+  domain, from, to}`) answers "stats not found" for a non-visitor; its
+  success shape could not be observed, so it is read defensively.
+  - The live Apollo check now stores each contact's company id
+    (`apollo.live.orgId`, free with contacts_search) — that is what the
+    visit check needs. No enrichment, no credits.
+  - All leads: "🌐 Check N companies for site visits" (selection or
+    everything matched; read-only; back to July 2025), a "🌐 Visited
+    wiredcio.com (N)" filter, a "🌐 Visited us" badge on the lead, and a
+    Website line on the lead record. `StoredLead.webVisits`, kept across
+    re-uploads.
+  - The published page's Apollo grant must list
+    `apollo_website_visitors_domain_aggregates` for this to work live.
+  - Suite `web-visits-live` (11).
+- **Agents tab** (`components/Agents.tsx`, sidebar footer). Per Jack: "a tab
+  at the bottom left so i can view them and there work approve stuff and
+  pause". The agents run in Claude Code, so the page shows what they last
+  reported and collects Jack's decisions:
+  - `scripts/agents-sync.cjs` (runs before every build) bundles
+    `.claude/agents/*.md`, `.claude/agent-reports/<agent>.json` and
+    `.claude/agent-state.json` (paused, acted) into
+    `src/agents.generated.json`.
+  - Per agent: job, status (Green / Findings / Blocked / No report /
+    Paused), last report date, findings, questions with Approve / Decline
+    (or the options offered), rules, Pause / Resume. Decisions live in this
+    browser (localStorage `agentDecisions`) and leave via "Copy decisions
+    for Claude", a block `/platform-review` reads: pauses go into
+    `agent-state.json`, only approved items are acted on, then marked done.
+  - `/platform-review` now writes the JSON reports, rebuilds the bundle and
+    pushes the reports.
+  - Suite `agents-live` (16).
