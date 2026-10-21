@@ -7105,3 +7105,34 @@ stay in September (no "Sheet" in the name).
   - `/platform-review` now writes the JSON reports, rebuilds the bundle and
     pushes the reports.
   - Suite `agents-live` (16).
+
+### 2026-10-21: lag fixes in All leads; Apollo end reasons count as dispositions (scanner-platform-v29)
+
+**Lag** (per Jack: "check why system has lag at times"). Measured with
+40,000 seeded leads (scratchpad `lag-probe.cjs`; longtask observer):
+All leads was the hotspot — 6 search keystrokes froze the page ~2.0 s,
+filter clicks 0.25–0.4 s, opening it ~0.7 s. Causes: ~17 faceted counts
+each re-ran every filter over every lead; search re-ran all of it per
+keystroke; the CSV-date sort called `arrivalOf` per comparison.
+- `failOf` (`AllLeads.tsx`): each lead's filters evaluated once per change,
+  recording "passes all / fails only K / fails more"; `passes(l, skip)` reads
+  it. Same counts, one pass instead of ~17.
+- Search and note search wait 250 ms after typing stops (the box stays live).
+- `Derived.arrival` caches `arrivalOf` per lead set; the date filter and
+  the received sort read it.
+- After: 6 keystrokes ~0.24 s of freezes total; filter clicks 0.17–0.2 s.
+  Opening All leads is still ~0.65 s (building per-lead derived data);
+  flagged as the next thing to cache.
+
+**Dispositions** (comment on Home's "In sequence" tile: "if a lead is in an
+apollo sequence make sure to check where the dispositions stand … if marked
+meeting booked pending review or info requested its a succesfull
+conversation"). `derivedStatus`/`wasReached` (`lib/leadStatus.ts`) now
+also read Apollo's own end-of-sequence reason (`sequences[].reason`):
+meeting booked → Meeting booked; not interested / do not contact → Not
+interested; replied, talked, info requested, pending review, call back →
+reached. "Reached" is relabelled **Successful conversation**. Call-outcome
+dispositions on a live-checked lead still need
+`apollo_phone_calls_search` in the published page's grant (Jack declined
+it earlier); without it only the end reasons and imported syncs carry
+dispositions.

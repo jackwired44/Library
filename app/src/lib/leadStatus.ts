@@ -40,8 +40,8 @@ export const STATUS_META: Record<LeadStatus, {
     hint: "An Apollo call outcome says a meeting was booked." },
   "not-interested": { label: "Not interested", stage: "outcome", color: "#B5443B", bg: "#FBEAE8",
     hint: "An Apollo call outcome says not interested, or do not contact." },
-  reached: { label: "Reached", stage: "working", color: "#7A5AC8", bg: "#F1ECFB",
-    hint: "A real conversation in Apollo — any call outcome other than no answer, voicemail or no disposition — with no booked meeting and no no." },
+  reached: { label: "Successful conversation", stage: "working", color: "#7A5AC8", bg: "#F1ECFB",
+    hint: "A real conversation in Apollo: a disposition such as info requested, pending review or call back (anything but no answer, voicemail, gatekeeper or no disposition), or Apollo ending the sequence because they replied or talked. Still in a sequence or not." },
   called: { label: "Called, not reached", stage: "working", color: "#8A6D3B", bg: "#F7F1E5",
     hint: "Dialled in Apollo, never reached (only no answer, voicemail or no disposition), and not in a live sequence any more." },
   "in-sequence": { label: "In sequence", stage: "working", color: "#0E7A72", bg: "#E3F3F1",
@@ -84,6 +84,12 @@ const BAD_TIERS = new Set(["Bad Leads", "Bad Lead"]);
  *  from a sync file, in whatever case Apollo or a hand edit used. */
 const MEETING_RE = /meeting\s*booked/i;
 const NO_RE = /not\s*interested|do\s*not\s*contact/i;
+/** Apollo's own reason for ending a sequence ("inactive_reason"), read the
+ *  same way. Per Jack, on the "In sequence" tile: "if a lead is in an apollo
+ *  sequence make sure to check where the dispositions stand … if marked
+ *  meeting booked pending review or info requested its a succesfull
+ *  conversation". */
+const SEQ_TALKED_RE = /replied|talked|spoke|conversation|interested|info(?:rmation)?\s*requested|pending\s*review|call\s*back/i;
 /** Outcomes that mean the phone rang and nobody real picked up. */
 const NOT_REACHED_RE = /no\s*answer|no\s*disposition|left\s*voicemail|voicemail|wrong\s*number|gatekeeper/i;
 
@@ -119,6 +125,7 @@ export interface StatusOverride {
  *  than no answer, voicemail, gatekeeper or no disposition. */
 export function wasReached(a: StoredLead["apollo"]): boolean {
   if (!a) return false;
+  if (a.sequences.some((s) => s.reason && (MEETING_RE.test(s.reason) || SEQ_TALKED_RE.test(s.reason)) && !NOT_REACHED_RE.test(s.reason))) return true;
   return Object.keys(a.outcomes).some((n) => !NOT_REACHED_RE.test(n) && a.outcomes[n] > 0);
 }
 
@@ -131,6 +138,11 @@ export function derivedStatus(l: StoredLead): LeadStatus {
     if (names.some((n) => NO_RE.test(n) && a.outcomes[n] > 0)) return "not-interested";
     const reached = names.some((n) => !NOT_REACHED_RE.test(n) && a.outcomes[n] > 0);
     if (reached) return "reached";
+    // Apollo's reason for ending a sequence is a disposition too.
+    const reasons = a.sequences.map((s) => s.reason || "").filter(Boolean);
+    if (reasons.some((r) => MEETING_RE.test(r))) return "meeting";
+    if (reasons.some((r) => NO_RE.test(r) && !/not\s*interested\s*yet/i.test(r))) return "not-interested";
+    if (reasons.some((r) => SEQ_TALKED_RE.test(r) && !NOT_REACHED_RE.test(r))) return "reached";
     // Still being worked: a live sequence outranks "called" — no answers
     // mid-sequence are just the sequence doing its job.
     if (a.sequences.some((s) => s.status === "active")) return "in-sequence";

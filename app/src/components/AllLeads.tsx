@@ -130,6 +130,8 @@ interface Derived {
   reached: boolean;
   /** YYYY-MM the lead was received: the file's own date, else first upload. */
   month: string;
+  /** arrivalOf(l), worked out once per lead set rather than per comparison. */
+  arrival: { date: string; month: string; approx: boolean };
   /** "upcoming" / "past" / "logged" (stamps only) / "none". */
   dateKind: "upcoming" | "past" | "logged" | "none";
   nextDate: NoteDate | null;
@@ -424,6 +426,7 @@ export default function AllLeads({
         status: statusOf(l),
         reached: wasReached(a),
         month: arrivalOf(l).month,
+        arrival: arrivalOf(l),
         dateKind: dateKindOf(l.noteDates),
         nextDate: soonestUpcoming(l.noteDates),
         level: titleLevel(l.title),
@@ -464,9 +467,16 @@ export default function AllLeads({
   }, [leads, derived]);
 
   /* ---- the predicates, one per filter, so each facet can skip its own ---- */
-  const q = search.trim().toLowerCase();
-  const kq = useMemo(() => parseKeywords(search), [search]);
-  const nq = useMemo(() => parseKeywords(noteSearch), [noteSearch]);
+  // Per Jack: "check why system has lag at times". Every keystroke used to
+  // re-run every filter and every count over the whole lead set; the
+  // filters now wait until typing pauses (the box itself stays live).
+  const [searchQ, setSearchQ] = useState(search);
+  const [noteQ, setNoteQ] = useState(noteSearch);
+  useEffect(() => { const t = setTimeout(() => setSearchQ(search), 250); return () => clearTimeout(t); }, [search]);
+  useEffect(() => { const t = setTimeout(() => setNoteQ(noteSearch), 250); return () => clearTimeout(t); }, [noteSearch]);
+  const q = searchQ.trim().toLowerCase();
+  const kq = useMemo(() => parseKeywords(searchQ), [searchQ]);
+  const nq = useMemo(() => parseKeywords(noteQ), [noteQ]);
   // Load the original notes the first time the notes search is used, and
   // again when the lead count changes (a new upload wrote new ones).
   useEffect(() => {
@@ -557,7 +567,7 @@ export default function AllLeads({
         if (fromT === null && toT === null) return true;
         // The CSV's own date (the date the file states, else when it was
         // uploaded), so a range walks back through the files by month.
-        const arr = arrivalOf(l);
+        const arr = derived.get(l.key)!.arrival;
         const t = Date.parse(arr.approx || l.receivedOn ? `${arr.date}T12:00:00` : l.firstSeenAt);
         return (fromT === null || t >= fromT) && (toT === null || t <= toT);
       },
@@ -565,20 +575,35 @@ export default function AllLeads({
     return t;
   }, [inApolloF, verdictF, companyF, companyStats, contactF, levelF, fnF, monthF, dateF, statusF, q, kq, nq, rawIndex, standingF, laneF, readyOnly, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, ownerF, planF, planSeqF, filesF, fileNameF, fromT, toT, partnerKeys, exclIndustries, hideActive, visitedOnly]);
 
-  const passes = (l: StoredLead, skip?: Key) => {
-    const d = derived.get(l.key)!;
-    for (const k in tests) {
-      if (k === skip) continue;
-      if (!tests[k as Key](l, d)) return false;
+  // Each lead's filters are evaluated ONCE per change, recording whether it
+  // passes all of them ("") or fails exactly one (that key) or more (null).
+  // A faceted count for key K is then "fails nothing, or fails only K" —
+  // the same answer as re-running every other filter, without ~17 full
+  // passes over the lead set per keystroke.
+  const failOf = useMemo(() => {
+    const m = new Map<string, Key | "" | null>();
+    for (const l of leads) {
+      const d = derived.get(l.key)!;
+      let miss: Key | "" | null = "";
+      for (const k in tests) {
+        if (tests[k as Key](l, d)) continue;
+        if (miss === "") { miss = k as Key; continue; }
+        miss = null; break;
+      }
+      m.set(l.key, miss);
     }
-    return true;
+    return m;
+  }, [leads, derived, tests]);
+  const passes = (l: StoredLead, skip?: Key) => {
+    const f = failOf.get(l.key);
+    return f === "" || (skip !== undefined && f === skip);
   };
 
   const filtered = useMemo(() => {
     const out = leads.filter((l) => passes(l));
     const d = (l: StoredLead) => derived.get(l.key)!;
     const cmp: Record<SortKey, (a: StoredLead, b: StoredLead) => number> = {
-      received: (a, b) => arrivalOf(b).date.localeCompare(arrivalOf(a).date) || b.lastSeenAt.localeCompare(a.lastSeenAt),
+      received: (a, b) => d(b).arrival.date.localeCompare(d(a).arrival.date) || b.lastSeenAt.localeCompare(a.lastSeenAt),
       last: (a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt),
       first: (a, b) => b.firstSeenAt.localeCompare(a.firstSeenAt),
       company: (a, b) => (a.company || "￿").localeCompare(b.company || "￿"),
