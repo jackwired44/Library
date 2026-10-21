@@ -7181,3 +7181,57 @@ rules that refresh.
   Only when Jack says publish.
 - Suites: `smart-rules` (53), `lead-chat-live` (30); `sheet-dates-live`
   re-pointed from the CSV month select to the period strip.
+
+### 2026-10-21: Refresher — suggested campaign lists handed off to Apollo (scanner-platform-v29)
+
+Per Jack: "create a refresher mechanism here under all leads that can auto
+generate lists that seem likely and action them into sequences once pushed
+to apollo", "this action checks the leads are fresh have not really gone
+anywhere or gone nowhere and are not in hubspot as a deal have not been info
+reuqested pending review or meeting booked", and "i will choose certain
+files to do this from and then you generate the list around strong signals
+but also company or eventually industry". Approved: the sequence is picked
+at accept, a list is capped at 100, green-lit emails only, read-only toward
+Apollo. Existing Lists / Ask for leads / smart lists are unchanged.
+- **All leads → Refresher** tab (`components/Refresher.tsx`,
+  `lib/refresher.ts`).
+- **Who is eligible**: fresh (never worked) or went nowhere (recycle-ready).
+  `blocked()` leaves out: active in a sequence, a deal or meeting on file
+  (HubSpot / Notion / Echo import, `f.engaged`), and a successful
+  conversation. `RuleFacts.reached` (new, `lib/smartRules.ts`) is true on
+  info requested, pending review, replied, talked, call back or meeting
+  booked, read from call outcomes, Apollo's end-of-sequence reason (live
+  check or pulled uploads), or a status set by hand. Not interested / do
+  not contact and anyone on a live campaign list are left out too.
+- **Files**: "Pick files to work from" (checkboxes, newest upload first,
+  remembered in localStorage `refresherFiles`); none picked = every file.
+- **Build lists by** (localStorage `refresherGroupBy`):
+  - Product line & hot signals: Google → Microsoft, asked for a partner,
+    visited wiredcio.com, recycle-ready, Fresh / Backlog / Re-engage per
+    product line (min 5).
+  - Company: one list per company with `COMPANY_MIN` (2)+ Strong Signal
+    people, top `COMPANY_LISTS` (20).
+  - Industry: enriched company data only (min 5); says how many Strong
+    Signal leads need enriching first.
+- **Email**: only green-lit addresses go on a list; unchecked ones get a
+  read-only "Check N in Apollo"; flagged ones are counted and left for
+  calling.
+- **Accept** downloads the import CSV (Main Scanner's ten columns), then
+  files a dated campaign list (`LeadList.targetSequence`, `handedOffAt`,
+  `refresherId`; 45-day cycle; tags refresher + suggestion id). A cancelled
+  download files nothing. Those leads then leave every suggestion.
+- **Handed off to Apollo** table: Downloaded → Partly in sequence → In
+  sequence, by whether an Apollo check or pull shows each lead in the
+  picked sequence (`inSequence`). Nothing is written to Apollo.
+- **Draft from keywords** (per Jack: "i want to enter keywords basiclly and
+  then have it auto draft a list off those keyword industry words or title
+  even … this is going to help ensure all leads are being hit"). A box at
+  the top of the Refresher: commas mean any of these; within one part the
+  All leads keyword syntax (every word, "phrase", -leave out). Match in
+  Anywhere / Title / Industry / Company / Note (the scanned note; the raw
+  note stays locked). "Strong Signal only" is on by default; off adds Needs
+  Review, never Bad Leads. Same eligibility, cap, email rule and Accept as
+  every suggestion; no minimum size (`draftFromKeywords`).
+- Suites: `refresher` (49), `refresher-live` (28). Note for live suites:
+  the runner reads the last "N / M" in the output as the score, so never
+  put a slash count in a check name.

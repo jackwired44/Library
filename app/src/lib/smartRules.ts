@@ -17,7 +17,7 @@
 // reads or writes Apollo: it only reads what the platform already holds.
 
 import type { LeadSource, StoredLead } from "./leadStore";
-import { verdictOf, wasReached, contactStateOf, VERDICT_META, type Verdict } from "./leadStatus";
+import { verdictOf, wasReached, contactStateOf, statusOf, VERDICT_META, type Verdict } from "./leadStatus";
 import { arrivalOf } from "./leadFiling";
 import { matchesKeywords, parseKeywords } from "./keywords";
 import { ownersOf } from "./reps";
@@ -78,6 +78,11 @@ export interface RuleFacts {
   closedOut: boolean;
   /** A deal or meeting on file: account manager only. */
   engaged: boolean;
+  /** A successful conversation on record: info requested, pending review,
+   *  replied, talked, call back, meeting booked — from call outcomes, Apollo's
+   *  own end-of-sequence reason (live check or pulled uploads), or a status
+   *  set by hand. Optional so a facts object built before this reads false. */
+  reached?: boolean;
 }
 
 export const productOf = (line: string): ProductKey =>
@@ -97,6 +102,9 @@ export const quarterLabel = (q: string) => {
 const PARTNER_NOTE_RE = /\bwants?\s+(?:to\s+work\s+with\s+)?a?\s*partner\b|⚑\s*wants\s+partner/i;
 const MEETING_RE = /meeting/i;
 const CLOSED_RE = /do\s*not\s*contact|not\s*interested|opted?\s*out|unsubscribe/i;
+/** A sequence ended on a real conversation (same reading as lib/leadStatus.ts). */
+const TALKED_RE = /meeting\s*booked|replied|talked|spoke|conversation|info(?:rmation)?\s*requested|pending\s*review|call\s*back/i;
+const NOT_REACHED_RE = /no\s*answer|voicemail|wrong\s*number|gatekeeper|not\s*interested/i;
 
 const maxIso = (a: string, b: string | undefined) => (b && b > a ? b : a);
 
@@ -134,6 +142,8 @@ export function factsForLead(
     lastTouch: last.slice(0, 10),
     closedOut: state === "meeting" || state === "no" || MEETING_RE.test(reasons) || CLOSED_RE.test(reasons),
     engaged: extra.engaged,
+    reached: wasReached(a) || ["meeting", "reached"].includes(statusOf(l))
+      || [...seqs, ...hitStates].some((s) => !!s.reason && TALKED_RE.test(s.reason) && !NOT_REACHED_RE.test(s.reason)),
   };
 }
 

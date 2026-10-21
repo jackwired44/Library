@@ -50,6 +50,13 @@ export interface LeadList {
   /** The words the rule was read from, kept so the list says what it is. */
   ruleText?: string;
   ruleRefreshedAt?: string;
+  /** Refresher (lib/refresher.ts): the Apollo sequence this list was handed
+   *  off for, when its import CSV was downloaded, and which suggestion it
+   *  came from. Read-only toward Apollo: the list reads "In sequence" once a
+   *  check sees its leads there. */
+  targetSequence?: string;
+  handedOffAt?: string;
+  refresherId?: string;
 }
 
 /** Replace a smart list's rows with a fresh run of its rule. Rows already

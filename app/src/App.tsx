@@ -31,7 +31,9 @@ import CheatSheet from "./components/CheatSheet";
 import PlatformNotes from "./components/PlatformNotes";
 import DispositionManager from "./components/DispositionManager";
 import type { ParsedFile, ResultRow, RuleOverrides, NoSignalRow, DuplicateRow } from "./lib/detection";
-import { scanParsedFiles, DEFAULT_RULE_OVERRIDES, type ExportRow } from "./lib/detection";
+import { scanParsedFiles, DEFAULT_RULE_OVERRIDES, EXPORT_LABELS, type ExportRow } from "./lib/detection";
+import { downloadBlob, toCSV } from "./lib/csv";
+import Refresher from "./components/Refresher";
 import {
   loadLibraryFromDB, ensureMonthFoldersExist, pruneEmptyMonthFoldersBefore,
   persistGroup, deleteGroupFromDB,
@@ -106,7 +108,7 @@ export interface UploadedFile {
 
 export type View =
   | "home" | "scanner" | "scanner2" | "scanner3" | "library" | "allleads"
-  | "queue" | "recycle" | "reps" | "campaigns" | "history" | "lists" | "docs" | "diagnostics" | "agents";
+  | "queue" | "recycle" | "refresher" | "reps" | "campaigns" | "history" | "lists" | "docs" | "diagnostics" | "agents";
 
 /** The three scanners, kept in their own collapsible sidebar section.
  *  Per Jack: "build the scanners into a drop down section on the left hand
@@ -854,6 +856,23 @@ export default function App() {
     }
     return out;
   }
+  /** Refresher: hand over the Apollo import CSV, then file a dated campaign
+   *  list tagged with the sequence it is going to. A cancelled download
+   *  files nothing. Nothing is written to Apollo. */
+  async function acceptRefresh(a: { suggestionId: string; title: string; name: string; sequence: string; leads: StoredLead[] }): Promise<{ listId: string; added: number } | null> {
+    const rows = rowsForLeads(a.leads);
+    if (!rows.length) return null;
+    const ok = await downloadBlob(toCSV(rows, EXPORT_LABELS), `${a.name}.csv`);
+    if (!ok) return null;
+    // Built outside the state updater: after an await, React runs updaters
+    // later, so reading a value set inside one would see nothing yet.
+    const { list } = createLeadList([], a.name);
+    if (!list) return null;
+    const saved: LeadList = { ...list, rows, campaign: a.title, tags: ["refresher", a.suggestionId], cycleDays: 45, targetSequence: a.sequence, handedOffAt: list.createdAt, refresherId: a.suggestionId };
+    setLeadLists((prev) => [saved, ...prev]);
+    persistLeadList(saved);
+    return { listId: saved.id, added: rows.length };
+  }
   /** Save a rule as a smart list, filled with what it matches today. */
   function saveSmartList(name: string, rule: SmartRule, ruleText: string, matched: StoredLead[]): { listId: string; added: number } | null {
     const { lists, list } = createLeadList(leadLists, name);
@@ -1085,7 +1104,7 @@ export default function App() {
               {g.items.map((item) => (
                 <button
                   key={item.key}
-                  className={`side-nav-btn${view === item.key || (item.key === "allleads" && (view === "library" || view === "queue" || view === "recycle")) || (item.key === "allleads" && view === "campaigns") ? " active" : ""}`}
+                  className={`side-nav-btn${view === item.key || (item.key === "allleads" && (view === "library" || view === "queue" || view === "recycle" || view === "refresher")) || (item.key === "allleads" && view === "campaigns") ? " active" : ""}`}
                   onClick={() => setView(item.key)}
                   title={item.label}
                 >
@@ -1207,7 +1226,7 @@ export default function App() {
           />
         )}
 
-        {(view === "allleads" || view === "library" || view === "campaigns" || view === "queue" || view === "recycle") && (
+        {(view === "allleads" || view === "library" || view === "campaigns" || view === "queue" || view === "recycle" || view === "refresher") && (
           // The Lead library lives inside All leads now. Per Jack: "re do
           // lead libary and build it into all leads". Every lead the
           // Library ever filed is already in the lead store, so the table
@@ -1219,6 +1238,9 @@ export default function App() {
             </button>
             <button role="tab" aria-selected={view === "queue"} className={`seg-btn${view === "queue" ? " active" : ""}`} onClick={() => setView("queue")}>
               Apollo standing
+            </button>
+            <button role="tab" aria-selected={view === "refresher"} className={`seg-btn${view === "refresher" ? " active" : ""}`} onClick={() => setView("refresher")}>
+              Refresher
             </button>
             <button role="tab" aria-selected={view === "recycle"} className={`seg-btn${view === "recycle" ? " active" : ""}`} onClick={() => setView("recycle")}>
               Recycle{recycleCounts.by.ready > 0 ? ` (${recycleCounts.by.ready.toLocaleString()} ready)` : ""}
@@ -1237,6 +1259,12 @@ export default function App() {
           <ApolloStatus leads={leads} apolloIndex={apolloIndex} rosterPulledAt={rosterPulledAt} onPullApollo={pullApollo} onCheckLeads={checkLeadsLive} lists={leadLists} onAddToList={addExportRowsToLists} />
         )}
         {view === "reps" && <Reps leads={leads} apolloIndex={apolloIndex} recycleRules={recycleRules} roster={apolloRoster} funnels={funnels} />}
+        {view === "refresher" && (
+          <Refresher leads={leads} companyProfiles={companyProfiles} apolloIndex={apolloIndex} emailChecks={emailChecks}
+                     lists={leadLists} recycleRules={recycleRules} sequenceNames={knownSequences} onAccept={acceptRefresh}
+                     onCheck={(t, label) => { setUploadCheckLabel(label); void runHomeCheck(t); }}
+                     checkBusy={!!homeCheck && !homeCheck.finished} onOpenLists={() => setView("lists")} />
+        )}
         {view === "recycle" && (
           <Recycle leads={leads} rules={recycleRules} onRulesChange={changeRecycleRules}
                    onMarkDownloaded={markRecycleDownloaded} lists={leadLists} onAddToList={addExportRowsToLists} />

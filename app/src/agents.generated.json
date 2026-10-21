@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-21T00:37:27.299Z",
+  "generatedAt": "2026-10-21T20:28:38.402Z",
   "standingRules": "## Standing rules (every platform agent)\n\n- **Report only.** Never edit, create, delete or move a file. Never run\n  `git commit`, `git push`, `npm install`, or anything that writes. Bash is\n  for reading and for running the existing test suites only.\n- **Never write to Apollo.** No create, update, add, remove, send, complete\n  or skip tool, ever. Read/search tools only, and only where your scope says.\n- **Never publish an artifact.** The repo is the only delivery (CLAUDE.md,\n  Working style).\n- **No decisions without Jack.** Anything that changes what a lead is, how it\n  is graded, what gets downloaded, who can see what, or what touches Apollo\n  is a proposal for Jack, never a fix. Say what you found and what you would\n  propose; do not act on it.\n- **Evidence, not guesses.** Every finding cites `file:line` or a test name\n  and the exact output. If you could not verify something, say so.\n- Read `CLAUDE.md` (repo root) first. It is the record of every decision\n  Jack has made; a behaviour it documents as deliberate is not a bug.",
   "state": {
     "paused": [],
