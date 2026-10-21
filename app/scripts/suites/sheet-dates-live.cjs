@@ -46,11 +46,10 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('Sheet 83 is not pre-May', groupOf('BookSheet83') && !/est\.|Before May/.test(groupOf('BookSheet83')), groupOf('BookSheet83'));
   ok('Excel\'s default Sheet1 is not treated as a numbered sheet', !/est\.|Before May/.test(groupOf('Sheet1') || ''), groupOf('Sheet1'));
   ok('an estimated day is marked with ~', groups.flatMap(g => g.files).filter(f => /^BookSheet7|^BookSheet82/.test(f)).every(f => /· ~\d\d\/\d\d/.test(f)), JSON.stringify(groups));
-  await page.locator('button[aria-label="More filters"]').first().click(); await sleep(400);
-  const months = await page.$$eval('select[aria-label="CSV month"] option', os => os.map(o => o.textContent));
-  ok('CSV month offers the estimated months', months.some(m => /^~February 2026 \(est\.\) \(1\)$/.test(m)) && months.some(m => /^~April 2026 \(est\.\) \(1\)$/.test(m)), JSON.stringify(months));
-  const idx = months.findIndex(m => /^~February 2026/.test(m));
-  await page.selectOption('select[aria-label="CSV month"]', { label: months[idx] }); await sleep(400);
+  // The months now lead All leads as a period strip (View by Month).
+  const months = await page.$$eval('[role=group][aria-label="Periods"] button[aria-label^="Period "]', bs => bs.map(b => b.getAttribute('aria-label').slice(7) + ' (' + b.querySelector('b').textContent + ')'));
+  ok('the month strip offers the estimated months', months.some(m => /^~February 2026 \(est\.\) \(1\)$/.test(m)) && months.some(m => /^~April 2026 \(est\.\) \(1\)$/.test(m)), JSON.stringify(months));
+  await page.locator('[role=group][aria-label="Periods"] button[aria-label="Period ~February 2026 (est.)"]').click(); await sleep(400);
   const rows = (await page.locator('.data-table tbody').innerText()).replace(/\s+/g, ' ');
   ok('filtering to it shows only the Sheet 75 lead', /OLD CO/.test(rows) && !/NEWER CO|EXCEL CO|EDGE CO/.test(rows), rows.slice(0, 200));
   await page.locator('.data-table tbody tr', { hasText: 'OLD CO' }).first().locator('td').nth(1).click(); await sleep(800);

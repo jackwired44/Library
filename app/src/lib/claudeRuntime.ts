@@ -19,12 +19,15 @@ export interface ClaudePermissionsNamespace {
   state(name: string): Promise<string>;
   request(names?: readonly string[]): Promise<Record<string, string>>;
 }
+export interface ClaudeSampleError { code: string; message?: string }
+export type ClaudeSampleFn = (request: { prompt: string; modelTier?: "quick" | "default" | "complex"; cache?: false | { gcTime: number } }) => Promise<{ completion: string; modelTierApplied?: string }>;
 declare global {
   interface Window {
     claude?: {
       use(name: "downloads"): Promise<ClaudeDownloadsNamespace | null>;
       use(name: "mcp"): Promise<ClaudeMcpNamespace | null>;
       use(name: "permissions"): Promise<ClaudePermissionsNamespace | null>;
+      use(name: "sample"): Promise<ClaudeSampleFn | null>;
     };
   }
 }

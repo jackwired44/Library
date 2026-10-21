@@ -16,13 +16,15 @@
 //     nodes is what an unpaginated Contacts table measured at 3,000 rows.
 //   - Selection is a Set of keys, so it survives paging and refiltering.
 import RateLimitNote from "./RateLimitNote";
-import { useEffect, useMemo, useRef, useState } from "react";
+import LeadChat from "./LeadChat";
+import { factsForLead, ruleMatches, ruleParts, quarterOf, quarterLabel, type RuleFacts, type SmartRule } from "../lib/smartRules";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   LEAD_SOURCE_META, newestNote, noteSegments, outcomeSummary,
   type LeadSource, type StoredLead,
 } from "../lib/leadStore";
 import { SYNC_STALE_DAYS, syncAgeDays, leadsToSync } from "../lib/apolloSync";
-import { parseCSVFile, toCSV, downloadBlob } from "../lib/csv";
+import { parseCSVFile, toCSV, downloadBlob, downloadCSV } from "../lib/csv";
 import Customize, { loadHiddenSet, saveHiddenSet } from "./Customize";
 import { arrivalOf, isPreMaySheet, sheetNumberOf, sheetEstimateOf, monthLabelOf, PRE_MAY_2026_MONTH } from "../lib/leadFiling";
 import { engagementOf, engagementLabel, isCustomer, ENGAGEMENT_SOURCE_META, type EngagementMatch } from "../lib/engagements";
@@ -51,7 +53,7 @@ import { loadRawNoteSearchIndex } from "../lib/rawNotes";
 import { matchesKeywords, parseKeywords } from "../lib/keywords";
 import type { LeadList } from "../lib/leadLists";
 import { laneOf, indexChecks, emailsToVerify, isGreenLit, LANE_META, LANE_ORDER, DEFAULT_CATCH_ALL_MIN, type Lane, type EmailCheck, type VerifierImport } from "../lib/deliverability";
-import type { ExportRow } from "../lib/detection";
+import { EXPORT_LABELS, type ExportRow } from "../lib/detection";
 import { apolloStandingOf, listRowForLead, NEEDS, NO_SEQUENCE, STATUS_META as STANDING_META, STATUS_ORDER as STANDING_ORDER, type Status as Standing } from "./ApolloStatus";
 import { isIntentDate, soonestUpcoming, type NoteDate } from "../lib/noteDates";
 import {
@@ -177,6 +179,14 @@ const DATE_LABEL: Record<Derived["dateKind"], string> = {
 };
 
 const monthLabel = (ym: string) => monthLabelOf(ym);
+/** A lead's arrival month as a month or quarter key. Pre-May sheets stay
+ *  "before May 2026" in either view; an estimated month joins its quarter. */
+function periodKeyOf(month: string, kind: "month" | "quarter" | "all"): string {
+  if (kind !== "quarter" || month.startsWith("0000")) return month;
+  return quarterOf(month.replace("~", ""));
+}
+const periodLabel = (key: string, kind: "month" | "quarter" | "all") =>
+  !key ? "Undated" : kind === "quarter" && /^\d{4}-Q[1-4]$/.test(key) ? quarterLabel(key) : monthLabel(key);
 
 /** A tier-filter value meaning "the top verdict on any scanner": High
  *  priority (Main, CSP) or Strong Signal (Custom, older Main rows). */
@@ -249,7 +259,7 @@ export default function AllLeads({
   leads, companyProfiles = [], onApplySync, initialSequence = "",
   sequenceNames = [], onSetPlan, onSetStatus, funnels = [], initialStatus, initialPreset,
   apolloIndex = null, rosterPulledAt = "", onPullApollo, onCheckLeads, onEnrichCompanies, onCheckVisits, lists = [], onAddToList,
-  emailChecks = [], onImportVerifier, noteRefresh = null, onRefreshNotes,
+  emailChecks = [], onImportVerifier, onSaveSmartList, noteRefresh = null, onRefreshNotes,
   engagementCount = 0, onImportEngagements, recycleRules = DEFAULT_RECYCLE_RULES,
 }: {
   /** Recycle rules — see lib/recycle.ts. */
@@ -260,6 +270,8 @@ export default function AllLeads({
   /** Rewriting stored Main notes with today's rules — see lib/noteRefresh.ts. */
   noteRefresh?: { done: number; total: number; changed: number; finished: boolean } | null;
   onRefreshNotes?: () => void;
+  /** Save a lead-chat rule as a smart list (lib/smartRules.ts). */
+  onSaveSmartList?: (name: string, rule: SmartRule, ruleText: string, matched: StoredLead[]) => { listId: string; added: number } | null;
   /** Verifier results per email — see lib/deliverability.ts. */
   emailChecks?: EmailCheck[];
   onImportVerifier?: (files: ParsedFile[]) => Promise<VerifierImport>;
@@ -355,7 +367,19 @@ export default function AllLeads({
   // email, OR never matched by any sync. Per Jack, the point of the store is
   // to "filter down all never contacted leads and put them to action".
   const [contactF, setContactF] = useState<ContactState | "all" | "untouched">("all");
-  const [monthF, setMonthF] = useState("all");
+  // Per Jack: "have different views as in by month or by quarter … months as
+  // a whole should be able to be viewed". The time period leads the page.
+  const [periodKind, setPeriodKindState] = useState<"month" | "quarter" | "all">(() => {
+    try { const v = localStorage.getItem("allLeadsPeriodView"); return v === "quarter" || v === "all" ? v : "month"; } catch { return "month"; }
+  });
+  const [periodKey, setPeriodKey] = useState("all");
+  const setPeriodKind = (k: "month" | "quarter" | "all") => {
+    setPeriodKindState(k); setPeriodKey("all");
+    try { localStorage.setItem("allLeadsPeriodView", k); } catch { /* preference only */ }
+  };
+  // The rule from "Ask for leads", when it drives the table.
+  const [ruleF, setRuleF] = useState<SmartRule | null>(null);
+  const [chatUsed, setChatUsed] = useState(false);
   const [levelF, setLevelF] = useState<TitleLevel | "all">("all");
   const [fnF, setFnF] = useState<TitleFunction | "all">("all");
   const [dateF, setDateF] = useState<Derived["dateKind"] | "all">("all");
@@ -502,10 +526,38 @@ export default function AllLeads({
     }
     return out;
   }, [partnerF, leads, rawIndex]);
+  // What a smart rule reads, built from `derived` only once the chat or a
+  // rule is in use: nothing pays for it otherwise.
+  const ruleFacts = useMemo(() => {
+    if (!ruleF && !chatUsed) return null;
+    const m = new Map<string, RuleFacts>();
+    for (const l of leads) {
+      const d = derived.get(l.key)!;
+      const hit = d.inApollo && d.inApollo.how !== "sync" ? (d.inApollo as ApolloHit) : null;
+      m.set(l.key, factsForLead(l, {
+        industry: d.industry === NO_INDUSTRY ? "" : d.industry, employees: d.employees, hit, engaged: !!d.engaged,
+      }));
+    }
+    return m;
+  }, [ruleF, chatUsed, leads, derived]);
+  const leadsForRuleHere = useCallback((rule: SmartRule) => {
+    if (!ruleFacts) return [];
+    const rank: Record<Verdict, number> = { strong: 0, review: 1, bad: 2 };
+    return leads.filter((l) => ruleMatches(rule, l, ruleFacts.get(l.key)!))
+      .sort((a, b) => {
+        const fa = ruleFacts.get(a.key)!, fb = ruleFacts.get(b.key)!;
+        return rank[fa.verdict] - rank[fb.verdict] || (b.score ?? -1) - (a.score ?? -1) || fb.arrivalDate.localeCompare(fa.arrivalDate);
+      });
+  }, [ruleFacts, leads]);
+  const industryNames = useMemo(() => {
+    const seen = new Set<string>();
+    for (const d of derived.values()) if (d.industry && d.industry !== NO_INDUSTRY) seen.add(d.industry);
+    return [...seen].sort();
+  }, [derived]);
   const fromT = from ? Date.parse(`${from}T00:00:00`) : null;
   const toT = to ? Date.parse(`${to}T23:59:59.999`) : null;
 
-  type Key = "visited" | "partner" | "inApollo" | "verdict" | "company" | "contact" | "level" | "fn" | "month" | "dates" | "status" | "search" | "notes" | "standing" | "lane" | "ready" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "owner" | "plan" | "planSeq" | "files" | "fileName" | "date";
+  type Key = "rule" | "visited" | "partner" | "inApollo" | "verdict" | "company" | "contact" | "level" | "fn" | "month" | "dates" | "status" | "search" | "notes" | "standing" | "lane" | "ready" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "owner" | "plan" | "planSeq" | "files" | "fileName" | "date";
   const tests = useMemo(() => {
     const t: Record<Key, (l: StoredLead, d: Derived) => boolean> = {
       inApollo: (l, d) => inApolloF === "all"
@@ -521,7 +573,8 @@ export default function AllLeads({
         return companyF === "multi" ? n > 1 : n <= 1;
       },
       status: (_l, d) => statusF === "all" || d.status === statusF,
-      month: (_l, d) => monthF === "all" || d.month === monthF,
+      month: (_l, d) => periodKey === "all" || periodKeyOf(d.month, periodKind) === periodKey,
+      rule: (l) => !ruleF || !ruleFacts || ruleMatches(ruleF, l, ruleFacts.get(l.key)!),
       level: (_l, d) => levelF === "all" || d.level === levelF,
       contact: (_l, d) => contactF === "all" || d.contact === contactF
         || (contactF === "untouched" && (d.contact === "never" || d.contact === "unknown"))
@@ -573,7 +626,7 @@ export default function AllLeads({
       },
     };
     return t;
-  }, [inApolloF, verdictF, companyF, companyStats, contactF, levelF, fnF, monthF, dateF, statusF, q, kq, nq, rawIndex, standingF, laneF, readyOnly, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, ownerF, planF, planSeqF, filesF, fileNameF, fromT, toT, partnerKeys, exclIndustries, hideActive, visitedOnly]);
+  }, [ruleF, ruleFacts, periodKey, periodKind, inApolloF, verdictF, companyF, companyStats, contactF, levelF, fnF, dateF, statusF, q, kq, nq, rawIndex, standingF, laneF, readyOnly, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, ownerF, planF, planSeqF, filesF, fileNameF, fromT, toT, partnerKeys, exclIndustries, hideActive, visitedOnly]);
 
   // Each lead's filters are evaluated ONCE per change, recording whether it
   // passes all of them ("") or fails exactly one (that key) or more (null).
@@ -660,7 +713,11 @@ export default function AllLeads({
   [leads, derived, tests]);
 
   /** Every month a CSV is dated, newest first, counted against the other filters. */
-  const csvMonths = useMemo(() => [...facet("month", (_l, d) => d.month).entries()].sort((a, b) => b[0].localeCompare(a[0])),
+  const periodOptions = useMemo(() => (periodKind === "all" ? [] :
+    [...facet("month", (_l, d) => periodKeyOf(d.month, periodKind)).entries()].sort((a, b) => b[0].localeCompare(a[0]))),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [leads, derived, tests, periodKind]);
+  const lineCounts = useMemo(() => [...facet("line", (_l, d) => d.line).entries()].sort((a, b) => b[1] - a[1]),
   // eslint-disable-next-line react-hooks/exhaustive-deps
   [leads, derived, tests]);
 
@@ -806,7 +863,8 @@ export default function AllLeads({
   if (fnF !== "all") chips.push({ label: FUNCTION_META[fnF].label, clear: () => setFnF("all") });
   if (verdictF !== "all") chips.push({ label: VERDICT_META[verdictF].label, clear: () => setVerdictF("all") });
   if (companyF !== "all") chips.push({ label: companyF === "multi" ? "2+ leads at the company" : "Only lead at the company", clear: () => setCompanyF("all") });
-  if (monthF !== "all") chips.push({ label: `CSV month ${monthLabel(monthF)}`, clear: () => setMonthF("all") });
+  if (periodKey !== "all") chips.push({ label: `Received ${periodLabel(periodKey, periodKind)}`, clear: () => setPeriodKey("all") });
+  if (ruleF) chips.push({ label: `Asked: ${ruleParts(ruleF).map((p) => p.label).join(" · ")}`, clear: () => setRuleF(null) });
   if (dateF !== "all") chips.push({ label: DATE_LABEL[dateF], clear: () => setDateF("all") });
   if (statusF !== "all") chips.push({ label: `Status: ${STATUS_META[statusF].label}`, clear: () => setStatusF("all") });
   if (sourceF !== "all") chips.push({ label: LEAD_SOURCE_META[sourceF].label, clear: () => setSourceF("all") });
@@ -827,7 +885,7 @@ export default function AllLeads({
   if (from || to) chips.push({ label: `CSV date ${from || "…"} → ${to || "…"}`, clear: () => { setFrom(""); setTo(""); } });
   // How many of the More filters panel's own filters are on — the badge on
   // its button. The open filters and the tiles show their own state.
-  const moreCount = [lineF, tierF, levelF, fnF, industryF, sizeF, companyF, seqF, ownerF, inApolloF, monthF, dateF, filesF, planF, planSeqF]
+  const moreCount = [lineF, tierF, levelF, fnF, industryF, sizeF, companyF, seqF, ownerF, inApolloF, dateF, filesF, planF, planSeqF]
     .filter((v) => v !== "all").length + (from || to ? 1 : 0);
   const clearAll = () => chips.forEach((c) => c.clear());
 
@@ -1063,6 +1121,93 @@ export default function AllLeads({
         </div>
       </div>
 
+      {/* ---- Per Jack: "much more straight forward … different views as in by
+             month or by quarter … months as a whole should be able to be
+             viewed". The time period leads the page; the four questions
+             asked most sit right under it; everything else is folded. ---- */}
+      <div className="panel" aria-label="Time period" style={{ padding: "10px 14px", marginBottom: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <b style={{ fontSize: 13 }}>View by</b>
+          <div className="seg" role="group" aria-label="View by">
+            {(["month", "quarter", "all"] as const).map((k) => (
+              <button key={k} className={`seg-btn${periodKind === k ? " active" : ""}`} aria-pressed={periodKind === k} onClick={() => setPeriodKind(k)}>
+                {k === "month" ? "Month" : k === "quarter" ? "Quarter" : "All time"}
+              </button>
+            ))}
+          </div>
+          <span className="muted" style={{ fontSize: 12 }}>
+            by the date each CSV states, else its upload date{periodKind !== "all" ? " · counts honour the filters below" : ""}
+          </span>
+        </div>
+        {periodKind !== "all" && (
+          <div role="group" aria-label="Periods" style={{ display: "flex", gap: 6, overflowX: "auto", paddingTop: 8, paddingBottom: 2 }}>
+            <button className={`chip-btn${periodKey === "all" ? " active" : ""}`} aria-pressed={periodKey === "all"} onClick={() => setPeriodKey("all")} style={{ whiteSpace: "nowrap" }}>
+              All {periodKind === "month" ? "months" : "quarters"} ({periodOptions.reduce((n, [, c]) => n + c, 0).toLocaleString()})
+            </button>
+            {periodOptions.map(([k, n]) => (
+              <button key={k || "undated"} className={`chip-btn${periodKey === k ? " active" : ""}`} aria-pressed={periodKey === k}
+                      aria-label={`Period ${periodLabel(k, periodKind)}`} onClick={() => setPeriodKey(periodKey === k ? "all" : k)} style={{ whiteSpace: "nowrap" }}>
+                {periodLabel(k, periodKind)} <b>{n.toLocaleString()}</b>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="toolbar" aria-label="Main filters" style={{ marginBottom: 10 }}>
+        <div className="toolbar-row">
+          <input className="field" placeholder="Search company, contact, email, notes, industry, file…"
+                 value={search} onChange={(e) => setSearch(e.target.value)}
+                 style={{ flex: 1, minWidth: 220, maxWidth: 340 }} />
+          <div className="seg" role="group" aria-label="Verdict">
+            <button className={`seg-btn${verdictF === "all" ? " active" : ""}`} onClick={() => setVerdictF("all")}>
+              All ({(verdictCounts.strong + verdictCounts.review + verdictCounts.bad).toLocaleString()})
+            </button>
+            {VERDICT_ORDER.map((v) => (
+              <button key={v} className={`seg-btn${verdictF === v ? " active" : ""}`} title={VERDICT_META[v].hint}
+                      onClick={() => setVerdictF(v)}>
+                {VERDICT_META[v].label} ({verdictCounts[v].toLocaleString()})
+              </button>
+            ))}
+          </div>
+          <select className="field" aria-label="Product line" value={lineF} onChange={(e) => setLineF(e.target.value)}>
+            <option value="all">Product line: any</option>
+            {lineCounts.map(([k, n]) => <option key={k} value={k}>{k} ({n.toLocaleString()})</option>)}
+          </select>
+          <select className="field" aria-label="Outreach" value={contactF}
+                  onChange={(e) => setContactF(e.target.value as ContactState | "all" | "untouched")}
+                  title="Has anyone got through? From Apollo's calls and emails.">
+            <option value="all">Contacted? any</option>
+            <option value="untouched">Never touched ({(contactCounts.never + contactCounts.unknown).toLocaleString()})</option>
+            {CONTACT_ORDER.map((x) => <option key={x} value={x}>{CONTACT_META[x].label} ({contactCounts[x].toLocaleString()})</option>)}
+          </select>
+          <select className="field" aria-label="Scanner" value={sourceF}
+                  onChange={(e) => setSourceF(e.target.value as LeadSource | "all")}>
+            <option value="all">Scanner: any ({(sourceCounts.main + sourceCounts.smc + sourceCounts.csp).toLocaleString()})</option>
+            {(["main", "smc", "csp"] as LeadSource[]).map((s) => <option key={s} value={s}>{LEAD_SOURCE_META[s].label} ({sourceCounts[s].toLocaleString()})</option>)}
+          </select>
+          <div className="toolbar-spacer" />
+          <span style={{ fontSize: 12.5 }}><b>{filtered.length.toLocaleString()}</b> <span className="muted">of {leads.length.toLocaleString()}</span></span>
+          {chips.length > 0 && <button className="btn btn-sm btn-ghost" onClick={clearAll}>Clear all</button>}
+        </div>
+      </div>
+
+      <LeadChat
+        industries={industryNames}
+        leadsFor={leadsForRuleHere}
+        activeRule={ruleF}
+        onShow={(r) => { setChatUsed(true); setRuleF(r); }}
+        onSaveSmart={onSaveSmartList}
+        onSnapshot={onAddToList ? (name, matched) => {
+          const r = onAddToList(matched.map((l) => ({ row: listRowForLead(l, apolloIndex), scanner: l.source })), { newName: name });
+          return r ? { added: r.added, skipped: r.skipped } : null;
+        } : undefined}
+        onDownload={async (name, matched) => {
+          const rows = matched.map((l) => listRowForLead(l, apolloIndex));
+          await downloadCSV(/\.csv$/i.test(name) ? name : `${name}.csv`, rows, EXPORT_LABELS);
+        }}
+      />
+
       {/* Apollo state is only as fresh as the last sync, so its age is
           stated here, every time. */}
       {show("apollo") && (<>
@@ -1269,7 +1414,7 @@ export default function AllLeads({
               onClick={() => setFiltersShown(!filtersShown)}
               style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", background: "none", border: "none", padding: "4px 2px", marginBottom: 4, cursor: "pointer", fontSize: 13, color: "var(--ink)", textAlign: "left" }}>
         <span aria-hidden="true">{filtersShown ? "▾" : "▸"}</span>
-        <b>Search &amp; filters</b>
+        <b>More search &amp; filters</b>
         <span className="muted">{filtersShown ? "" : ` · ${filtered.length.toLocaleString()} of ${leads.length.toLocaleString()} shown${chips.length ? ` · ${chips.length} filter${chips.length === 1 ? "" : "s"} on` : ""}`}</span>
       </button>
       {filtersShown && (<>
@@ -1279,9 +1424,6 @@ export default function AllLeads({
              More filters, Apollo standing on its tiles above. ---- */}
       <div className="toolbar">
         <div className="toolbar-row">
-          <input className="field" placeholder="Search company, contact, email, notes, industry, file…"
-                 value={search} onChange={(e) => setSearch(e.target.value)}
-                 style={{ flex: 1, minWidth: 220, maxWidth: 380 }} />
           <input className="field" aria-label="Keywords in notes" placeholder='Keywords in notes: renewal "no partner" -gmail'
                  title={'Searches the scan note and the original CSV note text.\nword = must appear · "two words" = exact phrase · -word = must not appear · a OR b = either'}
                  value={noteSearch} onChange={(e) => setNoteSearch(e.target.value)}
@@ -1308,23 +1450,6 @@ export default function AllLeads({
           })()}
         </div>
         <div className="toolbar-row">
-          <select className="field" aria-label="Stored as" value={verdictF} onChange={(e) => setVerdictF(e.target.value as Verdict | "all")}
-                  title="Strong Signal, Needs Review or Bad Lead — the verdict from the scanner that stored it.">
-            <option value="all">Stored as: any</option>
-            {VERDICT_ORDER.map((v) => <option key={v} value={v}>{VERDICT_META[v].label} ({verdictCounts[v].toLocaleString()})</option>)}
-          </select>
-          <select className="field" aria-label="Outreach" value={contactF}
-                  onChange={(e) => setContactF(e.target.value as ContactState | "all" | "untouched")}
-                  title="Has anyone got through? From Apollo's calls and emails.">
-            <option value="all">Outreach: any</option>
-            <option value="untouched">Never touched ({(contactCounts.never + contactCounts.unknown).toLocaleString()})</option>
-            {CONTACT_ORDER.map((x) => <option key={x} value={x}>{CONTACT_META[x].label} ({contactCounts[x].toLocaleString()})</option>)}
-          </select>
-          <select className="field" aria-label="Scanner" value={sourceF}
-                  onChange={(e) => setSourceF(e.target.value as LeadSource | "all")}>
-            <option value="all">Scanner: any ({(sourceCounts.main + sourceCounts.smc + sourceCounts.csp).toLocaleString()})</option>
-            {(["main", "smc", "csp"] as LeadSource[]).map((s) => <option key={s} value={s}>{LEAD_SOURCE_META[s].label} ({sourceCounts[s].toLocaleString()})</option>)}
-          </select>
           <button className={`filter-btn${partnerF ? " on" : ""}`} aria-pressed={partnerF} onClick={() => setPartnerF((v) => !v)}
                   title="Leads whose notes say they want to work with a partner, MSP or CSP. Same rule as the ⚑ partner tag; never a lead that wants to buy direct. Reads the original CSV note too.">
             ⚑ Wants a partner{partnerF && partnerKeys && rawIndexState !== "loading" ? ` (${partnerKeys.size.toLocaleString()})` : ""}
@@ -1362,12 +1487,6 @@ export default function AllLeads({
             display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 12, fontSize: 12.5,
           }}>
             <div className="filter-group-title" style={{ gridColumn: "1 / -1", fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--muted)", marginTop: 4 }}>The lead</div>
-            <label>
-              <div className="section-label">Product line</div>
-              <select className="field" style={{ width: "100%" }} aria-label="Product line" value={lineF} onChange={(e) => setLineF(e.target.value)}>
-                <option value="all">Any</option>{opts(facets.line)}
-              </select>
-            </label>
             <label>
               <div className="section-label">Scanner's own tier</div>
               <select className="field" style={{ width: "100%" }} aria-label="Tier" value={tierF} onChange={(e) => setTierF(e.target.value)}
@@ -1459,16 +1578,6 @@ export default function AllLeads({
               </select>
             </label>
             <div className="filter-group-title" style={{ gridColumn: "1 / -1", fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--muted)", marginTop: 4 }}>Dates and files</div>
-            <label>
-              <div className="section-label">CSV month</div>
-              <select className="field" style={{ width: "100%" }} aria-label="CSV month" value={monthF} onChange={(e) => setMonthF(e.target.value)}
-                      title="The month the CSV is dated. Goes back as far as your files do.">
-                <option value="all">Any</option>
-                {csvMonths.map(([k, n]) => (
-                  <option key={k} value={k}>{monthLabel(k)} ({n.toLocaleString()})</option>
-                ))}
-              </select>
-            </label>
             <label>
               <div className="section-label">CSV date range</div>
               <span style={{ display: "flex", gap: 4, alignItems: "center" }}>
@@ -1674,20 +1783,6 @@ export default function AllLeads({
           </div>
         </div>
       )}
-
-      {/* Per Jack: "in all leads need to be able filter by needs review strong
-          signal or bad lead" — always in view, the same filter as "Stored as". */}
-      <div className="seg" role="group" aria-label="Verdict" style={{ margin: "0 0 8px" }}>
-        <button className={`seg-btn${verdictF === "all" ? " active" : ""}`} onClick={() => setVerdictF("all")}>
-          All ({(verdictCounts.strong + verdictCounts.review + verdictCounts.bad).toLocaleString()})
-        </button>
-        {VERDICT_ORDER.map((v) => (
-          <button key={v} className={`seg-btn${verdictF === v ? " active" : ""}`} title={VERDICT_META[v].hint}
-                  onClick={() => setVerdictF(v)}>
-            {VERDICT_META[v].label} ({verdictCounts[v].toLocaleString()})
-          </button>
-        ))}
-      </div>
 
       {/* ---- the table: one page at a time, scrolling inside its own box
              so the toolbar and filters stay in view ---- */}

@@ -6,6 +6,7 @@
 import { useMemo, useState } from "react";
 import { CATEGORY_META, EXPORT_LABELS, stripSnippetPrefix } from "../lib/detection";
 import { downloadCSV } from "../lib/csv";
+import { describeRule } from "../lib/smartRules";
 import { campaignMembership, cycleDueOn, daysToCycle, isActiveCampaign, isCampaignList, parseTags, CYCLE_CHOICES, type LeadList } from "../lib/leadLists";
 
 interface ListsProps {
@@ -19,6 +20,8 @@ interface ListsProps {
   onUpdateMeta?: (id: string, patch: Partial<Pick<LeadList, "tags" | "campaign" | "cycleDays" | "status">>) => void;
   /** Move a campaign list's leads into a new dated list. */
   onCycle?: (id: string) => void;
+  /** Re-run a smart list's saved rule against the current leads now. */
+  onRefreshSmart?: (id: string) => void;
 }
 
 const TIER_LABEL: Record<string, { label: string; color: string; bg: string }> = {
@@ -27,7 +30,7 @@ const TIER_LABEL: Record<string, { label: string; color: string; bg: string }> =
   dq: { label: "Bad Lead", color: "#B5443B", bg: "#FBEAE8" },
 };
 
-export default function ListsView({ lists, loading, error, onRename, onDelete, onRemoveRow, onUpdateMeta, onCycle }: ListsProps) {
+export default function ListsView({ lists, loading, error, onRename, onDelete, onRemoveRow, onUpdateMeta, onCycle, onRefreshSmart }: ListsProps) {
   // Per Jack: lists "with the created date and taggs so then i can move them
   // but maintain who i am contacting", cycled "every 45 or 60 days".
   const [tagF, setTagF] = useState("");
@@ -39,7 +42,10 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
     return [...m].sort((a, b) => a[0].localeCompare(b[0]));
   }, [lists]);
   const due = useMemo(() => lists.filter((l) => isActiveCampaign(l) && (daysToCycle(l) ?? 1) <= 0), [lists]);
-  const shownLists = tagF ? lists.filter((l) => (l.tags ?? []).some((t) => t.toLowerCase() === tagF.toLowerCase())) : lists;
+  const [kindF, setKindF] = useState<"all" | "smart" | "plain">("all");
+  const smartCount = lists.filter((l) => l.rule).length;
+  const shownLists = (tagF ? lists.filter((l) => (l.tags ?? []).some((t) => t.toLowerCase() === tagF.toLowerCase())) : lists)
+    .filter((l) => kindF === "all" || (kindF === "smart" ? !!l.rule : !l.rule));
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -89,12 +95,21 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
           </div>
         </div>
       )}
-      {allTags.length > 0 && (
+      {(allTags.length > 0 || smartCount > 0) && (
         <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
-          <select className="field" aria-label="Filter by tag" value={tagF} onChange={(e) => setTagF(e.target.value)}>
-            <option value="">All tags ({lists.length})</option>
-            {allTags.map(([t, n]) => <option key={t} value={t}>{t} ({n})</option>)}
-          </select>
+          {smartCount > 0 && (
+            <select className="field" aria-label="Filter by kind" value={kindF} onChange={(e) => setKindF(e.target.value as "all" | "smart" | "plain")}>
+              <option value="all">All lists ({lists.length})</option>
+              <option value="smart">Smart lists ({smartCount})</option>
+              <option value="plain">Hand-built lists ({lists.length - smartCount})</option>
+            </select>
+          )}
+          {allTags.length > 0 && (
+            <select className="field" aria-label="Filter by tag" value={tagF} onChange={(e) => setTagF(e.target.value)}>
+              <option value="">All tags ({lists.length})</option>
+              {allTags.map(([t, n]) => <option key={t} value={t}>{t} ({n})</option>)}
+            </select>
+          )}
         </div>
       )}
 
@@ -130,13 +145,23 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
                       />
                     ) : (
                       <div>
-                        <div style={{ fontWeight: 700, fontSize: 13.5 }}>{list.name}</div>
+                        <div style={{ fontWeight: 700, fontSize: 13.5 }}>
+                          {list.name}
+                          {list.rule && <span className="pill" title="A smart list: its saved rule re-runs whenever Lists is open, so it keeps itself current." style={{ marginLeft: 8, fontSize: 10.5, color: "#0E7A72", background: "#E3F3F1" }}>⚡ Smart list</span>}
+                        </div>
                         <div style={{ fontSize: 11.5, color: "var(--muted)" }}>
                           {list.rows.length} lead{list.rows.length === 1 ? "" : "s"} · created {new Date(list.createdAt).toLocaleDateString()}
                           {list.campaign && <> · campaign <b>{list.campaign}</b></>}
                           {d !== null && list.status !== "cycled" && <> · {d > 0 ? `cycles in ${d}d (${cycleDueOn(list)})` : <b style={{ color: "#9A5B22" }}>due to cycle</b>}</>}
                           {list.status === "cycled" && <> · <span title="Its leads moved into a newer list">cycled</span></>}
+                          {list.rule && list.ruleRefreshedAt && <> · refreshed {new Date(list.ruleRefreshedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</>}
                         </div>
+                        {list.rule && (
+                          <div aria-label={`Rule for ${list.name}`} style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 3 }}>
+                            {describeRule(list.rule).map((c) => <span key={c} className="chip" style={{ fontSize: 11 }}>{c}</span>)}
+                            {list.ruleText && <span className="muted" style={{ fontSize: 11 }} title="What you asked for">“{list.ruleText}”</span>}
+                          </div>
+                        )}
                         {(list.tags ?? []).length > 0 && (
                           <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 3 }}>
                             {(list.tags ?? []).map((t) => <span key={t} className="chip" style={{ fontSize: 11 }}>{t}</span>)}
@@ -149,6 +174,7 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
                     <button onClick={() => download(list)} disabled={!list.rows.length} style={{ background: "#2CC295", color: "#081E22", border: "none", borderRadius: 8, padding: "6px 12px", fontWeight: 700, opacity: list.rows.length ? 1 : 0.5 }}>
                       ⬇ Download CSV
                     </button>
+                    {list.rule && onRefreshSmart && list.status !== "cycled" && <button onClick={() => onRefreshSmart(list.id)} aria-label={`Refresh ${list.name}`} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 12px" }}>↻ Refresh</button>}
                     <button onClick={() => startRename(list)} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 12px" }}>Rename</button>
                     {onUpdateMeta && <button onClick={() => setEditingId(editing ? null : list.id)} aria-label={`Campaign settings for ${list.name}`} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 12px" }}>🏷 Tags & cycle</button>}
                     {onCycle && isCampaignList(list) && list.status !== "cycled" && list.rows.length > 0 && <button onClick={() => onCycle(list.id)} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 12px" }}>↻ Cycle now</button>}

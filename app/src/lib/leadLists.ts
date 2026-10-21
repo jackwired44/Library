@@ -9,6 +9,7 @@ import { dbGetAll, dbPut, dbDelete, STORE_LEAD_LISTS } from "./db";
 import { buildExportRow, getFullName, normalizeDupKey, EXPORT_LABELS, type CategoryKey, type ExportRow, type ResultRow, type Tier } from "./detection";
 import { toCSV } from "./csv";
 import { buildContactIndex, lookupContact, type Contact } from "./contacts";
+import type { SmartRule } from "./smartRules";
 
 export type ListedLeadRow = ExportRow & {
   __rowKey: string;
@@ -42,6 +43,27 @@ export interface LeadList {
   status?: "active" | "cycled";
   /** The list this one was cycled from, if any. */
   cycledFrom?: string;
+  /** A smart list: the saved rule its rows are re-run from. Per Jack,
+   *  "saved rules that refresh" — see lib/smartRules.ts. A list without
+   *  one is a plain list whose rows only change by hand. */
+  rule?: SmartRule;
+  /** The words the rule was read from, kept so the list says what it is. */
+  ruleText?: string;
+  ruleRefreshedAt?: string;
+}
+
+/** Replace a smart list's rows with a fresh run of its rule. Rows already
+ *  in it keep their key, so "Also on" and removal stay stable. */
+export function setSmartListRows(lists: LeadList[], id: string, rows: ListedLeadRow[], at = new Date().toISOString()): LeadList[] {
+  return lists.map((l) => (l.id === id ? { ...l, rows, ruleRefreshedAt: at } : l));
+}
+
+/** Same key the add-to-list paths use (first name + company), so a lead is
+ *  the same row whether a smart list or a hand-built list holds it. */
+export function listRowKey(row: ExportRow): string {
+  const name = normalizeDupKey(row["First Name"] || "");
+  const company = normalizeDupKey(row["Company Name"] || "");
+  return name && company ? `${name}::${company}` : `row-${normalizeDupKey(row["Email"] || "") || Math.random().toString(36).slice(2, 10)}`;
 }
 
 export const CYCLE_CHOICES = [45, 60] as const;

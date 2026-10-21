@@ -7136,3 +7136,48 @@ dispositions on a live-checked lead still need
 `apollo_phone_calls_search` in the published page's grant (Jack declined
 it earlier); without it only the end reasons and imported syncs carry
 dispositions.
+
+### 2026-10-21: All leads time-first, "Ask for leads", smart lists (scanner-platform-v29)
+
+Per Jack: "all leads … much more straight forward … different views as in
+by month or by quarter", "a chatbot in here under all leads … pull up and
+create a list of all uncontacted leads around dynamics for the last 30
+days", "strong signal based leads that havent been contacted in x amount of
+days … stored as a list and option to download as csv just like from main
+scanner". Approved: time-first layout, Claude reads the request, saved
+rules that refresh.
+- **One rule shape, three uses** (`lib/smartRules.ts`, `SmartRule`):
+  product (dynamics / m365 / none), grades, contact ("never" = no call,
+  email or sequence ever and not an account-manager account; "stale" = not
+  active, not booked/closed out, nothing dated in N days; touched with no
+  date never counts as stale), arrivedWithinDays / period (month or
+  quarter, by `arrivalOf`), scanners, industries / excludeIndustries,
+  min/maxEmployees (unknown size never passes), reps, excludeActive,
+  partnerAsk, visited, keywords. `ruleParts` gives removable chips.
+- **Ask for leads** (`components/LeadChat.tsx`, `lib/leadChat.ts`): the
+  request goes to Claude through the `sample` capability (`rulePrompt`),
+  the JSON reply is validated by `ruleFromJson` (unknown keys, industries
+  not on file and unknown reps dropped). Without Claude (local bundle,
+  consent declined, usage limit) `parseRuleText` answers and the panel says
+  "Read as:" instead of "Claude read this as:". Quick presets include
+  "Strong Signal not contacted in [N] days". Actions: Show in table (filter
+  key "rule", shown as an "Asked:" chip), ⚡ Save as smart list, 📋 Snapshot
+  to list, ⬇ Download CSV (Main Scanner's ten `EXPORT_LABELS`).
+- **Smart lists**: `LeadList.rule` / `ruleText` / `ruleRefreshedAt`. App
+  re-runs every live smart list whenever Lists is open and the leads move
+  (`refreshSmartLists`, only changed lists are written); "↻ Refresh" per
+  list; Lists filters All / Smart / Hand-built. A snapshot is a plain list
+  and never changes on its own (the campaign record).
+- **All leads layout**: a "View by Month · Quarter · All time" strip leads
+  the page (faceted counts, pre-May sheets stay "before May 2026",
+  estimated sheet months join their quarter; preference in localStorage
+  `allLeadsPeriodView`). Under it, always visible: search, Grade switch,
+  Product line, Contacted?, Scanner, count, Clear all. The rest folds into
+  "More search & filters". Removed as duplicates: "Stored as" select,
+  "CSV month" (now the strip), Product line in More filters, the Grade
+  switch above the table.
+- **Publishing needs `sample: {}`** added to the FULL capabilities set
+  (downloads + every Apollo tool) or the chat stays on the built-in reader.
+  Only when Jack says publish.
+- Suites: `smart-rules` (53), `lead-chat-live` (30); `sheet-dates-live`
+  re-pointed from the CSV month select to the period strip.

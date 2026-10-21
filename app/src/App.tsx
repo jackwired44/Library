@@ -59,7 +59,8 @@ import {
 } from "./lib/sequenceRouting";
 import { leadInputsFromResults, leadInputsFromRows2, leadInputsFromNoSignal, leadInputsFromDuplicates, estimateSheetMonths, setSheetEstimates } from "./lib/leadFiling";
 import AllLeads, { type LeadsPreset } from "./components/AllLeads";
-import ApolloStatus from "./components/ApolloStatus";
+import ApolloStatus, { listRowForLead } from "./components/ApolloStatus";
+import { buildFactsMap, leadsForRule, type SmartRule } from "./lib/smartRules";
 import ApolloSyncPanel from "./components/ApolloSyncPanel";
 import RateLimitNote from "./components/RateLimitNote";
 import { loadEmailChecks, saveEmailChecks, readVerifierFiles, indexChecks, type EmailCheck } from "./lib/deliverability";
@@ -74,7 +75,7 @@ import {
 } from "./lib/history";
 import {
   loadLeadListsFromDB, persistLeadList, deleteLeadListFromDB, createLeadList,
-  renameLeadList, deleteLeadList, addRowsToList, addExportRowsToList, removeRowFromList, updateLeadListMeta, cycleLeadList, type LeadList,
+  renameLeadList, deleteLeadList, addRowsToList, addExportRowsToList, removeRowFromList, updateLeadListMeta, cycleLeadList, setSmartListRows, listRowKey, type LeadList, type ListedLeadRow,
 } from "./lib/leadLists";
 import { loadRuleOverrides, persistRuleOverrides } from "./lib/ruleOverrides";
 import { isUnlocked, setUnlocked, currentAccount, setCurrentAccount, AUTH_EMAIL, type Account } from "./lib/auth";
@@ -834,6 +835,59 @@ export default function App() {
     return { listId: targetId, added, skipped };
   }
 
+  /* ---- smart lists: saved rules that refresh (lib/smartRules.ts) ---- */
+  // Facts are only worked out while a view needs them: 40k leads cost real
+  // time, and nothing else reads them.
+  const ruleFacts = useMemo(
+    () => (view === "lists" ? buildFactsMap(leads, companyProfiles, apolloIndex) : null),
+    [view, leads, companyProfiles, apolloIndex],
+  );
+  function rowsForLeads(picked: StoredLead[]): ListedLeadRow[] {
+    const seen = new Set<string>();
+    const out: ListedLeadRow[] = [];
+    for (const l of picked) {
+      const row = listRowForLead(l, apolloIndex);
+      const key = listRowKey(row);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ ...row, __rowKey: key, __scanner: l.source, __band: l.source === "csp" ? l.tier : undefined, __score: l.score ?? undefined });
+    }
+    return out;
+  }
+  /** Save a rule as a smart list, filled with what it matches today. */
+  function saveSmartList(name: string, rule: SmartRule, ruleText: string, matched: StoredLead[]): { listId: string; added: number } | null {
+    const { lists, list } = createLeadList(leadLists, name);
+    if (!list) return null;
+    const rows = rowsForLeads(matched);
+    const withRule = lists.map((l) => (l.id === list.id ? { ...l, rule, ruleText, rows, ruleRefreshedAt: new Date().toISOString() } : l));
+    setLeadLists(withRule);
+    const saved = withRule.find((l) => l.id === list.id);
+    if (saved) persistLeadList(saved);
+    return { listId: list.id, added: rows.length };
+  }
+  /** Re-run every smart list's rule; only lists whose leads changed are written. */
+  function refreshSmartLists(onlyId?: string) {
+    if (!ruleFacts) return;
+    let next = leadLists;
+    const changed: string[] = [];
+    for (const l of leadLists) {
+      if (!l.rule || l.status === "cycled" || (onlyId && l.id !== onlyId)) continue;
+      const rows = rowsForLeads(leadsForRule(l.rule, leads, ruleFacts));
+      const before = l.rows.map((r) => r.__rowKey).join("|");
+      if (!onlyId && before === rows.map((r) => r.__rowKey).join("|")) continue;
+      next = setSmartListRows(next, l.id, rows);
+      changed.push(l.id);
+    }
+    if (!changed.length) return;
+    setLeadLists(next);
+    for (const id of changed) { const u = next.find((x) => x.id === id); if (u) persistLeadList(u); }
+  }
+  // Smart lists refresh themselves whenever Lists is open and the leads move.
+  useEffect(() => {
+    if (view === "lists" && ruleFacts && leadLists.some((l) => l.rule && l.status !== "cycled")) refreshSmartLists();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, ruleFacts]);
+
   function updateRuleOverrides(next: RuleOverrides) {
     setRuleOverrides(next);
     persistRuleOverrides(next);
@@ -1207,6 +1261,7 @@ export default function App() {
             funnels={funnels}
             lists={leadLists}
             onAddToList={addExportRowsToLists}
+            onSaveSmartList={saveSmartList}
             emailChecks={emailChecks}
             onImportVerifier={importVerifierFiles}
             engagementCount={engagements.length}
@@ -1347,6 +1402,7 @@ export default function App() {
               const updated = next.find((l) => l.id === id);
               if (updated) persistLeadList(updated);
             }}
+            onRefreshSmart={(id) => refreshSmartLists(id)}
             onCycle={(id) => {
               const src = leadLists.find((l) => l.id === id);
               if (!src) return;
