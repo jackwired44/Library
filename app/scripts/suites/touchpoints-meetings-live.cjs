@@ -169,20 +169,20 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('hiding a column hides its header', !meetingsVisible);
   ok('  and its cells', !(await page.locator('td[data-col="meetings"]').first().isVisible()));
   await page.locator('button[aria-label="Search and filters"]').click(); await sleep(200);
-  ok('the arrow folds search and filters away', await page.locator('select[aria-label="Stored as"]').count() === 0);
+  ok('the arrow folds search and filters away', await page.locator('select[aria-label="Uploaded file"]').count() === 0);
   ok('  and the folded header still says how many show', /of \d+ shown/.test(await page.locator('button[aria-label="Search and filters"]').innerText()));
   await page.reload(); await sleep(1300);
   await nav('All leads');
   ok('all three choices survive a reload',
     await page.locator('[aria-label="Email deliverability"]').count() === 0
     && !(await page.locator('th[data-col="meetings"]').first().isVisible())
-    && await page.locator('select[aria-label="Stored as"]').count() === 0);
+    && await page.locator('select[aria-label="Uploaded file"]').count() === 0);
   await page.locator('button[aria-label="Search and filters"]').click(); await sleep(200);
   await page.locator('button', { hasText: 'Customize' }).first().click(); await sleep(200);
   await page.locator('button', { hasText: 'Show everything' }).click(); await sleep(200);
   await page.mouse.click(5, 5); await sleep(200);
   ok('Show everything brings them back', await page.locator('[aria-label="Email deliverability"]').count() === 1
-    && await page.locator('th[data-col="meetings"]').first().isVisible() && await page.locator('select[aria-label="Stored as"]').count() === 1);
+    && await page.locator('th[data-col="meetings"]').first().isVisible() && await page.locator('select[aria-label="Uploaded file"]').count() === 1);
   await nav('Diagnostics'); await sleep(500);
   const diag = await main();
   ok('Diagnostics invariants still hold', !/✗|FAIL/.test((diag.match(/Invariants.{0,1500}/) || [''])[0]), (diag.match(/Invariants.{0,600}/) || [''])[0]);

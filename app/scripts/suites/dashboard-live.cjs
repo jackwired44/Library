@@ -92,8 +92,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   // still lands, and says so as filter chips.
   ok('  with the view stated as filter chips', /Called, never reached/.test(t) && /Top tier/i.test(t), t.slice(0, 600));
   await page.locator('button', { hasText: 'Clear all' }).first().click(); await sleep(400);
-  // One place per filter: Stored as and Outreach are dropdowns in the open.
-  await page.selectOption('select[aria-label="Stored as"]', 'strong'); await sleep(300);
+  // One place per filter: the Grade switch and Outreach sit in the main bar.
+  await page.locator('[aria-label="Verdict"] button', { hasText: 'Strong Signal' }).first().click(); await sleep(300);
   await page.selectOption('select[aria-label="Outreach"]', 'untouched'); await sleep(400);
   t = await text();
   ok('Strong Signal + Never touched finds Ben, not Ada', /Ben Cole/.test(t) && !/Ada Brant/.test(t), t.slice(0, 400));
