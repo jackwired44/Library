@@ -284,6 +284,10 @@ export default function Scanner({
   // Which product line's filename is being edited, if any — keeps the
   // rename field out of the downloads strip until it is wanted.
   const [renamingBucket, setRenamingBucket] = useState<BucketKey | null>(null);
+  // Per Jack: the panels above the table "should be dropdown so the leads
+  // below that are scanned can take up more page". Counts and downloads stay
+  // in one bar; the rest folds. Open/closed is a per-browser preference.
+  const [detailsOpen, setDetailsOpen] = useState<boolean>(() => { try { return localStorage.getItem("scanDetailsOpen") === "1"; } catch { return false; } });
   // Per Jack: "I want it to recognize [duplicates] for input reasons so I
   // know it's being mapped properly scanned and processed" — the raw row
   // count read from the uploaded file(s), straight from scanParsedFiles,
@@ -1292,6 +1296,7 @@ export default function Scanner({
       {/* One actions row. Every row of this batch is already stored in All
           leads; filing here only adds the Strong Signal leads to a monthly
           file. The Apollo look-up toggle sits on the same row. */}
+      {SHOW_LIBRARY_FILING && (
       <div className="panel">
         <div className="panel-head" style={{ flexWrap: "wrap", gap: 10 }}>
           {/* Per Jack: "remove this on the scanner page". Every row is already
@@ -1345,180 +1350,161 @@ export default function Scanner({
               {libraryFiledForBatch ? "✓ Filed" : "Save to Lead Library"}
             </button>
           </div>}
-          <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, whiteSpace: "nowrap" }}
-                 title="Companies already covered by an imported Apollo export attach automatically. This also offers a live Apollo look-up for the ones that aren't, after each upload. Nothing runs without your click.">
-            <input type="checkbox" checked={autoEnrichCompanies} onChange={(e) => onToggleAutoEnrichCompanies(e.target.checked)} />
-            Offer Apollo company look-up
-          </label>
         </div>
       </div>
+      )}
 
       {error && <div style={{ marginBottom: 16, color: "#9A5B22" }}>{error}</div>}
       {filedNotice && <div style={{ marginBottom: 16, color: "#2CC295", fontWeight: 600 }}>{filedNotice}</div>}
 
-      {/* Per Jack: "I want it to recognize [duplicates] for input reasons
-          so I know it's being mapped properly scanned and processed" — a
-          full accounting of every uploaded row's fate, not just the subset
-          that cleared detection. Only shown when lastScanStats is known
-          (a direct upload or Lead Library load within this session) —
-          falls back to the old, narrower "Rows scanned" reading below when
-          a row came in some other way (e.g. History's "Load into Scanner",
-          which sets `results` directly rather than through this
-          component's own scan calls). */}
-      {autoEnrichCompanies && (
-      <div className="panel">
-        {autoEnrichCompanies && (
-          <div className="panel-body" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {pendingEnrich.length > 0 ? (
-              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", fontSize: 12.5 }}>
-                <span>
-                  <strong>{pendingEnrich.length}</strong> compan{pendingEnrich.length === 1 ? "y" : "ies"} in this upload {pendingEnrich.length === 1 ? "has" : "have"} no
-                  Apollo data yet. Enriching {pendingEnrich.length === 1 ? "it" : "them"} will consume up to{" "}
-                  <strong>{Math.min(pendingEnrich.length, MAX_COMPANY_BATCH)} credit{Math.min(pendingEnrich.length, MAX_COMPANY_BATCH) === 1 ? "" : "s"}</strong> (no charge for any not found
-                  {pendingEnrich.length > MAX_COMPANY_BATCH ? `; first ${MAX_COMPANY_BATCH} per click` : ""}).
-                </span>
-                <button onClick={onRunCompanyEnrichment} disabled={companyEnriching} className="btn btn-primary">
-                  {companyEnriching ? "Enriching…" : `Enrich ${Math.min(pendingEnrich.length, MAX_COMPANY_BATCH)} now`}
-                </button>
-                <span style={{ fontSize: 11.5, color: "var(--muted)" }}>
-                  {pendingEnrich.slice(0, 6).map((p) => p.companyName).join(" · ")}{pendingEnrich.length > 6 ? ` · +${pendingEnrich.length - 6} more` : ""}
-                </span>
-              </div>
-            ) : (
-              <div style={{ fontSize: 12.5, color: "var(--muted)" }}>
-                {companyEnrichOutcomes ? "Every company in this upload has been checked." : "Every company in this upload already has Apollo data on file (or no work-email domain to look it up by)."}
-              </div>
-            )}
-            {companyEnrichOutcomes && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 12 }}>
-                {companyEnrichOutcomes.map((o) => (
-                  <div key={o.domain} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <span style={{ fontWeight: 600, minWidth: 180 }}>{o.domain}</span>
-                    {o.status === "found" && <span style={{ color: "#2CC295", fontWeight: 700 }}>✓ Found — {[o.fields?.industry, o.fields?.employees && `${o.fields.employees} employees`, [o.fields?.city, o.fields?.state].filter(Boolean).join(", ")].filter(Boolean).join(" · ") || "profile saved"}</span>}
-                    {o.status === "not-found" && <span style={{ color: "var(--muted)" }}>No Apollo record (0 credits)</span>}
-                    {o.status === "error" && <span style={{ color: "#B5443B" }}>Error — {o.errorMessage}</span>}
+      {(() => {
+        // Per Jack: "says all strong signal is 91 but has 887 as the number".
+        // The downloads leave out leads already in Apollo; the dropdown in the
+        // download bar says how many, so the two numbers never look like a bug.
+        const allSignal = results ? exportRowsForBucketsCount(applyFacets(results, { ...facets, tier: "all", category: "all" })) : 0;
+        const inDownloads = mergedRows().length;
+        const leftOut = Math.max(0, allSignal - inDownloads);
+        const noSignal = lastScanStats ? Math.max(0, lastScanStats.rowsScanned - lastScanStats.duplicatesRemoved - results.length) : null;
+        const n = apolloHits.size;
+        const byName = n - apolloByEmail;
+        const facts: { key: string; node: React.ReactNode }[] = [];
+        if (lastScanStats) {
+          facts.push({ key: "processed", node: <>{results.length.toLocaleString()} processed</> });
+          facts.push({ key: "nosignal", node: <span title="No Dynamics 365, M365, Azure or licensing language anywhere in the row. Stored in All leads as No signal; listed under Non Relevant.">{(noSignal ?? 0).toLocaleString()} no signal</span> });
+          if (lastScanStats.duplicatesRemoved > 0) facts.push({ key: "dupes", node: <span title={`Exact name + company already seen in this upload, merged into the first-seen row${lastScanStats.largestDuplicateGroup > 2 ? `. One lead appeared ${lastScanStats.largestDuplicateGroup} times.` : "."}`}>{lastScanStats.duplicatesRemoved.toLocaleString()} duplicates merged</span> });
+        }
+        if (n > 0) facts.push({ key: "apollo", node: <>{n.toLocaleString()} already in Apollo ({apolloByEmail.toLocaleString()} by email{byName > 0 ? `, ${byName.toLocaleString()} by name only` : ""})</> });
+        if (apolloIndex && apolloIndex.size === 0) facts.push({ key: "nocheck", node: <span title="Import an Apollo sync in All leads and every upload is checked against it.">Not checked against Apollo yet</span> });
+        if (autoEnrichCompanies && pendingEnrich.length > 0) facts.push({ key: "enrich", node: <>{pendingEnrich.length.toLocaleString()} {pendingEnrich.length === 1 ? "company" : "companies"} to look up</> });
+        const stats = [
+          { label: "Rows scanned", value: lastScanStats?.rowsScanned ?? results.length, tone: "ink" },
+          { label: "Strong Signal", value: batchTotals.signal, tone: "good" },
+          { label: "Needs review", value: batchTotals.mention, tone: "warn" },
+          { label: "Bad leads", value: batchTotals.dq, tone: "bad" },
+        ];
+        return (
+          <div className="scan-summary" aria-label="Scan summary">
+            <div className="scan-summary-top">
+              <div className="kpi-row compact" role="list">
+                {stats.map((s) => (
+                  <div key={s.label} role="listitem" className={`kpi tone-${s.tone}`}>
+                    <span className="kpi-value">{s.value.toLocaleString()}</span>
+                    <span className="kpi-label">{s.label}</span>
                   </div>
                 ))}
               </div>
-            )}
-          </div>
-        )}
-      </div>
-      )}
-
-      {apolloHits.size > 0 && (
-        <div className="scan-note" aria-label="Already in Apollo" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <span>
-            <strong>{apolloHits.size.toLocaleString()}</strong> of these rows {apolloHits.size === 1 ? "is" : "are"} already in Apollo
-            <span style={{ color: "var(--muted)" }}>
-              {" "}({apolloByEmail.toLocaleString()} by email
-              {apolloHits.size - apolloByEmail > 0 && `, ${(apolloHits.size - apolloByEmail).toLocaleString()} by name only`})
-            </span>
-          </span>
-          <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12.5 }}
-                 title="Every lead stays in the table and in All leads. This only leaves the Apollo matches out of the CSV downloads, so the file you take to Apollo is only new people.">
-            <input type="checkbox" checked={hideInApollo} onChange={(e) => setHideInApollo(e.target.checked)} />
-            Leave them out of downloads (still shown here)
-          </label>
-        </div>
-      )}
-      {apolloIndex && apolloIndex.size === 0 && (
-        <div className="scan-note" style={{ color: "var(--muted)" }}>
-          Not checked against Apollo yet: import an Apollo sync in All leads and every upload is checked against it.
-        </div>
-      )}
-
-      <div className="kpi-row">
-        {[
-          { label: "Rows scanned", value: lastScanStats?.rowsScanned ?? results.length, color: "var(--ink)" },
-          { label: "Strong Signal", value: batchTotals.signal, color: "#2CC295" },
-          { label: "Needs review", value: batchTotals.mention, color: "#9A5B22" },
-          { label: "Bad leads", value: batchTotals.dq, color: "#B5443B" },
-        ].map((s, i) => (
-          <div key={s.label} className="kpi" style={{ borderLeftColor: s.color }}>
-            <div className="kpi-label">{s.label}</div>
-            <div className="kpi-value" style={{ color: s.color }}>{s.value.toLocaleString()}</div>
-            {i === 0 && lastScanStats && (
-              <div className="scan-note" style={{ margin: "4px 0 0", padding: 0, border: 0, background: "none", fontSize: 11.5 }}>
-                {results.length.toLocaleString()} processed
-                {" · "}
-                <span title="No Dynamics 365, M365, Azure or licensing language anywhere in the row. Stored in All leads as No signal; listed under Non Relevant.">
-                  {Math.max(0, lastScanStats.rowsScanned - lastScanStats.duplicatesRemoved - results.length).toLocaleString()} no signal
-                </span>
-                {lastScanStats.duplicatesRemoved > 0 && (
-                  <>
-                    {" · "}
-                    <span title={`Exact name + company already seen in this upload, merged into the first-seen row${lastScanStats.largestDuplicateGroup > 2 ? `. One lead appeared ${lastScanStats.largestDuplicateGroup} times.` : "."}`}>
-                      {lastScanStats.duplicatesRemoved.toLocaleString()} duplicates merged
+              {/* Final downloads: one button per product line plus the
+                  combined file. The filename editor sits behind ✎. */}
+              <div className="dl-strip">
+                <span className="dl-title">Download</span>
+                {ACTIVE_BUCKET_KEYS.map((bk) => {
+                  const count = bucketRowsFor(bk).length;
+                  return (
+                    <span key={bk} className="dl-item">
+                      <button
+                        disabled={count === 0}
+                        onClick={() => exportBucket(bk)}
+                        className="btn btn-sm btn-primary"
+                        title={`${count} Strong Signal ${BUCKET_META[bk].label} lead${count === 1 ? "" : "s"} within the filters you have set below \u2014 the tier tabs and the product-line chips excepted, since this button picks those. Search, the View tabs and the Duplicates / Priority toggles all narrow it.`}
+                      >
+                        ⬇ {BUCKET_META[bk].label}
+                        <span className="dl-count">{count}</span>
+                      </button>
+                      <button
+                        className="btn btn-sm btn-ghost dl-edit"
+                        aria-label={`Rename the ${BUCKET_META[bk].label} file`}
+                        title={`Filename: ${bucketFileNames[bk] || defaultBucketFileName(bk)}`}
+                        onClick={() => setRenamingBucket(renamingBucket === bk ? null : bk)}
+                      >
+                        ✎
+                      </button>
                     </span>
-                  </>
+                  );
+                })}
+                <span className="dl-item">
+                  <button disabled={inDownloads === 0} onClick={exportMerged} className="btn btn-sm btn-secondary"
+                          title="Both product lines in one file: the same leads as the two buttons beside it.">
+                    ⬇ All Strong Signal
+                    <span className="dl-count">{inDownloads}</span>
+                  </button>
+                </span>
+                {n > 0 && (
+                  <select className="field dl-apollo" aria-label="Leads already in Apollo" value={hideInApollo ? "out" : "in"}
+                          onChange={(e) => setHideInApollo(e.target.value === "out")}
+                          title="Every lead stays in the table and in All leads. This only decides whether the Apollo matches go into the CSV downloads.">
+                    <option value="out">Leave out {n.toLocaleString()} already in Apollo{hideInApollo && leftOut > 0 ? ` (${leftOut.toLocaleString()} Strong Signal)` : ""}</option>
+                    <option value="in">Include {n.toLocaleString()} already in Apollo</option>
+                  </select>
                 )}
               </div>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {/* Final downloads, condensed: one compact row per product line.
-          The editable filename is still there but tucked behind "Rename"
-          instead of a full-width input taking a third of the panel. */}
-      <div className="dl-strip">
-        <span className="dl-title">Final downloads</span>
-        {ACTIVE_BUCKET_KEYS.map((bk) => {
-          const count = bucketRowsFor(bk).length;
-          return (
-            <span key={bk} className="dl-item">
-              <button
-                disabled={count === 0}
-                onClick={() => exportBucket(bk)}
-                className="btn btn-sm btn-primary"
-                title={`${count} Strong Signal ${BUCKET_META[bk].label} lead${count === 1 ? "" : "s"} within the filters you have set below \u2014 the tier tabs and the product-line chips excepted, since this button picks those. Search, the View tabs and the Duplicates / Priority toggles all narrow it.`}
-              >
-                ⬇ {BUCKET_META[bk].label}
-                <span className="dl-count">{count}</span>
-              </button>
-              <button
-                className="btn btn-sm btn-ghost"
-                title={`Filename: ${bucketFileNames[bk] || defaultBucketFileName(bk)}`}
-                onClick={() => setRenamingBucket(renamingBucket === bk ? null : bk)}
-              >
-                ✎
-              </button>
-            </span>
-          );
-        })}
-        <span className="dl-item">
-          <button disabled={mergedRows().length === 0} onClick={exportMerged} className="btn btn-sm btn-secondary">
-            ⬇ All Strong Signal
-            <span className="dl-count">{mergedRows().length}</span>
-          </button>
-        </span>
-        <span className="control-spacer" />
-        <span className="dl-hint">Two product-line files, plus one combined file holding the same leads.</span>
-      </div>
-      {(() => {
-        // Per Jack: "says all strong signal is 91 but has 887 as the number".
-        // The downloads leave out leads already in Apollo; say how many, so
-        // the two numbers never look like a bug.
-        const allSignal = results ? exportRowsForBucketsCount(applyFacets(results, { ...facets, tier: "all", category: "all" })) : 0;
-        const leftOut = allSignal - mergedRows().length;
-        if (leftOut <= 0) return null;
-        return (
-          <div className="scan-note" aria-label="Left out of downloads" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-            <span>
-              Downloads hold <strong>{mergedRows().length.toLocaleString()}</strong> of {allSignal.toLocaleString()} Strong Signal leads.
-              {" "}<strong>{leftOut.toLocaleString()}</strong> {leftOut === 1 ? "is" : "are"} left out because {leftOut === 1 ? "it is" : "they are"} already in Apollo.
-            </span>
-            <button className="btn btn-sm btn-secondary" onClick={() => setHideInApollo(false)}>Include them</button>
+            </div>
+            <details className="scan-fold" open={detailsOpen}
+                       onToggle={(e) => { const o = (e.target as HTMLDetailsElement).open; setDetailsOpen(o); try { localStorage.setItem("scanDetailsOpen", o ? "1" : "0"); } catch { /* preference only */ } }}>
+                <summary>
+                  <span className="scan-fold-label">Scan details</span>
+                  {facts.length > 0 && (
+                    <span className="scan-fold-facts">
+                      {facts.map((f, i) => <span key={f.key}>{i > 0 && <span className="sep"> · </span>}{f.node}</span>)}
+                    </span>
+                  )}
+                </summary>
+                <div className="scan-fold-body">
+                  <label className="scan-line" style={{ display: "flex", alignItems: "center", gap: 7 }}
+                         title="Companies already covered by an imported Apollo export attach automatically. This also offers a live Apollo look-up for the ones that aren't, after each upload. Nothing runs without your click.">
+                    <input type="checkbox" checked={autoEnrichCompanies} onChange={(e) => onToggleAutoEnrichCompanies(e.target.checked)} />
+                    Offer Apollo company look-up after each upload
+                  </label>
+                  {leftOut > 0 && (
+                    <p className="scan-line" aria-label="Left out of downloads">
+                      Downloads hold <strong>{inDownloads.toLocaleString()}</strong> of {allSignal.toLocaleString()} Strong Signal leads.{" "}
+                      <strong>{leftOut.toLocaleString()}</strong> {leftOut === 1 ? "is" : "are"} left out because {leftOut === 1 ? "it is" : "they are"} already in Apollo. Change it with the dropdown beside Download.
+                    </p>
+                  )}
+                  {apolloIndex && apolloIndex.size === 0 && (
+                    <p className="scan-line">Import an Apollo sync in All leads and every upload is checked against it.</p>
+                  )}
+                  {autoEnrichCompanies && (
+                    <div className="scan-enrich">
+                      <div className="scan-enrich-head">Apollo company look-up</div>
+                      {pendingEnrich.length > 0 ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                          <span>
+                            <strong>{pendingEnrich.length}</strong> compan{pendingEnrich.length === 1 ? "y" : "ies"} in this upload {pendingEnrich.length === 1 ? "has" : "have"} no
+                            Apollo data yet. Enriching {pendingEnrich.length === 1 ? "it" : "them"} uses up to{" "}
+                            <strong>{Math.min(pendingEnrich.length, MAX_COMPANY_BATCH)} credit{Math.min(pendingEnrich.length, MAX_COMPANY_BATCH) === 1 ? "" : "s"}</strong> (none for any not found
+                            {pendingEnrich.length > MAX_COMPANY_BATCH ? `; first ${MAX_COMPANY_BATCH} per click` : ""}).
+                          </span>
+                          <button onClick={onRunCompanyEnrichment} disabled={companyEnriching} className="btn btn-sm btn-primary">
+                            {companyEnriching ? "Enriching…" : `Enrich ${Math.min(pendingEnrich.length, MAX_COMPANY_BATCH)} now`}
+                          </button>
+                          <span className="muted" style={{ fontSize: 11.5 }}>
+                            {pendingEnrich.slice(0, 6).map((p) => p.companyName).join(" · ")}{pendingEnrich.length > 6 ? ` · +${pendingEnrich.length - 6} more` : ""}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="muted">
+                          {companyEnrichOutcomes ? "Every company in this upload has been checked." : "Every company in this upload already has Apollo data on file (or no work-email domain to look it up by)."}
+                        </div>
+                      )}
+                      {companyEnrichOutcomes && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 12, marginTop: 6 }}>
+                          {companyEnrichOutcomes.map((o) => (
+                            <div key={o.domain} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                              <span style={{ fontWeight: 600, minWidth: 180 }}>{o.domain}</span>
+                              {o.status === "found" && <span style={{ color: "var(--success)", fontWeight: 700 }}>✓ Found — {[o.fields?.industry, o.fields?.employees && `${o.fields.employees} employees`, [o.fields?.city, o.fields?.state].filter(Boolean).join(", ")].filter(Boolean).join(" · ") || "profile saved"}</span>}
+                              {o.status === "not-found" && <span className="muted">No Apollo record (0 credits)</span>}
+                              {o.status === "error" && <span style={{ color: "#B5443B" }}>Error — {o.errorMessage}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </details>
           </div>
         );
       })()}
-      {!hideInApollo && apolloHits.size > 0 && (
-        <div className="scan-note" style={{ color: "var(--muted)" }}>
-          Downloads include leads already in Apollo.{" "}
-          <button className="btn btn-sm btn-ghost" onClick={() => setHideInApollo(true)}>Leave them out again</button>
-        </div>
-      )}
       {renamingBucket && (
         <div className="dl-rename">
           <span className="rd-label" style={{ marginBottom: 0 }}>{BUCKET_META[renamingBucket].label} filename</span>

@@ -78,27 +78,32 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   console.log('\n== a new batch is checked against it ==');
   await upload('Main Scanner', BATCH);
   let t = await main();
-  ok('the banner counts who is already in Apollo', /2 of these rows are already in Apollo/.test(t), t.slice(0, 600));
+  ok('the scan details count who is already in Apollo', /2 already in Apollo/.test(t), t.slice(0, 600));
   ok('  and how each matched', /1 by email, 1 by name only/.test(t));
   const rows = async () => (await page.locator('.data-table tbody tr').allInnerTexts()).join(' | ');
   let r = await rows();
   ok('every lead stays in the table, Apollo matches included', /Nia Rowe/.test(r) && /Zed Quinn/.test(r) && /Lou Park/.test(r), r);
   const dl = async () => (await page.locator('.dl-strip').first().innerText()).replace(/\s+/g, ' ');
   ok('  but the downloads count only the new person', /M365 \/ Azure\s*1\b/.test(await dl()), await dl());
-  ok('  and the page says how many Strong Signal leads that leaves out', /Downloads hold 1 of 3 Strong Signal leads\.\s*2 are left out because they are already in Apollo/.test(await main()), (await main()).slice(0, 900));
+  const apolloSel = page.locator('select[aria-label="Leads already in Apollo"]');
+  const picked = await apolloSel.evaluate((el) => el.selectedOptions[0].textContent);
+  ok('  and the download dropdown says how many Strong Signal leads that leaves out', /Leave out 2 already in Apollo \(2 Strong Signal\)/.test(picked), picked);
+  await page.locator('.scan-fold > summary').click(); await sleep(300);
+  ok('  and the scan details spell it out', /Downloads hold 1 of 3 Strong Signal leads\.\s*2 are left out because they are already in Apollo/.test(await main()), (await main()).slice(0, 900));
+  await page.locator('.scan-fold > summary').click(); await sleep(200);
   ok('  Zed carries an In Apollo badge (email match)', /Zed Quinn[^|]*In Apollo(?!\?)/.test(r), r);
   ok('  Lou carries an In Apollo? badge (name only)', /Lou Park[^|]*In Apollo\?/.test(r), r);
   ok('  Nia carries none', !/Nia Rowe[^|]*In Apollo/.test(r), r);
   ok('  the Strong Signal tab counts every row on screen', /Strong Signal \(3\)/.test(await main()), (await main()).slice(0, 400));
-  await page.locator('label:has-text("Leave them out of downloads") input').uncheck(); await sleep(600);
+  await apolloSel.selectOption('in'); await sleep(600);
   r = await rows();
-  ok('unticking leaves the table unchanged', /Nia Rowe/.test(r) && /Zed Quinn/.test(r) && /Lou Park/.test(r), r);
+  ok('choosing Include leaves the table unchanged', /Nia Rowe/.test(r) && /Zed Quinn/.test(r) && /Lou Park/.test(r), r);
   ok('  and the downloads count all three again', /M365 \/ Azure\s*3\b/.test(await dl()), await dl());
 
   console.log('\n== the roster survives a reload ==');
   await page.reload(); await sleep(1500);
   await upload('Main Scanner', BATCH);
-  ok('still 2 already in Apollo after a reload', /2 of these rows are already in Apollo/.test(await main()));
+  ok('still 2 already in Apollo after a reload', /2 already in Apollo/.test(await main()));
 
   console.log('\n== the CSP scanner checks too ==');
   await upload('CSP Scanner', CSP);

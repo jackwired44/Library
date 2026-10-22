@@ -7235,3 +7235,30 @@ Apollo. Existing Lists / Ask for leads / smart lists are unchanged.
 - Suites: `refresher` (49), `refresher-live` (28). Note for live suites:
   the runner reads the last "N / M" in the output as the score, so never
   put a slash count in a check name.
+
+### 2026-10-22: Main Scanner results — one summary bar, details in a dropdown (scanner-platform-v29)
+
+Per Jack, on the stack of panels above the results table: "Include them
+should be dropdown so the leads below that are scanned can take up more
+page", then "go through all this and lets make sure the ui looks great and
+friendly". Layout only: no rule, count or download changed.
+- **One bar** (`.scan-summary`, `Scanner.tsx`): the four counts as compact
+  chips (Rows scanned / Strong Signal / Needs review / Bad leads, still
+  `.kpi-row` / `.kpi` / `.kpi-value`) and, on the same line, the downloads
+  (still `.dl-strip`: Dynamics, M365 / Azure, All Strong Signal, ✎ rename).
+- **The Apollo download choice is a dropdown** in that bar
+  (`select[aria-label="Leads already in Apollo"]`: "Leave out N already in
+  Apollo (M Strong Signal)" / "Include N already in Apollo"). It replaces
+  the checkbox, the "Include them" button and "Leave them out again".
+- **Scan details** (`details.scan-fold`, closed by default, remembered in
+  localStorage `scanDetailsOpen`). The summary line always shows the facts:
+  N processed · N no signal · N duplicates merged · N already in Apollo
+  (by email / by name only) · Not checked against Apollo yet · N companies
+  to look up. Opening it shows the "Downloads hold N of M" sentence, the
+  "Offer Apollo company look-up after each upload" toggle (moved out of its
+  own row) and the company look-up panel with its Enrich button.
+- The empty actions row above the bar only renders when
+  `SHOW_LIBRARY_FILING` is on.
+- `apollo-roster-live` re-pointed to the dropdown and the new wording
+  (same facts).
+- Not done: Custom and CSP scanners (`Scanner2.tsx`) keep their own layout.
