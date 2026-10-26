@@ -10,6 +10,18 @@ import PlatformNotes from "./components/PlatformNotes";
 import Home from "./components/Home";
 import Engage, { type EngageTab } from "./components/Engage";
 import OutboundSuccess from "./components/OutboundSuccess";
+import Gifting from "./components/Gifting";
+import {
+  loadGiftAccountsFromDB,
+  persistGiftAccount,
+  deleteGiftAccountFromDB,
+  createGiftAccount,
+  giftKeyFor,
+  touch as touchGiftAccount,
+  type GiftAccount,
+  type GiftEntry,
+} from "./lib/gifting";
+import { giftingSeedAccounts, GIFTING_SEED_FLAG } from "./lib/giftingSeed";
 import AccountPanel from "./components/AccountPanel";
 import {
   loadAttemptsFromDB,
@@ -138,7 +150,7 @@ import {
   type WeeklyGoals,
 } from "./lib/weeklyGoals";
 
-type View = "home" | "scanner" | "history" | "library" | "engage" | "outbound";
+type View = "home" | "scanner" | "history" | "library" | "engage" | "outbound" | "gifting";
 // Sidebar destinations, flat and grouped — Apollo's model: no nesting,
 // no collapsible group, every destination one click away. The Engage
 // sub-tabs are surfaced here as top-level entries; they still render the
@@ -179,6 +191,7 @@ const NAV_GROUPS: { group: string | null; items: NavDest[] }[] = [
       { key: "engage", tab: "contacts", label: "Contacts", icon: "\u{1F464}" },
       { key: "engage", tab: "companies", label: "Companies", icon: "\u{1F3E2}" },
       { key: "outbound", label: "Outbound success", icon: "\u{1F3AF}" },
+      { key: "gifting", label: "Gifting", icon: "\u{1F381}" },
     ],
   },
 ];
@@ -453,6 +466,13 @@ export default function App() {
   const [dispositions, setDispositions] = useState<CustomDisposition[]>([]);
   // Company "known info" from bulk Apollo exports — see lib/companyProfiles.ts.
   const [companyProfiles, setCompanyProfiles] = useState<CompanyProfile[]>([]);
+  // Gifting records, one per company — see lib/gifting.ts.
+  const [giftAccounts, setGiftAccounts] = useState<GiftAccount[]>([]);
+  const [giftLoading, setGiftLoading] = useState(true);
+  const [giftError, setGiftError] = useState<string | null>(null);
+  // Which record Gifting opens on when entered from a company card.
+  // Seed-only, cleared when Gifting is entered from the sidebar.
+  const [giftFocusKey, setGiftFocusKey] = useState<string | null>(null);
   // Upload-time company enrichment — per Jack: "keep data enriching as new
   // contacts are uploaded here if apollo has data on the company." A
   // per-browser preference (not data), so localStorage rather than a
@@ -501,6 +521,12 @@ export default function App() {
     loadAttemptsFromDB()
       .then((loaded) => { setAttempts(loaded); setAttemptsLoading(false); })
       .catch(() => { setAttemptsLoading(false); });
+    loadGiftAccountsFromDB()
+      .then((loaded) => { setGiftAccounts(loaded); setGiftLoading(false); })
+      .catch(() => {
+        setGiftError("Couldn't load gifting records from this browser's local storage.");
+        setGiftLoading(false);
+      });
     loadHistoryFromDB()
       .then((entries) => {
         setHistoryEntries(entries);
@@ -835,6 +861,7 @@ export default function App() {
     note?: string;
     taskId?: string | null;
     userId?: string | null;
+    at?: string;
   }) {
     const attempt = createAttempt(input);
     setAttempts((prev) => [attempt, ...prev]);
@@ -884,6 +911,96 @@ export default function App() {
   function removeAttempt(id: string) {
     setAttempts((prev) => prev.filter((a) => a.id !== id));
     deleteAttemptFromDB(id);
+  }
+
+  // Seed the gifting records Jack asked to have loaded (lib/giftingSeed.ts).
+  // Once per browser: the localStorage flag means a seeded record he later
+  // deletes stays deleted. Even if storage is unavailable, a company that
+  // already has a record is never touched.
+  const giftSeedRan = useRef(false);
+  useEffect(() => {
+    if (giftSeedRan.current) return;
+    if (!CRM_SEED_ENABLED) return;
+    if (giftLoading) return;
+    giftSeedRan.current = true;
+    try {
+      if (localStorage.getItem(GIFTING_SEED_FLAG)) return;
+    } catch {
+      /* storage blocked — fall through; the key check below still protects existing records */
+    }
+    const fresh = giftingSeedAccounts().filter((a) => !giftAccounts.some((x) => x.key === a.key));
+    if (fresh.length) {
+      setGiftAccounts((prev) => [...fresh.filter((a) => !prev.some((x) => x.key === a.key)), ...prev]);
+      fresh.forEach((a) => persistGiftAccount(a).catch((e) => setGiftError(String(e?.message || e))));
+    }
+    try {
+      localStorage.setItem(GIFTING_SEED_FLAG, new Date().toISOString());
+    } catch {
+      /* best effort */
+    }
+  }, [giftLoading, giftAccounts]);
+
+  // --- Gifting (lib/gifting.ts) ---
+  // Returns the record for a company, creating it (pre-filled from an
+  // imported Apollo HQ city/state) when there isn't one yet.
+  function openGiftAccount(companyName: string): GiftAccount | null {
+    const key = giftKeyFor(companyName);
+    if (!key) return null;
+    const existing = giftAccounts.find((a) => a.key === key);
+    if (existing) return existing;
+    const profile = companyProfiles.find((p) => p.key === key) || null;
+    const created = createGiftAccount(companyName, profile);
+    if (!created) return null;
+    setGiftAccounts((prev) => (prev.some((a) => a.key === key) ? prev : [created, ...prev]));
+    persistGiftAccount(created).catch((e) => setGiftError(String(e?.message || e)));
+    return created;
+  }
+  // Reads `prev` inside the updater so two quick edits (e.g. blurring one
+  // field straight into another) compose instead of clobbering.
+  function updateGiftAccount(key: string, fn: (a: GiftAccount) => GiftAccount) {
+    setGiftAccounts((prev) => {
+      const cur = prev.find((a) => a.key === key);
+      if (!cur) return prev;
+      const next = touchGiftAccount(fn(cur));
+      persistGiftAccount(next).catch((e) => setGiftError(String(e?.message || e)));
+      return prev.map((a) => (a.key === key ? next : a));
+    });
+  }
+  // Deleting a record removes the touches its gifts wrote, the same as
+  // deleting a single gift does — otherwise the Reached board would keep
+  // pointing at gifts that no longer exist anywhere.
+  function deleteGiftAccount(key: string) {
+    const acc = giftAccounts.find((a) => a.key === key);
+    acc?.gifts.forEach((g) => g.attemptId && removeAttempt(g.attemptId));
+    setGiftAccounts((prev) => prev.filter((a) => a.key !== key));
+    deleteGiftAccountFromDB(key).catch((e) => setGiftError(String(e?.message || e)));
+  }
+  // A gift to a specific contact is also a touch on their Reached board.
+  // The attempt is created with channel "gift", which createAttempt pins to
+  // outcome "none" — so it never sets a disposition or ends a sequence.
+  function logGift(key: string, gift: GiftEntry) {
+    let entry = gift;
+    if (gift.forContactId && contacts.some((c) => c.id === gift.forContactId)) {
+      const attempt = logAttempt({
+        contactId: gift.forContactId,
+        channel: "gift",
+        note: [gift.item, gift.vendor && `from ${gift.vendor}`].filter(Boolean).join(" "),
+        at: new Date(`${gift.date}T12:00:00`).toISOString(),
+      });
+      entry = { ...gift, attemptId: attempt.id };
+    }
+    updateGiftAccount(key, (a) => ({ ...a, gifts: [entry, ...a.gifts] }));
+  }
+  function removeGift(key: string, giftId: string) {
+    const gift = giftAccounts.find((a) => a.key === key)?.gifts.find((g) => g.id === giftId);
+    if (gift?.attemptId) removeAttempt(gift.attemptId);
+    updateGiftAccount(key, (a) => ({ ...a, gifts: a.gifts.filter((g) => g.id !== giftId) }));
+  }
+  // From a company card: make sure the record exists, then land on it.
+  function goToGifting(companyName: string) {
+    const acc = openGiftAccount(companyName);
+    setGiftFocusKey(acc?.key || null);
+    setView("gifting");
   }
   function updateSequenceSteps(next: Sequence) {
     setSequences((prev) => prev.map((s) => (s.id === next.id ? next : s)));
@@ -1503,6 +1620,7 @@ export default function App() {
                     onClick={() => {
                       setView(item.key);
                       if (item.tab) setEngageEntry({ tab: item.tab });
+                      if (item.key === "gifting") setGiftFocusKey(null);
                     }}
                     className={`side-nav-btn${active ? " active" : ""}`}
                   >
@@ -1697,6 +1815,8 @@ export default function App() {
               onImportCompanyProfiles={importCompanyProfilesFromFiles}
               onImportCrmDeals={importCrmDealsFromFiles}
               onDeleteContacts={deleteContacts}
+              giftAccounts={giftAccounts}
+              onOpenGifting={goToGifting}
               initialTab={engageEntry.tab}
               initialContactsSearch={engageEntry.contactsQuery}
               initialContactsTier={engageEntry.contactsTier}
@@ -1715,6 +1835,21 @@ export default function App() {
               onUpdateEntry={updateHistoryEntry}
               onClearHistory={clearHistory}
               libraryEntries={libraryEntries}
+            />
+          )}
+          {view === "gifting" && (
+            <Gifting
+              accounts={giftAccounts}
+              contacts={contacts}
+              companyProfiles={companyProfiles}
+              loading={giftLoading}
+              error={giftError}
+              onOpenAccount={openGiftAccount}
+              onUpdateAccount={updateGiftAccount}
+              onDeleteAccount={deleteGiftAccount}
+              onLogGift={logGift}
+              onRemoveGift={removeGift}
+              initialKey={giftFocusKey}
             />
           )}
           {view === "outbound" && (

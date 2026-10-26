@@ -4397,6 +4397,57 @@ bug, so it is Jack's call:
   per the standing note that DQ'ing those would contradict leads Jack
   personally re-promoted.
 
+## Gifting — client & prospect appreciation records (app/ only)
+
+Per Jack: "a folder for sending clients and prospects treats, lunch and
+treats based on their location personalized to their company and the
+individuals we are communicating with — this is record keeping,
+preferences and ideas." Proposed and approved before building, with three
+decisions Jack picked explicitly: a logged gift **counts as an outreach
+touch**, a **gift-policy limit with an over-limit warning** is in, and it
+lives **under Records in the sidebar plus a panel on each company card**.
+
+- **One record per company** (`lib/gifting.ts`, new store `STORE_GIFTING`
+  keyed by `normalizeCompanyKey`, `DB_VERSION` 15→16) — the same key
+  Companies groups by, so a record always lines up with its roll-up.
+  Holds: delivery location (street/city/state, headcount to feed, delivery
+  notes), gift policy, per-person preferences, a gift log, and ideas.
+- **Location is typed in by hand** — nothing in this app carries a real
+  street address. A new record pre-fills city/state from an imported
+  Apollo HQ when one exists. "Their time" in the record header resolves
+  from the typed state first (`timeZoneFromLocation`), then the company's
+  contacts, since the delivery address is where the food is actually going.
+- **People & preferences** — pick a contact at that company or add someone
+  who isn't in Contacts (office managers, front desk). Favorites, dietary/
+  allergies, dislikes, coffee order, notes. Any dietary entry is pulled
+  into a warning strip at the top of the record so it can't be missed.
+- **Gift policy** — optional per-gift $ limit and a "does not accept gifts"
+  flag. `policyViolation` warns inline while typing, the button becomes
+  "Log anyway," and a confirm is required. An unknown cost is never
+  assumed to be over a limit. Over-limit rows keep an "over" flag in the log.
+- **A gift is a touch, never an outcome.** A gift logged to a specific
+  contact also writes an `OutreachAttempt` with the new `"gift"` channel
+  (🎁 on the Reached board, counts toward days-since-last-touch), and the
+  gift stores its `attemptId`. `createAttempt` pins a gift to outcome
+  `"none"`, so it can't set a disposition, finish a sequence, or bump
+  call/email counts. Deleting a gift (or the whole record) removes its
+  touch too. "Whole office" gifts write no touch. `"gift"` is left out of
+  the Reached board's quick-log picker (`MANUAL_ATTEMPT_CHANNELS`) since
+  cost/vendor/policy only exist in Gifting.
+- **Companies card** shows a one-line Gifting summary (gifts sent, total
+  spent, last gift, profile/idea counts, policy pill) with "Start gifting
+  record" / "Open in Gifting."
+- Verified: new committed suite `scripts/suites/gifting.cjs`, 22/22
+  (start from a company card, location + time zone, policy pill, person
+  from Contacts, dietary banner, over-limit warning + confirm, ideas,
+  reload persistence, touch on the Reached board with disposition and
+  counts read from IndexedDB unchanged, card summary, delete removes the
+  touch, zero console errors).
+- **Not built / known gaps**: "Backup everything" still doesn't cover this
+  store (same gap as most stores, flagged in the audit pass); no
+  spend-per-quarter reporting or reminders for upcoming occasions; no
+  vendor directory shared across companies.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

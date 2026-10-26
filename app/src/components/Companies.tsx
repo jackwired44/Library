@@ -28,6 +28,7 @@ import type { Task } from "../lib/tasks";
 import type { LeadList } from "../lib/leadLists";
 import type { Sequence, SequenceEnrollment } from "../lib/sequences";
 import type { PlatformUser } from "../lib/users";
+import { formatMoney, lastGift, policyLabel, hasPolicy, totalSpent, openIdeas, type GiftAccount } from "../lib/gifting";
 
 // Same page size Scanner and Contacts use.
 const PAGE_SIZE = 25;
@@ -54,11 +55,15 @@ interface CompaniesProps {
   // Removing a company means removing the contacts behind it — a company
   // here is a roll-up, it has no record of its own to delete.
   onDeleteContacts: (ids: string[]) => void;
+  // Gifting summary on the expanded card — see components/Gifting.tsx.
+  giftAccounts: GiftAccount[];
+  onOpenGifting: (companyName: string) => void;
 }
 
 type SortKey = "recent" | "name" | "contactCount";
 
-export default function Companies({ contacts, onAddContact, onUpdateContact, users, tasks, leadLists, sequences, enrollments, dispositions, companyProfiles, onImportCrmDeals, onImportCompanyProfiles, onDeleteContacts, attempts, onLogAttempt, onRemoveAttempt }: CompaniesProps) {
+export default function Companies({ contacts, onAddContact, onUpdateContact, users, tasks, leadLists, sequences, enrollments, dispositions, companyProfiles, onImportCrmDeals, onImportCompanyProfiles, onDeleteContacts, attempts, onLogAttempt, onRemoveAttempt, giftAccounts, onOpenGifting }: CompaniesProps) {
+  const giftByKey = useMemo(() => new Map(giftAccounts.map((a) => [a.key, a])), [giftAccounts]);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("recent");
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
@@ -512,6 +517,7 @@ export default function Companies({ contacts, onAddContact, onUpdateContact, use
                               </div>
                             </div>
                           </div>
+                          <GiftingSummary account={giftByKey.get(co.key) || null} onOpen={() => onOpenGifting(co.name)} />
                           {co.profile && (
                             <div className="panel" style={{ marginBottom: 10 }}>
                               <div className="panel-head">
@@ -723,6 +729,35 @@ function AddContactForm({
           Cancel
         </button>
       </div>
+    </div>
+  );
+}
+
+// Gifting at a glance on a company card. The full record lives in the
+// Gifting view; this only says whether there is one and what it last did.
+function GiftingSummary({ account, onOpen }: { account: GiftAccount | null; onOpen: () => void }) {
+  const last = account ? lastGift(account) : null;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "8px 14px", marginBottom: 10, fontSize: 12.5 }}>
+      <span style={{ fontWeight: 600 }}>🎁 Gifting</span>
+      {account ? (
+        <>
+          <span style={{ color: "var(--muted)" }}>
+            {account.gifts.length} sent · ${formatMoney(totalSpent(account))}
+            {last ? ` · last ${last.date} (${last.item})` : ""}
+            {` · ${account.people.length} preference profile${account.people.length === 1 ? "" : "s"} · ${openIdeas(account).length} idea${openIdeas(account).length === 1 ? "" : "s"}`}
+          </span>
+          {hasPolicy(account.policy) && (
+            <span className={`status-pill ${account.policy.noGifts ? "danger" : "warning"}`}>{policyLabel(account.policy)}</span>
+          )}
+        </>
+      ) : (
+        <span style={{ color: "var(--muted)" }}>No gifting record yet.</span>
+      )}
+      <span style={{ flex: 1 }} />
+      <button className="btn btn-sm btn-secondary" onClick={onOpen}>
+        {account ? "Open in Gifting" : "Start gifting record"}
+      </button>
     </div>
   );
 }

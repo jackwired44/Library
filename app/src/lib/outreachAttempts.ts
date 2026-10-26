@@ -24,13 +24,23 @@ import { dbGetAll, dbPut, dbDelete, STORE_OUTREACH_ATTEMPTS } from "./db";
 import type { Disposition } from "./detection";
 import { localDayKeyFromIso } from "./tasks";
 
-export type AttemptChannel = "call" | "email" | "linkedin";
+// "gift" is a touch logged from the Gifting folder (lib/gifting.ts) — a
+// lunch or treats sent to that person. It counts toward the Reached board's
+// history and days-since-last-touch, but never carries an outcome: see
+// createAttempt below.
+export type AttemptChannel = "call" | "email" | "linkedin" | "gift";
 
 export const ATTEMPT_CHANNEL_META: Record<AttemptChannel, { label: string; icon: string }> = {
   call: { label: "Call", icon: "📞" },
   email: { label: "Email", icon: "✉️" },
   linkedin: { label: "LinkedIn", icon: "🔗" },
+  gift: { label: "Gift sent", icon: "🎁" },
 };
+
+// Channels a person picks when logging an attempt by hand. A gift is logged
+// from the Gifting folder, where its cost/vendor/policy check live, so it is
+// left out of the Reached board's quick-log picker.
+export const MANUAL_ATTEMPT_CHANNELS: AttemptChannel[] = ["call", "email", "linkedin"];
 
 export interface OutreachAttempt {
   id: string;
@@ -70,7 +80,10 @@ export function createAttempt(input: {
     id: newId(),
     contactId: input.contactId,
     channel: input.channel,
-    outcome: input.outcome || "none",
+    // A gift is a touch, not a conversation: it never sets a disposition,
+    // so it can't finish a sequence or overwrite where a lead stands. Its
+    // result lives on the gift entry itself (lib/gifting.ts).
+    outcome: input.channel === "gift" ? "none" : input.outcome || "none",
     note: input.note?.trim() || undefined,
     at: input.at || new Date().toISOString(),
     taskId: input.taskId ?? null,

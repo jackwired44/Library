@@ -26,6 +26,7 @@ import type { EmailAccount } from "../lib/emailAccounts";
 import type { LeadList } from "../lib/leadLists";
 import type { CustomDisposition } from "../lib/dispositions";
 import type { CompanyProfile, ImportResult } from "../lib/companyProfiles";
+import type { GiftAccount } from "../lib/gifting";
 
 interface EngageProps {
   tasks: Task[];
@@ -78,6 +79,9 @@ interface EngageProps {
   attempts: OutreachAttempt[];
   onLogAttempt: (input: { contactId: string; channel: AttemptChannel; outcome?: string; note?: string }) => void;
   onRemoveAttempt: (id: string) => void;
+  // Gifting records, for the summary panel on each company card.
+  giftAccounts: GiftAccount[];
+  onOpenGifting: (companyName: string) => void;
   onManageDispositions: () => void;
   companyProfiles: CompanyProfile[];
   onImportCrmDeals: (files: FileList | File[]) => Promise<CrmImportResult[]>;
@@ -168,6 +172,8 @@ export default function Engage({
   attempts,
   onLogAttempt,
   onRemoveAttempt,
+  giftAccounts,
+  onOpenGifting,
   onManageDispositions,
   companyProfiles,
   onImportCrmDeals,
@@ -292,6 +298,8 @@ export default function Engage({
           onImportCompanyProfiles={onImportCompanyProfiles}
           onImportCrmDeals={onImportCrmDeals}
           onDeleteContacts={onDeleteContacts}
+          giftAccounts={giftAccounts}
+          onOpenGifting={onOpenGifting}
         />
       )}
       {tab === "contacts" && (

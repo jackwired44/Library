@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   ATTEMPT_CHANNEL_META,
+  MANUAL_ATTEMPT_CHANNELS,
   attemptsForContact,
   summarizeAttempts,
   daysSinceLastAttempt,
@@ -76,7 +77,7 @@ export default function ReachedBoard({
       {adding && (
         <div className="reached-form">
           <select className="field" value={channel} onChange={(e) => setChannel(e.target.value as AttemptChannel)} aria-label="Channel">
-            {(Object.keys(ATTEMPT_CHANNEL_META) as AttemptChannel[]).map((c) => (
+            {MANUAL_ATTEMPT_CHANNELS.map((c) => (
               <option key={c} value={c}>{ATTEMPT_CHANNEL_META[c].icon} {ATTEMPT_CHANNEL_META[c].label}</option>
             ))}
           </select>

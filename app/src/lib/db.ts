@@ -3,7 +3,7 @@
 // used. No server, no shared backend (see CLAUDE.md, Access & ownership).
 
 export const DB_NAME = "wiredCioUnifiedLeadScannerLibrary_v1";
-export const DB_VERSION = 15;
+export const DB_VERSION = 16;
 export const STORE_LIBRARY = "files";
 export const STORE_GROUPS = "groups";
 export const STORE_HISTORY = "history";
@@ -22,6 +22,7 @@ export const STORE_EMAIL_ACCOUNTS = "emailAccounts";
 export const STORE_DISPOSITIONS = "dispositions";
 export const STORE_COMPANY_PROFILES = "companyProfiles";
 export const STORE_OUTREACH_ATTEMPTS = "outreachAttempts";
+export const STORE_GIFTING = "gifting";
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -50,6 +51,7 @@ function openDB(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE_DISPOSITIONS)) db.createObjectStore(STORE_DISPOSITIONS, { keyPath: "id" });
       if (!db.objectStoreNames.contains(STORE_COMPANY_PROFILES)) db.createObjectStore(STORE_COMPANY_PROFILES, { keyPath: "key" });
       if (!db.objectStoreNames.contains(STORE_OUTREACH_ATTEMPTS)) db.createObjectStore(STORE_OUTREACH_ATTEMPTS, { keyPath: "id" });
+      if (!db.objectStoreNames.contains(STORE_GIFTING)) db.createObjectStore(STORE_GIFTING, { keyPath: "key" });
     };
     req.onsuccess = () => {
       const db = req.result;

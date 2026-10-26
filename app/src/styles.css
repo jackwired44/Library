@@ -2171,3 +2171,81 @@ textarea:focus {
 }
 .integrity-alert ul { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
 .integrity-detail { color: #8A5A52; }
+
+/* ---- Gifting (components/Gifting.tsx) ---- */
+.gifting-layout {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: var(--s4);
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .gifting-layout { grid-template-columns: 1fr; }
+}
+.gifting-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  position: sticky;
+  top: var(--s3);
+}
+.gifting-list-item {
+  text-align: left;
+  background: var(--bg-surface);
+  border: 1px solid var(--line);
+  border-left: 3px solid transparent;
+  border-radius: var(--r-md);
+  padding: 8px 10px;
+  cursor: pointer;
+  font-family: var(--font);
+  color: var(--ink-1);
+}
+.gifting-list-item:hover { background: var(--bg-hover); }
+.gifting-list-item.active { border-left-color: var(--brand); background: var(--brand-subtle); }
+.gifting-two-col {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 12px;
+}
+.gifting-form { display: flex; flex-direction: column; gap: 8px; }
+.gifting-field { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+.gifting-field .field { width: 100%; }
+.gifting-field textarea.field { height: auto; resize: vertical; padding-top: 6px; font-family: var(--font); }
+.gifting-dietary {
+  background: var(--warning-bg);
+  color: var(--warning);
+  font-size: 12.5px;
+  border-top: 1px solid var(--line);
+}
+.gifting-people {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+.gifting-person {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--bg-surface);
+}
+.gifting-log-form { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.gifting-violation {
+  margin-top: 8px;
+  font-size: 12.5px;
+  color: var(--warning);
+  background: var(--warning-bg);
+  border-radius: var(--r-md);
+  padding: 6px 10px;
+}
+.gifting-idea {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
+}
+.gifting-idea:last-child { border-bottom: none; }
