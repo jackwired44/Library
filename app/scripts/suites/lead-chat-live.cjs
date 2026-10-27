@@ -67,6 +67,14 @@ const LEADS = [
   let rows = await tableText();
   ok('clicking a month shows only that month', /STALE STRONG CO/.test(rows) && !/FRESH DYN CO/.test(rows), rows.slice(0, 200));
   ok('  and says so as a filter chip', /Received /.test(await page.locator('main').innerText()));
+  // Per Jack: "view multipls months at a time … group them together".
+  await strip.locator(`button[aria-label="Period ${monthName(day(5))}"]`).click(); await sleep(400);
+  rows = await tableText();
+  ok('clicking a second month adds it: both months show', /STALE STRONG CO/.test(rows) && /FRESH DYN CO/.test(rows), rows.slice(0, 200));
+  ok('  and the chip names both', new RegExp(`Received .*\\+`).test(await page.locator('main').innerText()));
+  await strip.locator(`button[aria-label="Period ${monthName(day(5))}"]`).click(); await sleep(400);
+  rows = await tableText();
+  ok('  clicking it again takes it back out', /STALE STRONG CO/.test(rows) && !/FRESH DYN CO/.test(rows), rows.slice(0, 200));
   await page.locator('[aria-label="View by"] button', { hasText: 'Quarter' }).click(); await sleep(400);
   const qText = (await strip.innerText()).replace(/\s+/g, ' ');
   ok('Quarter view groups months into quarters', /Q[1-4] 20\d\d/.test(qText) && !new RegExp(MONTHS.join('|')).test(qText), qText);

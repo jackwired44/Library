@@ -7353,3 +7353,21 @@ set … so i can hit leads that havent gone anywhere as much as i want".
   real conversation, or a deal/meeting on file). `whereOf` in AllLeads.tsx.
 - Suites: `recycle` +17, `recycle-live` re-pointed to the new rule (FEW CO
   is now Ready by sequence end; FRESH CO is Never sequenced) +4.
+
+### 2026-10-27: pick several months at once in All leads (scanner-platform-v29)
+
+Per Jack: "i need to be able to view multipls months at a time so i can view
+strong leads of certain months i want to group them together to go into just
+strong signals with dynamics then check them all where they stand and go
+axctiong them off into a dyanmics targeted email paln".
+- The period strip is multi-select (`periodKeys`, AllLeads.tsx): clicking a
+  month (or quarter) adds it, clicking it again removes it, "All months"
+  clears. The chip reads "Received Jul 2026 + Aug 2026". Counts still honour
+  every other filter.
+- The rest of his flow already exists on the same page: Grade → Strong Signal,
+  Product line → Dynamics 365, "⟳ Check N in Apollo" over everything matched,
+  "Where it stands → Hasn't gone anywhere", then Add N to list (campaign tags
+  / cycle) or Export for Apollo.
+- Suite `lead-chat-live` +3 (add a second month, both show, remove it).
+- Stashed, not committed: an unfinished Apollo activity pull + sequence-owner
+  fallback (`git stash list`, "WIP: Apollo activity pull"), stopped by Jack.

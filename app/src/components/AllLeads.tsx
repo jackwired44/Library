@@ -402,7 +402,14 @@ export default function AllLeads({
   const [periodKind, setPeriodKindState] = useState<"month" | "quarter" | "all">(() => {
     try { const v = localStorage.getItem("allLeadsPeriodView"); return v === "quarter" || v === "all" ? v : "month"; } catch { return "month"; }
   });
-  const [periodKey, setPeriodKey] = useState("all");
+  // Per Jack: "i need to be able to view multipls months at a time so i can
+  // view strong leads of certain months i want to group them together".
+  // Clicking a month adds it to the set; clicking it again takes it out.
+  // An empty set is every period.
+  const [periodKeys, setPeriodKeys] = useState<string[]>([]);
+  const setPeriodKey = (k: string) => setPeriodKeys(k === "all" ? [] : [k]);
+  const togglePeriod = (k: string) => setPeriodKeys((prev) => (prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k]));
+  const periodSet = useMemo(() => new Set(periodKeys), [periodKeys]);
   const setPeriodKind = (k: "month" | "quarter" | "all") => {
     setPeriodKindState(k); setPeriodKey("all");
     try { localStorage.setItem("allLeadsPeriodView", k); } catch { /* preference only */ }
@@ -616,7 +623,7 @@ export default function AllLeads({
       },
       status: (_l, d) => statusF === "all" || d.status === statusF,
       where: (_l, d) => whereF === "all" || d.where === whereF,
-      month: (_l, d) => periodKey === "all" || periodKeyOf(d.month, periodKind) === periodKey,
+      month: (_l, d) => !periodSet.size || periodSet.has(periodKeyOf(d.month, periodKind)),
       rule: (l) => !ruleF || !ruleFacts || ruleMatches(ruleF, l, ruleFacts.get(l.key)!),
       level: (_l, d) => levelF === "all" || d.level === levelF,
       contact: (_l, d) => contactF === "all" || d.contact === contactF
@@ -674,7 +681,7 @@ export default function AllLeads({
       },
     };
     return t;
-  }, [ruleF, ruleFacts, periodKey, periodKind, inApolloF, verdictF, companyF, companyStats, contactF, levelF, fnF, dateF, statusF, q, kq, nq, rawIndex, standingF, laneF, readyOnly, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, ownerF, planF, planSeqF, filesF, fileNameF, fromT, toT, partnerKeys, exclIndustries, hideActive, visitedOnly, listFEff, listedKeys, whereF]);
+  }, [ruleF, ruleFacts, periodSet, periodKind, inApolloF, verdictF, companyF, companyStats, contactF, levelF, fnF, dateF, statusF, q, kq, nq, rawIndex, standingF, laneF, readyOnly, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, ownerF, planF, planSeqF, filesF, fileNameF, fromT, toT, partnerKeys, exclIndustries, hideActive, visitedOnly, listFEff, listedKeys, whereF]);
 
   // Each lead's filters are evaluated ONCE per change, recording whether it
   // passes all of them ("") or fails exactly one (that key) or more (null).
@@ -919,7 +926,7 @@ export default function AllLeads({
   if (fnF !== "all") chips.push({ label: FUNCTION_META[fnF].label, clear: () => setFnF("all") });
   if (verdictF !== "all") chips.push({ label: VERDICT_META[verdictF].label, clear: () => setVerdictF("all") });
   if (companyF !== "all") chips.push({ label: companyF === "multi" ? "2+ leads at the company" : "Only lead at the company", clear: () => setCompanyF("all") });
-  if (periodKey !== "all") chips.push({ label: `Received ${periodLabel(periodKey, periodKind)}`, clear: () => setPeriodKey("all") });
+  if (periodKeys.length) chips.push({ label: `Received ${[...periodKeys].sort().map((k) => periodLabel(k, periodKind)).join(" + ")}`, clear: () => setPeriodKey("all") });
   if (ruleF) chips.push({ label: `Asked: ${ruleParts(ruleF).map((p) => p.label).join(" · ")}`, clear: () => setRuleF(null) });
   if (dateF !== "all") chips.push({ label: DATE_LABEL[dateF], clear: () => setDateF("all") });
   if (statusF !== "all") chips.push({ label: `Status: ${STATUS_META[statusF].label}`, clear: () => setStatusF("all") });
@@ -1192,17 +1199,18 @@ export default function AllLeads({
             ))}
           </div>
           <span className="muted" style={{ fontSize: 12 }}>
-            by the date each CSV states, else its upload date{periodKind !== "all" ? " · counts honour the filters below" : ""}
+            by the date each CSV states, else its upload date{periodKind !== "all" ? " · pick as many as you like · counts honour the filters below" : ""}
           </span>
         </div>
         {periodKind !== "all" && (
           <div role="group" aria-label="Periods" style={{ display: "flex", gap: 6, overflowX: "auto", paddingTop: 8, paddingBottom: 2 }}>
-            <button className={`chip-btn${periodKey === "all" ? " active" : ""}`} aria-pressed={periodKey === "all"} onClick={() => setPeriodKey("all")} style={{ whiteSpace: "nowrap" }}>
+            <button className={`chip-btn${!periodKeys.length ? " active" : ""}`} aria-pressed={!periodKeys.length} onClick={() => setPeriodKey("all")} style={{ whiteSpace: "nowrap" }}>
               All {periodKind === "month" ? "months" : "quarters"} ({periodOptions.reduce((n, [, c]) => n + c, 0).toLocaleString()})
             </button>
             {periodOptions.map(([k, n]) => (
-              <button key={k || "undated"} className={`chip-btn${periodKey === k ? " active" : ""}`} aria-pressed={periodKey === k}
-                      aria-label={`Period ${periodLabel(k, periodKind)}`} onClick={() => setPeriodKey(periodKey === k ? "all" : k)} style={{ whiteSpace: "nowrap" }}>
+              <button key={k || "undated"} className={`chip-btn${periodSet.has(k) ? " active" : ""}`} aria-pressed={periodSet.has(k)}
+                      title="Click to add this period; click others to group them together; click again to take it out."
+                      aria-label={`Period ${periodLabel(k, periodKind)}`} onClick={() => togglePeriod(k)} style={{ whiteSpace: "nowrap" }}>
                 {periodLabel(k, periodKind)} <b>{n.toLocaleString()}</b>
               </button>
             ))}
