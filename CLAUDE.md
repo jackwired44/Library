@@ -7286,3 +7286,27 @@ session's network), so the setup is the standard one for a Microsoft shop:
   enrichment, website visits and Claude-read "Ask for leads" do not work
   there (the built-in reader and sync-file import still do). Server-side
   Apollo + shared data is the next, separate decision.
+
+### 2026-10-27: hide leads already on a list (scanner-platform-v29)
+
+Per Jack: "filter out leads added to a list so if i upload a csv to scan i
+can remove ones i added to a list or even in all leads". Approved: lists he
+built count, smart lists don't; hiding also keeps them out of downloads.
+- **One matcher** (`lib/leadLists.ts`): `listMatchIndex(lists)` indexes every
+  list without a `rule` (hand-built, snapshots, Refresher hand-offs, cycled
+  ones too); `listsHolding(idx, {email, contact, company})` matches on the
+  same email, or the same FULL name at the same company (`normCompany`, so
+  "Acme Inc." = "ACME"). First name alone, or a name with no company, never
+  matches. `onPickedList(idx, lead, "any" | listId)`.
+- **Main Scanner**: a "Leads already on a list" dropdown in the download bar
+  (Show / Hide N on any list / Hide N on <list>), an "On a list" badge per
+  row, and "N already on a list (N hidden)" in Scan details. Hiding is a
+  facet (`hideIds`), so the table, every count and every download agree.
+- **Custom + CSP** (`Scanner2.tsx`): the same dropdown in an "Already on a
+  list" note; a `listed` test in `tests`, so counts and downloads follow.
+- The scanner choice is remembered (localStorage `scannerListHide`); a list
+  that no longer exists reads as Show.
+- **All leads**: the same dropdown in the filter row (`listed` filter key,
+  counts honour every other filter) with a "Hiding leads on …" chip; the
+  Export button follows the filters.
+- Suites `list-match` (17), `list-hide-live` (20).

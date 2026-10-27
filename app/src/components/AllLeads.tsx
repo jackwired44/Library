@@ -51,7 +51,7 @@ import { apolloHitFor, type ApolloHit, type RosterIndex } from "../lib/apolloRos
 import { DEFAULT_PULL_MONTHS, type PullProgress, type CheckProgress } from "../lib/apolloLive";
 import { loadRawNoteSearchIndex } from "../lib/rawNotes";
 import { matchesKeywords, parseKeywords } from "../lib/keywords";
-import type { LeadList } from "../lib/leadLists";
+import { listMatchIndex, listsHolding, type LeadList, type ListPick } from "../lib/leadLists";
 import { laneOf, indexChecks, emailsToVerify, isGreenLit, LANE_META, LANE_ORDER, DEFAULT_CATCH_ALL_MIN, type Lane, type EmailCheck, type VerifierImport } from "../lib/deliverability";
 import { EXPORT_LABELS, type ExportRow } from "../lib/detection";
 import { apolloStandingOf, listRowForLead, NEEDS, NO_SEQUENCE, STATUS_META as STANDING_META, STATUS_ORDER as STANDING_ORDER, type Status as Standing } from "./ApolloStatus";
@@ -336,6 +336,10 @@ export default function AllLeads({
   const checkIndex = useMemo(() => indexChecks(emailChecks), [emailChecks]);
   const [rawIndex, setRawIndex] = useState<Map<string, string> | null>(null);
   const [partnerF, setPartnerF] = useState(false);
+  // Per Jack: "filter out leads added to a list … even in all leads". Hides
+  // anyone on a list he built (smart lists don't count) — on any list, or on
+  // one picked list. Same matcher as the three scanners (listsHolding).
+  const [listF, setListF] = useState<"all" | ListPick>("all");
   const [rawIndexState, setRawIndexState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [sourceF, setSourceF] = useState<LeadSource | "all">("all");
   const [tierF, setTierF] = useState(initialPreset ? TOP : "all");
@@ -526,6 +530,17 @@ export default function AllLeads({
     }
     return out;
   }, [partnerF, leads, rawIndex]);
+  const listIndex = useMemo(() => listMatchIndex(lists), [lists]);
+  const listedKeys = useMemo(() => {
+    const m = new Map<string, string[]>();
+    if (!listIndex.byName.size && !listIndex.byEmail.size) return m;
+    for (const l of leads) {
+      const on = listsHolding(listIndex, { email: l.email, contact: l.contact, company: l.company });
+      if (on.length) m.set(l.key, on.map((x) => x.id));
+    }
+    return m;
+  }, [leads, listIndex]);
+  const listFEff = listF === "all" || listF === "any" || listIndex.lists.some((x) => x.id === listF) ? listF : "all";
   // What a smart rule reads, built from `derived` only once the chat or a
   // rule is in use: nothing pays for it otherwise.
   const ruleFacts = useMemo(() => {
@@ -557,7 +572,7 @@ export default function AllLeads({
   const fromT = from ? Date.parse(`${from}T00:00:00`) : null;
   const toT = to ? Date.parse(`${to}T23:59:59.999`) : null;
 
-  type Key = "rule" | "visited" | "partner" | "inApollo" | "verdict" | "company" | "contact" | "level" | "fn" | "month" | "dates" | "status" | "search" | "notes" | "standing" | "lane" | "ready" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "owner" | "plan" | "planSeq" | "files" | "fileName" | "date";
+  type Key = "listed" | "rule" | "visited" | "partner" | "inApollo" | "verdict" | "company" | "contact" | "level" | "fn" | "month" | "dates" | "status" | "search" | "notes" | "standing" | "lane" | "ready" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "owner" | "plan" | "planSeq" | "files" | "fileName" | "date";
   const tests = useMemo(() => {
     const t: Record<Key, (l: StoredLead, d: Derived) => boolean> = {
       inApollo: (l, d) => inApolloF === "all"
@@ -588,6 +603,11 @@ export default function AllLeads({
       standing: (_l, d) => (standingF === "all" || (standingF === "needs" ? NEEDS.has(d.standing) : standingF === "noseq" ? NO_SEQUENCE.has(d.standing) : d.standing === standingF))
         && !(hideActive && d.standing === "active"),
       partner: (l) => !partnerKeys || partnerKeys.has(l.key),
+      listed: (l) => {
+        if (listFEff === "all") return true;
+        const on = listedKeys.get(l.key);
+        return !on || (listFEff !== "any" && !on.includes(listFEff));
+      },
       visited: (l) => !visitedOnly || !!l.webVisits?.visited,
       notes: (l) => nq.empty || matchesKeywords(`${(l.notes || "").toLowerCase()} \u0001${rawIndex?.get(l.key) ?? ""}`, nq),
       source: (l) => sourceF === "all" || l.source === sourceF,
@@ -626,7 +646,7 @@ export default function AllLeads({
       },
     };
     return t;
-  }, [ruleF, ruleFacts, periodKey, periodKind, inApolloF, verdictF, companyF, companyStats, contactF, levelF, fnF, dateF, statusF, q, kq, nq, rawIndex, standingF, laneF, readyOnly, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, ownerF, planF, planSeqF, filesF, fileNameF, fromT, toT, partnerKeys, exclIndustries, hideActive, visitedOnly]);
+  }, [ruleF, ruleFacts, periodKey, periodKind, inApolloF, verdictF, companyF, companyStats, contactF, levelF, fnF, dateF, statusF, q, kq, nq, rawIndex, standingF, laneF, readyOnly, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, ownerF, planF, planSeqF, filesF, fileNameF, fromT, toT, partnerKeys, exclIndustries, hideActive, visitedOnly, listFEff, listedKeys]);
 
   // Each lead's filters are evaluated ONCE per change, recording whether it
   // passes all of them ("") or fails exactly one (that key) or more (null).
@@ -854,6 +874,7 @@ export default function AllLeads({
   const chips: { label: string; clear: () => void }[] = [];
   if (readyOnly) chips.push({ label: "Ready to sequence", clear: () => setReadyOnly(false) });
   if (partnerF) chips.push({ label: "⚑ Wants a partner", clear: () => setPartnerF(false) });
+  if (listFEff !== "all") chips.push({ label: listFEff === "any" ? "Hiding leads on a list" : `Hiding leads on ${listIndex.lists.find((x) => x.id === listFEff)?.name ?? "a list"}`, clear: () => setListF("all") });
   if (laneF !== "all") chips.push({ label: `Email: ${laneF === "green" ? "Green-lit" : LANE_META[laneF].label}`, clear: () => setLaneF("all") });
   if (standingF !== "all") chips.push({ label: `Apollo: ${standingF === "needs" ? "Needs a sequence" : standingF === "noseq" ? "Never sequenced" : STANDING_META[standingF].label}`, clear: () => setStandingF("all") });
   if (!nq.empty) chips.push({ label: `Notes: ${noteSearch.trim()}`, clear: () => setNoteSearch("") });
@@ -1455,6 +1476,23 @@ export default function AllLeads({
             ⚑ Wants a partner{partnerF && partnerKeys && rawIndexState !== "loading" ? ` (${partnerKeys.size.toLocaleString()})` : ""}
             {partnerF && rawIndexState === "loading" ? " · reading notes…" : ""}
           </button>
+          {listedKeys.size > 0 && (() => {
+            // Counts honour every other filter, so each option says how many
+            // it would take off the screen.
+            const pool = leads.filter((l) => passes(l, "listed") && listedKeys.has(l.key));
+            const per = new Map<string, number>();
+            for (const l of pool) for (const id of listedKeys.get(l.key)!) per.set(id, (per.get(id) ?? 0) + 1);
+            return (
+              <select className="field" aria-label="Leads already on a list" value={listFEff} onChange={(e) => setListF(e.target.value)}
+                      title="Leads you already put on a list you built (same email, or same full name at the same company). Smart lists don't count. Hiding them also keeps them out of every export.">
+                <option value="all">On a list: show ({pool.length.toLocaleString()})</option>
+                <option value="any">Hide {pool.length.toLocaleString()} on any list</option>
+                {listIndex.lists.filter((x) => per.has(x.id)).map((x) => (
+                  <option key={x.id} value={x.id}>Hide {per.get(x.id)!.toLocaleString()} on {x.name}{x.status === "cycled" ? " (cycled)" : ""}</option>
+                ))}
+              </select>
+            );
+          })()}
           <button className={`filter-btn${hideActive ? " on" : ""}`} aria-pressed={hideActive} onClick={() => setHideActive((v) => !v)}
                   title="Leave out every lead that is active in an Apollo sequence right now, so a new campaign never doubles up on someone already being worked.">
             Hide active in a sequence

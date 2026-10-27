@@ -10,6 +10,7 @@ import { buildExportRow, getFullName, normalizeDupKey, EXPORT_LABELS, type Categ
 import { toCSV } from "./csv";
 import { buildContactIndex, lookupContact, type Contact } from "./contacts";
 import type { SmartRule } from "./smartRules";
+import { normCompany, normEmail } from "./leadStore";
 
 export type ListedLeadRow = ExportRow & {
   __rowKey: string;
@@ -108,6 +109,69 @@ export function campaignMembership(lists: LeadList[]): Map<string, LeadList[]> {
     }
   }
   return m;
+}
+
+/* ------------------------------------------------- "already on a list" */
+// Per Jack: "filter out leads added to a list so if i upload a csv to scan i
+// can remove ones i added to a list or even in all leads". The lists that
+// count are the ones he BUILT: hand-picked, snapshots, Refresher hand-offs,
+// cycled ones included (those leads were still worked). A smart list (one
+// with a `rule`) is a live view re-run from the leads, not a record of who
+// was picked, so it never hides anyone.
+export type ListPick = "any" | string;
+
+export interface ListMatchIndex {
+  byName: Map<string, LeadList[]>;
+  byEmail: Map<string, LeadList[]>;
+  /** The built lists, newest first, for a picker. */
+  lists: LeadList[];
+}
+
+export const isBuiltList = (l: LeadList) => !l.rule;
+
+function nameKey(name: unknown, company: unknown): string {
+  const n = String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const c = normCompany(company);
+  return n && c ? `${n}::${c}` : "";
+}
+function emailKey(email: unknown): string {
+  const e = normEmail(email);
+  return e.includes("@") ? e : "";
+}
+
+export function listMatchIndex(lists: LeadList[]): ListMatchIndex {
+  const byName = new Map<string, LeadList[]>();
+  const byEmail = new Map<string, LeadList[]>();
+  const add = (m: Map<string, LeadList[]>, k: string, l: LeadList) => {
+    if (!k) return;
+    const arr = m.get(k);
+    if (!arr) m.set(k, [l]); else if (!arr.includes(l)) arr.push(l);
+  };
+  const built = lists.filter(isBuiltList);
+  for (const l of built) {
+    for (const r of l.rows) {
+      add(byName, nameKey(`${r["First Name"] || ""} ${r["Last Name"] || ""}`, r["Company Name"]), l);
+      add(byEmail, emailKey(r.Email), l);
+    }
+  }
+  const lists2 = [...built].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+  return { byName, byEmail, lists: lists2 };
+}
+
+/** Every built list this person is on: same email, or same full name at
+ *  the same company. A lead with neither can't be matched and isn't. */
+export function listsHolding(idx: ListMatchIndex, lead: { contact?: string; company?: string; email?: string }): LeadList[] {
+  const out: LeadList[] = [];
+  for (const l of idx.byEmail.get(emailKey(lead.email)) ?? []) out.push(l);
+  for (const l of idx.byName.get(nameKey(lead.contact, lead.company)) ?? []) if (!out.includes(l)) out.push(l);
+  return out;
+}
+
+/** On the picked list ("any" = any built list). */
+export function onPickedList(idx: ListMatchIndex, lead: { contact?: string; company?: string; email?: string }, pick: ListPick): boolean {
+  if (!idx.byName.size && !idx.byEmail.size) return false;
+  const on = listsHolding(idx, lead);
+  return pick === "any" ? on.length > 0 : on.some((l) => l.id === pick);
 }
 
 export function updateLeadListMeta(lists: LeadList[], id: string, patch: Partial<Pick<LeadList, "tags" | "campaign" | "cycleDays" | "status">>): LeadList[] {

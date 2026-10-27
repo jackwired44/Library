@@ -14,7 +14,7 @@ import {
   type ScannerKind, type Scanner2ExportRow, reconcileCspColumns, exportLabelsFor,
   partnerPostureOf, SMC_PARTNER_META, type SmcPartnerPosture,
 } from "../lib/scanner2";
-import type { LeadList } from "../lib/leadLists";
+import { listMatchIndex, listsHolding, type LeadList, type ListPick } from "../lib/leadLists";
 import { POSTURE_META, OPEN_RENEWAL_MARK, DEFAULT_CSP_RULES, resolveCspRules, CSP_COLUMN_HINTS, cspPartnerLabel, compareCspLeads, BILLING_META, WEIGHT_META, type CspRules, type PartnerPosture, type BillingQuality } from "../lib/cspRenewal";
 import {
   SMC_PRODUCTS, SMC_STAGES, salesGaps, resolveSmcRules, DEFAULT_SMC_RULES,
@@ -946,6 +946,36 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
     return m;
   }, [result, apolloIndex]);
   const apolloByEmail = useMemo(() => [...apolloHits.values()].filter((h) => h.how === "email").length, [apolloHits]);
+  // Per Jack: "if i upload a csv to scan i can remove ones i added to a
+  // list". Leads on a list he built (smart lists don't count) are hidden
+  // from the table, its counts and every download. Same matcher as the Main
+  // Scanner and All leads (lib/leadLists.ts, listsHolding).
+  const listIndex = useMemo(() => listMatchIndex(lists), [lists]);
+  const [listHide, setListHideState] = useState<"off" | ListPick>(() => {
+    try { return localStorage.getItem("scannerListHide") || "off"; } catch { return "off"; }
+  });
+  const setListHide = (v: "off" | ListPick) => { setListHideState(v); try { localStorage.setItem("scannerListHide", v); } catch { /* preference only */ } };
+  const listHideEff: "off" | ListPick = listHide === "off" || listHide === "any" || listIndex.lists.some((l) => l.id === listHide) ? listHide : "off";
+  const listedRows = useMemo(() => {
+    const m = new Map<string, string[]>();
+    if (!result || (!listIndex.byName.size && !listIndex.byEmail.size)) return m;
+    for (const r of result.rows) {
+      const on = listsHolding(listIndex, { email: r.lead.email, contact: r.lead.contact, company: r.lead.company });
+      if (on.length) m.set(r.id, on.map((l) => l.id));
+    }
+    return m;
+  }, [result, listIndex]);
+  const hideListed = useMemo(() => {
+    const out = new Set<string>();
+    if (listHideEff === "off") return out;
+    for (const [id, ids] of listedRows) if (listHideEff === "any" || ids.includes(listHideEff)) out.add(id);
+    return out;
+  }, [listedRows, listHideEff]);
+  const listedPerList = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const ids of listedRows.values()) for (const id of ids) m.set(id, (m.get(id) ?? 0) + 1);
+    return m;
+  }, [listedRows]);
   function saveBatch(checkInApollo = false) {
     if (!result || !onStoreLeads) return;
     const r = onStoreLeads(result.rows, kind, checkInApollo);
@@ -1299,6 +1329,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
     return {
       bucket: (r: Row2) => bucketFilter === "all" || effBucket(r) === bucketFilter,
       apollo: (r: Row2) => !hideInApollo || !apolloHits.has(r.id),
+      listed: (r: Row2) => !hideListed.has(r.id),
       curation: (r: Row2) => {
         const d = r.leadKey ? curation[r.leadKey]?.decision : undefined;
         if (curationFilter === "all") return true;
@@ -1374,7 +1405,7 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
       },
       search: (r: Row2) => searchHits === null || searchHits.has(r.id),
     };
-  }, [hideInApollo, apolloHits, bucketFilter, curationFilter, searchHits, curation, productFilter, gapsOnly, callableOnly, smcRules, fromDate, toDate, postureFilter, billingFilter, minScore, maxScore, minValue, lineFilter, effBucket, isCsp, phoneOnly, partnerFilter, smcPostureFilter, renewalFilter]);
+  }, [hideInApollo, apolloHits, hideListed, bucketFilter, curationFilter, searchHits, curation, productFilter, gapsOnly, callableOnly, smcRules, fromDate, toDate, postureFilter, billingFilter, minScore, maxScore, minValue, lineFilter, effBucket, isCsp, phoneOnly, partnerFilter, smcPostureFilter, renewalFilter]);
 
   type FilterKey = keyof typeof tests;
 
@@ -1917,6 +1948,22 @@ export default function Scanner2({ kind = "smc", lists = [], onAddToList, onStor
                 <input type="checkbox" checked={hideInApollo} onChange={(e) => setHideInApollo(e.target.checked)} />
                 Leave them out of downloads (still shown here)
               </label>
+            </div>
+          )}
+          {listedRows.size > 0 && (
+            <div className="scan-note" aria-label="Already on a list" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <span title="Same email, or the same full name at the same company, as a lead on a list you built. Smart lists don't count.">
+                <strong>{listedRows.size.toLocaleString()}</strong> of these rows {listedRows.size === 1 ? "is" : "are"} already on a list
+                {hideListed.size > 0 && <span style={{ color: "var(--muted)" }}> ({hideListed.size.toLocaleString()} hidden from the table and downloads)</span>}
+              </span>
+              <select className="field" aria-label="Leads already on a list" value={listHideEff} onChange={(e) => setListHide(e.target.value)}
+                      title="Hiding them takes them out of the table, the counts and the downloads.">
+                <option value="off">Show them</option>
+                <option value="any">Hide {listedRows.size.toLocaleString()} on any list</option>
+                {listIndex.lists.filter((l) => listedPerList.has(l.id)).map((l) => (
+                  <option key={l.id} value={l.id}>Hide {listedPerList.get(l.id)!.toLocaleString()} on {l.name}{l.status === "cycled" ? " (cycled)" : ""}</option>
+                ))}
+              </select>
             </div>
           )}
           {apolloIndex && apolloIndex.size === 0 && (

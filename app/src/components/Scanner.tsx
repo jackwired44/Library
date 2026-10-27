@@ -36,7 +36,7 @@ import { dispositionMetaFor, type CustomDisposition } from "../lib/dispositions"
 import DispositionOptions from "./DispositionOptions";
 import type { CompanyEnrichOutcome } from "../lib/apolloEnrich";
 import { downloadCSV, parseCSVFile, parseCSVText } from "../lib/csv";
-import type { LeadList } from "../lib/leadLists";
+import { listMatchIndex, listsHolding, type LeadList, type ListPick } from "../lib/leadLists";
 import BookedStamp from "./BookedStamp";
 import OnCrmBadge from "./OnCrmBadge";
 import { apolloHitFor, type ApolloHit, type RosterIndex } from "../lib/apolloRoster";
@@ -94,6 +94,9 @@ interface Facets {
   q: string;
   /** Rows to leave out — the ones already in Apollo, when hidden. */
   excludeIds?: Set<string>;
+  /** Rows hidden everywhere — table, counts and downloads — because they
+   *  are already on a list Jack built. */
+  hideIds?: Set<string>;
 }
 
 function applyFacets(rows: ResultRow[], f: Facets): ResultRow[] {
@@ -118,6 +121,7 @@ function applyFacets(rows: ResultRow[], f: Facets): ResultRow[] {
   // ⚑ badge (isPartnerSeeking), never as a guess.
   if (f.partnerOnly) list = list.filter((r) => r.wantsPartner ?? r.isPartnerSeeking);
   if (f.excludeIds?.size) list = list.filter((r) => !f.excludeIds!.has(r.id));
+  if (f.hideIds?.size) list = list.filter((r) => !f.hideIds!.has(r.id));
   const q = f.q.trim().toLowerCase();
   if (q) {
     list = list.filter((r) => {
@@ -699,6 +703,38 @@ export default function Scanner({
   const apolloIds = useMemo(() => new Set(apolloHits.keys()), [apolloHits]);
   const apolloByEmail = useMemo(() => [...apolloHits.values()].filter((h) => h.how === "email").length, [apolloHits]);
 
+  // Per Jack: "if i upload a csv to scan i can remove ones i added to a
+  // list". Leads on a list he built (smart lists don't count) are hidden
+  // from the table, every count and every download, so the numbers on
+  // screen always match the file. "off" shows everyone.
+  const listIndex = useMemo(() => listMatchIndex(leadLists), [leadLists]);
+  const [listHide, setListHideState] = useState<"off" | ListPick>(() => {
+    try { return localStorage.getItem("scannerListHide") || "off"; } catch { return "off"; }
+  });
+  const setListHide = (v: "off" | ListPick) => { setListHideState(v); try { localStorage.setItem("scannerListHide", v); } catch { /* preference only */ } };
+  const listHideEff: "off" | ListPick = listHide === "off" || listHide === "any" || listIndex.lists.some((l) => l.id === listHide) ? listHide : "off";
+  const listedRows = useMemo(() => {
+    const m = new Map<string, string[]>();
+    if (!results || (!listIndex.byName.size && !listIndex.byEmail.size)) return m;
+    for (const r of results) {
+      const f = r.row.__f;
+      const on = listsHolding(listIndex, { email: f.email, contact: getFullName(f), company: f.company });
+      if (on.length) m.set(r.id, on.map((l) => l.id));
+    }
+    return m;
+  }, [results, listIndex]);
+  const hideIds = useMemo(() => {
+    if (listHideEff === "off" || !listedRows.size) return undefined;
+    const out = new Set<string>();
+    for (const [id, ids] of listedRows) if (listHideEff === "any" || ids.includes(listHideEff)) out.add(id);
+    return out;
+  }, [listedRows, listHideEff]);
+  const listedPerList = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const ids of listedRows.values()) for (const id of ids) m.set(id, (m.get(id) ?? 0) + 1);
+    return m;
+  }, [listedRows]);
+
   const facets: Facets = {
     tier: tierFilter,
     category: categoryFilter,
@@ -708,6 +744,7 @@ export default function Scanner({
     prioOnly: priorityOnly,
     partnerOnly,
     q: search,
+    hideIds,
     // Per Jack: "says 171 strong signal show me 17". Hiding Apollo matches
     // from the TABLE made 154 Strong Signal leads vanish under a tab still
     // counting 171. The table now always shows every lead (each Apollo
@@ -742,7 +779,7 @@ export default function Scanner({
     // never overlap - a Google lead is always M365/Azure).
     return sortTopPriorityFirst(ranked);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [results, tierFilter, categoryFilter, duplicatesOnly, priorityOnly, partnerOnly, search, dynamicsSortDesc, sortBy, m365SubView, dynamicsSubView]);
+  }, [results, tierFilter, categoryFilter, duplicatesOnly, priorityOnly, partnerOnly, search, dynamicsSortDesc, sortBy, m365SubView, dynamicsSubView, hideIds]);
 
   // Every count badge is computed with EVERY OTHER active filter applied,
   // but not its own — so the number on a button is exactly how many rows
@@ -785,7 +822,7 @@ export default function Scanner({
       partner: n({ partnerOnly: true }),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [results, tierFilter, categoryFilter, duplicatesOnly, priorityOnly, partnerOnly, search, m365SubView, dynamicsSubView]);
+  }, [results, tierFilter, categoryFilter, duplicatesOnly, priorityOnly, partnerOnly, search, m365SubView, dynamicsSubView, hideIds]);
 
   // The KPI rail describes the BATCH, not the current view — it sits next
   // to "Rows scanned", which is always the whole upload. Wiring it to the
@@ -1374,6 +1411,7 @@ export default function Scanner({
           if (lastScanStats.duplicatesRemoved > 0) facts.push({ key: "dupes", node: <span title={`Exact name + company already seen in this upload, merged into the first-seen row${lastScanStats.largestDuplicateGroup > 2 ? `. One lead appeared ${lastScanStats.largestDuplicateGroup} times.` : "."}`}>{lastScanStats.duplicatesRemoved.toLocaleString()} duplicates merged</span> });
         }
         if (n > 0) facts.push({ key: "apollo", node: <>{n.toLocaleString()} already in Apollo ({apolloByEmail.toLocaleString()} by email{byName > 0 ? `, ${byName.toLocaleString()} by name only` : ""})</> });
+        if (listedRows.size > 0) facts.push({ key: "listed", node: <span title="Same email, or the same full name at the same company, as a lead on a list you built. Smart lists don't count.">{listedRows.size.toLocaleString()} already on a list{hideIds?.size ? ` (${hideIds.size.toLocaleString()} hidden)` : ""}</span> });
         if (apolloIndex && apolloIndex.size === 0) facts.push({ key: "nocheck", node: <span title="Import an Apollo sync in All leads and every upload is checked against it.">Not checked against Apollo yet</span> });
         if (autoEnrichCompanies && pendingEnrich.length > 0) facts.push({ key: "enrich", node: <>{pendingEnrich.length.toLocaleString()} {pendingEnrich.length === 1 ? "company" : "companies"} to look up</> });
         const stats = [
@@ -1434,6 +1472,17 @@ export default function Scanner({
                           title="Every lead stays in the table and in All leads. This only decides whether the Apollo matches go into the CSV downloads.">
                     <option value="out">Leave out {n.toLocaleString()} already in Apollo{hideInApollo && leftOut > 0 ? ` (${leftOut.toLocaleString()} Strong Signal)` : ""}</option>
                     <option value="in">Include {n.toLocaleString()} already in Apollo</option>
+                  </select>
+                )}
+                {listedRows.size > 0 && (
+                  <select className="field dl-apollo" aria-label="Leads already on a list" value={listHideEff}
+                          onChange={(e) => setListHide(e.target.value)}
+                          title="Leads you already put on a list you built (smart lists don't count). Hiding them takes them out of the table, the counts and the downloads.">
+                    <option value="off">Show {listedRows.size.toLocaleString()} already on a list</option>
+                    <option value="any">Hide {listedRows.size.toLocaleString()} on any list</option>
+                    {listIndex.lists.filter((l) => listedPerList.has(l.id)).map((l) => (
+                      <option key={l.id} value={l.id}>Hide {listedPerList.get(l.id)!.toLocaleString()} on {l.name}{l.status === "cycled" ? " (cycled)" : ""}</option>
+                    ))}
                   </select>
                 )}
               </div>
@@ -1854,6 +1903,12 @@ export default function Scanner({
                         <span className="pill" style={{ marginLeft: 6, fontSize: 11, color: "#9A5B22", background: "#FBF0E2" }}
                               title={`Already in Apollo (matched by ${apolloHits.get(r.id)!.how === "email" ? "email" : "name only — check"})${apolloHits.get(r.id)!.sequences.length ? `\n${apolloHits.get(r.id)!.sequences.join("\n")}` : ""}`}>
                           In Apollo{apolloHits.get(r.id)!.how === "name" ? "?" : ""}
+                        </span>
+                      )}
+                      {listedRows.get(r.id) && (
+                        <span className="pill" data-on-list style={{ marginLeft: 6, fontSize: 11, color: "var(--ink-2)", background: "var(--surface-sunken)" }}
+                              title={`Already on: ${listedRows.get(r.id)!.map((id) => listIndex.lists.find((l) => l.id === id)?.name || "a list").join(", ")}`}>
+                          On a list
                         </span>
                       )}
                     </td>
