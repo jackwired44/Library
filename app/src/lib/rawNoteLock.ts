@@ -12,10 +12,10 @@
 import { useEffect, useState } from "react";
 import { sha256Hex } from "./auth";
 
-// Per Jack: "for all raw notes should be snell" — its own password, separate
-// from sign-in. Only the salted hash is here (same salt as lib/auth.ts).
+// Per Jack: "all passwords for raw are 2828" (was "snell") — its own
+// password, separate from sign-in. Only the salted hash is here (same salt as lib/auth.ts).
 const RAW_NOTE_SALT = "wired-cio-lead-scanner-v1";
-const RAW_NOTE_HASH = "cf550394c1118e5315ea2f7f66642c8c46afc3c0a83604e02ef783652e13c919";
+const RAW_NOTE_HASH = "8ed03ce00b4de88352040fa9e83c68baee98010def1c05678ff0e31761dd7262";
 async function checkRawNotePassword(input: string): Promise<boolean> {
   return (await sha256Hex(`${RAW_NOTE_SALT}:${input}`)) === RAW_NOTE_HASH;
 }

@@ -1,4 +1,4 @@
-// Raw notes are locked behind their own password ("snell") and only the
+// Raw notes are locked behind their own password ("2828") and only the
 // summarized note shows in All leads.
 // Per Jack: "raw note needs to be locked with password and not displayed".
 const BASE = process.env.BASE || 'http://localhost:4173';
@@ -46,13 +46,13 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await page.evaluate(() => document.querySelectorAll('details').forEach(d => { d.open = true; })); await sleep(300);
   let t = await body();
   ok('lead record: raw note and CSV rows locked', !t.includes('ZEBRA-7731') && /Raw notes are locked/.test(t));
-  // Per Jack: "for all raw notes should be snell" — its own password.
+  // Per Jack: "for all raw notes should be snell", later "all passwords for raw are 2828" — its own password.
   await page.fill('input[aria-label="Raw note password"]', 'changeme');
   await page.locator('button', { hasText: 'Unlock' }).last().click(); await sleep(600);
   { const bt = await body(); ok('lead record: the sign-in password does not unlock it', /Wrong password/i.test(bt) && !bt.includes('ZEBRA-7731')); }
-  await page.fill('input[aria-label="Raw note password"]', 'snell');
+  await page.fill('input[aria-label="Raw note password"]', '2828');
   await page.locator('button', { hasText: 'Unlock' }).last().click(); await sleep(800);
-  ok('lead record: unlocks with snell', (await body()).includes('ZEBRA-7731'));
+  ok('lead record: unlocks with 2828', (await body()).includes('ZEBRA-7731'));
   await page.locator('button[aria-label="Lock raw notes"]').first().click(); await sleep(400);
   ok('Lock hides it again', !(await body()).includes('ZEBRA-7731'));
 

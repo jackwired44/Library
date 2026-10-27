@@ -245,7 +245,26 @@ const PRESET: Record<LeadsPreset, { label: string; apollo: ApolloFilter; hint: s
   },
 };
 
-const PARTS_KEY = "allLeadsHiddenParts";
+// v2: per Jack, the table leads with First / Last / Title / Company /
+// Signal / Product line / Month / Apollo / Meetings / note. Per Jack "no
+// recycle no touchpoints no uploads … thats hidden": those and the other
+// four start hidden and can be turned on from Customize. Panel choices
+// carry over from v1.
+const PARTS_KEY = "allLeadsHiddenParts2";
+const OLD_PARTS_KEY = "allLeadsHiddenParts";
+const DEFAULT_HIDDEN_COLS = ["col-touches", "col-recycle", "col-uploads", "col-atco", "col-outreach", "col-disposition", "col-sequence"];
+function loadParts(items: typeof ALL_LEADS_PARTS): Set<string> {
+  try {
+    if (localStorage.getItem(PARTS_KEY) !== null) return loadHiddenSet(PARTS_KEY, items);
+  } catch { /* preference only */ }
+  const panels = [...loadHiddenSet(OLD_PARTS_KEY, items)].filter((id) => items.some((p) => p.id === id && p.group === "Panels"));
+  return new Set([...panels, ...DEFAULT_HIDDEN_COLS]);
+}
+/** "Ada Brant" -> first "Ada", last "Brant". One word is a first name. */
+function splitName(full: string): { first: string; last: string } {
+  const parts = String(full || "").trim().split(/\s+/).filter(Boolean);
+  return { first: parts[0] || "", last: parts.slice(1).join(" ") };
+}
 const FILTERS_OPEN_KEY = "allLeadsFiltersOpen";
 /** What Customize can show or hide on All leads. Column ids are "col-" +
  *  the table's data-col. Company and the checkbox always show. */
@@ -255,20 +274,22 @@ const ALL_LEADS_PARTS = [
   { id: "deliverability", group: "Panels", label: "Email deliverability" },
   { id: "filters", group: "Panels", label: "Search & filters" },
   { id: "bulk", group: "Panels", label: "Actions bar (check, list, export)" },
-  { id: "col-contact", group: "Table columns", label: "Contact" },
-  { id: "col-stored", group: "Table columns", label: "Stored as" },
+  { id: "col-last", group: "Table columns", label: "Last name" },
+  { id: "col-title", group: "Table columns", label: "Title" },
+  { id: "col-company", group: "Table columns", label: "Company" },
+  { id: "col-stored", group: "Table columns", label: "Signal" },
   { id: "col-line", group: "Table columns", label: "Product line" },
-  { id: "col-received", group: "Table columns", label: "Received" },
-  { id: "col-uploads", group: "Table columns", label: "Uploads" },
-  { id: "col-atco", group: "Table columns", label: "At company" },
-  { id: "col-meetings", group: "Table columns", label: "Meetings" },
-  { id: "col-inapollo", group: "Table columns", label: "In Apollo" },
+  { id: "col-received", group: "Table columns", label: "Month" },
+  { id: "col-inapollo", group: "Table columns", label: "Apollo (where it stands)" },
   { id: "col-touches", group: "Table columns", label: "Touchpoints" },
   { id: "col-recycle", group: "Table columns", label: "Recycle" },
+  { id: "col-uploads", group: "Table columns", label: "Uploads" },
+  { id: "col-meetings", group: "Table columns", label: "Meetings" },
+  { id: "col-notes", group: "Table columns", label: "Scanned note" },
+  { id: "col-atco", group: "Table columns", label: "At company" },
   { id: "col-outreach", group: "Table columns", label: "Outreach" },
   { id: "col-disposition", group: "Table columns", label: "Disposition" },
   { id: "col-sequence", group: "Table columns", label: "Sequence" },
-  { id: "col-notes", group: "Table columns", label: "Scanned note" },
 ] as const;
 
 const NO_INDUSTRY = "(not enriched)";
@@ -339,7 +360,7 @@ export default function AllLeads({
   // Per Jack: "make it customizable like the home page". Which panels and
   // table columns show, and whether the search-and-filters section is open:
   // display preferences in this browser only.
-  const [hiddenParts, setHiddenPartsState] = useState<Set<string>>(() => loadHiddenSet(PARTS_KEY, ALL_LEADS_PARTS));
+  const [hiddenParts, setHiddenPartsState] = useState<Set<string>>(() => loadParts(ALL_LEADS_PARTS));
   const setHiddenParts = (h: Set<string>) => { setHiddenPartsState(h); saveHiddenSet(PARTS_KEY, h); };
   const show = (id: string) => !hiddenParts.has(id);
   const hiddenCols = ALL_LEADS_PARTS.filter((p) => p.group === "Table columns" && hiddenParts.has(p.id)).map((p) => p.id.slice(4));
@@ -1929,21 +1950,23 @@ export default function AllLeads({
               <th className="pin pin-0" style={{ width: 30 }}>
                 <input type="checkbox" checked={allShownSelected} onChange={selectPage} aria-label="Select this page" />
               </th>
-              <th className="pin pin-1">Company</th>
-              <th data-col="contact">Contact</th>
-              <th data-col="stored" title="Strong Signal, Needs Review or Bad Lead — from the scanner that stored it">Stored as</th>
+              <th className="pin pin-1" data-col="first">First name</th>
+              <th data-col="last">Last name</th>
+              <th data-col="title">Title</th>
+              <th data-col="company">Company</th>
+              <th data-col="stored" title="Strong Signal, Needs Review or Bad Lead — from the scanner that stored it">Signal</th>
               <th data-col="line">Product line</th>
-              <th data-col="received" title="The date the file states, or the upload date if it states none">Received</th>
-              <th data-col="uploads" className="num" title="How many different CSV files this lead was in">Uploads</th>
-              <th data-col="atco" title="Every lead we hold at this company">At company</th>
-              <th data-col="meetings" title="A deal or sales meeting on file in HubSpot, Notion or Echo. These are Account manager only: not to be reached out to again.">Meetings</th>
-              <th data-col="inapollo" title="Already a contact in Apollo — from your pulled uploads or a sync">In Apollo</th>
+              <th data-col="received" title="The date the file states, or the upload date if it states none">Month</th>
+              <th data-col="inapollo" title="Where it stands in Apollo: in a sequence, ended, in Apollo with no sequence, or not in Apollo">Apollo</th>
               <th data-col="touches" className="num" title="Calls and emails Apollo has logged to this lead">Touchpoints</th>
               <th data-col="recycle" title="When an unanswered or not-interested lead comes back for a new sequence — see the Recycle tab">Recycle</th>
+              <th data-col="uploads" className="num" title="How many different CSV files this lead was in">Uploads</th>
+              <th data-col="meetings" title="A deal or sales meeting on file in HubSpot, Notion or Echo. These are Account manager only: not to be reached out to again.">Meetings</th>
+              <th data-col="notes" title="The note the scanner wrote">Scanned note</th>
+              <th data-col="atco" title="Every lead we hold at this company">At company</th>
               <th data-col="outreach" title="Has anyone got through? From the Apollo sync.">Outreach</th>
               <th data-col="disposition" title="The latest call disposition in Apollo">Disposition</th>
               <th data-col="sequence" title="The Apollo sequence this lead is in, from the last sync">Sequence</th>
-              <th data-col="notes" title="The note the scanner wrote">Scanned note</th>
             </tr>
           </thead>
           <tbody>
@@ -1960,9 +1983,11 @@ export default function AllLeads({
                   <td className="pin pin-0" onClick={(e) => e.stopPropagation()}>
                     <input type="checkbox" checked={selected.has(l.key)} onChange={() => toggle(l.key)} aria-label={`Select ${l.company}`} />
                   </td>
-                  <td className="pin pin-1 strong" title={l.company}>{l.company || "—"}</td>
-                  <td data-col="contact" title={[l.contact, l.title, l.email, LANE_META[d.lane].hint].filter(Boolean).join(" · ")}>
-                    {l.contact || "—"}
+                  <td className="pin pin-1 strong" data-col="first" title={[l.contact, l.title, l.email, LANE_META[d.lane].hint].filter(Boolean).join(" · ")}>
+                    {splitName(l.contact).first || "—"}
+                  </td>
+                  <td data-col="last">
+                    {splitName(l.contact).last || <span className="muted">—</span>}
                     {(l.contact || l.company) && (
                       <button className="btn btn-sm btn-ghost" style={{ padding: "0 4px", marginLeft: 4, fontSize: 11 }}
                               aria-label={`Copy ${l.contact || l.company}`}
@@ -1974,6 +1999,10 @@ export default function AllLeads({
                                 }
                               }}>{copiedKey === l.key ? "✓" : "⧉"}</button>
                     )}
+                  </td>
+                  <td data-col="title" title={l.title} style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.title || <span className="muted">—</span>}</td>
+                  <td data-col="company" className="strong" title={l.company}>
+                    {l.company || "—"}
                     {d.lane !== "no-email" && <span className="pill" data-lane={d.lane} style={{ marginLeft: 6, fontSize: 10.5, color: LANE_META[d.lane].color, background: LANE_META[d.lane].bg }}>{LANE_META[d.lane].short}</span>}
                     {l.webVisits?.visited && (
                       <span className="pill" aria-label="Visited wiredcio.com" style={{ marginLeft: 6, fontSize: 10.5, color: "#0A66C2", background: "#EAF3FC" }}
@@ -1987,22 +2016,6 @@ export default function AllLeads({
                   </td>
                   <td data-col="line">{d.line === NO_LINE ? <span className="muted">—</span> : d.line}</td>
                   <td data-col="received" title={monthLabelOf(d.month)}>{d.month.endsWith("~") ? "~" : ""}{shortMonthLabel(viewMonthKey(d.month))}</td>
-                  <td data-col="uploads" className="num" title={l.sourceFiles.join("\n")}>
-                    {d.files}{d.files > 1 && d.segs > 1 && <span className="muted" title="The notes differ between these uploads"> · changed</span>}
-                  </td>
-                  <td data-col="atco" title={co ? co.names.join("\n") : undefined}>
-                    {!co || co.contacts < 2 ? <span className="muted">1</span>
-                      : <>{co.contacts}<span className="muted"> · {co.worked} worked</span></>}
-                  </td>
-                  <td data-col="meetings" title={d.engaged ? d.engaged.items.map((e) => `${ENGAGEMENT_SOURCE_META[e.source].label} ${ENGAGEMENT_SOURCE_META[e.source].kind}: ${[e.company, e.stage, e.at].filter(Boolean).join(" · ")}`).concat(`Matched by ${d.engaged.how}`).join("\n") : "No deal or meeting on file"}>
-                    {d.engaged ? (
-                      <>
-                        <span className="pill" style={{ color: "#7A1F1F", background: "#F6E3E3" }}>{isCustomer(d.engaged) ? "Customer · AM only" : "Account manager only"}</span>
-                        <div className="muted" style={{ fontSize: 11 }}>{engagementLabel(d.engaged)}</div>
-                        {d.active && <div style={{ fontSize: 11, color: "#B5443B" }}>⚠ still active in a sequence</div>}
-                      </>
-                    ) : <span className="muted">—</span>}
-                  </td>
                   <td data-col="inapollo" title={d.inApollo ? [`Matched by ${d.inApollo.how === "sync" ? "an Apollo sync" : d.inApollo.how}`, d.inApollo.uploadedAt ? `Uploaded to Apollo ${d.inApollo.uploadedAt}` : "", ...d.inApollo.sequences].filter(Boolean).join("\n") : "Not found among your Apollo uploads"}>
                     {d.inApollo
                       ? <span className="pill" style={{ color: "#0A66C2", background: "#EAF3FC" }}>In Apollo{d.inApollo.uploadedAt ? ` · ${d.inApollo.uploadedAt}` : ""}</span>
@@ -2025,6 +2038,26 @@ export default function AllLeads({
                           {rc.recycleOn && rc.stage === "resting" && <div className="muted" style={{ fontSize: 11 }}>{recycleLabel(rc)}</div>}</>
                       : <span className="muted" style={{ fontSize: 12 }}>{rc.stage === "building" ? rc.reason : "—"}</span>}
                   </td>
+                  <td data-col="uploads" className="num" title={l.sourceFiles.join("\n")}>
+                    {d.files}{d.files > 1 && d.segs > 1 && <span className="muted" title="The notes differ between these uploads"> · changed</span>}
+                  </td>
+                  <td data-col="meetings" title={d.engaged ? d.engaged.items.map((e) => `${ENGAGEMENT_SOURCE_META[e.source].label} ${ENGAGEMENT_SOURCE_META[e.source].kind}: ${[e.company, e.stage, e.at].filter(Boolean).join(" · ")}`).concat(`Matched by ${d.engaged.how}`).join("\n") : "No deal or meeting on file"}>
+                    {d.engaged ? (
+                      <>
+                        <span className="pill" style={{ color: "#7A1F1F", background: "#F6E3E3" }}>{isCustomer(d.engaged) ? "Customer · AM only" : "Account manager only"}</span>
+                        <div className="muted" style={{ fontSize: 11 }}>{engagementLabel(d.engaged)}</div>
+                        {d.active && <div style={{ fontSize: 11, color: "#B5443B" }}>⚠ still active in a sequence</div>}
+                      </>
+                    ) : <span className="muted">—</span>}
+                  </td>
+                  <td data-col="notes" title={l.notes} style={{ maxWidth: 260 }}>
+                    {newestNote(l.notes) || "—"}
+                    {d.segs > 1 && <span className="muted"> +{d.segs - 1} earlier</span>}
+                  </td>
+                  <td data-col="atco" title={co ? co.names.join("\n") : undefined}>
+                    {!co || co.contacts < 2 ? <span className="muted">1</span>
+                      : <>{co.contacts}<span className="muted"> · {co.worked} worked</span></>}
+                  </td>
                   <td data-col="outreach" title={`${cm.hint}${a ? `\n${a.callCount} call${a.callCount === 1 ? "" : "s"}${a.emailCount !== undefined ? ` · ${a.emailCount} email${a.emailCount === 1 ? "" : "s"}` : ""}` : ""}`}>
                     <span className="pill" style={{ color: cm.color, background: cm.bg }}>{cm.label}</span>
                   </td>
@@ -2044,10 +2077,6 @@ export default function AllLeads({
                           </span>
                           {a.sequences.length > 1 && <span className="muted"> +{a.sequences.length - 1}</span>}
                         </>}
-                  </td>
-                  <td data-col="notes" title={l.notes} style={{ maxWidth: 260 }}>
-                    {newestNote(l.notes) || "—"}
-                    {d.segs > 1 && <span className="muted"> +{d.segs - 1} earlier</span>}
                   </td>
                 </tr>
               );

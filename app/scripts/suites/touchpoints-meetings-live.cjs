@@ -82,6 +82,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await ctx.addInitScript(FAKE);
   const page = await ctx.newPage();
   await page.addInitScript(() => { try { localStorage.setItem('skipFileNameBox', '1'); } catch { /* ignore */ } });
+  // These checks read columns All leads now hides by default; show every column.
+  await page.addInitScript(() => { try { if (localStorage.getItem('allLeadsHiddenParts2') === null) localStorage.setItem('allLeadsHiddenParts2', '[]'); } catch { /* ignore */ } });
   const errs = [];
   page.on('pageerror', e => errs.push(e.message));
   page.on('dialog', d => d.accept());

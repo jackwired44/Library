@@ -7417,3 +7417,21 @@ way to mass push it".
   file, and All leads shows "N have no saved CSV row · re-upload N files"
   with the file list. Only those files need re-uploading.
 - Suites: `upload-check-live` 26 → 28, `note-refresh-live` 16 → 18.
+
+### 2026-10-27: All leads table columns; raw-note password is 2828 (scanner-platform-v29)
+
+Per Jack: "contact storing needs to be more ui friendly some of the columns
+are not needed … first last name, title, company, signal type and product
+line from what month and where it stands in apollo … meetings", then "no
+recycle no touchpoints no uploads … thats hidden", and "all passwords for
+raw are 2828".
+- Default columns: First name (pinned) · Last name (copy button) · Title ·
+  Company (email-lane / visited pills) · Signal · Product line · Month ·
+  Apollo · Meetings · Scanned note. Hidden by default, one click in
+  Customize: Touchpoints, Recycle, Uploads, At company, Outreach,
+  Disposition, Sequence. `splitName` splits on the first space.
+- Preference key moved to `allLeadsHiddenParts2` (`DEFAULT_HIDDEN_COLS`);
+  hidden panels carry over from the old key.
+- Raw-note password is now 2828 (`RAW_NOTE_HASH`, `lib/rawNoteLock.ts`).
+- Suites that read hidden columns show every column via an init script;
+  `dashboard-live` matches names across the first/last cell break.

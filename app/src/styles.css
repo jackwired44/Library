@@ -2635,3 +2635,6 @@ details.panel.fold[open] > summary.fold-head::before { content: "▾"; }
 }
 .scan-enrich-head { font-weight: 600; font-size: 12px; margin-bottom: 4px; }
 .scan-fold-body input[type="checkbox"] { margin: 0; }
+
+/* All leads pins the first name, not the company: a narrower sticky column. */
+.dense-table.all-leads-table .pin-1 { min-width: 90px; max-width: 140px; }

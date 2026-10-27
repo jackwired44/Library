@@ -57,6 +57,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   const page = await ctx.newPage();
   // Downloads go straight through; the name box is tested in download-name-live.
   await page.addInitScript(() => { try { localStorage.setItem('skipFileNameBox', '1'); } catch { /* ignore */ } });
+  // These checks read columns All leads now hides by default; show every column.
+  await page.addInitScript(() => { try { if (localStorage.getItem('allLeadsHiddenParts2') === null) localStorage.setItem('allLeadsHiddenParts2', '[]'); } catch { /* ignore */ } });
   const errs = [];
   page.on('pageerror', e => errs.push('PAGEERROR ' + e.message));
   page.on('dialog', d => d.accept());
@@ -98,7 +100,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('Apollo\'s verified address is green-lit', /1 of 4 green-lit to email/.test(d), d);
   ok('  the catch-all Apollo screens is kept, call-first (not dropped)', /1 Catch-all, screened — call first/.test(d), d);
   ok('  the two Apollo doesn\'t hold are not verified yet', /2 Not verified yet/.test(d), d);
-  ok('  each row carries its badge', /Ada Brant\s*(⧉\s*)?✓ Verified/.test(await page.locator('.data-table tbody').innerText()));
+  ok('  each row carries its badge', /✓ Verified/.test(await rowOf('ACTIVE CO')), await rowOf('ACTIVE CO'));
   const exp = await page.locator('[aria-label="Email deliverability"] button', { hasText: 'to verify' }).innerText();
   ok('  export offers only what Apollo couldn\'t settle (screened + unverified = 3)', /Export 3 to verify/.test(exp), exp);
   const ZB = path.join(os.tmpdir(), 'zb-results.csv');

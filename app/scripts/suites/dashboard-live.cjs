@@ -37,6 +37,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
 (async () => {
   const b = await chromium.launch({ executablePath: EXE });
   const page = await (await b.newContext({ viewport: { width: 1600, height: 1000 } })).newPage();
+  // These checks read columns All leads now hides by default; show every column.
+  await page.addInitScript(() => { try { if (localStorage.getItem('allLeadsHiddenParts2') === null) localStorage.setItem('allLeadsHiddenParts2', '[]'); } catch { /* ignore */ } });
   const errs = [];
   page.on('pageerror', e => errs.push('PAGEERROR ' + e.message));
   page.on('console', m => { if (m.type() === 'error' && !/favicon|font|net::|googleapis|Failed to load/i.test(m.text())) errs.push('CONSOLE ' + m.text()); });
@@ -103,10 +105,12 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   const rowH = await page.locator('.dense-table tbody tr').first().evaluate((el) => el.getBoundingClientRect().height);
   ok('rows are one line (~30px), so 50-100 fit a scroll', rowH <= 36, String(rowH));
   ok('100 rows per page by default', (await page.locator('select:has(option[value="500"])').inputValue()) === '100');
-  const row = async (name) => (await page.locator('.dense-table tbody tr', { hasText: name }).first().innerText()).replace(/\s+/g, ' ');
+  // First and last name are separate columns now, so match across the cell break.
+  const byName = (name) => ({ hasText: new RegExp(name.split(' ').join('\\s*')) });
+  const row = async (name) => (await page.locator('.dense-table tbody tr', byName(name)).first().innerText()).replace(/\s+/g, ' ');
   // Calls and emails ride on the Outreach cell's tooltip now.
   const oIdx = (await page.locator('.dense-table thead th').allInnerTexts()).findIndex(h => /Outreach/i.test(h));
-  const tip = async (name) => (await page.locator('.dense-table tbody tr', { hasText: name }).first().locator('td').nth(oIdx).getAttribute('title')) || '';
+  const tip = async (name) => (await page.locator('.dense-table tbody tr', byName(name)).first().locator('td').nth(oIdx).getAttribute('title')) || '';
   let r = await row('Ada Brant');
   ok('Ada: attempted, 5 calls, 2 emails, in Jack Main at step 3', /Attempted, not reached/.test(r) && /Jack Main Sequence · active · step 3/.test(r) && /No Answer/.test(r) && /5 calls · 2 emails/.test(await tip('Ada Brant')), r);
   ok('  her company shows both contacts, one worked', /\b2 · 1 worked\b/.test(r), r);
@@ -123,7 +127,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await page.selectOption('select[aria-label="Outreach"]', 'all'); await sleep(300);
 
   console.log('\n== the profile: emails, and everyone at the company ==');
-  await page.locator('.dense-table tbody tr', { hasText: 'Ada Brant' }).first().click(); await sleep(700);
+  await page.locator('.dense-table tbody tr', { hasText: /Ada\s*Brant/ }).first().click(); await sleep(700);
   let dt = (await page.locator('[role=dialog]').innerText()).replace(/\s+/g, ' ');
   ok('emails sent shows on the profile', /Emails sent: 2/.test(dt), dt.match(/Emails sent.{0,40}/)?.[0]);
   ok('the company section lists both contacts with totals', /At NORTHWIND CO/i.test(dt) && /2 contacts · 1 worked · 0 reached · 5 calls · 2 emails/.test(dt), dt.match(/At NORTHWIND.{0,120}/i)?.[0]);
