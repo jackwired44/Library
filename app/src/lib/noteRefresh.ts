@@ -141,6 +141,10 @@ export async function refreshMainNotes(
   overrides: RuleOverrides = DEFAULT_RULE_OVERRIDES,
   onProgress?: (done: number, total: number) => void,
   chunk = 250,
+  /** Filled in as it runs: leads with no saved CSV row, which a refresh
+   *  cannot rewrite, counted by the file they came from. Re-uploading
+   *  those files is the only way to give them today's note. */
+  missing?: Map<string, number>,
 ): Promise<StoredLead[]> {
   // All three scanners. A Main lead is re-graded with today's Main rules;
   // a Custom or CSP lead gets the Main-format note and keeps its own grade.
@@ -155,6 +159,11 @@ export async function refreshMainNotes(
     const slice = main.slice(i, i + chunk);
     const raw = await loadRawNotesMany(slice.map((l) => l.key));
     for (const l of slice) {
+      if (missing && !raw.get(l.key)) {
+        const f = l.sourceFiles[l.sourceFiles.length - 1] || "Unknown file";
+        missing.set(f, (missing.get(f) || 0) + 1);
+        continue;
+      }
       if (l.source !== "main") {
         const fresh = currentScanner2Note(raw.get(l.key), l.source as ScannerKind, sets[l.source as ScannerKind]);
         const next = fresh ? withRefreshedNoteOnly(l, fresh) : l;

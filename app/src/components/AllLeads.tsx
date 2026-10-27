@@ -293,7 +293,7 @@ export default function AllLeads({
   engagementCount?: number;
   onImportEngagements?: (files: ParsedFile[]) => Promise<{ imported: number; skipped: number; bySource: Record<string, number> }>;
   /** Rewriting stored Main notes with today's rules — see lib/noteRefresh.ts. */
-  noteRefresh?: { done: number; total: number; changed: number; finished: boolean } | null;
+  noteRefresh?: { done: number; total: number; changed: number; finished: boolean; missing?: [string, number][] } | null;
   onRefreshNotes?: () => void;
   /** Save a lead-chat rule as a smart list (lib/smartRules.ts). */
   onSaveSmartList?: (name: string, rule: SmartRule, ruleText: string, matched: StoredLead[]) => { listId: string; added: number } | null;
@@ -1190,11 +1190,25 @@ export default function AllLeads({
                   : `Refreshing notes… ${noteRefresh.done.toLocaleString()} of ${noteRefresh.total.toLocaleString()}`}
               </span>
             )}
+            {noteRefresh?.finished && !!noteRefresh.missing?.length && (() => {
+              const n = noteRefresh.missing.reduce((t, [, c]) => t + c, 0);
+              return (
+                <details aria-label="Files to re-upload" style={{ position: "relative" }}>
+                  <summary style={{ cursor: "pointer", color: "#9A5B22" }}>
+                    {n.toLocaleString()} have no saved CSV row · re-upload {noteRefresh.missing.length.toLocaleString()} file{noteRefresh.missing.length === 1 ? "" : "s"}
+                  </summary>
+                  <div className="panel" style={{ position: "absolute", right: 0, zIndex: 30, padding: "8px 10px", minWidth: 280, maxHeight: 280, overflowY: "auto" }}>
+                    <div className="muted" style={{ marginBottom: 6 }}>These leads were saved before the original CSV rows were kept, so a refresh can't rewrite them. Re-upload just these files:</div>
+                    {noteRefresh.missing.map(([f, c]) => <div key={f}>{f} <span className="muted">({c.toLocaleString()})</span></div>)}
+                  </div>
+                </details>
+              );
+            })()}
             <button
               className="btn btn-secondary btn-sm"
               disabled={!!noteRefresh && !noteRefresh.finished}
               onClick={onRefreshNotes}
-              title="Rewrite every Main Scanner lead's newest note from its stored CSV row with today's rules, including its tier and score. Apollo data, lists and anything marked not-a-fit are not changed."
+              title="Rewrite every lead's newest note from its saved CSV row with today's rules, no re-upload needed (Main leads are re-graded too; Custom and CSP keep their grade). Apollo data, lists and anything marked not-a-fit are not changed. Leads with no saved row are listed so you know which files to re-upload."
             >↻ Refresh with today's rules</button>
           </div>
         )}

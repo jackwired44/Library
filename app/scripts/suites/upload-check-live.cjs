@@ -129,6 +129,23 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await page.reload(); await sleep(1500);
   await nav('All leads');
   ok('verifier results survive a reload', /3 of 4 green-lit to email/.test(await dv()), await dv());
+
+  // Per Jack: "if it is already scanned and populated here it doesnt have to
+  // do that". Re-uploading the same file (to refresh notes) looks nobody up.
+  console.log('\n== re-upload: already-checked leads are not looked up again ==');
+  const before = await page.evaluate(() => window.__calls.filter(c => c.tool.endsWith('contacts_search')).length);
+  await nav('Main Scanner');
+  const again = page.locator('button', { hasText: 'Start over' });
+  if (await again.count()) { await again.first().click(); await sleep(500); }
+  await page.setInputFiles('input[type=file]', LEADS);
+  await page.waitForFunction(() => !!document.querySelector('.data-table tbody tr'), null, { timeout: 120000 });
+  await sleep(800);
+  await page.locator('button[aria-label="Save and check in Apollo"]').click();
+  await page.waitForFunction(() => /already checked in Apollo this week/.test(document.querySelector('[aria-label="Upload Apollo check"]')?.textContent || ''), null, { timeout: 30000 }).catch(() => {});
+  s = (await page.locator('[aria-label="Upload Apollo check"]').innerText().catch(() => '')).replace(/\s+/g, ' ');
+  ok('a re-upload says everyone was already checked', /already checked in Apollo this week/.test(s), s);
+  const after = await page.evaluate(() => window.__calls.filter(c => c.tool.endsWith('contacts_search')).length);
+  ok('  and makes no Apollo lookups', after === before, `${before} -> ${after}`);
   ok('no page errors', errs.length === 0, errs.slice(0, 2).join(' | '));
   console.log(`\n${pass}/${pass + fail} checks passed`);
   await b.close();

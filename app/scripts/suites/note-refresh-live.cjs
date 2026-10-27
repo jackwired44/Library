@@ -102,6 +102,19 @@ const putLead = (db, l) => new Promise((res) => { const t = db.transaction('lead
   const hand = leads.find(l => l.key === acme.key);
   ok('  and rewrote the note', /Looking for Azure architecture support/.test(hand.notes.split('\n')[0]), hand.notes);
   ok('  but a hand-marked not-a-fit lead stays a Bad Lead', hand.tier === 'Bad Lead' && hand.notFit === 'Hand-marked', hand.tier);
+
+  // Per Jack: "is there an easier way to mass push it" — a lead saved before
+  // raw rows were kept can't be refreshed, and the button names its file.
+  await idb(page, putLead, { ...acme, key: acme.key + '-noraw', company: 'OLD ROW CO', email: 'x@oldrow.com', sourceFiles: ['Old Sheet 40.csv'] });
+  await page.reload(); await unlock(); await sleep(800);
+  await page.locator('.side-nav-btn', { hasText: 'All leads' }).first().click(); await sleep(800);
+  await page.locator('button', { hasText: '↻ Refresh with today' }).click();
+  await page.waitForFunction(() => /Notes refreshed/.test(document.querySelector('main')?.textContent || ''), null, { timeout: 60000 });
+  const miss = page.locator('details[aria-label="Files to re-upload"]');
+  const missText = (await miss.innerText().catch(() => '')).replace(/\s+/g, ' ');
+  ok('a lead with no saved CSV row is counted, with its file to re-upload', /1 have no saved CSV row · re-upload 1 file/.test(missText), missText);
+  await miss.locator('summary').click(); await sleep(200);
+  ok('  and the file is named', /Old Sheet 40\.csv \(1\)/.test((await miss.innerText()).replace(/\s+/g, ' ')));
   ok('no page errors', errs.length === 0, errs.join(' | '));
 
   await b.close();

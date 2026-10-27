@@ -7401,3 +7401,19 @@ the files from last october to this may … pick all the strong dynamics leads
   "Received Oct 2025 – Apr 2026 (7 months)". Clicking a chip clears the range.
 - Suites: `sheet-dates-live` 9 → 12 (pre-Oct CSV, range, chip),
   `lead-chat-live` locator re-pointed to short month names.
+
+### 2026-10-27: re-uploads skip Apollo look-ups already done; refresh names files to re-upload (scanner-platform-v29)
+
+Per Jack: "if it is already scanned and populated here it doesnt have to do
+that the point of this was to update all the notes", "is there an easier
+way to mass push it".
+- **Save & check** (`App.tsx`, `fileLeadsAndCheck` effect) now runs only
+  `leadsDueForApollo(inUpload)`: a lead checked in Apollo in the last 7 days
+  is not looked up again. The strip says "N already checked this week,
+  skipped", or "every lead … was already checked" when none are due.
+- **↻ Refresh with today's rules** is the mass update: it rewrites every
+  lead's newest note from its saved CSV row, no re-upload. `refreshMainNotes`
+  takes an optional `missing` map; leads with no saved row are counted by
+  file, and All leads shows "N have no saved CSV row · re-upload N files"
+  with the file list. Only those files need re-uploading.
+- Suites: `upload-check-live` 26 → 28, `note-refresh-live` 16 → 18.

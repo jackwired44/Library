@@ -55,7 +55,7 @@ import {
 import Campaigns from "./components/Campaigns";
 import Overview from "./components/Overview";
 import { appendRawNotes } from "./lib/rawNotes";
-import { setStatusRoster, verdictOf, withStatusOverride, type LeadStatus } from "./lib/leadStatus";
+import { setStatusRoster, withStatusOverride, type LeadStatus } from "./lib/leadStatus";
 import {
   DEFAULT_ROUTING, loadRouting, withPlan, type RoutingRules,
 } from "./lib/sequenceRouting";
@@ -63,7 +63,7 @@ import { leadInputsFromResults, leadInputsFromRows2, leadInputsFromNoSignal, lea
 import AllLeads, { type LeadsPreset } from "./components/AllLeads";
 import ApolloStatus, { listRowForLead } from "./components/ApolloStatus";
 import { buildFactsMap, leadsForRule, type SmartRule } from "./lib/smartRules";
-import ApolloSyncPanel from "./components/ApolloSyncPanel";
+import ApolloSyncPanel, { leadsDueForApollo } from "./components/ApolloSyncPanel";
 import RateLimitNote from "./components/RateLimitNote";
 import { loadEmailChecks, saveEmailChecks, readVerifierFiles, indexChecks, type EmailCheck } from "./lib/deliverability";
 import { loadEngagements, parseEngagements, replaceEngagements, buildEngagementIndex, setEngagementIndex, type Engagement } from "./lib/engagements";
@@ -216,13 +216,14 @@ export default function App() {
   const sheetEstimates = useMemo(() => estimateSheetMonths(leads), [leads]);
   setSheetEstimates(sheetEstimates);
   /** Rewriting stored Main notes with today's note rules — see lib/noteRefresh.ts. */
-  const [noteRefresh, setNoteRefresh] = useState<{ done: number; total: number; changed: number; finished: boolean } | null>(null);
+  const [noteRefresh, setNoteRefresh] = useState<{ done: number; total: number; changed: number; finished: boolean; missing?: [string, number][] } | null>(null);
   async function runNoteRefresh(from?: StoredLead[], overrides: RuleOverrides = ruleOverrides) {
     const base = from ?? leadsRef.current;
-    setNoteRefresh({ done: 0, total: base.filter((l) => l.source === "main").length, changed: 0, finished: false });
+    setNoteRefresh({ done: 0, total: base.length, changed: 0, finished: false });
     try {
+      const missing = new Map<string, number>();
       const changed = await refreshMainNotes(base, overrides, (done, total) =>
-        setNoteRefresh((p) => ({ done, total, changed: p?.changed ?? 0, finished: false })));
+        setNoteRefresh((p) => ({ done, total, changed: p?.changed ?? 0, finished: false })), 250, missing);
       if (changed.length) {
         const byKey = new Map(changed.map((l) => [l.key, l]));
         // Only the note and the scan verdict move; apply onto the latest state
@@ -232,7 +233,8 @@ export default function App() {
         await saveLeads(changed.map((c) => ({ ...(current.get(c.key) ?? c), notes: c.notes, tier: c.tier, score: c.score, productArea: c.productArea })));
       }
       markNoteRulesCurrent();
-      setNoteRefresh((p) => ({ done: p?.total ?? 0, total: p?.total ?? 0, changed: changed.length, finished: true }));
+      setNoteRefresh((p) => ({ done: p?.total ?? 0, total: p?.total ?? 0, changed: changed.length, finished: true,
+        missing: [...missing.entries()].sort((a, b) => b[1] - a[1]) }));
     } catch (e) {
       setNoteRefresh(null);
       setError(`Notes could not be refreshed: ${e instanceof Error ? e.message : String(e)}`);
@@ -303,21 +305,29 @@ export default function App() {
   // 400-an-hour cap with what it read kept.
   const [uploadCheckKeys, setUploadCheckKeys] = useState<string[] | null>(null);
   const [uploadCheckLabel, setUploadCheckLabel] = useState("");
+  const [uploadCheckSkipped, setUploadCheckSkipped] = useState(0);
+  const [uploadCheckNothingDue, setUploadCheckNothingDue] = useState(false);
   useEffect(() => {
     if (!uploadCheckKeys || (homeCheck && !homeCheck.finished)) return;
     const want = new Set(uploadCheckKeys);
-    const targets = leads.filter((l) => want.has(l.key));
-    if (!targets.length) return; // the save has not landed in state yet
-    const rank = (l: StoredLead) => ({ strong: 0, review: 1, bad: 2 })[verdictOf(l.tier)];
-    targets.sort((a, b) => rank(a) - rank(b));
+    const inUpload = leads.filter((l) => want.has(l.key));
+    if (!inUpload.length) return; // the save has not landed in state yet
+    // Per Jack: "if it is already scanned and populated here it doesnt have
+    // to do that". A lead already checked in Apollo this week is not looked
+    // up again; re-uploading a file to refresh its notes costs no lookups
+    // for anyone already done. Same 7-day rule as every other check.
+    const targets = leadsDueForApollo(inUpload);
+    setUploadCheckSkipped(inUpload.length - targets.length);
     setUploadCheckKeys(null);
+    if (!targets.length) { setUploadCheckNothingDue(true); return; }
+    setUploadCheckNothingDue(false);
     void runHomeCheck(targets);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leads, uploadCheckKeys, homeCheck]);
   function fileLeadsAndCheck(inputs: LeadInput[], label: string): SaveReport {
     const report = fileLeads(inputs);
     const keys = [...new Set(inputs.map((i) => leadKeyOfInput(i)).filter(Boolean))];
-    if (keys.length) { setUploadCheckLabel(label); setUploadCheckKeys(keys); }
+    if (keys.length) { setUploadCheckLabel(label); setUploadCheckSkipped(0); setUploadCheckNothingDue(false); setUploadCheckKeys(keys); }
     return report;
   }
 
@@ -1143,21 +1153,24 @@ export default function App() {
       </aside>
 
       <main className="app-main" style={{ minWidth: 0 }}>
-        {uploadCheckLabel && (uploadCheckKeys || homeCheck) && (
+        {uploadCheckLabel && (uploadCheckKeys || homeCheck || uploadCheckNothingDue) && (
           <div className="scan-note" role="status" aria-label="Upload Apollo check" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
-            {!homeCheck || uploadCheckKeys
+            {uploadCheckNothingDue && !uploadCheckKeys
+              ? <span>Saved. Every lead in {uploadCheckLabel} was already checked in Apollo this week, so nothing was looked up again.</span>
+              : !homeCheck || uploadCheckKeys
               ? <span>Saved. Waiting to check {uploadCheckLabel} in Apollo…</span>
               : <span>
                   {homeCheck.finished ? "Apollo check done for" : "Checking"} {uploadCheckLabel}{homeCheck.finished ? ":" : " in Apollo:"}{" "}
                   <b>{homeCheck.done.toLocaleString()}</b> of {homeCheck.total.toLocaleString()}
                   {" · "}{homeCheck.found.toLocaleString()} in Apollo · {homeCheck.notFound.toLocaleString()} not in Apollo
                   {homeCheck.errors > 0 && ` · ${homeCheck.errors.toLocaleString()} failed`}
+                  {uploadCheckSkipped > 0 && ` · ${uploadCheckSkipped.toLocaleString()} already checked this week, skipped`}
                 </span>}
             {homeCheckError && <span style={{ color: "#B5443B" }}>Stopped: {homeCheckError}</span>}
             <RateLimitNote progress={homeCheck} />
             {homeCheck && !homeCheck.finished && <button className="btn btn-sm btn-secondary" onClick={() => homeCheckAbort.current?.abort()}>Stop</button>}
             <button className="btn btn-sm btn-primary" onClick={() => setView("queue")}>See where they stand</button>
-            {homeCheck?.finished && <button className="btn btn-sm btn-ghost" aria-label="Dismiss" onClick={() => setUploadCheckLabel("")}>✕</button>}
+            {(homeCheck?.finished || (uploadCheckNothingDue && !uploadCheckKeys)) && <button className="btn btn-sm btn-ghost" aria-label="Dismiss" onClick={() => { setUploadCheckLabel(""); setUploadCheckNothingDue(false); }}>✕</button>}
           </div>
         )}
         {error && <div style={{ marginBottom: 12, color: "#9A5B22" }}>{error}</div>}
