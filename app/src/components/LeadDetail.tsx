@@ -14,7 +14,7 @@
 // status override and the target sequence. Everything else comes from the
 // scans and the Apollo sync, and an edit here would be overwritten by the
 // next upload of the same person.
-import { RECYCLE_FLOW, RECYCLE_META, recycleLabel, recycleOf, type RecycleRules } from "../lib/recycle";
+import { RECYCLE_FLOW, RECYCLE_META, recycleLabel, recycleOf, recycleWhyLabel, type RecycleRules } from "../lib/recycle";
 import { arrivalOf, monthLabelOf, isPreMaySheet } from "../lib/leadFiling";
 import { useEffect, useMemo, useState } from "react";
 import StatusPill from "./StatusPill";
@@ -314,7 +314,7 @@ export default function LeadDetail({
                 return (
                   <div aria-label="Recycle" style={{ marginTop: 10, fontSize: 13 }}>
                     <span className="pill" style={{ color: m.color, background: m.bg }} title={m.hint}>{m.label}</span>{" "}
-                    {r.stage === "building" ? r.reason : [recycleLabel(r), r.why === "not-interested" ? "not interested" : `${r.unanswered} unanswered`,
+                    {r.stage === "building" ? r.reason : [recycleLabel(r), recycleWhyLabel(r).toLowerCase(),
                       lead.recycle?.downloadedAt && (r.stage === "downloaded" || r.stage === "back") ? `downloaded ${lead.recycle.downloadedAt.slice(0, 10)}` : ""].filter(Boolean).join(" · ")}
                   </div>
                 );

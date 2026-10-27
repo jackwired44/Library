@@ -113,6 +113,29 @@ const SORT_LABEL: Record<SortKey, string> = {
 };
 
 /** Everything a filter, a facet count or a cell reads, resolved once. */
+// Per Jack: "a straight forward filter option in all leads to never reached
+// or never contacted, contacted not interested, meeting was booked/ongoing
+// conversations or next steps are fully set. the goal here is so i can hit
+// leads that havent gone anywhere as much as i want". And: "never add the
+// same lead to two sequences or add a lead we have already spoken with and
+// have clear next steps to a sequence again". So "Hasn't gone anywhere"
+// leaves out anyone in a sequence right now, anyone spoken with, and any
+// deal or meeting on file.
+type Where = "nowhere" | "active" | "no" | "talking";
+const WHERE_ORDER: Where[] = ["nowhere", "active", "no", "talking"];
+const WHERE_META: Record<Where, { label: string; hint: string }> = {
+  nowhere: { label: "Hasn't gone anywhere", hint: "Never contacted, never reached, or a sequence ended with no reply. Not in a sequence now, never spoken with, no deal or meeting on file. Safe to work again." },
+  active: { label: "In a sequence now", hint: "Active in an Apollo sequence, or just downloaded for one. Don't add to a second." },
+  no: { label: "Not interested", hint: "Spoken with and said no, or do not contact." },
+  talking: { label: "Meeting / next steps set", hint: "Meeting booked, a real conversation on record (replied, talked, info requested, call back), or a deal or meeting on file. Already handled." },
+};
+function whereOf(status: LeadStatus, contact: ContactState, engaged: boolean): Where {
+  if (engaged || status === "meeting" || status === "reached" || contact === "meeting" || contact === "made") return "talking";
+  if (status === "not-interested" || contact === "no") return "no";
+  if (status === "in-sequence" || status === "sent") return "active";
+  return "nowhere";
+}
+
 interface Derived {
   hay: string;
   lane: Lane;
@@ -140,6 +163,8 @@ interface Derived {
   level: TitleLevel;
   fn: TitleFunction;
   contact: ContactState;
+  /** Where the lead stands, in Jack's four words — see WHERE_META. */
+  where: Where;
   companyKey: string;
   /** How many dated notes the lead has combined across uploads. */
   segs: number;
@@ -371,6 +396,7 @@ export default function AllLeads({
   // email, OR never matched by any sync. Per Jack, the point of the store is
   // to "filter down all never contacted leads and put them to action".
   const [contactF, setContactF] = useState<ContactState | "all" | "untouched">("all");
+  const [whereF, setWhereF] = useState<Where | "all">("all");
   // Per Jack: "have different views as in by month or by quarter … months as
   // a whole should be able to be viewed". The time period leads the page.
   const [periodKind, setPeriodKindState] = useState<"month" | "quarter" | "all">(() => {
@@ -460,6 +486,7 @@ export default function AllLeads({
         level: titleLevel(l.title),
         fn: titleFunction(l.title),
         contact: contactStateOf(l),
+        where: whereOf(statusOf(l), contactStateOf(l), !!engaged),
         companyKey: ck,
         segs: noteSegments(l.notes).length,
         verdict: verdictOf(l.tier),
@@ -572,7 +599,7 @@ export default function AllLeads({
   const fromT = from ? Date.parse(`${from}T00:00:00`) : null;
   const toT = to ? Date.parse(`${to}T23:59:59.999`) : null;
 
-  type Key = "listed" | "rule" | "visited" | "partner" | "inApollo" | "verdict" | "company" | "contact" | "level" | "fn" | "month" | "dates" | "status" | "search" | "notes" | "standing" | "lane" | "ready" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "owner" | "plan" | "planSeq" | "files" | "fileName" | "date";
+  type Key = "where" | "listed" | "rule" | "visited" | "partner" | "inApollo" | "verdict" | "company" | "contact" | "level" | "fn" | "month" | "dates" | "status" | "search" | "notes" | "standing" | "lane" | "ready" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "owner" | "plan" | "planSeq" | "files" | "fileName" | "date";
   const tests = useMemo(() => {
     const t: Record<Key, (l: StoredLead, d: Derived) => boolean> = {
       inApollo: (l, d) => inApolloF === "all"
@@ -588,6 +615,7 @@ export default function AllLeads({
         return companyF === "multi" ? n > 1 : n <= 1;
       },
       status: (_l, d) => statusF === "all" || d.status === statusF,
+      where: (_l, d) => whereF === "all" || d.where === whereF,
       month: (_l, d) => periodKey === "all" || periodKeyOf(d.month, periodKind) === periodKey,
       rule: (l) => !ruleF || !ruleFacts || ruleMatches(ruleF, l, ruleFacts.get(l.key)!),
       level: (_l, d) => levelF === "all" || d.level === levelF,
@@ -646,7 +674,7 @@ export default function AllLeads({
       },
     };
     return t;
-  }, [ruleF, ruleFacts, periodKey, periodKind, inApolloF, verdictF, companyF, companyStats, contactF, levelF, fnF, dateF, statusF, q, kq, nq, rawIndex, standingF, laneF, readyOnly, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, ownerF, planF, planSeqF, filesF, fileNameF, fromT, toT, partnerKeys, exclIndustries, hideActive, visitedOnly, listFEff, listedKeys]);
+  }, [ruleF, ruleFacts, periodKey, periodKind, inApolloF, verdictF, companyF, companyStats, contactF, levelF, fnF, dateF, statusF, q, kq, nq, rawIndex, standingF, laneF, readyOnly, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, ownerF, planF, planSeqF, filesF, fileNameF, fromT, toT, partnerKeys, exclIndustries, hideActive, visitedOnly, listFEff, listedKeys, whereF]);
 
   // Each lead's filters are evaluated ONCE per change, recording whether it
   // passes all of them ("") or fails exactly one (that key) or more (null).
@@ -821,6 +849,12 @@ export default function AllLeads({
 
   // The verdict strip is a facet like any other: each count is what that
   // bucket would show given every OTHER filter.
+  const whereCounts = useMemo(() => {
+    const m: Record<Where, number> = { nowhere: 0, active: 0, no: 0, talking: 0 };
+    for (const l of leads) if (passes(l, "where")) m[derived.get(l.key)!.where]++;
+    return m;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leads, derived, tests]);
   const verdictCounts = useMemo(() => {
     const m: Record<Verdict, number> = { strong: 0, review: 0, bad: 0 };
     for (const l of leads) if (passes(l, "verdict")) m[derived.get(l.key)!.verdict]++;
@@ -879,6 +913,7 @@ export default function AllLeads({
   if (standingF !== "all") chips.push({ label: `Apollo: ${standingF === "needs" ? "Needs a sequence" : standingF === "noseq" ? "Never sequenced" : STANDING_META[standingF].label}`, clear: () => setStandingF("all") });
   if (!nq.empty) chips.push({ label: `Notes: ${noteSearch.trim()}`, clear: () => setNoteSearch("") });
   if (inApolloF !== "all") chips.push({ label: inApolloF === "in" ? "Already in Apollo" : "Not in Apollo", clear: () => setInApolloF("all") });
+  if (whereF !== "all") chips.push({ label: WHERE_META[whereF].label, clear: () => setWhereF("all") });
   if (contactF !== "all") chips.push({ label: contactF === "untouched" ? "Never touched (no outreach on record)" : CONTACT_META[contactF].label, clear: () => setContactF("all") });
   if (levelF !== "all") chips.push({ label: `Position: ${LEVEL_META[levelF].label}`, clear: () => setLevelF("all") });
   if (fnF !== "all") chips.push({ label: FUNCTION_META[fnF].label, clear: () => setFnF("all") });
@@ -1176,6 +1211,19 @@ export default function AllLeads({
       </div>
 
       <div className="toolbar" aria-label="Main filters" style={{ marginBottom: 10 }}>
+        <div className="toolbar-row">
+          <span style={{ fontSize: 12.5, fontWeight: 600 }}>Where it stands</span>
+          <div className="seg" role="group" aria-label="Where it stands">
+            <button className={`seg-btn${whereF === "all" ? " active" : ""}`} onClick={() => setWhereF("all")}>
+              All ({WHERE_ORDER.reduce((n, w) => n + whereCounts[w], 0).toLocaleString()})
+            </button>
+            {WHERE_ORDER.map((w) => (
+              <button key={w} className={`seg-btn${whereF === w ? " active" : ""}`} title={WHERE_META[w].hint} onClick={() => setWhereF(w)}>
+                {WHERE_META[w].label} ({whereCounts[w].toLocaleString()})
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="toolbar-row">
           <input className="field" placeholder="Search company, contact, email, notes, industry, file…"
                  value={search} onChange={(e) => setSearch(e.target.value)}

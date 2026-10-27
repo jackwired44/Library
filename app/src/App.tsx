@@ -1267,7 +1267,9 @@ export default function App() {
         )}
         {view === "recycle" && (
           <Recycle leads={leads} rules={recycleRules} onRulesChange={changeRecycleRules}
-                   onMarkDownloaded={markRecycleDownloaded} lists={leadLists} onAddToList={addExportRowsToLists} />
+                   onMarkDownloaded={markRecycleDownloaded} lists={leadLists} onAddToList={addExportRowsToLists}
+                   onCheck={(t, label) => { setUploadCheckLabel(label); void runHomeCheck(t); }}
+                   checkBusy={!!homeCheck && !homeCheck.finished} />
         )}
         {view === "allleads" && (
           <AllLeads

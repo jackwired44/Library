@@ -13,8 +13,10 @@ import { stripSnippetPrefix, type ExportRow } from "../lib/detection";
 import type { LeadList } from "../lib/leadLists";
 import type { StoredLead } from "../lib/leadStore";
 import { VERDICT_META, VERDICT_ORDER, verdictOf, type Verdict } from "../lib/leadStatus";
+import { engagementOf } from "../lib/engagements";
+import { leadsDueForApollo } from "./ApolloSyncPanel";
 import {
-  RECYCLE_FLOW, RECYCLE_META, cleanRules, recycleDayKey, recycleLabel, recycleOf,
+  RECYCLE_FLOW, RECYCLE_META, cleanRules, recycleDayKey, recycleLabel, recycleOf, recycleWhyLabel,
   type RecycleInfo, type RecycleRules, type RecycleStage,
 } from "../lib/recycle";
 
@@ -35,7 +37,7 @@ function exportRow(l: StoredLead, r: RecycleInfo): Record<string, string> {
   return {
     "First Name": first, "Last Name": last, Email: l.email, Company: l.company, Title: l.title,
     "Work Direct Phone": l.phone, "Mobile Phone": l.mobilePhone,
-    "Recycle Reason": r.why === "not-interested" ? "Not interested, rested" : `${r.unanswered} unanswered attempts`,
+    "Recycle Reason": recycleWhyLabel(r),
     "Unanswered Attempts": String(r.unanswered),
     "Last Attempt": r.lastAttemptAt.slice(0, 10),
     "Last Outcome": l.apollo?.lastOutcome || "",
@@ -83,8 +85,11 @@ export function RecycleRulesEditor({ rules, onChange }: { rules: RecycleRules; o
 }
 
 export default function Recycle({
-  leads, rules, onRulesChange, onMarkDownloaded, lists = [], onAddToList,
+  leads, rules, onRulesChange, onMarkDownloaded, lists = [], onAddToList, onCheck, checkBusy = false,
 }: {
+  /** Run the read-only Apollo check over these leads (App's shared run). */
+  onCheck?: (targets: StoredLead[], label: string) => void;
+  checkBusy?: boolean;
   leads: StoredLead[];
   rules: RecycleRules;
   onRulesChange: (r: RecycleRules) => void;
@@ -95,7 +100,13 @@ export default function Recycle({
 }) {
   const today = recycleDayKey(new Date());
   const [stage, setStage] = useState<RecycleStage>("ready");
-  const [why, setWhy] = useState<"all" | "unanswered" | "not-interested">("all");
+  const [why, setWhy] = useState<"all" | "unanswered" | "sequence-ended" | "not-interested">("all");
+  // Per Jack: "i need a simple way to check leads in here agasint apollo so
+  // i know when to recycle a lead to a new sequence". One button: looks the
+  // next batch up in Apollo (read-only), Strong Signal first, skipping
+  // anyone checked in the last 7 days, Bad Leads and account-manager-only.
+  const [batch, setBatch] = useState<number>(() => { try { return Number(localStorage.getItem("recycleCheckBatch")) || 100; } catch { return 100; } });
+  const due = useMemo(() => leadsDueForApollo(leads).filter((l) => verdictOf(l.tier) !== "bad" && !engagementOf(l)), [leads]);
   const [verdict, setVerdict] = useState<Verdict | "all">("all");
   const [q, setQ] = useState("");
   const [page, setPage] = useState(0);
@@ -167,8 +178,8 @@ export default function Recycle({
         <div>
           <h2>Recycle</h2>
           <div className="muted" style={{ fontSize: 13 }}>
-            Leads called {rules.attempts}+ times with no answer come back {rules.restDays} days after the last attempt.
-            Not interested comes back after {rules.notInterestedMonths} months. Read from Apollo's call history; nothing is written to Apollo.
+            A lead is ready for a new sequence {rules.restDays} days after its Apollo sequence ended with no reply or conversation,
+            or after {rules.attempts}+ unanswered calls. Not interested comes back after {rules.notInterestedMonths} months. Read from Apollo; nothing is written to Apollo.
           </div>
         </div>
         <button className="btn btn-secondary" onClick={() => setShowRules((v) => !v)} aria-expanded={showRules}>⚙ Rules</button>
@@ -185,6 +196,28 @@ export default function Recycle({
         </div>
       )}
 
+      {onCheck && (
+        <div className="panel" aria-label="Check for recycling" style={{ marginBottom: 10 }}>
+          <div className="panel-body" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <strong style={{ fontSize: 13.5 }}>Check leads in Apollo</strong>
+            <span className="muted" style={{ fontSize: 12.5 }}>
+              {due.length ? `${due.length.toLocaleString()} not checked in the last 7 days` : "Every lead was checked in the last 7 days"}
+            </span>
+            <select className="field" aria-label="Check batch size" value={batch}
+                    onChange={(e) => { const n = Number(e.target.value); setBatch(n); try { localStorage.setItem("recycleCheckBatch", String(n)); } catch { /* preference only */ } }}>
+              {[25, 50, 100, 200, 400].map((n) => <option key={n} value={n}>{n} at a time</option>)}
+              <option value={0}>All due</option>
+            </select>
+            <button className="btn btn-primary" disabled={!due.length || checkBusy}
+                    onClick={() => { const t = batch ? due.slice(0, batch) : due; onCheck(t, `recycle check (${t.length.toLocaleString()} leads)`); }}
+                    title="Looks each lead up in Apollo: is it in a sequence, did that sequence end, why, and its calls where they can be read. Read-only. Strong Signal first; the next click picks up where this one stopped.">
+              {checkBusy ? "Checking…" : `Check ${(batch ? Math.min(batch, due.length) : due.length).toLocaleString()} in Apollo`}
+            </button>
+            <span className="muted" style={{ fontSize: 11.5 }}>Apollo allows about 400 lookups an hour. Results land in the tiles below.</span>
+          </div>
+        </div>
+      )}
+
       <div className="panel" aria-label="Recycle workflow" style={{ marginBottom: 10 }}>
         <div className="panel-body">
           <div className="vault-tiles" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "stretch" }}>
@@ -197,7 +230,7 @@ export default function Recycle({
           </div>
           <div className="muted" style={{ fontSize: 12, marginTop: 8, display: "flex", gap: 14, flexWrap: "wrap" }}>
             <span>{counts.thisMonth.toLocaleString()} coming back later this month</span>
-            {(["building", "working", "excluded", "unchecked"] as RecycleStage[]).map((s) => (
+            {(["building", "fresh", "working", "excluded", "unchecked"] as RecycleStage[]).map((s) => (
               <button key={s} className="btn btn-sm btn-ghost" style={{ padding: "0 4px" }} title={RECYCLE_META[s].hint}
                       aria-pressed={stage === s} onClick={() => go(s)}>
                 {RECYCLE_META[s].label}: {counts.by[s].toLocaleString()}
@@ -212,6 +245,7 @@ export default function Recycle({
                onChange={(e) => { setQ(e.target.value); setPage(0); }} style={{ minWidth: 220 }} />
         <select className="field" aria-label="Recycle reason" value={why} onChange={(e) => { setWhy(e.target.value as typeof why); setPage(0); }}>
           <option value="all">Any reason</option>
+          <option value="sequence-ended">Sequence ended, no reply</option>
           <option value="unanswered">Unanswered attempts</option>
           <option value="not-interested">Not interested</option>
         </select>
@@ -276,8 +310,8 @@ export default function Recycle({
           <tbody>
             {shown.length === 0 && (
               <tr><td colSpan={9} className="muted" style={{ padding: 16 }}>
-                {stage === "unchecked" ? "Every lead has Apollo call history." : `Nothing ${RECYCLE_META[stage].label.toLowerCase()} right now.`}
-                {stage === "ready" && counts.by.unchecked > 0 && ` ${counts.by.unchecked.toLocaleString()} leads have no Apollo call history yet — run an Apollo check to see if they belong here.`}
+                {stage === "unchecked" ? "Every lead has been looked up in Apollo." : `Nothing ${RECYCLE_META[stage].label.toLowerCase()} right now.`}
+                {stage === "ready" && counts.by.unchecked > 0 && ` ${counts.by.unchecked.toLocaleString()} leads haven't been looked up in Apollo yet. Click Check in Apollo above.`}
               </td></tr>
             )}
             {shown.map(({ l, r }) => {
@@ -295,7 +329,7 @@ export default function Recycle({
                     {l.recycle?.downloadedAt && (r.stage === "downloaded" || r.stage === "back") && <div className="muted" style={{ fontSize: 11 }}>Downloaded {l.recycle.downloadedAt.slice(0, 10)}</div>}
                   </td>
                   <td style={{ whiteSpace: "nowrap" }}>{recycleLabel(r, today) || "—"}
-                    {r.why === "not-interested" && <div className="muted" style={{ fontSize: 11 }}>Not interested</div>}
+                    {r.why && <div className="muted" style={{ fontSize: 11 }}>{recycleWhyLabel(r)}</div>}
                   </td>
                   <td>{r.unanswered}</td>
                   <td style={{ whiteSpace: "nowrap" }}>{r.lastAttemptAt ? r.lastAttemptAt.slice(0, 10) : "—"}

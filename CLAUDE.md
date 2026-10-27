@@ -7319,3 +7319,36 @@ update "here", rebuild, `git push`, AND republish the live artifact
 `capabilities` so the stored set carries forward (downloads + 11 Apollo
 tools); a republish that ADDED `sample` was declined, so don't change
 access without asking. Version 71 = this session's work.
+
+### 2026-10-27: recycle from where the sequence ended; "Where it stands" filter (scanner-platform-v29)
+
+Per Jack: "i need a simple way to check leads in here agasint apollo so i
+know when to recycle a lead to a new sequence", "the end goal is to never add
+the same lead to two sequences or add a lead we have already spoken with and
+have clear next steps to a sequence again", and "a straight forward filter
+option in all leads to never reached or never contacted, contacted not
+interested, meeting was booked/ongoing conversations or next steps are fully
+set … so i can hit leads that havent gone anywhere as much as i want".
+- **Recycle rule (`lib/recycle.ts`), "Both"**: Ready when 3+ unanswered calls
+  OR an Apollo sequence ended with no reply / conversation
+  (`why: "sequence-ended"`), then the 22-day rest from the last attempt or
+  the sequence end (`finishedAt`). Works on the live link, where the check
+  reads sequences but not calls (`callsUnknown`).
+- **Never recycled**: `statusOf(l)` is checked first — meeting, reached
+  (incl. a status set by hand, and Apollo's end reasons replied / talked /
+  info requested / pending review / call back) and in-sequence (incl. the
+  pulled Apollo uploads) can never read Ready. Unsubscribed / opted out =
+  Do not contact; every sequence bounced = Email bounced. Not interested
+  still comes back after 6 months (Jack's earlier rule).
+- New stage **Never sequenced** (`fresh`): checked and not in Apollo, or in
+  Apollo with no sequence. A first sequence, not a recycle.
+- Recycle tab: "Check leads in Apollo" panel (batch 25-400 or all due,
+  Strong Signal first, skips Bad Leads, account-manager-only and anyone
+  checked in 7 days; the same read-only run as Home). Reason filter gained
+  "Sequence ended, no reply"; `recycleWhyLabel` words every reason.
+- **All leads "Where it stands"** (first row of Main filters, faceted
+  counts, chip): Hasn't gone anywhere / In a sequence now (active or just
+  downloaded for one) / Not interested / Meeting / next steps set (meeting,
+  real conversation, or a deal/meeting on file). `whereOf` in AllLeads.tsx.
+- Suites: `recycle` +17, `recycle-live` re-pointed to the new rule (FEW CO
+  is now Ready by sequence end; FRESH CO is Never sequenced) +4.

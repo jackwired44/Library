@@ -101,7 +101,9 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   console.log('\n== before any Apollo check ==');
   await nav('All leads', 'Recycle');
   let t = await main();
-  ok('Recycle tab shows the rules in words', /3\+ times with no answer come back 22 days/.test(t) && /after 6 months/.test(t), t.slice(0, 300));
+  ok('Recycle tab shows the rules in words', /22 days after its Apollo sequence ended with no reply/.test(t) && /3\+ unanswered calls/.test(t) && /after 6 months/.test(t), t.slice(0, 300));
+  const chk = page.locator('[aria-label="Check for recycling"]');
+  ok('Recycle has its own Check in Apollo button for the 6 not checked', /6 not checked in the last 7 days/.test(await chk.innerText()) && /Check 6 in Apollo/.test(await chk.locator('button').innerText()), await chk.innerText());
   ok('nothing is guessed: all 6 are Not checked', /Not checked: 6/.test(t), (t.match(/Not checked: \d+/) || [''])[0]);
 
   await checkAll();
@@ -109,17 +111,29 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   const recCell = async (co) => (await page.locator('.data-table tbody tr', { hasText: co }).first().locator('td[data-col="recycle"]').innerText()).replace(/\s+/g, ' ');
   ok('All leads has a Recycle column', /Ready to recycle/.test(await recCell('READY CO')), await recCell('READY CO'));
   ok('  resting shows when it comes back', /Resting/.test(await recCell('REST CO')) && /Recycle on .*in 17d/.test(await recCell('REST CO')), await recCell('REST CO'));
-  ok('  one call: 1 of 3 unanswered attempts', /1 of 3/.test(await recCell('FEW CO')), await recCell('FEW CO'));
+  // Per Jack's "Both" rule: one unanswered call, but its sequence ended with
+  // no reply 30 days ago, so it is ready for a new one.
+  ok('  one call, sequence ended with no reply: Ready', /Ready to recycle/.test(await recCell('FEW CO')), await recCell('FEW CO'));
+
+  // Per Jack: "a straight forward filter option in all leads to never
+  // reached or never contacted, contacted not interested, meeting was
+  // booked/ongoing conversations or next steps are fully set".
+  const where = (await page.locator('[aria-label="Where it stands"]').innerText()).replace(/\s+/g, ' ');
+  ok('Where it stands: 4 have not gone anywhere, 2 not interested (one do not contact)', /Hasn't gone anywhere \(4\)/.test(where) && /Not interested \(2\)/.test(where) && /In a sequence now \(0\)/.test(where), where);
+  await page.locator('[aria-label="Where it stands"] button', { hasText: "Hasn't gone anywhere" }).click(); await sleep(400);
+  const nowhere = (await page.locator('.data-table tbody').first().innerText()).replace(/\s+/g, ' ');
+  ok('  clicking it shows only those four', /READY CO/.test(nowhere) && /FRESH CO/.test(nowhere) && !/NOPE CO/.test(nowhere) && !/DNC CO/.test(nowhere), nowhere.slice(0, 300));
+  await page.locator('[aria-label="Where it stands"] button', { hasText: 'All' }).click(); await sleep(300);
 
   await nav('All leads', 'Recycle');
   t = await main();
-  ok('Ready: 2 (3 unanswered 30d ago, Not interested 7 months ago)', /^2 Ready to recycle/.test(await tile('Ready to recycle')), await tile('Ready to recycle'));
+  ok('Ready: 3 (3 unanswered, sequence ended, Not interested 7 months ago)', /^3 Ready to recycle/.test(await tile('Ready to recycle')), await tile('Ready to recycle'));
   ok('Resting: 1', /^1 Resting/.test(await tile('Resting')));
   ok('Do not contact is never recycled', /Not recycled: 1/.test(t));
-  ok('a lead not in Apollo stays Not checked', /Not checked: 1/.test(t));
-  ok('sub-tab label carries the ready count', /Recycle \(2 ready\)/.test(t));
+  ok('a lead checked and not in Apollo reads Never sequenced, not Ready', /Never sequenced: 1/.test(t) && /Not checked: 0/.test(t), (t.match(/Never sequenced: \d+|Not checked: \d+/g) || []).join(' '));
+  ok('sub-tab label carries the ready count', /Recycle \(3 ready\)/.test(t));
   const ready = (await page.locator('table[aria-label="Recycle queue"] tbody').innerText()).replace(/\s+/g, ' ');
-  ok('Ready rows: READY CO with 3 unanswered, NOPE CO not interested', /READY CO/.test(ready) && /NOPE CO/.test(ready) && /Not interested/.test(ready) && !/REST CO/.test(ready), ready);
+  ok('Ready rows: READY CO with 3 unanswered, NOPE CO not interested', /READY CO/.test(ready) && /NOPE CO/.test(ready) && /FEW CO/.test(ready) && /Sequence ended, 1 unanswered/.test(ready) && /Not interested/.test(ready) && !/REST CO/.test(ready), ready);
 
   console.log('\n== download for Apollo ==');
   await page.locator('table[aria-label="Recycle queue"] tbody tr', { hasText: 'READY CO' }).locator('input[type=checkbox]').check();
@@ -130,11 +144,14 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('  shaped for an Apollo import: email, previous sequence, attempts', /First Name,Last Name,Email/.test(text) && /rae@readyco.com/.test(text) && /Carly Main Sequence/.test(text) && /3 unanswered attempts/.test(text), text.slice(0, 400));
   t = await main();
   ok('the notice says what to do next', /Load the file into Apollo/.test(t));
-  ok('Ready 2 → 1, Downloaded 1', /^1 Ready/.test(await tile('Ready to recycle')) && /^1 Downloaded/.test(await tile('Downloaded')));
+  ok('Ready 3 → 2, Downloaded 1', /^2 Ready/.test(await tile('Ready to recycle')) && /^1 Downloaded/.test(await tile('Downloaded')));
 
   console.log('\n== Back in a sequence, confirmed by Apollo ==');
   await page.evaluate(() => { window.__resequenced = true; });
   await checkAll(true);
+  await nav('All leads', 'Recycle');
+  await nav('All leads', 'Leads');
+  ok('re-sequenced lead now reads In a sequence now, not Hasn\'t gone anywhere', /In a sequence now \(1\)/.test(await page.locator('[aria-label="Where it stands"]').innerText()) && /Hasn't gone anywhere \(3\)/.test(await page.locator('[aria-label="Where it stands"]').innerText()), await page.locator('[aria-label="Where it stands"]').innerText());
   await nav('All leads', 'Recycle');
   ok('the next check moves it to Back in a sequence', /^1 Back in a sequence/.test(await tile('Back in a sequence')) && /^0 Downloaded/.test(await tile('Downloaded')), await tile('Back in a sequence'));
   const writes = (await page.evaluate(() => window.__calls)).filter(c => !/_search$/.test(c.tool));
@@ -144,14 +161,14 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await page.locator('button', { hasText: 'Rules' }).click(); await sleep(200);
   await page.fill('input[aria-label="Rest after last attempt"]', '5');
   await page.locator('input[aria-label="Rest after last attempt"]').press('Enter'); await sleep(400);
-  ok('a 5-day rest moves REST CO to Ready', /^2 Ready/.test(await tile('Ready to recycle')), await tile('Ready to recycle'));
+  ok('a 5-day rest moves REST CO to Ready', /^3 Ready/.test(await tile('Ready to recycle')), await tile('Ready to recycle'));
   await page.reload(); await sleep(1500);
   await nav('All leads', 'Recycle');
-  ok('rules survive a reload', /come back 5 days/.test(await main()));
+  ok('rules survive a reload', /5 days after its Apollo sequence ended/.test(await main()));
   await page.locator('button', { hasText: 'Rules' }).click(); await sleep(200);
   await page.fill('input[aria-label="Rest after last attempt"]', '0');
   await page.locator('input[aria-label="Rest after last attempt"]').press('Enter'); await sleep(300);
-  ok('a 0 is ignored, not saved', /come back 5 days/.test(await main()));
+  ok('a 0 is ignored, not saved', /5 days after its Apollo sequence ended/.test(await main()));
 
   console.log('\n== Home ==');
   await nav('Home');

@@ -11,7 +11,11 @@
 //
 //   Resting  ->  Ready  ->  Downloaded  ->  Back in a sequence
 //
-// Resting and Ready come from the calls Apollo has on record. Downloaded is
+// Resting and Ready come from the calls Apollo has on record OR, per Jack
+// ("i need a simple way to check leads in here agasint apollo so i know when
+// to recycle a lead to a new sequence"), from a sequence that ended with no
+// reply or conversation — the live Apollo check always reads that, even
+// where it cannot read call history. Downloaded is
 // the one thing stored here (lead.recycle.downloadedAt), stamped when the
 // rep downloads the Ready leads to load into Apollo. Back in a sequence is
 // confirmed by the next Apollo check showing a live sequence again; nothing
@@ -22,6 +26,7 @@
 // back to Resting with a new date. No stage can go stale.
 import type { StoredLead } from "./leadStore";
 import { engagementOf } from "./engagements";
+import { statusOf } from "./leadStatus";
 
 export interface RecycleRules {
   /** Unanswered calls before a never-reached lead can be recycled. */
@@ -74,12 +79,15 @@ const DNC_RE = /do\s*not\s*(contact|call)|\bdnc\b|opt(ed)?[\s-]*out|unsubscrib/i
 const NOT_INTERESTED_RE = /not\s*interested/i;
 const WRONG_NUMBER_RE = /wrong\s*number|bad\s*number|invalid\s*number|disconnected/i;
 const BAD_TIERS = new Set(["Bad Leads", "Bad Lead"]);
+/** Apollo's own reason a sequence ended, when it says someone answered. */
+const REACHED_REASON_RE = /talk|spoke|conversation|repl|demo|interest|info|pending\s*review|call\s*back|callback/i;
+const BOUNCED_RE = /bounc/i;
 
 /* ---------------------------------------------------------------- stage */
 
 export type RecycleStage =
   | "ready" | "resting" | "downloaded" | "back"
-  | "building" | "working" | "excluded" | "unchecked";
+  | "building" | "fresh" | "working" | "excluded" | "unchecked";
 
 export const RECYCLE_META: Record<RecycleStage, { label: string; hint: string; color: string; bg: string }> = {
   ready: { label: "Ready to recycle", hint: "Rested long enough. Download them and load them into a sequence in Apollo.", color: "#0E7A72", bg: "#E3F3F1" },
@@ -89,12 +97,13 @@ export const RECYCLE_META: Record<RecycleStage, { label: string; hint: string; c
   building: { label: "Fewer attempts", hint: "Called, but not yet enough unanswered attempts to recycle.", color: "#5C7379", bg: "#EEF1F2" },
   working: { label: "Being worked", hint: "In a live sequence now, or reached someone. Not for recycling.", color: "#5C7379", bg: "#EEF1F2" },
   excluded: { label: "Not recycled", hint: "Account manager only, do not contact, wrong number, a meeting booked, or a Bad Lead.", color: "#8A9A9D", bg: "#F5F7F7" },
-  unchecked: { label: "Not checked", hint: "No call history from Apollo on this lead yet — run an Apollo check. Not guessed.", color: "#8A9A9D", bg: "#F5F7F7" },
+  fresh: { label: "Never sequenced", hint: "Checked: not in Apollo, or in Apollo with no sequence. Give it a first sequence; it isn't a recycle.", color: "#0A66C2", bg: "#EAF3FC" },
+  unchecked: { label: "Not checked", hint: "Not looked up in Apollo yet — click Check in Apollo. Not guessed.", color: "#8A9A9D", bg: "#F5F7F7" },
 };
 
 /** The workflow, in order. The rest are outside the queue. */
 export const RECYCLE_FLOW: RecycleStage[] = ["ready", "resting", "downloaded", "back"];
-export const RECYCLE_ORDER: RecycleStage[] = [...RECYCLE_FLOW, "building", "working", "excluded", "unchecked"];
+export const RECYCLE_ORDER: RecycleStage[] = [...RECYCLE_FLOW, "building", "fresh", "working", "excluded", "unchecked"];
 
 export interface RecycleInfo {
   stage: RecycleStage;
@@ -105,8 +114,9 @@ export interface RecycleInfo {
   /** When it comes back, YYYY-MM-DD. "" when not in the queue, or when the
    *  last attempt carries no date (then it reads Ready, and says why). */
   recycleOn: string;
-  /** "unanswered" (the attempts rule) or "not-interested" (the 6-month rule). */
-  why: "unanswered" | "not-interested" | "";
+  /** "unanswered" (the attempts rule), "sequence-ended" (a sequence finished
+   *  with no reply or conversation) or "not-interested" (the 6-month rule). */
+  why: "unanswered" | "sequence-ended" | "not-interested" | "";
   /** Why it is outside the queue, for excluded / building / working. */
   reason: string;
 }
@@ -131,7 +141,10 @@ export function lastAttemptOf(a: NonNullable<StoredLead["apollo"]>): string {
   const dates: string[] = [];
   if (validIso(a.lastCallAt)) dates.push(a.lastCallAt);
   if (a.history?.[0] && validIso(a.history[0].at)) dates.push(a.history[0].at);
-  for (const s of a.sequences) if (validIso(s.lastDoneAt)) dates.push(s.lastDoneAt!);
+  for (const s of a.sequences) {
+    if (validIso(s.lastDoneAt)) dates.push(s.lastDoneAt!);
+    if (validIso(s.finishedAt)) dates.push(s.finishedAt!);
+  }
   if (!dates.length) return "";
   return dates.reduce((m, d) => (Date.parse(d) > Date.parse(m) ? d : m));
 }
@@ -151,19 +164,40 @@ export function recycleOf(l: StoredLead, rules: RecycleRules = DEFAULT_RECYCLE_R
   const base = { unanswered: 0, lastAttemptAt: "", recycleOn: "", why: "" as const, reason: "" };
   if (engagementOf(l)) return { ...base, stage: "excluded", reason: "Account manager only" };
   if (BAD_TIERS.has(l.tier)) return { ...base, stage: "excluded", reason: "Bad Lead" };
+  // Per Jack: "the end goal is to never add the same lead to two sequences
+  // or add a lead we have already spoken with and have clear next steps to
+  // a sequence again since its already been handled". The platform's own
+  // status (Apollo evidence, the pulled Apollo uploads, or a status set by
+  // hand) is checked first, so none of those can ever read Ready.
+  const st = statusOf(l);
+  if (st === "meeting") return { ...base, stage: "excluded", reason: "Meeting booked" };
+  if (st === "reached") return { ...base, stage: "working", reason: "Spoken with, already handled" };
+  if (st === "in-sequence") return { ...base, stage: l.recycle?.downloadedAt ? "back" : "working", reason: "In a live sequence" };
   const a = l.apollo;
-  if (!a || a.callsUnknown) return { ...base, stage: "unchecked" };
+  // Looked up and not in Apollo: never sequenced, not a recycle.
+  if (!a) return { ...base, stage: l.apolloCheckedAt ? "fresh" : "unchecked" };
+  const callsKnown = !a.callsUnknown;
+  if (!callsKnown && !a.sequences.length) {
+    // In Apollo, but no calls read and no sequence ever: never worked.
+    return { ...base, stage: "fresh" };
+  }
 
-  const names = Object.keys(a.outcomes).filter((n) => a.outcomes[n] > 0);
-  const unanswered = unansweredOf(a);
+  // Call outcomes (when the calls could be read) and Apollo's own reasons
+  // the sequences ended, read as one set of signals.
+  const names = callsKnown ? Object.keys(a.outcomes).filter((n) => a.outcomes[n] > 0) : [];
+  const ended = a.sequences.filter((x) => x.status !== "active");
+  const reasons = ended.map((x) => x.reason || "").filter(Boolean);
+  const signals = [...names, ...reasons];
+  const unanswered = callsKnown ? unansweredOf(a) : 0;
   const lastAttemptAt = lastAttemptOf(a);
   const info = { ...base, unanswered, lastAttemptAt };
-  if (names.some((n) => DNC_RE.test(n))) return { ...info, stage: "excluded", reason: "Do not contact" };
-  if (names.some((n) => MEETING_RE.test(n))) return { ...info, stage: "excluded", reason: "Meeting booked" };
+  if (signals.some((n) => DNC_RE.test(n))) return { ...info, stage: "excluded", reason: "Do not contact" };
+  if (signals.some((n) => MEETING_RE.test(n) || /\bbook/i.test(n))) return { ...info, stage: "excluded", reason: "Meeting booked" };
   if (names.some((n) => WRONG_NUMBER_RE.test(n)) && !names.some((n) => UNANSWERED_RE.test(n) || NOT_INTERESTED_RE.test(n)))
     return { ...info, stage: "excluded", reason: "Wrong number" };
+  if (reasons.length && reasons.every((r) => BOUNCED_RE.test(r))) return { ...info, stage: "excluded", reason: "Email bounced" };
 
-  const active = a.sequences.some((s) => s.status === "active");
+  const active = a.sequences.some((x) => x.status === "active");
   const downloadedAt = l.recycle?.downloadedAt || "";
   // A download only counts for THIS round: once Apollo logs a newer
   // attempt, the lead was worked again and the old stamp is history.
@@ -174,17 +208,23 @@ export function recycleOf(l: StoredLead, rules: RecycleRules = DEFAULT_RECYCLE_R
     return { ...info, stage: "working", reason: "In a live sequence" };
   }
 
-  const notInterested = names.some((n) => NOT_INTERESTED_RE.test(n));
-  const reached = names.some((n) => !UNANSWERED_RE.test(n) && !WRONG_NUMBER_RE.test(n) && !NOT_INTERESTED_RE.test(n));
+  const notInterested = signals.some((n) => NOT_INTERESTED_RE.test(n));
+  const reachedByCall = names.some((n) => !UNANSWERED_RE.test(n) && !WRONG_NUMBER_RE.test(n) && !NOT_INTERESTED_RE.test(n));
+  const reachedByReason = reasons.some((r) => REACHED_REASON_RE.test(r) && !NOT_INTERESTED_RE.test(r));
   let why: RecycleInfo["why"];
   let recycleOn = "";
   if (notInterested) {
     why = "not-interested";
     if (lastAttemptAt) recycleOn = addMonths(lastAttemptAt, rules.notInterestedMonths);
-  } else if (reached) {
-    return { ...info, stage: "working", reason: "Reached someone" };
-  } else if (unanswered >= rules.attempts) {
+  } else if (reachedByCall || reachedByReason) {
+    return { ...info, stage: "working", reason: "Spoken with, already handled" };
+  } else if (callsKnown && unanswered >= rules.attempts) {
     why = "unanswered";
+    if (lastAttemptAt) recycleOn = addDays(lastAttemptAt, rules.restDays);
+  } else if (ended.length) {
+    // Per Jack's "Both": a sequence that finished with nobody reached is
+    // ready too, whatever the call count, after the same rest.
+    why = "sequence-ended";
     if (lastAttemptAt) recycleOn = addDays(lastAttemptAt, rules.restDays);
   } else {
     return { ...info, stage: "building", reason: `${unanswered} of ${rules.attempts} unanswered attempts` };
@@ -193,6 +233,13 @@ export function recycleOf(l: StoredLead, rules: RecycleRules = DEFAULT_RECYCLE_R
   if (downloadCurrent) return { ...out, stage: "downloaded" };
   if (recycleOn && recycleOn > today) return { ...out, stage: "resting" };
   return { ...out, stage: "ready", reason: recycleOn ? "" : "No date on the last attempt" };
+}
+
+/** What a recycle reason says, in words. */
+export function recycleWhyLabel(r: RecycleInfo): string {
+  if (r.why === "not-interested") return "Not interested, rested";
+  if (r.why === "sequence-ended") return r.unanswered ? `Sequence ended, ${r.unanswered} unanswered` : "Sequence ended, no reply";
+  return `${r.unanswered} unanswered attempts`;
 }
 
 /** "Recycle on 12 Nov (in 23d)" / "Ready since 2 Oct". */
