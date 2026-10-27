@@ -26,7 +26,7 @@ import {
 import { SYNC_STALE_DAYS, syncAgeDays, leadsToSync } from "../lib/apolloSync";
 import { parseCSVFile, toCSV, downloadBlob, downloadCSV } from "../lib/csv";
 import Customize, { loadHiddenSet, saveHiddenSet } from "./Customize";
-import { arrivalOf, isPreMaySheet, sheetNumberOf, sheetEstimateOf, monthLabelOf, PRE_MAY_2026_MONTH } from "../lib/leadFiling";
+import { arrivalOf, isPreMaySheet, sheetNumberOf, sheetEstimateOf, monthLabelOf, viewMonthKey, shortMonthLabel, EARLIEST_MONTH, PRE_MAY_2026_MONTH } from "../lib/leadFiling";
 import { engagementOf, engagementLabel, isCustomer, ENGAGEMENT_SOURCE_META, type EngagementMatch } from "../lib/engagements";
 import type { ParsedFile } from "../lib/detection";
 import { MAX_COMPANY_BATCH } from "../lib/apolloEnrich";
@@ -203,15 +203,15 @@ const DATE_LABEL: Record<Derived["dateKind"], string> = {
   none: "No dates mentioned",
 };
 
-const monthLabel = (ym: string) => monthLabelOf(ym);
 /** A lead's arrival month as a month or quarter key. Pre-May sheets stay
  *  "before May 2026" in either view; an estimated month joins its quarter. */
 function periodKeyOf(month: string, kind: "month" | "quarter" | "all"): string {
-  if (kind !== "quarter" || month.startsWith("0000")) return month;
-  return quarterOf(month.replace("~", ""));
+  const m = viewMonthKey(month);
+  if (kind !== "quarter" || !m || m.startsWith("0000")) return m;
+  return quarterOf(m);
 }
 const periodLabel = (key: string, kind: "month" | "quarter" | "all") =>
-  !key ? "Undated" : kind === "quarter" && /^\d{4}-Q[1-4]$/.test(key) ? quarterLabel(key) : monthLabel(key);
+  !key ? "Undated" : kind === "quarter" && /^\d{4}-Q[1-4]$/.test(key) ? quarterLabel(key) : shortMonthLabel(key);
 
 /** A tier-filter value meaning "the top verdict on any scanner": High
  *  priority (Main, CSP) or Strong Signal (Custom, older Main rows). */
@@ -407,8 +407,8 @@ export default function AllLeads({
   // Clicking a month adds it to the set; clicking it again takes it out.
   // An empty set is every period.
   const [periodKeys, setPeriodKeys] = useState<string[]>([]);
-  const setPeriodKey = (k: string) => setPeriodKeys(k === "all" ? [] : [k]);
-  const togglePeriod = (k: string) => setPeriodKeys((prev) => (prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k]));
+  const setPeriodKey = (k: string) => { setPeriodKeys(k === "all" ? [] : [k]); setRangeFrom(""); setRangeTo(""); };
+  const togglePeriod = (k: string) => { setRangeFrom(""); setRangeTo(""); setPeriodKeys((prev) => (prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k])); };
   const periodSet = useMemo(() => new Set(periodKeys), [periodKeys]);
   const setPeriodKind = (k: "month" | "quarter" | "all") => {
     setPeriodKindState(k); setPeriodKey("all");
@@ -772,6 +772,18 @@ export default function AllLeads({
     [...facet("month", (_l, d) => periodKeyOf(d.month, periodKind)).entries()].sort((a, b) => b[0].localeCompare(a[0]))),
   // eslint-disable-next-line react-hooks/exhaustive-deps
   [leads, derived, tests, periodKind]);
+  // Per Jack: "select all the files from last october to this may". A
+  // From/To pair selects every period between them, oldest to newest.
+  const rangeKeys = useMemo(() => periodOptions.map(([k]) => k).filter((k) => k && !k.startsWith("0000")).sort(), [periodOptions]);
+  const [rangeFrom, setRangeFrom] = useState("");
+  const [rangeTo, setRangeTo] = useState("");
+  const pickRange = (from: string, to: string) => {
+    setRangeFrom(from); setRangeTo(to);
+    if (!from && !to) { setPeriodKeys([]); return; }
+    const lo = from || rangeKeys[0], hi = to || rangeKeys[rangeKeys.length - 1];
+    const [a, b] = lo <= hi ? [lo, hi] : [hi, lo];
+    setPeriodKeys(rangeKeys.filter((k) => k >= a && k <= b));
+  };
   const lineCounts = useMemo(() => [...facet("line", (_l, d) => d.line).entries()].sort((a, b) => b[1] - a[1]),
   // eslint-disable-next-line react-hooks/exhaustive-deps
   [leads, derived, tests]);
@@ -807,7 +819,9 @@ export default function AllLeads({
     for (const [f, n] of fileOptions) {
       const d = dateOf(f);
       // An early numbered sheet has no date, only "before May 2026".
-      const mk = isPreMaySheet(f) ? (d ? `${d.slice(0, 7)}~` : PRE_MAY_2026_MONTH) : d ? d.slice(0, 7) : "";
+      // Same month keys as the period strip: estimates join their month and
+      // nothing goes earlier than EARLIEST_MONTH.
+      const mk = isPreMaySheet(f) ? (d ? viewMonthKey(d.slice(0, 7)) : PRE_MAY_2026_MONTH) : d ? viewMonthKey(d.slice(0, 7)) : "";
       if (!groups.has(mk)) groups.set(mk, []);
       groups.get(mk)!.push([f, n, d]);
     }
@@ -926,7 +940,10 @@ export default function AllLeads({
   if (fnF !== "all") chips.push({ label: FUNCTION_META[fnF].label, clear: () => setFnF("all") });
   if (verdictF !== "all") chips.push({ label: VERDICT_META[verdictF].label, clear: () => setVerdictF("all") });
   if (companyF !== "all") chips.push({ label: companyF === "multi" ? "2+ leads at the company" : "Only lead at the company", clear: () => setCompanyF("all") });
-  if (periodKeys.length) chips.push({ label: `Received ${[...periodKeys].sort().map((k) => periodLabel(k, periodKind)).join(" + ")}`, clear: () => setPeriodKey("all") });
+  if (periodKeys.length) {
+    const ks = [...periodKeys].sort();
+    chips.push({ label: ks.length > 2 ? `Received ${periodLabel(ks[0], periodKind)} – ${periodLabel(ks[ks.length - 1], periodKind)} (${ks.length} ${periodKind === "quarter" ? "quarters" : "months"})` : `Received ${ks.map((k) => periodLabel(k, periodKind)).join(" + ")}`, clear: () => setPeriodKey("all") });
+  }
   if (ruleF) chips.push({ label: `Asked: ${ruleParts(ruleF).map((p) => p.label).join(" · ")}`, clear: () => setRuleF(null) });
   if (dateF !== "all") chips.push({ label: DATE_LABEL[dateF], clear: () => setDateF("all") });
   if (statusF !== "all") chips.push({ label: `Status: ${STATUS_META[statusF].label}`, clear: () => setStatusF("all") });
@@ -1188,9 +1205,9 @@ export default function AllLeads({
              month or by quarter … months as a whole should be able to be
              viewed". The time period leads the page; the four questions
              asked most sit right under it; everything else is folded. ---- */}
-      <div className="panel" aria-label="Time period" style={{ padding: "10px 14px", marginBottom: 10 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <b style={{ fontSize: 13 }}>View by</b>
+      <div className="panel" aria-label="Time period" style={{ padding: "8px 12px", marginBottom: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}
+             title={`By the date each CSV states, else its upload date. Nothing goes back before ${shortMonthLabel(EARLIEST_MONTH)}: anything older is counted there. Sheet files sit in their estimated month. Click several to group them; click again to take one out.`}>
           <div className="seg" role="group" aria-label="View by">
             {(["month", "quarter", "all"] as const).map((k) => (
               <button key={k} className={`seg-btn${periodKind === k ? " active" : ""}`} aria-pressed={periodKind === k} onClick={() => setPeriodKind(k)}>
@@ -1198,24 +1215,34 @@ export default function AllLeads({
               </button>
             ))}
           </div>
-          <span className="muted" style={{ fontSize: 12 }}>
-            by the date each CSV states, else its upload date{periodKind !== "all" ? " · pick as many as you like · counts honour the filters below" : ""}
-          </span>
-        </div>
-        {periodKind !== "all" && (
-          <div role="group" aria-label="Periods" style={{ display: "flex", gap: 6, overflowX: "auto", paddingTop: 8, paddingBottom: 2 }}>
-            <button className={`chip-btn${!periodKeys.length ? " active" : ""}`} aria-pressed={!periodKeys.length} onClick={() => setPeriodKey("all")} style={{ whiteSpace: "nowrap" }}>
-              All {periodKind === "month" ? "months" : "quarters"} ({periodOptions.reduce((n, [, c]) => n + c, 0).toLocaleString()})
-            </button>
-            {periodOptions.map(([k, n]) => (
-              <button key={k || "undated"} className={`chip-btn${periodSet.has(k) ? " active" : ""}`} aria-pressed={periodSet.has(k)}
-                      title="Click to add this period; click others to group them together; click again to take it out."
-                      aria-label={`Period ${periodLabel(k, periodKind)}`} onClick={() => togglePeriod(k)} style={{ whiteSpace: "nowrap" }}>
-                {periodLabel(k, periodKind)} <b>{n.toLocaleString()}</b>
+          {periodKind !== "all" && (
+            <div role="group" aria-label="Periods" style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+              <button className={`chip-btn${!periodKeys.length ? " active" : ""}`} aria-pressed={!periodKeys.length} onClick={() => setPeriodKey("all")} style={{ whiteSpace: "nowrap" }}>
+                All {periodKind === "month" ? "months" : "quarters"} <b>{periodOptions.reduce((n, [, c]) => n + c, 0).toLocaleString()}</b>
               </button>
-            ))}
-          </div>
-        )}
+              {periodOptions.map(([k, n]) => (
+                <button key={k || "undated"} className={`chip-btn${periodSet.has(k) ? " active" : ""}`} aria-pressed={periodSet.has(k)}
+                        aria-label={`Period ${periodLabel(k, periodKind)}`} onClick={() => togglePeriod(k)} style={{ whiteSpace: "nowrap" }}>
+                  {periodLabel(k, periodKind)} <b>{n.toLocaleString()}</b>
+                </button>
+              ))}
+            </div>
+          )}
+          {periodKind !== "all" && rangeKeys.length > 1 && (
+            <div role="group" aria-label="Period range" style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12.5 }}>
+              <span className="muted">Range</span>
+              <select className="field" aria-label="Range from" value={rangeFrom} onChange={(e) => pickRange(e.target.value, rangeTo)}>
+                <option value="">From…</option>
+                {rangeKeys.map((k) => <option key={k} value={k}>{periodLabel(k, periodKind)}</option>)}
+              </select>
+              <span className="muted">to</span>
+              <select className="field" aria-label="Range to" value={rangeTo} onChange={(e) => pickRange(rangeFrom, e.target.value)}>
+                <option value="">To…</option>
+                {[...rangeKeys].reverse().map((k) => <option key={k} value={k}>{periodLabel(k, periodKind)}</option>)}
+              </select>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="toolbar" aria-label="Main filters" style={{ marginBottom: 10 }}>
@@ -1561,7 +1588,7 @@ export default function AllLeads({
                   title="Every CSV you have uploaded, filed under the month it is dated, newest first." style={{ maxWidth: 260 }}>
             <option value="all">Uploaded file: any ({fileOptions.length.toLocaleString()})</option>
             {fileMonths.map(([mk, files]) => (
-              <optgroup key={mk} label={mk ? monthLabel(mk) : "Undated"}>
+              <optgroup key={mk} label={mk ? shortMonthLabel(mk) : "Undated"}>
                 {files.map(([f, n, d]) => <option key={f} value={f}>{f}{d ? ` · ${isPreMaySheet(f) ? "~" : ""}${d.slice(5).replace("-", "/")}` : ""} ({n.toLocaleString()})</option>)}
               </optgroup>
             ))}
@@ -1945,7 +1972,7 @@ export default function AllLeads({
                     <span className="pill" style={{ color: VERDICT_META[d.verdict].color, background: VERDICT_META[d.verdict].bg }}>{VERDICT_META[d.verdict].label}</span>
                   </td>
                   <td data-col="line">{d.line === NO_LINE ? <span className="muted">—</span> : d.line}</td>
-                  <td data-col="received">{monthLabelOf(d.month)}</td>
+                  <td data-col="received" title={monthLabelOf(d.month)}>{d.month.endsWith("~") ? "~" : ""}{shortMonthLabel(viewMonthKey(d.month))}</td>
                   <td data-col="uploads" className="num" title={l.sourceFiles.join("\n")}>
                     {d.files}{d.files > 1 && d.segs > 1 && <span className="muted" title="The notes differ between these uploads"> · changed</span>}
                   </td>

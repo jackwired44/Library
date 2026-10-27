@@ -16,7 +16,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
 
 const day = n => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); };
 const ym = s => s.slice(0, 7);
-const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+// The period strip uses short month names ("Mar 2026").
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const monthName = s => `${MONTHS[Number(s.slice(5, 7)) - 1]} ${s.slice(0, 4)}`;
 
 const L = (o) => ({

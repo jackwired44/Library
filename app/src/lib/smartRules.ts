@@ -18,7 +18,7 @@
 
 import type { LeadSource, StoredLead } from "./leadStore";
 import { verdictOf, wasReached, contactStateOf, statusOf, VERDICT_META, type Verdict } from "./leadStatus";
-import { arrivalOf } from "./leadFiling";
+import { arrivalOf, viewMonthKey } from "./leadFiling";
 import { matchesKeywords, parseKeywords } from "./keywords";
 import { ownersOf } from "./reps";
 import { apolloHitFor, type ApolloHit, type RosterIndex } from "./apolloRoster";
@@ -132,7 +132,7 @@ export function factsForLead(
     verdict: verdictOf(l.tier),
     product: productOf(l.productArea || ""),
     arrivalDate: arr.date,
-    arrivalMonth: arr.month.replace("~", ""),
+    arrivalMonth: viewMonthKey(arr.month),
     industry: extra.industry,
     employees: extra.employees,
     owners: ownersOf([...seqs.map((s) => s.name), ...(extra.hit?.sequences ?? [])], a?.live?.owner),

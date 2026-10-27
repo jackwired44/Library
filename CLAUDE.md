@@ -7384,3 +7384,20 @@ Per Jack: "october of 2025 is the ltest back to go".
   still files under that real month; nothing is clamped or invented.
 - Suites re-pointed: `sheet-dates-live` (Sheet 75 → ~March 2026),
   `web-visits-live` (from 20251001).
+
+### 2026-10-27: All leads month strip cleaned up + From/To range (scanner-platform-v29)
+
+Per Jack: "still in all leads", "i need this to be much cleaner", "select all
+the files from last october to this may … pick all the strong dynamics leads
+… download them together".
+- `viewMonthKey` / `shortMonthLabel` / `EARLIEST_MONTH` (`lib/leadFiling.ts`):
+  the month views drop the estimate mark (an estimated month joins the real
+  one) and fold anything before October 2025 into "Oct 2025". Used by the
+  period strip, the Uploaded file picker groups, the Received column and
+  smart rules' `arrivalMonth`. The lead record still says "~March 2026 (est.)".
+- Strip: short labels ("Mar 2026"), wraps instead of scrolling, the long
+  explainer moved into a hover title.
+- Range: "From … to …" selects every period between them; the chip reads
+  "Received Oct 2025 – Apr 2026 (7 months)". Clicking a chip clears the range.
+- Suites: `sheet-dates-live` 9 → 12 (pre-Oct CSV, range, chip),
+  `lead-chat-live` locator re-pointed to short month names.

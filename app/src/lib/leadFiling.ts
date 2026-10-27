@@ -89,6 +89,26 @@ export function sheetEstimateOf(file: string): string | null { return sheetEstim
  *  is estimated earlier than October 2025. */
 export const SHEET_WINDOW = { firstSheet: 45, lastSheet: 82, from: "2025-10", to: "2026-04" } as const;
 
+/** Per Jack: "october of 2025 is the ltest back to go". The earliest month
+ *  the month views offer; anything dated before it is counted in it. */
+export const EARLIEST_MONTH = SHEET_WINDOW.from;
+/** A month key for grouping: the estimate mark dropped (an estimated month
+ *  and a real one are the same month) and anything earlier than
+ *  EARLIEST_MONTH folded into it. The "before May 2026" bucket and "" pass
+ *  through. */
+export function viewMonthKey(month: string): string {
+  if (!month || month.startsWith("0000")) return month;
+  const m = month.replace("~", "");
+  return m < EARLIEST_MONTH ? EARLIEST_MONTH : m;
+}
+/** "2026-03" -> "Mar 2026". */
+export function shortMonthLabel(key: string): string {
+  if (key === PRE_MAY_2026_MONTH) return PRE_MAY_2026_LABEL;
+  const ym = key.replace("~", "");
+  if (!/^\d{4}-\d{2}$/.test(ym)) return key;
+  return new Date(`${ym}-15T12:00:00`).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+}
+
 /** The month a sheet number falls in, spread evenly across the window. */
 export function sheetMonthByNumber(n: number): string {
   const [fy, fm] = SHEET_WINDOW.from.split("-").map(Number);
