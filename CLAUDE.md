@@ -7316,9 +7316,10 @@ built count, smart lists don't; hiding also keeps them out of downloads.
 Per Jack: "the artifiact here is what i like updating". When he says push /
 update "here", rebuild, `git push`, AND republish the live artifact
 (https://claude.ai/artifact/2WaD4fwZLow1XKwKrdUwEh), same URL. Omit
-`capabilities` so the stored set carries forward (downloads + 11 Apollo
-tools); a republish that ADDED `sample` was declined, so don't change
-access without asking. Version 71 = this session's work.
+`capabilities` so the stored set carries forward. Since Version 72 that is
+downloads + 13 Apollo tools (apollo_phone_calls_search and
+apollo_emailer_messages_search added, approved, read-only). A republish that
+ADDED `sample` was declined, so don't change access without asking.
 
 ### 2026-10-27: recycle from where the sequence ended; "Where it stands" filter (scanner-platform-v29)
 
