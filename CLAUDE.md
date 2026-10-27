@@ -7262,3 +7262,27 @@ friendly". Layout only: no rule, count or download changed.
 - `apollo-roster-live` re-pointed to the dropdown and the new wording
   (same facts).
 - Not done: Custom and CSP scanners (`Scanner2.tsx`) keep their own layout.
+
+### 2026-10-27: hosting on Azure Static Web Apps, like echo.wiredcio.com (scanner-platform-v29)
+
+Per Jack: "i need to push this to git hub to make live so its a live link not
+an artificact", then "i want it to be live like our other stuff such as echo
+or switchboard". echo.wiredcio.com could not be inspected (blocked by this
+session's network), so the setup is the standard one for a Microsoft shop:
+- **`.github/workflows/deploy-vault.yml`**: on push to `scanner-platform-v29`
+  (or by hand) it publishes the committed bundle as `index.html` plus
+  `deploy/` to Azure Static Web Apps. With no `AZURE_STATIC_WEB_APPS_API_TOKEN`
+  secret it logs a notice and publishes nothing.
+- **`deploy/staticwebapp.config.json`**: every route needs the invited
+  `vault` role (Azure role invitations, Free plan, up to 25 people); 401 →
+  Microsoft sign-in; GitHub/Twitter sign-in disabled; noindex, no-store.
+  The in-app sign-in still runs after it. This meets the Access & ownership
+  bar (a real login in front of a network-reachable build).
+- **`deploy/403.html`**: signed in but not invited.
+- **`DEPLOY.md`**: Jack's one-time steps (create the Static Web App, add the
+  token secret, invite jack@/carly@ with role `vault`, CNAME
+  vault.wiredcio.com, Backup → Restore the data).
+- **Off claude.ai there is no `window.claude`**: live Apollo pull/check,
+  enrichment, website visits and Claude-read "Ask for leads" do not work
+  there (the built-in reader and sync-file import still do). Server-side
+  Apollo + shared data is the next, separate decision.

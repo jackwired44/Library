@@ -1,0 +1,55 @@
+# Publishes The Wired CIO Vault to Azure Static Web Apps on every push to
+# the working branch. It ships the committed, tested bundle
+# (wired-cio-lead-scanner-app.html) as index.html, plus the sign-in rules
+# in deploy/. Until the Azure deployment token is added as a repository
+# secret, the job says so and stops; nothing is published. See DEPLOY.md.
+name: Deploy Vault
+
+on:
+  push:
+    branches: [scanner-platform-v29]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-vault
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the Azure token is set
+        id: gate
+        env:
+          TOKEN: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::notice::AZURE_STATIC_WEB_APPS_API_TOKEN is not set, so nothing was published. See DEPLOY.md."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.ready == 'true'
+
+      - name: Stage the site
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          mkdir -p site
+          cp wired-cio-lead-scanner-app.html site/index.html
+          cp deploy/staticwebapp.config.json deploy/403.html site/
+
+      - name: Publish to Azure Static Web Apps
+        if: steps.gate.outputs.ready == 'true'
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action: upload
+          app_location: site
+          output_location: ""
+          skip_app_build: true
+          skip_api_build: true

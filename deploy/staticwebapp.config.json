@@ -1,0 +1,19 @@
+{
+  "routes": [
+    { "route": "/.auth/login/github", "statusCode": 404 },
+    { "route": "/.auth/login/twitter", "statusCode": 404 },
+    { "route": "/403.html", "allowedRoles": ["authenticated"] },
+    { "route": "/*", "allowedRoles": ["vault"] }
+  ],
+  "responseOverrides": {
+    "401": { "redirect": "/.auth/login/aad?post_login_redirect_uri=/", "statusCode": 302 },
+    "403": { "rewrite": "/403.html" }
+  },
+  "navigationFallback": { "rewrite": "/index.html", "exclude": ["/403.html"] },
+  "globalHeaders": {
+    "X-Robots-Tag": "noindex, nofollow",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "Cache-Control": "no-store"
+  }
+}
