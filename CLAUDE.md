@@ -7310,3 +7310,12 @@ built count, smart lists don't; hiding also keeps them out of downloads.
   counts honour every other filter) with a "Hiding leads on …" chip; the
   Export button follows the filters.
 - Suites `list-match` (17), `list-hide-live` (20).
+
+### 2026-10-27: the live artifact is where Jack updates (supersedes "do not publish")
+
+Per Jack: "the artifiact here is what i like updating". When he says push /
+update "here", rebuild, `git push`, AND republish the live artifact
+(https://claude.ai/artifact/2WaD4fwZLow1XKwKrdUwEh), same URL. Omit
+`capabilities` so the stored set carries forward (downloads + 11 Apollo
+tools); a republish that ADDED `sample` was declined, so don't change
+access without asking. Version 71 = this session's work.
