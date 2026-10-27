@@ -84,9 +84,10 @@ let sheetEstimates = new Map<string, string>();
 export function setSheetEstimates(m: Map<string, string>): void { sheetEstimates = m; }
 export function sheetEstimateOf(file: string): string | null { return sheetEstimates.get(file) ?? null; }
 
-/** Per Jack: "from july 2025 - april 2026 for those sheets". Sheet 45 is
- *  about July 2025 and Sheet 82 about April 2026. */
-export const SHEET_WINDOW = { firstSheet: 45, lastSheet: 82, from: "2025-07", to: "2026-04" } as const;
+/** Per Jack: "october of 2025 is the ltest back to go" (was July 2025).
+ *  Sheet 45 is about October 2025 and Sheet 82 about April 2026; nothing
+ *  is estimated earlier than October 2025. */
+export const SHEET_WINDOW = { firstSheet: 45, lastSheet: 82, from: "2025-10", to: "2026-04" } as const;
 
 /** The month a sheet number falls in, spread evenly across the window. */
 export function sheetMonthByNumber(n: number): string {
@@ -100,7 +101,7 @@ export function sheetMonthByNumber(n: number): string {
 
 /**
  * The estimated day each pre-May Sheet file was exported. Start from its
- * number (spread over July 2025 – April 2026). Where the sheet's own leads'
+ * number (spread over October 2025 – April 2026). Where the sheet's own leads'
  * notes mention a dated event inside that window, the latest such date is
  * the earliest the sheet can have been exported, so the estimate moves up
  * to it. Then estimates never go backwards as the number rises. Pure; App

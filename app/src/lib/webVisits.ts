@@ -15,7 +15,7 @@
 //     orgId). No enrichment, no credits.
 //   - wiredcio.com is one of the team's tracked domains. Apollo's tracker
 //     last received data on 2026-07-19, so a run today may well find
-//     nothing recent; the window reaches back to July 2025.
+//     nothing recent; the window reaches back to October 2025, the earliest the platform goes.
 //
 // The SUCCESS payload shape could not be observed (no visits on record in
 // the window when this was built), so it is read defensively: any count
@@ -27,7 +27,7 @@ import { getMcp, describeApolloError, requestApolloConsent } from "./apolloEnric
 import type { StoredLead, WebVisits } from "./leadStore";
 
 export const TRACKED_DOMAIN = "wiredcio.com";
-export const VISIT_WINDOW_FROM = "2025-07-01";
+export const VISIT_WINDOW_FROM = "2025-10-01";
 
 type Rec = Record<string, unknown>;
 const ymd = (iso: string) => iso.replace(/-/g, "");

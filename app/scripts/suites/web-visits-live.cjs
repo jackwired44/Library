@@ -75,7 +75,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   const t = await main();
   ok('one visited, one did not', /1 visited wiredcio\.com, 1 did not/.test(t), t.slice(0, 300));
   const calls = (await page.evaluate(() => window.__calls)).filter(c => c.tool.endsWith('website_visitors_domain_aggregates'));
-  ok('one report per company, on wiredcio.com, back to July 2025', calls.length === 2 && calls.every(c => c.args.domain === 'wiredcio.com' && c.args.from === '20250701'), JSON.stringify(calls.map(c => c.args)));
+  ok('one report per company, on wiredcio.com, back to October 2025', calls.length === 2 && calls.every(c => c.args.domain === 'wiredcio.com' && c.args.from === '20251001'), JSON.stringify(calls.map(c => c.args)));
   ok('only read tools were called', (await page.evaluate(() => window.__calls)).every(c => /search|aggregates/.test(c.tool)));
   const row = co => page.locator('.data-table tbody tr', { hasText: co }).first();
   ok('the visiting company\'s lead carries the tag', await row('VISITOR CO').locator('[aria-label="Visited wiredcio.com"]').count() === 1);

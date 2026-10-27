@@ -7371,3 +7371,16 @@ axctiong them off into a dyanmics targeted email paln".
 - Suite `lead-chat-live` +3 (add a second month, both show, remove it).
 - Stashed, not committed: an unfinished Apollo activity pull + sequence-owner
   fallback (`git stash list`, "WIP: Apollo activity pull"), stopped by Jack.
+
+### 2026-10-27: October 2025 is the earliest month (scanner-platform-v29)
+
+Per Jack: "october of 2025 is the ltest back to go".
+- `SHEET_WINDOW.from` "2025-07" → "2025-10" (`lib/leadFiling.ts`): Sheet
+  45–82 now spread over October 2025 – April 2026, so no sheet is estimated
+  earlier than October 2025 (Sheet 75 moves from ~Feb to ~Mar 2026).
+- `VISIT_WINDOW_FROM` "2025-07-01" → "2025-10-01" (`lib/webVisits.ts`):
+  website-visit checks look back to October 2025.
+- A file whose own name or contents carry a real date before October 2025
+  still files under that real month; nothing is clamped or invented.
+- Suites re-pointed: `sheet-dates-live` (Sheet 75 → ~March 2026),
+  `web-visits-live` (from 20251001).

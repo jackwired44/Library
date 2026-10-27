@@ -1791,7 +1791,7 @@ export default function AllLeads({
             {visits && !visits.finished
               ? <button className="btn btn-sm btn-secondary" onClick={() => visitAbort.current?.abort()}>Stop · {visits.done}/{visits.total}</button>
               : <button className="btn btn-sm btn-secondary" disabled={!visitOrgs.length} onClick={() => void runVisits()}
-                        title={`Asks Apollo whether each company behind these leads visited ${TRACKED_DOMAIN} since July 2025, and tags every lead there. Read-only, no credits. Needs the leads to have been checked in Apollo first (that is where the company id comes from).`}>
+                        title={`Asks Apollo whether each company behind these leads visited ${TRACKED_DOMAIN} since October 2025, and tags every lead there. Read-only, no credits. Needs the leads to have been checked in Apollo first (that is where the company id comes from).`}>
                   🌐 Check {visitOrgs.length.toLocaleString()} compan{visitOrgs.length === 1 ? "y" : "ies"} for site visits
                 </button>}
             {visits?.finished && <span className="muted" style={{ fontSize: 12 }}>{visits.visited} visited {TRACKED_DOMAIN}, {visits.done - visits.visited} did not{visits.errors ? `, ${visits.errors} failed` : ""}.</span>}

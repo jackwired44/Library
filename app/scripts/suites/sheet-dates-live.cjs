@@ -1,5 +1,6 @@
 // Numbered sheets carry no date. Per Jack: "anything from sheet 45 - sheet
-// 82 its all pre may 2026", "from july 2025 - april 2026 for those sheets",
+// 82 its all pre may 2026", "from july 2025 - april 2026 for those sheets" (later "october of 2025 is
+// the ltest back to go"),
 // "so lets try and guess its month" and "reogranize it in all leads for
 // filtering purposes". Each sheet files under an estimated month, marked
 // "(est.)", never under the month it happened to be uploaded.
@@ -41,20 +42,20 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await page.locator('.side-nav-btn', { hasText: 'All leads' }).first().click(); await sleep(800);
   const groups = await page.$$eval('select[aria-label="Uploaded file"] optgroup', gs => gs.map(g => ({ label: g.label, files: [...g.querySelectorAll('option')].map(o => o.textContent) })));
   const groupOf = name => (groups.find(g => g.files.some(f => f.startsWith(name))) || {}).label;
-  ok('Sheet 75 files under an estimated month (Feb 2026, est.)', groupOf('BookSheet75') === '~February 2026 (est.)', JSON.stringify(groups));
+  ok('Sheet 75 files under an estimated month (Mar 2026, est.)', groupOf('BookSheet75') === '~March 2026 (est.)', JSON.stringify(groups));
   ok('Sheet 82 is pre-May too, estimated April 2026', groupOf('BookSheet82') === '~April 2026 (est.)', groupOf('BookSheet82'));
   ok('Sheet 83 is not pre-May', groupOf('BookSheet83') && !/est\.|Before May/.test(groupOf('BookSheet83')), groupOf('BookSheet83'));
   ok('Excel\'s default Sheet1 is not treated as a numbered sheet', !/est\.|Before May/.test(groupOf('Sheet1') || ''), groupOf('Sheet1'));
   ok('an estimated day is marked with ~', groups.flatMap(g => g.files).filter(f => /^BookSheet7|^BookSheet82/.test(f)).every(f => /· ~\d\d\/\d\d/.test(f)), JSON.stringify(groups));
   // The months now lead All leads as a period strip (View by Month).
   const months = await page.$$eval('[role=group][aria-label="Periods"] button[aria-label^="Period "]', bs => bs.map(b => b.getAttribute('aria-label').slice(7) + ' (' + b.querySelector('b').textContent + ')'));
-  ok('the month strip offers the estimated months', months.some(m => /^~February 2026 \(est\.\) \(1\)$/.test(m)) && months.some(m => /^~April 2026 \(est\.\) \(1\)$/.test(m)), JSON.stringify(months));
-  await page.locator('[role=group][aria-label="Periods"] button[aria-label="Period ~February 2026 (est.)"]').click(); await sleep(400);
+  ok('the month strip offers the estimated months', months.some(m => /^~March 2026 \(est\.\) \(1\)$/.test(m)) && months.some(m => /^~April 2026 \(est\.\) \(1\)$/.test(m)), JSON.stringify(months));
+  await page.locator('[role=group][aria-label="Periods"] button[aria-label="Period ~March 2026 (est.)"]').click(); await sleep(400);
   const rows = (await page.locator('.data-table tbody').innerText()).replace(/\s+/g, ' ');
   ok('filtering to it shows only the Sheet 75 lead', /OLD CO/.test(rows) && !/NEWER CO|EXCEL CO|EDGE CO/.test(rows), rows.slice(0, 200));
   await page.locator('.data-table tbody tr', { hasText: 'OLD CO' }).first().locator('td').nth(1).click(); await sleep(800);
   const detail = (await page.locator('body').innerText()).replace(/\s+/g, ' ');
-  ok('the lead record says it is an estimate from a Sheet file', /~February 2026 \(est\.\)/.test(detail) && /before May 2026/i.test(detail), detail.slice(0, 300));
+  ok('the lead record says it is an estimate from a Sheet file', /~March 2026 \(est\.\)/.test(detail) && /before May 2026/i.test(detail), detail.slice(0, 300));
   ok('no page errors', errs.length === 0, errs.join(' | '));
   await b.close();
   console.log(`\n${pass}/${pass + fail} checks passed`);
