@@ -249,24 +249,22 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
             counts toward.
           </p>
           <CategoryDetail k="dynamics365">
-            <strong>Four tabs, always: All Dynamics 365 · Business Central / ERP · Sales / CRM · Everything else.</strong>
+            <strong>Four tabs, always: All Dynamics 365 · Business Central / ERP · Sales / CRM / Customer Service · Everything else.</strong>
+            Every Dynamics lead lands in exactly one, checked in this order:
             <br />
-            <strong>Business Central / ERP</strong> — a row mentions "Business Central" or bare "ERP." This is the same
-            tier-0 module ranking (highest-priority Dynamics leads, always shown first). A Finance and Operations lead is
-            not Business Central, even when it says "ERP" — it goes to Everything else.
+            <strong>Everything else</strong> — Finance and Operations (incl. Dynamics 365 Finance) and supply chain / Supply
+            Chain Management. These never go to BC / ERP or Sales, even when the note names Business Central, Sales or Field
+            Service too.
             <br />
-            <strong>Sales / CRM</strong> — a <em>sales platform</em>: Dynamics 365 Sales (Pro / Enterprise / Premium),
-            Sales Hub, Dynamics CRM or a CRM, or Customer Insights. A sales <em>team</em> is not a sales platform, and a
-            row naming Field Service, F&amp;O, Business Central / ERP or supply chain never lands here. The note on a Sales
-            lead opens with "Sales platform:".
+            <strong>Business Central / ERP</strong> — the note says "Business Central" or "ERP" anywhere (a partner named
+            "ERP Transformation" counts), or names Project Operations, Human Resources, Commerce, Dynamics GP / NAV / AX / SL
+            or Power Platform, or describes an accounting or project-management need with no customer-facing app named.
             <br />
-            <strong>Everything else</strong> — every other Dynamics hit: Finance and Operations, Supply Chain Management,
-            Customer Engagement, Field Service, Marketing, Project Operations, Human Resources, and anything with no
-            specific module named.
+            <strong>Sales / CRM / Customer Service</strong> — every other Dynamics lead: Dynamics 365 Sales, CRM, Customer
+            Service, Field Service, Customer Insights, Customer Engagement, Marketing, and a bare "Dynamics 365" with no module
+            named.
             <br />
-            <strong>Supply Chain Management always lands in Everything else</strong>, unless the row names
-            <em> Business Central</em> outright. This decides the tab only — SCM still ranks in the tier-0 block and still
-            downloads in the Dynamics 365 file.
+            These are view tabs only: they never change what's downloaded or filed.
             <br />
             <strong>Everyday words don't make a Dynamics lead.</strong> "Customer service," "field service," "human
             resources," "supply chain" and "customer engagement" only count with a Dynamics prefix — "our customer service

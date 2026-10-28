@@ -28,10 +28,10 @@ for (const [note, want] of [
   ["We need a new ERP for 40 users, currently on spreadsheets.", "Business Central / ERP"],
   ["Evaluating Dynamics 365 Sales for the team, about 30 seats.", "Sales / CRM"],
   ["Interested in Dynamics CRM for 30 users.", "Sales / CRM"],
-  // Documented, pre-existing: tier-0 module names that are NOT the two tab
-  // keywords stay in Everything else.
+  // Per Jack (2026-10-28): Everything else is F&O and supply chain only;
+  // Customer Engagement is CRM.
   ["Rolling out Dynamics 365 Finance and Operations for 60 users.", "Everything else"],
-  ["Looking at Dynamics 365 Customer Engagement for 60 users.", "Everything else"],
+  ["Looking at Dynamics 365 Customer Engagement for 60 users.", "Sales / CRM"],
 ] as [string, string][]) {
   const got = tabOf(scan([note])[0]);
   ok(`${want.padEnd(23)} <- ${note.slice(0, 52)}`, got === want, `got ${got}`);
@@ -61,12 +61,12 @@ for (const note of [
   ok(`Everything else <- ${note.slice(0, 52)}`, tabOf(r) === "Everything else", `got ${tabOf(r)}`);
 }
 
-console.log("\n== but naming Business Central outright still wins ==");
-// 127 real rows say both. "We want Business Central" belongs in the BC tab
-// whatever else the note mentions.
+console.log("\n== F&O and supply chain win even over Business Central ==");
+// Per Jack (2026-10-28): "none of those should pass through bc or sales".
+// Replaces the earlier "naming Business Central outright wins".
 const bcAndScm = scan(["We want Dynamics 365 Business Central to fix our supply chain management, 80 users."])[0];
-ok("Business Central + supply chain stays Business Central / ERP",
-   tabOf(bcAndScm) === "Business Central / ERP", tabOf(bcAndScm));
+ok("Business Central + supply chain goes to Everything else",
+   tabOf(bcAndScm) === "Everything else", tabOf(bcAndScm));
 
 console.log("\n== the tab is not the ranking, and not the download ==");
 const scmRow = scan(["Evaluating Dynamics 365 Supply Chain Management for 80 users."])[0];
@@ -98,15 +98,32 @@ for (const [note, want] of [
   ["Need a CRM — looking at Dynamics 365, 20 users.", "Sales / CRM"],
   // A sales TEAM is not a sales platform.
   ["Dynamics 365 Business Central for our sales team, 25 users.", "Business Central / ERP"],
-  ["Dynamics 365 Field Service for 30 techs, the sales team wants a CRM too.", "Everything else"],
+  ["Dynamics 365 Field Service for 30 techs, the sales team wants a CRM too.", "Sales / CRM"],
   ["Rolling out Dynamics 365 Finance and Operations, sales and CRM later.", "Everything else"],
-  ["Dynamics 365 for our sales and distribution business, 40 users.", "Everything else"],
+  // A bare Dynamics 365 goes to Sales / CRM / Customer Service, per Jack.
+  ["Dynamics 365 for our sales and distribution business, 40 users.", "Sales / CRM"],
 ] as [string, string][]) {
   const got = tabOf(scan([note])[0]);
   ok(`${want.padEnd(23)} <- ${note.slice(0, 52)}`, got === want, `got ${got}`);
 }
 const salesNote = scan(["Need a CRM — looking at Dynamics 365, 20 users."])[0];
 ok("a Sales / CRM lead's note names the sales platform", /^Wants a sales platform: /.test(salesNote?.notesSummary ?? ""), salesNote?.notesSummary);
+
+console.log("\n== Jack's own examples (2026-10-28) ==");
+for (const [note, want] of [
+  ["Wants Dynamics 365 Sales (8 users). Partner: ERP Transformation with.", "Business Central / ERP"],
+  ["Wants Dynamics 365 (3 users). Partner: ERP Transformation with.", "Business Central / ERP"],
+  ["Wants Dynamics 365 Customer Service (50 users).", "Sales / CRM"],
+  ["Wants Dynamics 365 Project Operations (30 users).", "Business Central / ERP"],
+  ["Wants Dynamics 365 (30 users).", "Sales / CRM"],
+  ["Wants Dynamics 365 Field Service (25 users).", "Sales / CRM"],
+  ["Wants Dynamics 365 Field Service with Finance and Operations (25 users).", "Everything else"],
+  ["Wants Dynamics 365 Field Service and Supply Chain Management (25 users).", "Everything else"],
+  ["Wants Dynamics 365 Finance (13 users).", "Everything else"],
+] as [string, string][]) {
+  const got = tabOf(scan([note])[0]);
+  ok(`${want.padEnd(23)} <- ${note.slice(0, 60)}`, got === want, `got ${got}`);
+}
 
 console.log("\n== F&O is not Business Central, even when it says ERP ==");
 const fno = scan(["Dynamics 365 Finance and Operations is the ERP we want, 120 users."])[0];
@@ -160,7 +177,7 @@ function scanPA(pa: string, note: string) {
 const fin = scanPA("Dynamics ERP", "Service: Dynamics 365 Finance - 13 users");
 ok("Dynamics 365 Finance under PA 'Dynamics ERP' is not Business Central", tabOf(fin) === "Everything else", tabOf(fin));
 const hr = scanPA("Dynamics CRM", "service - Microsoft Dynamics 365 Human Resources - 5 users");
-ok("Dynamics 365 Human Resources under PA 'Dynamics CRM' is not Sales / CRM", tabOf(hr) === "Everything else", tabOf(hr));
+ok("Dynamics 365 Human Resources under PA 'Dynamics CRM' is BC / ERP (back office), not Sales / CRM", tabOf(hr) === "Business Central / ERP", tabOf(hr));
 const locked = scanPA("Dynamics CRM", "f1Locked out of teams");
 ok("a login problem beside a phone number is not a Strong Dynamics lead", locked?.tier !== "signal", `${locked?.tier} ${locked?.dqReasons}`);
 

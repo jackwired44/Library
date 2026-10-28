@@ -95,7 +95,7 @@ const num = t => { const m=/\((\d[\d,]*)\)/.exec(t); return m?Number(m[1].replac
  await page.fill('input[placeholder*="Search"], .toolbar input[type=text]',''); await sleep(700);
  const all = await badge('button:has-text("All Dynamics 365 (")');
  const bc = await badge('button:has-text("Business Central / ERP (")');
- const sc = await badge('button:has-text("Sales / CRM (")');
+ const sc = await badge('button:has-text("Sales / CRM / Customer Service (")');
  const other = await badge('button:has-text("Everything else (")');
  ok('Dynamics sub-views sum to the category', all !== null && bc+sc+other === all, `${bc}+${sc}+${other} != ${all}`);
  await page.locator('button:has-text("Business Central / ERP (")').first().click(); await sleep(600);

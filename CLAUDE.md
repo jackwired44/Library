@@ -7543,3 +7543,37 @@ Per Jack: "in the lists tab i need to be able to run these against" Apollo.
   not in Apollo — `NEEDS`) narrows the expanded list; the list's Download
   CSV follows it.
 - Suite `list-apollo-live` (17).
+
+### 2026-10-28: Dynamics tabs re-cut (scanner-platform-v29)
+
+Per Jack, over several messages: "any note scanned with erp or business
+central should be with business central/erp", "Everything else is really
+only for fno finance and operations, supply chain management or just
+regular supply chain", "none of those should pass through bc or sales",
+"customer service should be with sales / crm / customer service", "Wants
+Dynamics 365 Project Operations … should be with bc erp", "Wants Dynamics
+365 (30 users) … should be with sales", "field service can be added there
+just not if its tied to finance and operations or supply chain".
+Supersedes the earlier BC / Sales-CRM / SCM tab notes above.
+- Every Dynamics lead lands in exactly one tab, top-down (`scanRowPlatform`,
+  `lib/detection.ts`):
+  1. **Everything else**: F&O, Dynamics 365 Finance, FnO, supply chain / SCM
+     (`DYNAMICS_OTHER_TAB_RE`). Wins even when BC or Sales is named too.
+  2. **Business Central / ERP**: "Business Central" or "ERP" anywhere (a
+     partner named "ERP Transformation" counts); Project Operations, Human
+     Resources, Commerce, GP/NAV/AX/SL, Power Platform
+     (`DYNAMICS_BACK_OFFICE_RE`); or an accounting / project need when no
+     customer-facing app is named.
+  3. **Sales / CRM / Customer Service** (tab renamed): everything else —
+     Sales, CRM, Customer Service, Field Service, Marketing, Customer
+     Insights / Engagement, and a bare "Dynamics 365".
+- My calls, not Jack's words: HR, Commerce and Power Platform → BC / ERP;
+  Marketing → Sales.
+- The note says "Wants a sales platform:" only when the row names Sales /
+  CRM / Customer Insights.
+- Real files (Book9-30 + strong-signal export, 402 Dynamics leads):
+  Sales 79 → 135, BC 165 → 219, Everything else 158 → 48. 12 leads that
+  name Business Central and also supply chain / F&O moved to Everything
+  else.
+- `NOTE_RULES_VERSION` bumped. `dynamics-views` 55 → 64 (Jack's examples);
+  four old assertions re-pointed to the new rule.

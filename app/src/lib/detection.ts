@@ -1026,22 +1026,20 @@ const BUSINESS_CENTRAL_RE = /\b(business\s*central|erp|d\s*365\s*bc|dynamics\s*(
 // Sales Hub, Dynamics CRM or a CRM, or Customer Insights.
 const SALES_CRM_RE =
   /\b(?:(?:microsoft\s*)?(?:dynamics(?:\s*365)?|d\s*365)\s*(?:for\s*)?sales(?:\s*(?:pro(?:fessional)?|enterprise|premium|hub))?|sales\s*(?:pro(?:fessional)?|hub)|dynamics?\s*crm|crm|customer\s*insights?)\b/i;
-/** Not a sales-platform conversation, per Jack: Field Service, F&O, BC/ERP,
- *  supply chain. A row naming one of these never lands in Sales / CRM. */
-const NOT_SALES_RE =
-  /\b(?:field\s*service|human\s*resources|project\s*operations|(?:dynamics\s*(?:365\s*)?|d\s*365\s*)(?:finance|commerce)|finance\s*(?:and|&)\s*operations|f\s*&\s*o|fin\s*ops|business\s*central|erp|supply\s*chain)\b/i;
-/** Finance and Operations named, Business Central not — an F&O lead is
- *  not a Business Central lead, even when it says "ERP". */
-const FNO_RE = /\b(?:finance\s*(?:and|&)\s*operations|f\s*&\s*o|fin\s*ops|(?:dynamics\s*(?:365\s*)?|d\s*365\s*)finance)\b/i;
-// Supply Chain Management, per Jack: it "always goes with everything else
-// for dynamics view." Its own D365 module and its own sales motion — not a
-// Business Central conversation, and not Sales/CRM. Kept separate from
-// DYNAMICS_ERP_RE (which still ranks SCM in the tier-0 block, unchanged —
-// this decides a TAB, not an order) so the two can be tuned apart.
-const SUPPLY_CHAIN_RE = /\bsupply\s*chain(?:\s*mgmt|\s*management)?\b|\b(?:d|dynamics\s*)365\s*scm\b/i;
-// The one thing that outranks it: naming Business Central outright.
-// Deliberately NOT BUSINESS_CENTRAL_RE — that one also accepts a bare
-// "ERP", which is exactly the word a supply-chain note always carries.
+/** Everything else tab, per Jack: Finance and Operations and supply chain.
+ *  Dynamics 365 Finance is the F&O app. (Field Service goes to Sales / CRM /
+ *  Customer Service — "just not if its tied to" F&O or supply chain, which
+ *  this already catches.) */
+const DYNAMICS_OTHER_TAB_RE =
+  /\b(?:finance\s*(?:and|&)\s*operations|f\s*&\s*o|fno|fin\s*ops|(?:dynamics\s*(?:365\s*)?|d\s*365\s*)finance|supply\s*chain|(?:d|dynamics\s*)365\s*scm)\b/i;
+/** The customer-facing apps beside Sales: they go to Sales / CRM / Customer
+ *  Service, per Jack ("customer service should be with sales / crm"). */
+const FRONT_OFFICE_RE = /\b(?:customer\s*(?:service|engagement|insights?)|contact\s*center|field\s*service|(?:dynamics\s*(?:365\s*)?|d\s*365\s*)marketing)\b/i;
+/** Back-office Dynamics that is a BC / ERP conversation, per Jack ("Project
+ *  Operations … should be with bc erp"): Project Operations, HR, Commerce,
+ *  the legacy ERPs, and Power Platform build work. */
+const DYNAMICS_BACK_OFFICE_RE =
+  /\b(?:project\s*operations|human\s*resources|(?:dynamics\s*(?:365\s*)?|d\s*365\s*)commerce|dynamics\s*(?:gp|nav|ax|sl)|navision|great\s*plains|axapta|power\s*(?:apps|automate|platform|pages)|powerapps|dataverse)\b/i;
 /**
  * Microsoft's propensity scorecard lists every product with the model's
  * verdict ("D365 F&O: Unknown (Unknown Fit; …)", "Has D365: No"). None of it
@@ -1055,12 +1053,6 @@ const SCORECARD_ENTRY_RE =
 export function stripScorecard(text: string): string {
   return text.replace(SCORECARD_ENTRY_RE, " ");
 }
-/** A Dynamics module named by name — what the NOTES say the lead wants.
- *  When the notes name one, the View tab follows the notes, not the
- *  Product Area code ("Dynamics ERP"/"Dynamics CRM" is a product family,
- *  and filed a "Dynamics 365 Finance" lead under Business Central). */
-const DYNAMICS_MODULE_NAMED_RE =
-  /\b(?:business\s*central|finance\s*(?:and|&)\s*operations|f\s*&\s*o|supply\s*chain|field\s*service|project\s*operations|human\s*resources|customer\s*(?:insights?|engagement|service)|contact\s*center|dataverse|power\s*(?:apps|automate|platform|pages)|navision|great\s*plains|axapta|(?:dynamics\s*(?:365\s*)?|d\s*365\s*)(?:finance|commerce|marketing|sales|bc|crm|erp)|dynamics\s*(?:crm|erp|gp|nav|ax|sl)|dynamic\s*crm|dynamics\s*\(\s*bc)\b/i;
 /**
  * What a Dynamics lead is looking for, said in plain words rather than by
  * product name: a sales platform / CRM, accounting / ERP, project
@@ -1134,7 +1126,6 @@ export function newPlatformSignal(notes: unknown): boolean {
   PLATFORM_WORD_RE.lastIndex = 0;
   return false;
 }
-const BUSINESS_CENTRAL_ONLY_RE = /\b(?:business\s*central|d\s*365\s*bc|dynamics\s*(?:365\s*)?\(?\s*bc)\b/i;
 
 function hasBareTrailingCount(afterText: string) {
   const snippet = afterText.slice(0, 80);
@@ -1811,54 +1802,31 @@ export function scanRowPlatform(
   const isGoogleToMicrosoft = hits.some((h) => h.isGoogleToMicrosoft);
   const isGoogleWorkspaceMigration = hits.some((h) => h.isGoogleWorkspaceMigration);
   const isPartnerSeeking = hits.some((h) => h.isPartnerSeeking);
-  // Business Central/ERP and Sales/CRM are mutually exclusive at the row
-  // level, Business Central/ERP taking priority — same precedence as the
-  // module-tier ranking (tier 0 beats tier 1). A lead whose text hits both
-  // keyword sets (e.g. "Business Central for finance, and also want to
-  // grow our CRM side") used to show under both View tabs; per Jack that's
-  // wrong — it should only ever show as Business Central/ERP. This also
-  // covers a row with two separate hits (one BC-flavored, one Sales/CRM-
-  // flavored, from different sentences), not just one hit matching both
-  // keywords in its own signal window.
-  //
-  // Supply Chain Management always goes with Everything else, per Jack.
-  // SCM is its own D365 module with its own sales motion — it is not a
-  // Business Central conversation and it is certainly not Sales/CRM — but
-  // a supply-chain note almost always carries the word "ERP" somewhere,
-  // and manufacturing/distribution language ("Manufacturing
-  // Sales/distribution Warehousing") trips the bare `sales` keyword. On
-  // the real files, 193 rows mention supply chain: 10 were showing under
-  // Sales / CRM and 33 under Business Central / ERP on a standalone "ERP"
-  // with no Business Central anywhere.
-  //
-  // The one guard: a row that names Business Central OUTRIGHT stays
-  // Business Central. 127 real rows say both, and "we want Business
-  // Central" belongs in the BC tab whatever else the note mentions —
-  // same precedence idea as BC beating Sales/CRM directly below.
+  // Per Jack (2026-10-28), which replaces the earlier keyword tabs: every
+  // Dynamics lead lands in exactly one of three tabs, decided top-down.
+  //   Everything else  = Finance and Operations and supply chain — "none of
+  //                      those should pass through bc or sales", so they
+  //                      win even when BC is named too.
+  //   BC / ERP         = Business Central or the word ERP anywhere (a
+  //                      partner named "ERP Transformation" counts), and
+  //                      back-office modules: Project Operations, HR,
+  //                      Commerce, GP/NAV/AX/SL, Power Platform, or an
+  //                      accounting / project-management need.
+  //   Sales / CRM / Customer Service = everything else Dynamics: Sales,
+  //                      CRM, Customer Service, Field Service, Marketing,
+  //                      Customer Insights, and a bare "Wants Dynamics 365".
   const said = stripScorecard(combined);
-  const supplyChainOnly = SUPPLY_CHAIN_RE.test(said) && !BUSINESS_CENTRAL_ONLY_RE.test(said);
-  const fnoOnly = FNO_RE.test(said) && !BUSINESS_CENTRAL_ONLY_RE.test(said);
-  // When the notes themselves name a module, the tab follows the notes.
-  const notes = stripScorecard(String(commentsValue ?? ""));
-  const notesNameModule = DYNAMICS_MODULE_NAMED_RE.test(notes);
-  // No module named, but the need is described: accounting/ERP points at
-  // Business Central, sales/CRM or customer insights at Sales / CRM, and
-  // project management at neither. Only then does the Product Area code
-  // get the casting vote.
-  const wantsAccounting = PLATFORM_ACCOUNTING_RE.test(notes);
-  const wantsSales = PLATFORM_SALES_RE.test(notes) || PLATFORM_INSIGHTS_RE.test(notes);
-  const wantsProject = PLATFORM_PROJECT_RE.test(notes);
-  const described = wantsAccounting || wantsSales || wantsProject;
-  const bcSaid = notesNameModule ? BUSINESS_CENTRAL_RE.test(notes)
-    : described ? wantsAccounting : hits.some((h) => h.isBusinessCentral);
-  const salesSaid = notesNameModule ? SALES_CRM_RE.test(notes)
-    : described ? wantsSales && !wantsAccounting : hits.some((h) => h.isSalesCrm);
-  const otherModuleOnly = /\b(?:field\s*service|project\s*operations|human\s*resources|(?:dynamics\s*(?:365\s*)?|d\s*365\s*)(?:commerce|customer\s*service|sales|marketing))\b/i.test(notes) &&
-    !BUSINESS_CENTRAL_ONLY_RE.test(notes) && !/\bdynamics\s*erp\b/i.test(notes);
-  const isBusinessCentral = !supplyChainOnly && !fnoOnly && !otherModuleOnly && bcSaid;
-  const isSalesCrm = !supplyChainOnly && !isBusinessCentral && !NOT_SALES_RE.test(said) && salesSaid;
-  const dynamicsCounts = hits.filter((h) => h.category === "Dynamics 365" && h.seatCount != null).map((h) => h.seatCount as number);
   const hasDynamics = hits.some((h) => h.category === "Dynamics 365");
+  const isOtherTab = hasDynamics && DYNAMICS_OTHER_TAB_RE.test(said);
+  // An accounting or project need only counts when no customer-facing app is
+  // named: a Sales lead "on Sage today" is still a Sales lead.
+  const namesFrontOffice = SALES_CRM_RE.test(said) || FRONT_OFFICE_RE.test(said);
+  const isBusinessCentral = hasDynamics && !isOtherTab && (
+    BUSINESS_CENTRAL_RE.test(said) || DYNAMICS_BACK_OFFICE_RE.test(said)
+    || (!namesFrontOffice && (PLATFORM_ACCOUNTING_RE.test(said) || PLATFORM_PROJECT_RE.test(said))));
+  const isSalesCrm = hasDynamics && !isOtherTab && !isBusinessCentral;
+  const notes = stripScorecard(String(commentsValue ?? ""));
+  const dynamicsCounts = hits.filter((h) => h.category === "Dynamics 365" && h.seatCount != null).map((h) => h.seatCount as number);
   const dynamicsSeatCount = dynamicsCounts.length
     ? Math.max(...dynamicsCounts)
     : hasDynamics ? formLineCount(notes) ?? dynamicsHeadcountIn(notes) : null;
@@ -3147,7 +3115,9 @@ function buildDynamicsBrief(
     const asEmployees = new RegExp(`\\b${seats}\\b\\s*\\+?\\s*(?:full[- ]time\\s*)?(?:employees?|staff|people|person)\\b(?!\\s*(?:will|would|who|that)?\\s*(?:use|using|need|be\\s*using|on\\s*it))`, "i").test(fullText);
     count = ` (${seats} ${asEmployees ? "employees" : "users"})`;
   }
-  if (platform?.isSalesCrm) {
+  // Only a row that names Sales / CRM / Customer Insights reads as a sales
+  // platform; Customer Service or a bare Dynamics 365 keeps its own name.
+  if (platform?.isSalesCrm && SALES_CRM_RE.test(fullText)) {
     const said = SALES_CRM_RE.exec(fullText)?.[0]?.trim() ?? "";
     const salesName = /sales|insights|crm|engagement/i.test(product) ? product : said && !/^crm$/i.test(said) ? said : "Dynamics 365 Sales / CRM";
     parts.push(`Wants a sales platform: ${salesName}${count}.`);

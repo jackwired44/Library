@@ -1780,7 +1780,7 @@ export default function Scanner({
                   [
                     ["all", `All Dynamics 365 (${dynamicsSubViewCounts.all})`],
                     ["businessCentral", `Business Central / ERP (${dynamicsSubViewCounts.businessCentral})`],
-                    ["salesCrm", `Sales / CRM (${dynamicsSubViewCounts.salesCrm})`],
+                    ["salesCrm", `Sales / CRM / Customer Service (${dynamicsSubViewCounts.salesCrm})`],
                     ["other", `Everything else (${dynamicsSubViewCounts.other})`],
                   ] as const
                 ).map(([key, label]) => (

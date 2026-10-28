@@ -616,7 +616,7 @@ function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownl
     ["all", `All (${entry.rows.length})`],
     ["special", `${isDynamics ? "Business Central / ERP" : M365_SUB_VIEW_META.google.label} (${specialCount})`],
     ...(isDynamics || isM365
-      ? ([["special2", `${isDynamics ? "Sales / CRM" : M365_SUB_VIEW_META.migration.label} (${special2Count})`]] as Array<["special2", string]>)
+      ? ([["special2", `${isDynamics ? "Sales / CRM / Customer Service" : M365_SUB_VIEW_META.migration.label} (${special2Count})`]] as Array<["special2", string]>)
       : []),
     ["other", `Everything else (${otherCount})`],
   ];
