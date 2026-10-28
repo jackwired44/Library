@@ -1210,9 +1210,9 @@ export default function App() {
         {uploadCheckLabel && (uploadCheckKeys || homeCheck || uploadCheckNothingDue) && (
           <div className="scan-note" role="status" aria-label="Upload Apollo check" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
             {uploadCheckNothingDue && !uploadCheckKeys
-              ? <span>Saved. Every lead in {uploadCheckLabel} was already checked in Apollo this week, so nothing was looked up again.</span>
+              ? <span>{uploadCheckLabel.startsWith("list ") ? "" : "Saved. "}Every lead in {uploadCheckLabel} was already checked in Apollo this week, so nothing was looked up again.</span>
               : !homeCheck || uploadCheckKeys
-              ? <span>Saved. Waiting to check {uploadCheckLabel} in Apollo…</span>
+              ? <span>{uploadCheckLabel.startsWith("list ") ? "" : "Saved. "}Waiting to check {uploadCheckLabel} in Apollo…</span>
               : <span>
                   {homeCheck.finished ? "Apollo check done for" : "Checking"} {uploadCheckLabel}{homeCheck.finished ? ":" : " in Apollo:"}{" "}
                   <b>{homeCheck.done.toLocaleString()}</b> of {homeCheck.total.toLocaleString()}
@@ -1489,6 +1489,12 @@ export default function App() {
             lists={leadLists}
             loading={loading}
             error={null}
+            leads={leads}
+            apolloIndex={apolloIndex}
+            checkBusy={!!homeCheck && !homeCheck.finished}
+            // Same run as Save & check: the strip at the top shows progress,
+            // Stop and the hourly cap, and leads checked this week are skipped.
+            onCheckLeads={(keys, label) => { setUploadCheckLabel(label); setUploadCheckSkipped(0); setUploadCheckNothingDue(false); setUploadCheckKeys(keys); }}
             onRename={(id, name) => {
               const next = renameLeadList(leadLists, id, name);
               setLeadLists(next);

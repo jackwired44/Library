@@ -165,6 +165,14 @@ export function listRowForLead(l: StoredLead, index: RosterIndex | null): Export
   return listRowFor(rowFor(l, index));
 }
 
+/** Where one lead stands plus the sequence it is (or was last) in, for a
+ *  list row: the live one first, then main-sequence order. */
+export function apolloDetailOf(l: StoredLead, index: RosterIndex | null): { status: Status; seq: { name: string; step: number | null; steps?: number; reason?: string; active: boolean } | null } {
+  const r = rowFor(l, index);
+  const s = [...r.seqs].sort(bySeqOrder)[0];
+  return { status: r.status, seq: s ? { name: s.name, step: s.step, steps: s.steps, reason: s.reason, active: s.active } : null };
+}
+
 /** Where one lead stands in Apollo — the same answer In Apollo shows. */
 export function apolloStandingOf(l: StoredLead, index: RosterIndex | null): Status {
   return rowFor(l, index).status;

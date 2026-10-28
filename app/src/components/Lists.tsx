@@ -7,7 +7,12 @@ import { useMemo, useState } from "react";
 import { CATEGORY_META, EXPORT_LABELS, stripSnippetPrefix } from "../lib/detection";
 import { downloadCSV } from "../lib/csv";
 import { describeRule } from "../lib/smartRules";
-import { campaignMembership, cycleDueOn, daysToCycle, isActiveCampaign, isCampaignList, parseTags, CYCLE_CHOICES, type LeadList } from "../lib/leadLists";
+import { campaignMembership, cycleDueOn, daysToCycle, isActiveCampaign, isCampaignList, parseTags, CYCLE_CHOICES, type LeadList, type ListedLeadRow } from "../lib/leadLists";
+import { normEmail, type StoredLead } from "../lib/leadStore";
+import { seenNameKey } from "../lib/seenBefore";
+import type { RosterIndex } from "../lib/apolloRoster";
+import { apolloDetailOf, NEEDS, STATUS_META, STATUS_ORDER, type Status } from "./ApolloStatus";
+import { leadsDueForApollo } from "./ApolloSyncPanel";
 
 interface ListsProps {
   lists: LeadList[];
@@ -22,7 +27,18 @@ interface ListsProps {
   onCycle?: (id: string) => void;
   /** Re-run a smart list's saved rule against the current leads now. */
   onRefreshSmart?: (id: string) => void;
+  /** Stored leads and the Apollo roster, so each list row can show where it
+   *  stands in Apollo (same answer All leads gives). */
+  leads?: StoredLead[];
+  apolloIndex?: RosterIndex | null;
+  /** Run the read-only Apollo check over these stored leads. */
+  onCheckLeads?: (keys: string[], label: string) => void;
+  checkBusy?: boolean;
 }
+
+/** One list row matched to its stored lead and where that lead stands. */
+interface RowStanding { lead: StoredLead | null; status: Status | "notStored"; seq: ReturnType<typeof apolloDetailOf>["seq"] }
+const NOT_STORED = { label: "Not in All leads", short: "Not stored", hint: "This row isn't saved in All leads, so it can't be checked. Save the upload it came from (Save & check), then check again.", color: "#4C6167", bg: "#EEF1F2" };
 
 const TIER_LABEL: Record<string, { label: string; color: string; bg: string }> = {
   signal: { label: "Strong Signal", color: "#2CC295", bg: "#E7F1EA" },
@@ -30,7 +46,54 @@ const TIER_LABEL: Record<string, { label: string; color: string; bg: string }> =
   dq: { label: "Bad Lead", color: "#B5443B", bg: "#FBEAE8" },
 };
 
-export default function ListsView({ lists, loading, error, onRename, onDelete, onRemoveRow, onUpdateMeta, onCycle, onRefreshSmart }: ListsProps) {
+export default function ListsView({ lists, loading, error, onRename, onDelete, onRemoveRow, onUpdateMeta, onCycle, onRefreshSmart, leads = [], apolloIndex = null, onCheckLeads, checkBusy = false }: ListsProps) {
+  // Per Jack: "in the lists tab i need to be able to run these against"
+  // Apollo. A list row is a snapshot, so it is matched to its stored lead the
+  // usual way: same email, or the same full name at the same company.
+  const leadIndex = useMemo(() => {
+    const byEmail = new Map<string, StoredLead>();
+    const byName = new Map<string, StoredLead>();
+    for (const l of leads) {
+      const e = normEmail(l.email);
+      if (e.includes("@") && !byEmail.has(e)) byEmail.set(e, l);
+      const n = seenNameKey(l.contact, l.company);
+      if (n && !byName.has(n)) byName.set(n, l);
+    }
+    return { byEmail, byName };
+  }, [leads]);
+  const standingOf = (r: ListedLeadRow): RowStanding => {
+    const e = normEmail(r.Email);
+    const lead = (e.includes("@") ? leadIndex.byEmail.get(e) : undefined)
+      ?? leadIndex.byName.get(seenNameKey(`${r["First Name"] || ""} ${r["Last Name"] || ""}`, r["Company Name"])) ?? null;
+    if (!lead) return { lead: null, status: "notStored", seq: null };
+    const d = apolloDetailOf(lead, apolloIndex);
+    return { lead, status: d.status, seq: d.seq };
+  };
+  const standings = useMemo(() => {
+    const m = new Map<string, Map<string, RowStanding>>();
+    for (const l of lists) {
+      const rows = new Map<string, RowStanding>();
+      for (const r of l.rows) rows.set(r.__rowKey, standingOf(r));
+      m.set(l.id, rows);
+    }
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lists, leadIndex, apolloIndex]);
+  /** Lists showing only the leads ready for a sequence. */
+  const [readyOnly, setReadyOnly] = useState<Set<string>>(new Set());
+  const toggleReady = (id: string) => setReadyOnly((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const shownRows = (list: LeadList) => {
+    if (!readyOnly.has(list.id)) return list.rows;
+    const st = standings.get(list.id);
+    return list.rows.filter((r) => { const s = st?.get(r.__rowKey)?.status; return !!s && s !== "notStored" && NEEDS.has(s); });
+  };
+  function checkList(list: LeadList) {
+    if (!onCheckLeads) return;
+    const st = standings.get(list.id);
+    const stored = [...new Map(list.rows.map((r) => st?.get(r.__rowKey)?.lead).filter((l): l is StoredLead => !!l).map((l) => [l.key, l])).values()];
+    if (stored.length) onCheckLeads(stored.map((l) => l.key), `list "${list.name}"`);
+  }
+
   // Per Jack: lists "with the created date and taggs so then i can move them
   // but maintain who i am contacting", cycled "every 45 or 60 days".
   const [tagF, setTagF] = useState("");
@@ -60,7 +123,7 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
   }
   function download(list: LeadList) {
     const fileName = /\.csv$/i.test(list.name) ? list.name : `${list.name}.csv`;
-    downloadCSV(fileName, list.rows, EXPORT_LABELS);
+    downloadCSV(fileName, shownRows(list), EXPORT_LABELS);
   }
   function handleDelete(list: LeadList) {
     if (window.confirm(`Delete the list "${list.name}"? This only removes the list — the original leads stay in Scanner/History/Lead Library. This can't be undone.`)) {
@@ -156,6 +219,7 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
                           {list.status === "cycled" && <> · <span title="Its leads moved into a newer list">cycled</span></>}
                           {list.rule && list.ruleRefreshedAt && <> · refreshed {new Date(list.ruleRefreshedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</>}
                         </div>
+                        {list.rows.length > 0 && <ApolloSummary rows={list.rows} st={standings.get(list.id)} />}
                         {list.rule && (
                           <div aria-label={`Rule for ${list.name}`} style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 3 }}>
                             {describeRule(list.rule).map((c) => <span key={c} className="chip" style={{ fontSize: 11 }}>{c}</span>)}
@@ -171,8 +235,20 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
                     )}
                   </div>
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    <button onClick={() => download(list)} disabled={!list.rows.length} style={{ background: "#2CC295", color: "#081E22", border: "none", borderRadius: 8, padding: "6px 12px", fontWeight: 700, opacity: list.rows.length ? 1 : 0.5 }}>
-                      ⬇ Download CSV
+                    {onCheckLeads && list.rows.length > 0 && (() => {
+                      const st = standings.get(list.id);
+                      const stored = [...new Map(list.rows.map((r) => st?.get(r.__rowKey)?.lead).filter((l): l is StoredLead => !!l).map((l) => [l.key, l])).values()];
+                      const due = leadsDueForApollo(stored).length;
+                      return (
+                        <button onClick={() => checkList(list)} disabled={checkBusy || !due} aria-label={`Check ${list.name} in Apollo`}
+                          title={checkBusy ? "An Apollo check is already running" : due ? `Looks up ${due} lead${due === 1 ? "" : "s"} in Apollo (read-only). Anyone checked in the last 7 days is skipped.` : stored.length ? "Every stored lead on this list was checked in Apollo this week" : "None of these rows are saved in All leads"}
+                          style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 12px", opacity: checkBusy || !due ? 0.55 : 1 }}>
+                          ⟳ Check in Apollo{due ? ` (${due})` : ""}
+                        </button>
+                      );
+                    })()}
+                    <button onClick={() => download(list)} disabled={!shownRows(list).length} style={{ background: "#2CC295", color: "#081E22", border: "none", borderRadius: 8, padding: "6px 12px", fontWeight: 700, opacity: shownRows(list).length ? 1 : 0.5 }}>
+                      ⬇ Download CSV{readyOnly.has(list.id) ? ` (${shownRows(list).length} ready)` : ""}
                     </button>
                     {list.rule && onRefreshSmart && list.status !== "cycled" && <button onClick={() => onRefreshSmart(list.id)} aria-label={`Refresh ${list.name}`} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 12px" }}>↻ Refresh</button>}
                     <button onClick={() => startRename(list)} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 12px" }}>Rename</button>
@@ -194,6 +270,12 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
                     </label>
                   </div>
                 )}
+                {expanded && list.rows.length > 0 && (
+                  <label style={{ display: "inline-flex", gap: 6, alignItems: "center", marginTop: 10, fontSize: 12.5 }}>
+                    <input type="checkbox" aria-label={`Ready for a sequence only in ${list.name}`} checked={readyOnly.has(list.id)} onChange={() => toggleReady(list.id)} />
+                    Ready for a sequence only <span className="muted">(ended without a conversation, no sequence, or not in Apollo; the download follows this)</span>
+                  </label>
+                )}
                 {expanded && (
                   <div style={{ marginTop: 12, border: "1px solid var(--border)", borderRadius: 10, overflow: "auto", maxHeight: 340 }}>
                     {list.rows.length === 0 ? (
@@ -208,13 +290,17 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
                             <th style={{ textAlign: "left", padding: "8px 12px", fontSize: 11 }}>Contact</th>
                             <th style={{ textAlign: "left", padding: "8px 12px", fontSize: 11 }}>Product line</th>
                             <th style={{ textAlign: "left", padding: "8px 12px", fontSize: 11 }}>Tier</th>
+                            <th style={{ textAlign: "left", padding: "8px 12px", fontSize: 11 }}>Apollo</th>
+                            <th style={{ textAlign: "left", padding: "8px 12px", fontSize: 11 }}>Sequence</th>
                             <th style={{ textAlign: "left", padding: "8px 12px", fontSize: 11 }}>Note</th>
                             <th style={{ textAlign: "left", padding: "8px 12px", fontSize: 11 }} title="Other live campaign lists this lead is on">Also on</th>
                             <th></th>
                           </tr>
                         </thead>
                         <tbody>
-                          {list.rows.map((r) => {
+                          {shownRows(list).map((r) => {
+                            const s = standings.get(list.id)?.get(r.__rowKey);
+                            const sm = !s ? null : s.status === "notStored" ? NOT_STORED : STATUS_META[s.status];
                             // A CSP row has no product line or tier — it carries a
                             // priority band and a score instead. Render whichever it has.
                             const catMeta = r.__category ? CATEGORY_META[r.__category] : null;
@@ -243,6 +329,17 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
                                     <span style={{ fontSize: 11, fontWeight: 700, fontVariantNumeric: "tabular-nums" }} title="CSP score">{r.__score}</span>
                                   ) : <span style={{ color: "var(--muted)" }}>—</span>}
                                 </td>
+                                <td style={{ padding: "7px 12px" }} data-apollo={s?.status}>
+                                  {sm && <span title={sm.hint} style={{ fontSize: 10.5, fontWeight: 700, color: sm.color, background: sm.bg, borderRadius: 999, padding: "2px 9px", whiteSpace: "nowrap" }}>{sm.short}</span>}
+                                </td>
+                                <td style={{ padding: "7px 12px", fontSize: 11.5 }}>
+                                  {s?.seq ? (
+                                    <>
+                                      <div>{s.seq.name}</div>
+                                      <div className="muted">{s.seq.active ? "active" : "ended"}{s.seq.step != null ? ` · step ${s.seq.step}${s.seq.steps ? ` of ${s.seq.steps}` : ""}` : ""}{s.seq.reason ? ` · ${s.seq.reason}` : ""}</div>
+                                    </>
+                                  ) : <span style={{ color: "var(--muted)" }}>—</span>}
+                                </td>
                                 <td style={{ padding: "7px 12px", fontSize: 12, maxWidth: 320 }}>
                                   <div style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }} title={String(r.Notes || "")}>{stripSnippetPrefix(String(r.Notes || "")) || "—"}</div>
                                 </td>
@@ -267,4 +364,17 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
       )}
     </div>
   );
+}
+
+/** "12 ready for a sequence · 3 active · 2 had a conversation · 4 not checked" */
+function ApolloSummary({ rows, st }: { rows: ListedLeadRow[]; st?: Map<string, RowStanding> }) {
+  const n = new Map<Status | "notStored", number>();
+  for (const r of rows) { const s = st?.get(r.__rowKey)?.status; if (s) n.set(s, (n.get(s) || 0) + 1); }
+  const ready = [...NEEDS].reduce((a, k) => a + (n.get(k) || 0), 0);
+  const parts: string[] = [];
+  if (ready) parts.push(`${ready} ready for a sequence`);
+  for (const k of STATUS_ORDER) if (!NEEDS.has(k) && n.get(k)) parts.push(`${n.get(k)} ${STATUS_META[k].short.toLowerCase()}`);
+  if (n.get("notStored")) parts.push(`${n.get("notStored")} not in All leads`);
+  if (!parts.length) return null;
+  return <div aria-label="Apollo summary" style={{ fontSize: 11.5, marginTop: 2 }}><b style={{ color: "#0E7A72" }}>Apollo:</b> {parts.join(" · ")}</div>;
 }

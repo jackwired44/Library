@@ -7526,3 +7526,20 @@ slow wheres the bug".
   Customize brings it back); the working-sequence lists from Lists
   (`SequenceLists.tsx` and its suite deleted). All leads' note wraps to three
   lines at 13px.
+
+### 2026-10-28: run a list against Apollo (scanner-platform-v29)
+
+Per Jack: "in the lists tab i need to be able to run these against" Apollo.
+- Each list row is matched to its stored lead (same email, or full name at
+  the same company — `seenNameKey`) and shows its Apollo standing
+  (`apolloDetailOf`, `ApolloStatus.tsx`: the same answer All leads gives),
+  sequence, step and Apollo's end reason. A row not saved in All leads reads
+  "Not stored" and is not looked up.
+- "⟳ Check in Apollo (N)" per list runs the same read-only check as Save &
+  check (the strip at the top, Stop, the hourly cap, anyone checked in the
+  last 7 days skipped). The list header sums it up ("Apollo: N ready for a
+  sequence · N active · …").
+- "Ready for a sequence only" (ended without a conversation, no sequence, or
+  not in Apollo — `NEEDS`) narrows the expanded list; the list's Download
+  CSV follows it.
+- Suite `list-apollo-live` (17).
