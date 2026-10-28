@@ -306,12 +306,22 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
                     {(() => {
                       const n = downloadRows(list).length;
                       const held = shownRows(list).length - n;
+                      // Per Jack: "Download CSV (830, 42 active left out) this
+                      // is nonsense". The button says how many leads you get;
+                      // the skipped ones are a separate plain note.
                       return (
-                        <button onClick={() => download(list)} disabled={!n} aria-label={`Download ${list.name}`}
-                          title={held ? `${held} active in an Apollo sequence ${held === 1 ? "is" : "are"} left out of the download (still on the list).` : undefined}
-                          style={{ background: "#2CC295", color: "#081E22", border: "none", borderRadius: 8, padding: "6px 12px", fontWeight: 700, opacity: n ? 1 : 0.5 }}>
-                          ⬇ Download CSV{readyOnly.has(list.id) || held ? ` (${n}${readyOnly.has(list.id) ? " ready" : ""}${held ? `, ${held} active left out` : ""})` : ""}
-                        </button>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                          <button onClick={() => download(list)} disabled={!n} aria-label={`Download ${list.name}`}
+                            style={{ background: "#2CC295", color: "#081E22", border: "none", borderRadius: 8, padding: "6px 12px", fontWeight: 700, opacity: n ? 1 : 0.5 }}>
+                            ⬇ Download {n.toLocaleString()} lead{n === 1 ? "" : "s"}
+                          </button>
+                          {held > 0 && (
+                            <span className="muted" data-download-skipped style={{ fontSize: 12 }}
+                              title="Already active in an Apollo sequence, so they aren't in the file. They stay on the list. Change this in the list's 'Active in a sequence' setting.">
+                              skips {held.toLocaleString()} already in a sequence
+                            </span>
+                          )}
+                        </span>
                       );
                     })()}
                     {list.rule && onRefreshSmart && list.status !== "cycled" && <button onClick={() => onRefreshSmart(list.id)} aria-label={`Refresh ${list.name}`} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 12px" }}>↻ Refresh</button>}

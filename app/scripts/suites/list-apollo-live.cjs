@@ -117,8 +117,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await card().locator('input[aria-label="Ready for a sequence only in Call list"]').check(); await sleep(300);
   const rows = await card().locator('tbody tr').allInnerTexts();
   ok('only the lead ready for a sequence shows', rows.length === 1 && /NEW CO/.test(rows[0]), rows.join(' | '));
-  ok('the download follows it', /Download CSV \(1 ready\)/.test(await card().innerText()));
-  await card().locator('button', { hasText: 'Download CSV' }).click(); await sleep(600);
+  ok('the download follows it', /Download 1 lead\b/.test(await card().innerText()));
+  await card().locator('button[aria-label="Download Call list"]').click(); await sleep(600);
   const text = (await page.evaluate(() => window.__saved.map(x => x.data).join('\n')));
   ok('the downloaded CSV holds just that lead', /NEW CO/.test(text) && !/ACTIVE CO|ENDED CO|GHOST CO/.test(text), text.slice(0, 200));
   await card().locator('input[aria-label="Ready for a sequence only in Call list"]').uncheck(); await sleep(300);
@@ -127,9 +127,9 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   // Per Jack: an active lead "stays in the list" but is not downloaded,
   // with an option to override that.
   console.log('\n== active in a sequence: kept, not downloaded, unless overridden ==');
-  const dlText = async () => { await page.evaluate(() => { window.__saved = []; }); await card().locator('button', { hasText: 'Download CSV' }).click(); await sleep(600); return page.evaluate(() => window.__saved.map(x => x.data).join('\n')); };
+  const dlText = async () => { await page.evaluate(() => { window.__saved = []; }); await card().locator('button[aria-label="Download Call list"]').click(); await sleep(600); return page.evaluate(() => window.__saved.map(x => x.data).join('\n')); };
   ok('the active lead is still on the list', /ACTIVE CO/.test(await card().innerText()));
-  ok('the download button says one active lead is left out', /Download CSV \(3, 1 active left out\)/.test(await card().innerText()), (await card().innerText()).match(/Download CSV[^\n]*/)?.[0]);
+  ok('the download button counts the leads you get, and a note says one active lead is skipped', /Download 3 leads/.test(await card().innerText()) && /skips 1 already in a sequence/.test(await card().innerText()), (await card().innerText()).match(/Download \d[^\n]*/)?.[0]);
   let t = await dlText();
   ok('the download leaves the active lead out and keeps the rest', !/ACTIVE CO/.test(t) && /ENDED CO/.test(t) && /NEW CO/.test(t), t.slice(0, 300));
   await card().locator('input[aria-label="Include ACTIVE CO in the download"]').check(); await sleep(400);
