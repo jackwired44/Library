@@ -51,7 +51,7 @@ const matchesStatus = (f: StatusFilter, s: Status) =>
 /** An ended sequence whose reason means a person answered or closed it out. */
 const REACHED_REASON_RE = /talk|spoke|repl|meet|book|demo|interest|unsub|opt.?out|do not|bounc|wrong|left company/i;
 
-interface Seq { name: string; active: boolean; status: string; step: number | null; addedAt: string; steps?: number; finishedAt?: string; reason?: string }
+export interface Seq { name: string; active: boolean; status: string; step: number | null; addedAt: string; steps?: number; finishedAt?: string; reason?: string }
 interface Row { lead: StoredLead; status: Status; seqs: Seq[]; how: string }
 
 const PAGE = 100;
@@ -173,6 +173,22 @@ export function apolloDetailOf(l: StoredLead, index: RosterIndex | null): { stat
   return { status: r.status, seq: s ? { name: s.name, step: s.step, steps: s.steps, reason: s.reason, active: s.active } : null };
 }
 
+/** Every sequence one lead is or was in, the live one first. Reads the
+ *  lead's own Apollo record, else the pulled uploads (with step and date
+ *  added when the pull stated them). */
+export function sequencesForLead(l: StoredLead, index: RosterIndex | null): { status: Status; seqs: Seq[] } {
+  const r = rowFor(l, index);
+  if (!l.apollo) {
+    const hit = apolloHitFor({ email: l.email, contact: l.contact, company: l.company }, index);
+    if (hit?.seqStates?.length) {
+      const seqs = hit.seqStates.map((s) => ({ name: s.name, active: s.status === "active", status: s.status, step: s.step, addedAt: s.addedAt ?? "",
+        steps: s.steps, finishedAt: s.finishedAt, reason: s.reason }));
+      return { status: r.status, seqs: seqs.sort(bySeqOrder) };
+    }
+  }
+  return { status: r.status, seqs: [...r.seqs].sort(bySeqOrder) };
+}
+
 /** Where one lead stands in Apollo — the same answer In Apollo shows. */
 export function apolloStandingOf(l: StoredLead, index: RosterIndex | null): Status {
   return rowFor(l, index).status;
@@ -262,15 +278,6 @@ export default function ApolloStatus({
     return { ...m, needs: m.finished + m.none + m.out, noseq: m.none + m.out };
   }, [rows]);
 
-  // Sequences people are ACTIVE in, with how many — the "which sequence".
-  const activeBySeq = useMemo(() => {
-    const m = new Map<string, number>();
-    // The six main sequences always show, even at 0, so a gap is visible.
-    for (const n of MAIN_SEQUENCES) m.set(n, 0);
-    const canon = (n: string) => MAIN_SEQUENCES.find((x) => norm(x) === norm(n)) ?? n;
-    for (const r of rows) for (const s of r.seqs) if (s.active) { const n = canon(s.name); m.set(n, (m.get(n) || 0) + 1); }
-    return rankEntries(m);
-  }, [rows]);
   const allSeqs = useMemo(() => {
     const m = new Map<string, number>();
     for (const r of rows) for (const s of r.seqs) m.set(s.name, (m.get(s.name) || 0) + 1);
@@ -357,95 +364,29 @@ export default function ApolloStatus({
         </div>
       )}
 
-      <div className="panel" style={{ marginBottom: 10 }}>
-        <div className="panel-body" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", fontSize: 12.5 }}>
-          <span style={{ color: "var(--muted)" }}>
-            {rosterPulledAt
-              ? <>Apollo uploads last pulled <b style={{ color: "var(--ink)" }}>{rosterPulledAt.slice(0, 10)}</b>. Sequence status is only as fresh as that.</>
-              : <>Apollo uploads not pulled yet — pull them to see who is active in which sequence.</>}
-          </span>
-          <div className="toolbar-spacer" />
-          {onPullApollo && (
-            <>
-              <select className="field" aria-label="How far back" value={months} disabled={!!pull && !pull.done}
-                      onChange={(e) => setMonths(Number(e.target.value))}>
-                {[1, 2, 3, 4, 6].map((m) => <option key={m} value={m}>Last {m} month{m === 1 ? "" : "s"}</option>)}
-              </select>
-              {pull && !pull.done
-                ? <button className="btn btn-sm btn-secondary" onClick={() => abort.current?.abort()}>Stop</button>
-                : <button className="btn btn-sm btn-primary" onClick={runPull}
-                          title="Read the CSV uploads you made into Apollo for you and Carly, with each contact's sequences. Read-only.">
-                    ⟳ Refresh from Apollo
-                  </button>}
-            </>
-          )}
+      {/* Per Jack: the pull bar, the standing tiles and the "active by
+          sequence" line "need to be removed from the all leads view". The
+          standing filter is the dropdown below; Refresh from Apollo is a
+          small button at the end of the same row. */}
+      {(pull || pullError) && (
+        <div className="panel-body" style={{ padding: "0 0 8px", fontSize: 12 }} aria-label="Apollo pull">
+          {pull && !pull.done && <>Reading Apollo… {pull.scanned.toLocaleString()} contacts read, back to {pull.reachedDate || "—"} · <b>{pull.kept.toLocaleString()}</b> of yours kept.</>}
+          {pull && pull.done && !pullError && <>Pulled <b>{pull.kept.toLocaleString()}</b> Apollo uploads{pull.reachedDate ? ` back to ${pull.reachedDate}` : ""}.{pull.hitCeiling && " Apollo's 50,000-contact limit stopped it early — pick a shorter window."}</>}
+          {pullError && <span style={{ color: "#B5443B" }}>Apollo pull stopped: {pullError}</span>}
         </div>
-        {(pull || pullError) && (
-          <div className="panel-body" style={{ paddingTop: 0, fontSize: 12 }} aria-label="Apollo pull">
-            {pull && !pull.done && <>Reading Apollo… {pull.scanned.toLocaleString()} contacts read, back to {pull.reachedDate || "—"} · <b>{pull.kept.toLocaleString()}</b> of yours kept.</>}
-            {pull && pull.done && !pullError && <>Pulled <b>{pull.kept.toLocaleString()}</b> Apollo uploads{pull.reachedDate ? ` back to ${pull.reachedDate}` : ""}.{pull.hitCeiling && " Apollo's 50,000-contact limit stopped it early — pick a shorter window."}</>}
-            {pullError && <span style={{ color: "#B5443B" }}>Apollo pull stopped: {pullError}</span>}
-          </div>
-        )}
-      </div>
-
-      <div className="panel" style={{ marginBottom: 10 }}>
-        <div className="panel-body" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          <button className="vault-tile" aria-pressed={statusF === "needs"}
-                  title="Never reached, or never put in a sequence: sequence ended without a conversation, in Apollo with no sequence, or not in Apollo at all."
-                  style={{ borderColor: statusF === "needs" ? "var(--brand, #0E7A72)" : undefined, borderWidth: 2, background: statusF === "needs" ? "var(--brand-subtle, #E3F3F1)" : undefined }}
-                  onClick={() => { setStatusF(statusF === "needs" ? "all" : "needs"); setPage(1); }}>
-            <span className="vault-num" style={{ color: "var(--brand, #0E7A72)" }}>{counts.needs.toLocaleString()}</span>
-            <span><b>Needs a sequence</b></span>
-          </button>
-          <button className="vault-tile" aria-pressed={statusF === "noseq"}
-                  title="Never put in a sequence: not in Apollo, or in Apollo with no sequence. Leaves out ended sequences."
-                  style={{ borderColor: statusF === "noseq" ? "#B5443B" : undefined, borderWidth: 2, background: statusF === "noseq" ? "#FBEAE8" : undefined }}
-                  onClick={() => { setStatusF(statusF === "noseq" ? "all" : "noseq"); setPage(1); }}>
-            <span className="vault-num" style={{ color: "#B5443B" }}>{counts.noseq.toLocaleString()}</span>
-            <span><b>Never sequenced</b></span>
-          </button>
-          <button className="vault-tile" aria-pressed={statusF === "noseq" && verdictF === "strong"}
-                  title="Strong Signal leads that are not in Apollo, or are in Apollo with no sequence."
-                  onClick={() => { const on = statusF === "noseq" && verdictF === "strong"; setVerdictF(on ? "all" : "strong"); setStatusF(on ? "all" : "noseq"); setPage(1); }}>
-            <span className="vault-num" style={{ color: "#B5443B" }}>★</span>
-            <span><b>Strong Signal, never sequenced</b></span>
-          </button>
-          {STATUS_ORDER.map((s) => {
-            const on = statusF === s; const m = STATUS_META[s];
-            return (
-              <button key={s} className="vault-tile" aria-pressed={on} title={m.hint}
-                      style={{ borderColor: on ? m.color : undefined, background: on && m.bg !== "transparent" ? m.bg : undefined }}
-                      onClick={() => { setStatusF(on ? "all" : s); setPage(1); }}>
-                <span className="vault-num" style={{ color: m.color }}>{counts[s].toLocaleString()}</span>
-                <span>{m.label}</span>
-              </button>
-            );
-          })}
-        </div>
-        <div className="panel-body" aria-label="Active by sequence" style={{ paddingTop: 0, fontSize: 12, color: "var(--muted)", display: "grid", gap: 4 }}>
-          {([["Main sequences", activeBySeq.filter(([n]) => isMainSequence(n))],
-             ["Other", activeBySeq.filter(([n]) => !isMainSequence(n))]] as const).map(([label, list]) => list.length > 0 && (
-            <div key={label}>
-              <b style={{ color: "var(--ink)" }}>{label}, active:</b>{" "}
-              {list.map(([n, c], i) => (
-                <span key={n}>
-                  {i > 0 && " · "}
-                  <button className="btn btn-sm btn-ghost" style={{ padding: "0 4px", opacity: c ? 1 : 0.55 }}
-                          onClick={() => { setStatusF("active"); setSeqF(n); setPage(1); }}>
-                    {n} <b>{c.toLocaleString()}</b>
-                  </button>
-                </span>
-              ))}
-            </div>
-          ))}
-        </div>
-      </div>
+      )}
 
       <div className="toolbar">
         <div className="toolbar-row">
           <input className="field" placeholder="Search company, contact, email…" value={q}
                  onChange={(e) => { setQ(e.target.value); setPage(1); }} style={{ flex: 1, minWidth: 220, maxWidth: 360 }} />
+          <select className="field" aria-label="Apollo standing" value={statusF}
+                  onChange={(e) => { setStatusF(e.target.value as StatusFilter); setPage(1); }}>
+            <option value="all">Standing: any ({rows.length.toLocaleString()})</option>
+            <option value="needs">Needs a sequence ({counts.needs.toLocaleString()})</option>
+            <option value="noseq">Never sequenced ({counts.noseq.toLocaleString()})</option>
+            {STATUS_ORDER.map((st) => <option key={st} value={st}>{STATUS_META[st].label} ({counts[st].toLocaleString()})</option>)}
+          </select>
           <select className="field" aria-label="Stored as" value={verdictF} onChange={(e) => { setVerdictF(e.target.value as Verdict | "all"); setPage(1); }}>
             <option value="all">Stored as: any</option>
             {VERDICT_ORDER.map((v) => <option key={v} value={v}>{VERDICT_META[v].label}</option>)}
@@ -467,6 +408,20 @@ export default function ApolloStatus({
           </select>
           <div className="toolbar-spacer" />
           <span style={{ fontSize: 12, color: "var(--muted)" }}><b>{filtered.length.toLocaleString()}</b> of {rows.length.toLocaleString()}</span>
+          {onPullApollo && (
+            <>
+              <select className="field" aria-label="How far back" value={months} disabled={!!pull && !pull.done}
+                      onChange={(e) => setMonths(Number(e.target.value))}>
+                {[1, 2, 3, 4, 6].map((m) => <option key={m} value={m}>Last {m} month{m === 1 ? "" : "s"}</option>)}
+              </select>
+              {pull && !pull.done
+                ? <button className="btn btn-sm btn-secondary" onClick={() => abort.current?.abort()}>Stop</button>
+                : <button className="btn btn-sm btn-ghost" onClick={runPull}
+                          title={`${rosterPulledAt ? `Apollo uploads last pulled ${rosterPulledAt.slice(0, 10)}; sequence status is only as fresh as that. ` : "Apollo uploads not pulled yet. "}Reads the CSV uploads you and Carly made into Apollo, with each contact's sequences. Read-only.`}>
+                    ⟳ Refresh from Apollo
+                  </button>}
+            </>
+          )}
         </div>
         <div className="toolbar-row" aria-label="Selection" style={{ fontSize: 12 }}>
           <button className="btn btn-sm btn-ghost" disabled={!shown.length}

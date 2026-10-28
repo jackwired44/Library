@@ -36,7 +36,7 @@ const FAKE = () => {
     listTools: async () => ({ servers: [{ server: 'Apollo.io', tools: [{ name: 'apollo_contacts_search' }, { name: 'apollo_emailer_campaigns_search' }] }] }),
     callTool: async (server, tool, args) => {
       window.__calls.push({ tool, args });
-      if (tool.endsWith('emailer_campaigns_search')) return { payload: { emailer_campaigns: [{ id: 'seq1', name: 'Jack Main Sequence', num_steps: 5, emailer_steps: steps }], pagination: { total_pages: 1 } } };
+      if (tool.endsWith('emailer_campaigns_search')) return { payload: { emailer_campaigns: [{ id: 'seq1', name: 'Jack Main Sequence', num_steps: 5, emailer_steps: steps, object_owner_id: '68bf4ba5f68a0600194acd11', created_at: '2026-10-01T10:00:00Z', active: true, archived: false, unique_scheduled: 3 }], pagination: { total_pages: 1 } } };
       return { payload: { contacts: contacts[args.q_keywords] || [] } };
     },
   } };
@@ -145,6 +145,46 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('the override survives a reload', await card().locator('select[aria-label="Active in a sequence in Call list"]').inputValue() === 'include');
   await card().locator('select[aria-label="Active in a sequence in Call list"]').selectOption('leave'); await sleep(400);
   ok('switching back leaves them out again', !/ACTIVE CO/.test(await dlText()));
+
+  // Per Jack: "pull up a certain sequence … with the list here side by side
+  // to see which leads got added and which didnt so i can note why".
+  console.log('\n== the list beside its Apollo sequence ==');
+  await card().locator('button[aria-label="Pick sequence for Call list"]').click(); await sleep(300);
+  const picker = page.locator('[aria-label="Pick sequence for Call list"]').last();
+  await picker.locator('input[aria-label="Sequence name"]').fill('Jack Main');
+  await picker.locator('button', { hasText: 'Search Apollo' }).click(); await sleep(800);
+  const found = (await picker.innerText()).replace(/\s+/g, ' ');
+  ok('searching Apollo by name finds the sequence with its owner', /Jack Main Sequence/.test(found) && /owner Jack/.test(found) && /5 steps/.test(found), found.slice(0, 300));
+  const searchCall = (await page.evaluate(() => window.__calls)).filter(c => c.tool.endsWith('emailer_campaigns_search') && c.args.q_name).pop();
+  ok('the search sends the name it was given', searchCall && searchCall.args.q_name === 'Jack Main', JSON.stringify(searchCall && searchCall.args));
+  await picker.locator('[aria-label="Apollo sequences found"] button', { hasText: 'Use' }).first().click(); await sleep(600);
+  const head2 = (await card().innerText()).replace(/\s+/g, ' ');
+  ok('picking it names the campaign after the sequence and shows the owner', /campaign Jack Main Sequence/.test(head2) && /owner Jack/.test(head2), head2.slice(0, 300));
+  const cmp = page.locator('[aria-label="Compare Call list with Jack Main Sequence"]');
+  ok('the comparison opens', await cmp.count() === 1);
+  ok('it counts who got added', /2 of 4 added · 2 not added/.test(await cmp.locator('[data-compare-summary]').innerText()), await cmp.locator('[data-compare-summary]').innerText());
+  const crow = async co => (await cmp.locator(`[data-compare-row="${co}"]`).innerText()).replace(/\s+/g, ' ');
+  ok('an active lead reads added, with its step', /Added/.test(await crow('ACTIVE CO')) && /step 2 of 5/.test(await crow('ACTIVE CO')), await crow('ACTIVE CO'));
+  ok('a lead not in Apollo says why it was not added', /Not in Apollo as a contact/.test(await crow('NEW CO')), await crow('NEW CO'));
+  ok('a row not saved in All leads says so', /Not saved in All leads/.test(await crow('GHOST CO')), await crow('GHOST CO'));
+  await cmp.locator('button', { hasText: /^Not added \(2\)$/ }).click(); await sleep(300);
+  ok('"Not added" shows just those two', await cmp.locator('[data-compare-row]').count() === 2);
+  await cmp.locator('input[aria-label="Note for NEW CO"]').fill('domain bounced in Apollo');
+  await cmp.locator('input[aria-label="Note for NEW CO"]').press('Tab'); await sleep(500);
+  await page.evaluate(() => { window.__saved = []; });
+  await cmp.locator('button', { hasText: 'Download comparison' }).click(); await sleep(600);
+  const ctext = await page.evaluate(() => window.__saved.map(x => x.data).join('\n'));
+  ok('the comparison downloads with the reason and your note', /Why Not Added/.test(ctext) && /Not in Apollo as a contact/.test(ctext) && /domain bounced in Apollo/.test(ctext), ctext.slice(0, 400));
+  await page.reload(); await sleep(1500);
+  await nav('Lists');
+  await card().locator('button[aria-label="Compare Call list with its sequence"]').click(); await sleep(400);
+  ok('the sequence and your note survive a reload', await page.locator('input[aria-label="Note for NEW CO"]').inputValue() === 'domain bounced in Apollo');
+  await page.fill('input[aria-label="Search lists"]', 'jack main'); await sleep(300);
+  ok('lists can be searched by sequence / campaign name', await card().count() === 1);
+  await page.fill('input[aria-label="Search lists"]', 'nothing like this'); await sleep(300);
+  ok('  and a search that matches nothing hides it', await card().count() === 0);
+  const calls2 = await page.evaluate(() => window.__calls);
+  ok('only read tools were ever called', calls2.every(c => /contacts_search|emailer_campaigns_search/.test(c.tool)));
 
   ok('no page errors', errs.length === 0, errs.join(' | '));
   await b.close();

@@ -93,7 +93,7 @@ import {
 } from "./lib/companyProfiles";
 import { enrichCompaniesViaApollo, MAX_COMPANY_BATCH, type CompanyEnrichOutcome } from "./lib/apolloEnrich";
 import { checkWebVisits, orgIdsOf, applyWebVisits, type VisitProgress } from "./lib/webVisits";
-import { pullTeamUploads, checkLeadsInApollo, applyCheckResults, type PullProgress, type CheckProgress } from "./lib/apolloLive";
+import { pullTeamUploads, checkLeadsInApollo, applyCheckResults, searchApolloSequences, type PullProgress, type CheckProgress } from "./lib/apolloLive";
 import type { SaveReport } from "./lib/saveReport";
 import Recycle from "./components/Recycle";
 import Reps from "./components/Reps";
@@ -1492,6 +1492,8 @@ export default function App() {
             error={null}
             leads={leads}
             apolloIndex={apolloIndex}
+            roster={apolloRoster}
+            onSearchSequences={searchApolloSequences}
             checkBusy={!!homeCheck && !homeCheck.finished}
             // Same run as Save & check: the strip at the top shows progress,
             // Stop and the hourly cap, and leads checked this week are skipped.

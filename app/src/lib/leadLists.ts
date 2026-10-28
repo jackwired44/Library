@@ -64,6 +64,13 @@ export interface LeadList {
    *  (`includeRowKeys`). Both optional: unset = leave them out. */
   includeActive?: boolean;
   includeRowKeys?: string[];
+  /** Per Jack: "pull up a seuqnece here … side by side to see which leads got
+   *  added and which didnt so i can note why". The Apollo sequence this list
+   *  is compared against (its name is `targetSequence`), who owns it, and a
+   *  note per row on why it wasn't added. All optional. */
+  targetSequenceId?: string;
+  targetSequenceOwner?: string;
+  rowNotes?: Record<string, string>;
 }
 
 /** Replace a smart list's rows with a fresh run of its rule. Rows already
@@ -180,7 +187,7 @@ export function onPickedList(idx: ListMatchIndex, lead: { contact?: string; comp
   return pick === "any" ? on.length > 0 : on.some((l) => l.id === pick);
 }
 
-export function updateLeadListMeta(lists: LeadList[], id: string, patch: Partial<Pick<LeadList, "tags" | "campaign" | "cycleDays" | "status" | "includeActive" | "includeRowKeys">>): LeadList[] {
+export function updateLeadListMeta(lists: LeadList[], id: string, patch: Partial<Pick<LeadList, "tags" | "campaign" | "cycleDays" | "status" | "includeActive" | "includeRowKeys" | "targetSequence" | "targetSequenceId" | "targetSequenceOwner" | "rowNotes">>): LeadList[] {
   return lists.map((l) => (l.id === id ? { ...l, ...patch } : l));
 }
 /** "a, b ,c" -> ["a","b","c"], deduped, case kept from first sight. */

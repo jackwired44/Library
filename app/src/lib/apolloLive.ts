@@ -95,6 +95,41 @@ export async function loadSequenceNames(h: LiveHandle): Promise<Map<string, stri
   return names;
 }
 
+export interface FoundSequence {
+  id: string; name: string; owner: string; steps: number;
+  createdAt: string; active: boolean; archived: boolean; scheduled: number | null;
+}
+
+/** Sequences whose name contains `q`, read-only. Per Jack: "i will want to
+ *  search it by campign name". The owner is read off Apollo's owner id
+ *  (TEAM_USERS), never off the name. Shape rehearsed live on "Dynamics
+ *  Email Sequence": {emailer_campaigns: [{id, name, user_id,
+ *  object_owner_id, num_steps, created_at, active, archived,
+ *  unique_scheduled}]}. */
+export async function searchApolloSequences(q: string): Promise<FoundSequence[]> {
+  const h = await connectApollo();
+  if (!h.sequencesTool) throw new Error("This page's Apollo access doesn't include sequence search.");
+  let res;
+  try {
+    res = await h.mcp.callTool(h.server, h.sequencesTool, { q_name: q.trim(), page: "1", per_page: "25" }, { cache: false });
+  } catch (err) {
+    throw new Error(describeApolloError(err));
+  }
+  const p = (res.payload ?? {}) as Rec;
+  const list = Array.isArray(p.emailer_campaigns) ? (p.emailer_campaigns as Rec[]) : [];
+  return list.filter((c) => str(c.id)).map((c) => {
+    const ownerId = str(c.object_owner_id) || str(c.user_id);
+    const steps = Array.isArray(c.emailer_steps) ? (c.emailer_steps as Rec[]).length : 0;
+    return {
+      id: str(c.id), name: str(c.name) || "Unnamed sequence",
+      owner: TEAM_USERS[ownerId] || (ownerId ? "Someone else" : ""),
+      steps: Number(c.num_steps) || steps, createdAt: day(c.created_at),
+      active: c.active === true, archived: c.archived === true,
+      scheduled: typeof c.unique_scheduled === "number" ? c.unique_scheduled : null,
+    };
+  });
+}
+
 /** Sequence labels in the roster's own form: "Name (active)" for live ones. */
 export function sequenceLabelsOf(c: Rec, names: Map<string, string>): string[] {
   const list = Array.isArray(c.contact_campaign_statuses) ? (c.contact_campaign_statuses as Rec[]) : [];

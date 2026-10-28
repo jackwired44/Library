@@ -7615,3 +7615,37 @@ Supersedes the earlier BC / Sales-CRM / SCM tab notes above.
   `LeadList.includeActive`) or per lead (an "Include" tick in the Apollo
   cell, `LeadList.includeRowKeys`); both optional, saved with the list.
   `list-apollo-live` 17 → 25.
+
+### 2026-10-28: a list beside its Apollo sequence; Apollo standing trimmed (scanner-platform-v29)
+
+Per Jack: "pull up a certain sequence owned by jack and carly with the list
+here side by side to see which leads got added and which didnt so i can note
+why whether its a email domain issue meeting booked or what", "search it by
+campign name and name the cmapaign name the sequence the list is for", "so i
+can start fully managing the leads in apollo … built off a list".
+- **🔗 Pick sequence** per list (`SequencePicker`,
+  `components/ListSequenceCompare.tsx`): read-only Apollo sequence search by
+  name (`searchApolloSequences`, `lib/apolloLive.ts`, `q_name`; shape
+  rehearsed live on "Dynamics Email Sequence"), or a sequence already seen
+  on the leads/roster (works without Apollo). Picking sets
+  `LeadList.targetSequence` / `targetSequenceId` / `targetSequenceOwner` and
+  the campaign name. Owner comes from Apollo's owner id via `TEAM_USERS`,
+  else the name. Lists has a search box (name, campaign, sequence, tags).
+- **⇄ Compare with sequence** (`ComparePanel`): left, every list row
+  "✓ Added" (status, step, added, Apollo reason) or why not (`compareRow`,
+  `MISS_META`), most decisive first: not saved, deal/meeting on file,
+  meeting booked, not interested, active in another sequence, already had a
+  conversation, no email, personal domain, bad email, catch-all not
+  green-lit, not checked, not in Apollo, never sequenced, ended another
+  sequence. A note per row (`LeadList.rowNotes`), filters by reason, and a
+  comparison CSV. Right: people known in the sequence but not on the list
+  (`sequenceOnly`: pulled uploads + checked leads; incomplete by nature,
+  said on screen). Nothing is written to Apollo.
+- **Apollo standing tab trimmed** (per Jack, "this needs to be removed from
+  the all leads view"): the pull bar, the standing tiles and the "Main
+  sequences, active" line are gone. The standing filter is a dropdown
+  (`select[aria-label="Apollo standing"]`, counts in each option);
+  "⟳ Refresh from Apollo" is a small button at the end of the toolbar (last
+  pulled date on hover).
+- Suites: `list-apollo-live` 25 → 39; `apollo-check-live`, `in-apollo-live`,
+  `touchpoints-meetings-live` re-pointed from tiles to the dropdown.

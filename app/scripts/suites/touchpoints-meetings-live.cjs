@@ -151,8 +151,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await page.locator('button', { hasText: /Check \d+ in Apollo/ }).first().click();
   await page.waitForFunction(() => /Apollo check done/.test(document.querySelector('main').innerText), null, { timeout: 60000 });
   await nav('All leads', 'Apollo standing');
-  const tile = page.locator('.vault-tile', { hasText: 'Needs a sequence' }).first();
-  if ((await tile.getAttribute('aria-pressed')) !== 'true') { await tile.click(); await sleep(300); }
+  await page.selectOption('select[aria-label="Apollo standing"]', 'needs'); await sleep(300);
   const needsRows = (await page.locator('.data-table tbody').innerText()).replace(/\s+/g, ' ');
   ok('Needs a sequence keeps a lead not in Apollo (FREE CO)', /FREE CO/.test(needsRows), needsRows.slice(0, 300));
   ok('  and leaves the Account manager only leads out', !/DEAL CO|MEETING CO|CUSTOMER LLC/.test(needsRows), needsRows.slice(0, 300));

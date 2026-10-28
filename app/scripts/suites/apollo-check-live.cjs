@@ -120,13 +120,14 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('not found reads as a checked "Not in Apollo"', /Not in Apollo/.test(nia) && /checked \d{4}-\d\d-\d\d/.test(nia), nia);
   ok('an ended sequence Apollo closed as "talked on phone" reads as reached', /Ended · reached/.test(ben), ben);
   ok('the note from the scan shows in the table', /Google Workspace|Microsoft 365|240/.test(await rowOf('ACTIVE CO')), await rowOf('ACTIVE CO'));
-  const tiles = await main();
-  ok('"Needs a sequence" counts never-reached + no sequence + not in Apollo', /1\s*Needs a sequence/.test(tiles), (tiles.match(/\d+\s*Needs a sequence/) || [''])[0]);
+  const tiles = (await page.locator('select[aria-label="Apollo standing"]').innerText()).replace(/\s+/g, ' ');
+  ok('"Needs a sequence" counts never-reached + no sequence + not in Apollo', /Needs a sequence \(1\)/.test(tiles), (tiles.match(/Needs a sequence \(\d+\)/) || [''])[0]);
 
   console.log('\n== it sticks, and All leads sees it ==');
   await page.reload(); await sleep(1200);
   await nav('In Apollo');
-  await page.locator('.vault-tile', { hasText: 'Needs a sequence' }).click(); await sleep(300);
+  // Opens on "Needs a sequence"; clicking that tile used to toggle it off.
+  await page.selectOption('select[aria-label="Apollo standing"]', 'all'); await sleep(300);
   ok('survives a reload', /step 2 of 5/.test(await rowOf('ACTIVE CO')));
   await page.selectOption('select[aria-label="Stored as"]', 'strong'); await sleep(300);
   ok('re-run skips leads checked this week', /Check 0 Strong Signal leads/.test(await main()));
@@ -206,7 +207,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await page.keyboard.press('Escape'); await sleep(300);
   console.log('\n== download where they stand ==');
   await nav('In Apollo');
-  if (await page.locator('.vault-tile[aria-pressed="true"]').count()) { await page.locator('.vault-tile[aria-pressed="true"]').click(); await sleep(300); }
+  await page.selectOption('select[aria-label="Apollo standing"]', 'all'); await sleep(300);
   await page.locator('button', { hasText: /^Clear$/ }).click().catch(() => {});
   await page.locator('.data-table tbody tr', { hasText: 'ACTIVE CO' }).first().locator('input[type=checkbox]').check(); await sleep(200);
   ok('the download button follows the selection', await page.locator('button', { hasText: /Download 1 selected/ }).count() === 1);

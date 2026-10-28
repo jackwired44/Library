@@ -14,6 +14,9 @@ import type { RosterIndex } from "../lib/apolloRoster";
 import { apolloDetailOf, NEEDS, STATUS_META, STATUS_ORDER, type Status } from "./ApolloStatus";
 import { leadsDueForApollo } from "./ApolloSyncPanel";
 import { confirmAction } from "../lib/confirmBox";
+import type { ApolloRosterEntry } from "../lib/apolloRoster";
+import type { FoundSequence } from "../lib/apolloLive";
+import { ComparePanel, SequencePicker, compareRow, knownSequenceNames, sequenceOnly } from "./ListSequenceCompare";
 
 interface ListsProps {
   lists: LeadList[];
@@ -23,7 +26,7 @@ interface ListsProps {
   onDelete: (id: string) => void;
   onRemoveRow: (listId: string, rowKey: string) => void;
   /** Campaign fields: tags, campaign name, cycle window. */
-  onUpdateMeta?: (id: string, patch: Partial<Pick<LeadList, "tags" | "campaign" | "cycleDays" | "status" | "includeActive" | "includeRowKeys">>) => void;
+  onUpdateMeta?: (id: string, patch: Partial<Pick<LeadList, "tags" | "campaign" | "cycleDays" | "status" | "includeActive" | "includeRowKeys" | "targetSequence" | "targetSequenceId" | "targetSequenceOwner" | "rowNotes">>) => void;
   /** Move a campaign list's leads into a new dated list. */
   onCycle?: (id: string) => void;
   /** Re-run a smart list's saved rule against the current leads now. */
@@ -35,6 +38,10 @@ interface ListsProps {
   /** Run the read-only Apollo check over these stored leads. */
   onCheckLeads?: (keys: string[], label: string) => void;
   checkBusy?: boolean;
+  /** The pulled Apollo uploads, for who else is in a sequence. */
+  roster?: ApolloRosterEntry[];
+  /** Read-only Apollo sequence search by name. */
+  onSearchSequences?: (q: string) => Promise<FoundSequence[]>;
 }
 
 /** One list row matched to its stored lead and where that lead stands. */
@@ -47,7 +54,7 @@ const TIER_LABEL: Record<string, { label: string; color: string; bg: string }> =
   dq: { label: "Bad Lead", color: "#B5443B", bg: "#FBEAE8" },
 };
 
-export default function ListsView({ lists, loading, error, onRename, onDelete, onRemoveRow, onUpdateMeta, onCycle, onRefreshSmart, leads = [], apolloIndex = null, onCheckLeads, checkBusy = false }: ListsProps) {
+export default function ListsView({ lists, loading, error, onRename, onDelete, onRemoveRow, onUpdateMeta, onCycle, onRefreshSmart, leads = [], apolloIndex = null, onCheckLeads, checkBusy = false, roster = [], onSearchSequences }: ListsProps) {
   // Per Jack: "in the lists tab i need to be able to run these against"
   // Apollo. A list row is a snapshot, so it is matched to its stored lead the
   // usual way: same email, or the same full name at the same company.
@@ -120,8 +127,25 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
   const due = useMemo(() => lists.filter((l) => isActiveCampaign(l) && (daysToCycle(l) ?? 1) <= 0), [lists]);
   const [kindF, setKindF] = useState<"all" | "smart" | "plain">("all");
   const smartCount = lists.filter((l) => l.rule).length;
+  // Per Jack: "pull up a seuqnece here … side by side". One list compared
+  // at a time; the picker sets the list's sequence and campaign name.
+  const [pickingId, setPickingId] = useState<string | null>(null);
+  const [comparingId, setComparingId] = useState<string | null>(null);
+  const [listQ, setListQ] = useState("");
+  const known = useMemo(() => knownSequenceNames(leads, roster), [leads, roster]);
+  const comparing = lists.find((l) => l.id === comparingId && l.targetSequence) ?? null;
+  const compared = useMemo(() => {
+    if (!comparing) return null;
+    const st = standings.get(comparing.id);
+    return {
+      rows: comparing.rows.map((r) => compareRow(r, st?.get(r.__rowKey)?.lead ?? null, comparing.targetSequence || "", apolloIndex)),
+      extras: sequenceOnly(comparing.targetSequence || "", comparing, leads, roster, apolloIndex),
+    };
+  }, [comparing, standings, leads, roster, apolloIndex]);
+  const listNeedle = listQ.trim().toLowerCase();
   const shownLists = (tagF ? lists.filter((l) => (l.tags ?? []).some((t) => t.toLowerCase() === tagF.toLowerCase())) : lists)
-    .filter((l) => kindF === "all" || (kindF === "smart" ? !!l.rule : !l.rule));
+    .filter((l) => kindF === "all" || (kindF === "smart" ? !!l.rule : !l.rule))
+    .filter((l) => !listNeedle || [l.name, l.campaign, l.targetSequence, ...(l.tags ?? [])].some((x) => (x || "").toLowerCase().includes(listNeedle)));
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -171,8 +195,10 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
           </div>
         </div>
       )}
-      {(allTags.length > 0 || smartCount > 0) && (
-        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
+      {lists.length > 0 && (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
+          <input className="field" aria-label="Search lists" placeholder="Search lists, campaigns or sequences…" value={listQ}
+            onChange={(e) => setListQ(e.target.value)} style={{ minWidth: 260 }} />
           {smartCount > 0 && (
             <select className="field" aria-label="Filter by kind" value={kindF} onChange={(e) => setKindF(e.target.value as "all" | "smart" | "plain")}>
               <option value="all">All lists ({lists.length})</option>
@@ -228,6 +254,8 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
                         <div style={{ fontSize: 11.5, color: "var(--muted)" }}>
                           {list.rows.length} lead{list.rows.length === 1 ? "" : "s"} · created {new Date(list.createdAt).toLocaleDateString()}
                           {list.campaign && <> · campaign <b>{list.campaign}</b></>}
+                          {list.targetSequence && list.targetSequence !== list.campaign && <> · sequence <b>{list.targetSequence}</b></>}
+                          {list.targetSequence && list.targetSequenceOwner && <> · owner {list.targetSequenceOwner}</>}
                           {d !== null && list.status !== "cycled" && <> · {d > 0 ? `cycles in ${d}d (${cycleDueOn(list)})` : <b style={{ color: "#9A5B22" }}>due to cycle</b>}</>}
                           {list.status === "cycled" && <> · <span title="Its leads moved into a newer list">cycled</span></>}
                           {list.rule && list.ruleRefreshedAt && <> · refreshed {new Date(list.ruleRefreshedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</>}
@@ -260,6 +288,21 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
                         </button>
                       );
                     })()}
+                    {onUpdateMeta && (
+                      <button onClick={() => setPickingId(pickingId === list.id ? null : list.id)} aria-label={`Pick sequence for ${list.name}`}
+                        title="Pick the Apollo sequence this list is for (search by name). Also sets the campaign name."
+                        style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 12px" }}>
+                        🔗 {list.targetSequence ? "Change sequence" : "Pick sequence"}
+                      </button>
+                    )}
+                    {list.targetSequence && (
+                      <button onClick={() => setComparingId(comparingId === list.id ? null : list.id)} aria-label={`Compare ${list.name} with its sequence`}
+                        aria-pressed={comparingId === list.id}
+                        title={`Side by side with ${list.targetSequence}: who got added, who didn't, and why`}
+                        style={{ background: comparingId === list.id ? "var(--brand-subtle, #E3F3F1)" : "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 12px" }}>
+                        ⇄ Compare with sequence
+                      </button>
+                    )}
                     {(() => {
                       const n = downloadRows(list).length;
                       const held = shownRows(list).length - n;
@@ -279,6 +322,21 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
                   </div>
                 </div>
 
+                {pickingId === list.id && onUpdateMeta && (
+                  <SequencePicker list={list} known={known} onSearch={onSearchSequences} onClose={() => setPickingId(null)}
+                    onPick={(sq) => {
+                      onUpdateMeta(list.id, { targetSequence: sq.name, targetSequenceId: sq.id, targetSequenceOwner: sq.owner || undefined, campaign: sq.name });
+                      setPickingId(null); setComparingId(list.id);
+                    }} />
+                )}
+                {comparingId === list.id && comparing && compared && (
+                  <ComparePanel list={comparing} compared={compared.rows} extras={compared.extras}
+                    onNote={onUpdateMeta ? (rowKey, note) => {
+                      const next = { ...(list.rowNotes ?? {}) };
+                      if (note.trim()) next[rowKey] = note.trim(); else delete next[rowKey];
+                      onUpdateMeta(list.id, { rowNotes: next });
+                    } : undefined} />
+                )}
                 {editing && onUpdateMeta && (
                   <div aria-label="Campaign settings" style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginTop: 10, fontSize: 12.5 }}>
                     <label>Campaign <input className="field" aria-label="Campaign" defaultValue={list.campaign || ""} onBlur={(e) => onUpdateMeta(list.id, { campaign: e.target.value.trim() || undefined })} style={{ width: 200 }} /></label>

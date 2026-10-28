@@ -62,19 +62,23 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   // An imported sync with no checks yet: Ben's sequence ended with no
   // conversation recorded, so he reads "never reached"; Nia was never
   // looked up, so she is "Not checked yet" rather than "Not in Apollo".
-  ok('tiles count active / ended / not checked', /1 Active in a sequence/.test(t) && /1 Sequence ended, never reached/.test(t) && /1 Not checked yet/.test(t), t.slice(0, 700));
-  ok('active-by-sequence lists the live sequence', /Main sequences, active:.*Jack Main Sequence 1/s.test(t), t.slice(0, 500));
+  const std = (await page.locator('select[aria-label="Apollo standing"]').innerText()).replace(/\s+/g, ' ');
+  ok('the standing dropdown counts active / ended / not checked', /Active in a sequence \(1\)/.test(std) && /Sequence ended, never reached \(1\)/.test(std) && /Not checked yet \(1\)/.test(std), std);
+  // Per Jack: the pull bar, tiles and "active by sequence" line are off this view.
+  ok('the tiles and the active-by-sequence line are gone', !/Main sequences, active:/.test(t) && await page.locator('main .vault-tile').count() === 0, t.slice(0, 300));
+  const seqOpts = (await page.locator('select[aria-label="Sequence"]').innerText()).replace(/\s+/g, ' ');
   // Per Jack: the six main sequences lead, in his order, even at 0.
-  const order = ['Carly Main Sequence Recycled 0', 'Carly Main Sequence 0', 'Jack Main Sequence 1', 'Jack Main Backup Sequence 0', 'Wired CIO Email (Custom September Leads) 0', 'CSP Renewal Campaign 0'].map((x) => t.indexOf(x));
+  ok('the sequence dropdown counts the live sequence', /Jack Main Sequence \(1\)/.test(seqOpts), seqOpts.slice(0, 300));
+  const order = ['Carly Main Sequence Recycled (', 'Carly Main Sequence (', 'Jack Main Sequence (', 'Jack Main Backup Sequence (', 'Wired CIO Email (Custom September Leads) (', 'CSP Renewal Campaign ('].map((x) => seqOpts.indexOf(x));
   ok('  the six main sequences show in Jack\'s order', order.every((i, k) => i >= 0 && (k === 0 || i > order[k - 1])), JSON.stringify(order));
-  await page.locator('.vault-tile', { hasText: 'Active in a sequence' }).click(); await sleep(400);
+  await page.selectOption('select[aria-label="Apollo standing"]', 'active'); await sleep(400);
   let r = await rows();
   ok('default view lists the active lead with its sequence', /Ada Brant[^|]*Active[^|]*Jack Main Sequence · active/.test(r) && !/Ben Cole/.test(r), r);
   ok('  and its ended sequence too, marked ended', /Ada Brant[^|]*Old Sequence · finished/.test(r), r);
-  await page.locator('.vault-tile', { hasText: 'Sequence ended, never reached' }).click(); await sleep(400);
+  await page.selectOption('select[aria-label="Apollo standing"]', 'finished'); await sleep(400);
   r = await rows();
   ok('ended view shows Ben in Carly Main Sequence', /Ben Cole[^|]*Ended[^|]*Carly Main Sequence/.test(r), r);
-  await page.locator('.vault-tile', { hasText: 'Not checked yet' }).click(); await sleep(400);
+  await page.selectOption('select[aria-label="Apollo standing"]', 'unchecked'); await sleep(400);
   r = await rows();
   ok('not-in-Apollo view shows Nia only', /Nia Rowe/.test(r) && !/Ada Brant/.test(r), r);
 
