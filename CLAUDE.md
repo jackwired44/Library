@@ -7501,3 +7501,28 @@ filter, downloads unchanged.
   file date for someone on 2+ files, and a "Seen before" dropdown (seen on
   2+ files / first time only) with a chip.
 - Suite `seen-before-live` (13).
+
+### 2026-10-28: rescan gap fixed, All leads faster, three removals (scanner-platform-v29)
+
+Per Jack: "rescanned 19 files ... got 394 dynamics strong signals ... uploaded
+it manually into main scanner ... got 496 find the gap and the system is a bit
+slow wheres the bug".
+- **The gap was the rescan, not the rules.** Files → Rescan rebuilt one row
+  per stored lead, so people sharing a stored record (same email, or same
+  first name at one company with no email) came back as ONE row, and leads
+  first stored by Custom/CSP were skipped. `rebuildFileRows` (`lib/rawNotes.ts`)
+  now emits every saved row for that file, re-attaches each row's own note
+  (or the nearest earlier one), and `rescanFilesInScanner` no longer filters
+  by source. Probe `rescan-roundtrip` (6): direct 9 / rebuilt 9 (was 6).
+  Leads saved before CSV rows were kept still can't be rebuilt; the count is
+  in the History tag "Rescanned from Files (N saved before …)".
+- **Lag** (40k seeded leads, `lag-probe`): `shortMonthLabel`/`monthLabelOf`
+  called `toLocaleDateString` per lead per render; now cached per key. The
+  per-lead All leads build (`derivedCache`), the email-check index and the
+  Seen-before map are kept across visits (module-level, keyed on the inputs'
+  identity). Typing in search 627 → ~170 ms of freezes; reopening All leads
+  880 → ~310 ms; first open still ~750 ms.
+- Removed (per Jack): All leads' Apollo panel (`allLeadsPanelsRemoved2`,
+  Customize brings it back); the working-sequence lists from Lists
+  (`SequenceLists.tsx` and its suite deleted). All leads' note wraps to three
+  lines at 13px.

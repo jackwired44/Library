@@ -20,7 +20,6 @@ import Scanner from "./components/Scanner";
 import LibraryView from "./components/Library";
 import HistoryView from "./components/History";
 import ListsView from "./components/Lists";
-import SequenceLists from "./components/SequenceLists";
 import LockScreen from "./components/LockScreen";
 import Scanner2 from "./components/Scanner2";
 import Documentation from "./components/Documentation";
@@ -54,7 +53,7 @@ import {
 } from "./lib/apolloFunnel";
 import Campaigns from "./components/Campaigns";
 import Overview from "./components/Overview";
-import { appendRawNotes, removeRawNotesForFile, loadRawNotesMany } from "./lib/rawNotes";
+import { appendRawNotes, removeRawNotesForFile, loadRawNotesMany, rebuildFileRows } from "./lib/rawNotes";
 import { setStatusRoster, withStatusOverride, type LeadStatus } from "./lib/leadStatus";
 import {
   DEFAULT_ROUTING, loadRouting, withPlan, type RoutingRules,
@@ -811,24 +810,15 @@ export default function App() {
     const parsed: ParsedFile[] = [];
     let missing = 0;
     for (const file of files) {
-      const inFile = leadsRef.current.filter((l) => l.source === "main" && l.sourceFiles.includes(file));
+      // Any lead the file is on, whichever scanner first stored it: the
+      // record keeps its first source, but the saved row is this file's.
+      const inFile = leadsRef.current.filter((l) => l.sourceFiles.includes(file));
       const raws = await loadRawNotesMany(inFile.map((l) => l.key));
-      const data: Record<string, unknown>[] = [];
+      const built = rebuildFileRows(file, inFile.map((l) => raws.get(l.key)));
+      missing += built.missing;
       const cols: string[] = [];
-      for (const l of inFile) {
-        const raw = raws.get(l.key);
-        const rowRec = raw?.rows?.find((r) => r.file === file) ?? raw?.rows?.[0];
-        const seg = raw?.segments.find((x) => x.file === file) ?? raw?.segments[0];
-        if (!rowRec && !seg) { missing++; continue; }
-        const fields: Record<string, string> = { ...(rowRec?.fields ?? {}) };
-        if (seg?.text) {
-          const notesCol = Object.keys(fields).find((k) => /comment|note|description/i.test(k)) || "Comments";
-          fields[notesCol] = seg.text;
-        }
-        for (const k of Object.keys(fields)) if (!cols.includes(k)) cols.push(k);
-        data.push(fields);
-      }
-      if (data.length) parsed.push({ name: file, fields: cols, data });
+      for (const row of built.data) for (const k of Object.keys(row)) if (!cols.includes(k)) cols.push(k);
+      if (built.data.length) parsed.push({ name: file, fields: cols, data: built.data });
     }
     if (parsed.length) loadParsedFilesIntoScanner(parsed, missing ? `Rescanned from Files (${missing} saved before CSV rows were kept, not included)` : "Rescanned from Files");
     return { rows: parsed.reduce((n, p) => n + p.data.length, 0), missing };
@@ -1494,9 +1484,6 @@ export default function App() {
           />
         )}
 
-        {view === "lists" && (
-          <SequenceLists leads={leads} roster={apolloRoster} rosterPulledAt={rosterPulledAt} onPullApollo={pullApollo} />
-        )}
         {view === "lists" && (
           <ListsView
             lists={leadLists}

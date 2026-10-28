@@ -83,7 +83,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   const page = await ctx.newPage();
   await page.addInitScript(() => { try { localStorage.setItem('skipFileNameBox', '1'); } catch { /* ignore */ } });
   // These checks read columns All leads now hides by default; show every column.
-  await page.addInitScript(() => { try { if (localStorage.getItem('allLeadsHiddenParts2') === null) { localStorage.setItem('allLeadsHiddenParts2', '[]'); localStorage.setItem('allLeadsPanelsRemoved1', '1'); } } catch { /* ignore */ } });
+  await page.addInitScript(() => { try { if (localStorage.getItem('allLeadsHiddenParts2') === null) { localStorage.setItem('allLeadsHiddenParts2', '[]'); localStorage.setItem('allLeadsPanelsRemoved1', '1'); localStorage.setItem('allLeadsPanelsRemoved2', '1'); } } catch { /* ignore */ } });
   const errs = [];
   page.on('pageerror', e => errs.push(e.message));
   page.on('dialog', d => d.accept());

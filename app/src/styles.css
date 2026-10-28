@@ -2638,3 +2638,15 @@ details.panel.fold[open] > summary.fold-head::before { content: "▾"; }
 
 /* All leads pins the first name, not the company: a narrower sticky column. */
 .dense-table.all-leads-table .pin-1 { min-width: 90px; max-width: 140px; }
+
+/* All leads: the scanned note wraps to three readable lines, like the
+   Main Scanner's matched snippet, instead of one clipped line. */
+.dense-table.all-leads-table { width: 100%; }
+.dense-table.all-leads-table tbody td.note-cell {
+  white-space: normal; max-width: 560px; min-width: 300px;
+  padding-top: 6px; padding-bottom: 6px; height: auto;
+}
+.dense-table.all-leads-table .note-clamp {
+  font-size: 13px; line-height: 1.45; color: var(--ink-2, #3f5257);
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}

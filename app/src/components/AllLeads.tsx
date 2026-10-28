@@ -254,12 +254,16 @@ const PRESET: Record<LeadsPreset, { label: string; apollo: ApolloFilter; hint: s
 const PARTS_KEY = "allLeadsHiddenParts2";
 const OLD_PARTS_KEY = "allLeadsHiddenParts";
 const DEFAULT_HIDDEN_COLS = ["col-touches", "col-recycle", "col-uploads", "col-atco", "col-outreach", "col-disposition", "col-sequence"];
-// Per Jack, on the "N of M leads checked against Apollo" tiles ("remove this
-// section") and the Email deliverability panel ("remove"). Hidden once for
-// everyone, including saved preferences; Customize still brings either back,
-// and the Apollo standing tab carries the same tiles.
-const STANDING_REMOVED_KEY = "allLeadsPanelsRemoved1";
-const REMOVED_PANELS = ["standing", "deliverability"];
+// Panels Jack asked to remove, each hidden once for everyone (saved
+// preferences included); Customize still brings any back. v1: the "N of M
+// leads checked against Apollo" tiles ("remove this section") and Email
+// deliverability ("remove"); the Apollo standing tab keeps the same tiles.
+// v2: the Apollo panel (pull, lookup list, import sync, deals & meetings)
+// ("remove this"); Lists' "Update from Apollo" still pulls.
+const REMOVED_PANEL_STEPS: [string, string[]][] = [
+  ["allLeadsPanelsRemoved1", ["standing", "deliverability"]],
+  ["allLeadsPanelsRemoved2", ["apollo"]],
+];
 function loadParts(items: typeof ALL_LEADS_PARTS): Set<string> {
   let out: Set<string>;
   try {
@@ -269,13 +273,15 @@ function loadParts(items: typeof ALL_LEADS_PARTS): Set<string> {
       out = new Set([...panels, ...DEFAULT_HIDDEN_COLS]);
     }
   } catch { out = new Set(DEFAULT_HIDDEN_COLS); }
-  try {
-    if (localStorage.getItem(STANDING_REMOVED_KEY) === null) {
-      for (const id of REMOVED_PANELS) out.add(id);
-      localStorage.setItem(STANDING_REMOVED_KEY, "1");
-      localStorage.setItem(PARTS_KEY, JSON.stringify([...out]));
-    }
-  } catch { for (const id of REMOVED_PANELS) out.add(id); }
+  for (const [key, ids] of REMOVED_PANEL_STEPS) {
+    try {
+      if (localStorage.getItem(key) === null) {
+        for (const id of ids) out.add(id);
+        localStorage.setItem(key, "1");
+        localStorage.setItem(PARTS_KEY, JSON.stringify([...out]));
+      }
+    } catch { for (const id of ids) out.add(id); }
+  }
   return out;
 }
 /** "Ada Brant" -> first "Ada", last "Brant". One word is a first name. */
@@ -317,6 +323,13 @@ const NO_INDUSTRY = "(not enriched)";
  *  and the CSP note's "⚑ Wants partner". */
 const PARTNER_NOTE_RE = /\bwants?\s+(?:to\s+work\s+with\s+)?a?\s*partner\b|⚑\s*wants\s+partner/i;
 const NO_LINE = "(no product line)";
+
+/** The last per-lead build and the inputs it was built from. Every input it
+ *  reads from module state (status roster, engagements, sheet estimates,
+ *  file dates) comes with a new `leads` or `apolloIndex` when it changes. */
+let derivedCache: { deps: readonly unknown[]; map: Map<string, Derived> } | null = null;
+let checkIndexCache: { from: unknown; index: ReturnType<typeof indexChecks> } | null = null;
+let seenCache: { from: unknown; map: Map<string, SeenFile[]> } | null = null;
 
 /* --------------------------------------------------------------- component */
 
@@ -402,7 +415,11 @@ export default function AllLeads({
   // that needs a sequence (never reached, no sequence, or not in Apollo).
   const [readyOnly, setReadyOnly] = useState(false);
   const [verifyNote, setVerifyNote] = useState("");
-  const checkIndex = useMemo(() => indexChecks(emailChecks), [emailChecks]);
+  // Kept across visits so the per-lead build below can be reused too.
+  const checkIndex = useMemo(() => {
+    if (checkIndexCache?.from !== emailChecks) checkIndexCache = { from: emailChecks, index: indexChecks(emailChecks) };
+    return checkIndexCache.index;
+  }, [emailChecks]);
   const [rawIndex, setRawIndex] = useState<Map<string, string> | null>(null);
   const [partnerF, setPartnerF] = useState(false);
   // Per Jack: "filter out leads added to a list … even in all leads". Hides
@@ -503,6 +520,10 @@ export default function AllLeads({
 
   /* ---- derived, once per lead set ---- */
   const derived = useMemo(() => {
+    // Leaving and coming back to All leads with nothing changed reuses the
+    // last build instead of re-deriving every lead (~0.5 s at 40k).
+    const deps = [leads, companyProfiles, apolloIndex, checkIndex, catchAllMin] as const;
+    if (derivedCache && derivedCache.deps.every((d, i) => d === deps[i])) return derivedCache.map;
     const byCompany = new Map<string, { industry: string; employees: number | null }>();
     const m = new Map<string, Derived>();
     for (const l of leads) {
@@ -517,6 +538,10 @@ export default function AllLeads({
       const seqs = a?.sequences ?? [];
       const bucket = c.employees === null ? null : SIZE_BUCKETS.find((b) => b.test(c!.employees!));
       const engaged = engagementOf(l);
+      const hit = apolloHitFor({ email: l.email, contact: l.contact, company: l.company }, apolloIndex);
+      const status = statusOf(l);
+      const contact = contactStateOf(l);
+      const arrival = arrivalOf(l);
       m.set(l.key, {
         lane: laneOf(l.email, checkIndex.get((l.email || "").trim().toLowerCase()), catchAllMin, l.apollo?.live),
         standing: apolloStandingOf(l, apolloIndex),
@@ -535,31 +560,32 @@ export default function AllLeads({
         calls: a?.callCount ?? 0,
         has: !!a,
         files: l.sourceFiles.length,
-        status: statusOf(l),
+        status,
         reached: wasReached(a),
-        month: arrivalOf(l).month,
-        arrival: arrivalOf(l),
+        month: arrival.month,
+        arrival,
         dateKind: dateKindOf(l.noteDates),
         nextDate: soonestUpcoming(l.noteDates),
         level: titleLevel(l.title),
         fn: titleFunction(l.title),
-        contact: contactStateOf(l),
-        where: whereOf(statusOf(l), contactStateOf(l), !!engaged),
+        contact,
+        where: whereOf(status, contact, !!engaged),
         companyKey: ck,
         segs: noteSegments(l.notes).length,
         verdict: verdictOf(l.tier),
         addedAt: seqs.reduce((m, x) => (x.addedAt && x.addedAt > m ? x.addedAt : m), ""),
         taskDoneAt: (a?.tasks ?? []).reduce((m, t) => (t.status === "completed" && t.at > m ? t.at : m), ""),
-        inApollo: apolloHitFor({ email: l.email, contact: l.contact, company: l.company }, apolloIndex)
+        inApollo: hit
           ?? (a ? { how: "sync" as const, name: l.contact, sequences: seqs.map((x) => (x.status === "active" ? `${x.name} (active)` : x.name)) } : null),
-        owners: ownersOf([...seqs.map((x) => x.name), ...(apolloHitFor({ email: l.email, contact: l.contact, company: l.company }, apolloIndex)?.sequences ?? [])], a?.live?.owner),
+        owners: ownersOf([...seqs.map((x) => x.name), ...(hit?.sequences ?? [])], a?.live?.owner),
         // What a download leaves out — exactly as before the live check:
         // the pulled uploads and an imported sync, never a live result.
         // A deal or meeting on file: account manager only, never downloaded.
-        exportBlocked: !!engaged || !!apolloHitFor({ email: l.email, contact: l.contact, company: l.company }, apolloIndex) || (!!a && !a.live),
+        exportBlocked: !!engaged || !!hit || (!!a && !a.live),
         engaged,
       });
     }
+    derivedCache = { deps, map: m };
     return m;
   }, [leads, companyProfiles, apolloIndex, checkIndex, catchAllMin]);
 
@@ -626,12 +652,14 @@ export default function AllLeads({
     return m;
   }, [leads, listIndex]);
   const seenMap = useMemo(() => {
+    if (seenCache?.from === leads) return seenCache.map;
     const idx = buildSeenIndex(leads);
     const m = new Map<string, SeenFile[]>();
     for (const l of leads) {
       const files = seenFilesFor(idx, { email: l.email, contact: l.contact, company: l.company });
       if (files.length >= 2) m.set(l.key, files);
     }
+    seenCache = { from: leads, map: m };
     return m;
   }, [leads]);
   const listFEff = listF === "all" || listF === "any" || listIndex.lists.some((x) => x.id === listF) ? listF : "all";
@@ -2087,9 +2115,12 @@ export default function AllLeads({
                       </>
                     ) : <span className="muted">—</span>}
                   </td>
-                  <td data-col="notes" title={l.notes} style={{ maxWidth: 260 }}>
-                    {newestNote(l.notes) || "—"}
-                    {d.segs > 1 && <span className="muted"> +{d.segs - 1} earlier</span>}
+                  <td data-col="notes" className="note-cell" title={l.notes}>
+                    {/* Per Jack: "want to be able to see notes better and bigger".
+                        Wraps to three lines like the scanner's matched snippet;
+                        the whole note is on hover and in the lead record. */}
+                    <div className="note-clamp">{newestNote(l.notes) || "—"}</div>
+                    {d.segs > 1 && <div className="muted" style={{ fontSize: 11.5 }}>+{d.segs - 1} earlier note{d.segs > 2 ? "s" : ""}</div>}
                   </td>
                   <td data-col="atco" title={co ? co.names.join("\n") : undefined}>
                     {!co || co.contacts < 2 ? <span className="muted">1</span>

@@ -122,11 +122,21 @@ export function viewMonthKey(month: string): string {
   return m < EARLIEST_MONTH ? EARLIEST_MONTH : m;
 }
 /** "2026-03" -> "Mar 2026". */
+// Month labels are asked for once per lead per render (40k+ times), and
+// toLocaleDateString is slow; there are only a few dozen distinct keys.
+const shortLabelCache = new Map<string, string>();
+const longLabelCache = new Map<string, string>();
 export function shortMonthLabel(key: string): string {
-  if (key === PRE_MAY_2026_MONTH) return PRE_MAY_2026_LABEL;
-  const ym = key.replace("~", "");
-  if (!/^\d{4}-\d{2}$/.test(ym)) return key;
-  return new Date(`${ym}-15T12:00:00`).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+  const hit = shortLabelCache.get(key);
+  if (hit !== undefined) return hit;
+  let out = key;
+  if (key === PRE_MAY_2026_MONTH) out = PRE_MAY_2026_LABEL;
+  else {
+    const ym = key.replace("~", "");
+    if (/^\d{4}-\d{2}$/.test(ym)) out = new Date(`${ym}-15T12:00:00`).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+  }
+  shortLabelCache.set(key, out);
+  return out;
 }
 
 /** The month a sheet number falls in, spread evenly across the window. */
@@ -187,12 +197,20 @@ export function estimateSheetMonths(leads: { sourceFiles: string[]; noteDates?: 
 
 /** "2026-03~" -> "~March 2026 (est.)"; the pre-May bucket; else the month. */
 export function monthLabelOf(key: string): string {
-  if (key === PRE_MAY_2026_MONTH) return PRE_MAY_2026_LABEL;
-  const est = key.endsWith("~");
-  const ym = est ? key.slice(0, 7) : key;
-  if (!/^\d{4}-\d{2}$/.test(ym)) return key;
-  const name = new Date(`${ym}-15T12:00:00`).toLocaleDateString("en-US", { month: "long", year: "numeric" });
-  return est ? `~${name} (est.)` : name;
+  const hit = longLabelCache.get(key);
+  if (hit !== undefined) return hit;
+  let out = key;
+  if (key === PRE_MAY_2026_MONTH) out = PRE_MAY_2026_LABEL;
+  else {
+    const est = key.endsWith("~");
+    const ym = est ? key.slice(0, 7) : key;
+    if (/^\d{4}-\d{2}$/.test(ym)) {
+      const name = new Date(`${ym}-15T12:00:00`).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+      out = est ? `~${name} (est.)` : name;
+    }
+  }
+  longLabelCache.set(key, out);
+  return out;
 }
 
 /** When a lead arrived, for grouping and filtering: the file's own date,

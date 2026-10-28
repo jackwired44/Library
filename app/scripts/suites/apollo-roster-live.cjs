@@ -46,6 +46,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
 (async () => {
   const b = await chromium.launch({ executablePath: EXE });
   const page = await (await b.newContext({ viewport: { width: 1600, height: 950 } })).newPage();
+  await page.addInitScript(() => { try { localStorage.setItem('allLeadsPanelsRemoved1', '1'); localStorage.setItem('allLeadsPanelsRemoved2', '1'); } catch { /* */ } });
   const errs = [];
   page.on('pageerror', e => errs.push('PAGEERROR ' + e.message));
   page.on('dialog', d => d.accept());

@@ -164,3 +164,47 @@ export async function removeRawNotesForFile(file: string, deletedKeys: string[],
     return { ...existing, segments, ...(rows ? { rows } : {}) };
   });
 }
+
+/**
+ * Rebuild one uploaded file's CSV rows from what was saved with its leads,
+ * for Files → Rescan. Per Jack, a rescan must match uploading the file
+ * again, so this emits EVERY saved row for the file — two people who share
+ * a stored record (one email, or the same first name at the same company)
+ * each come back — and pairs each row with the note saved at the same
+ * upload. A note identical to an earlier file's was not saved twice, so a
+ * row without its own note takes the newest note saved at or before it,
+ * unless the row already carries its note column (a merged repeat).
+ * A lead with nothing saved for this file is counted as missing.
+ */
+export function rebuildFileRows(file: string, raws: (RawNotes | undefined)[]): { data: Record<string, string>[]; missing: number } {
+  const NOTE_COL = /comment|note|description/i;
+  const data: Record<string, string>[] = [];
+  let missing = 0;
+  for (const raw of raws) {
+    const rows = (raw?.rows ?? []).filter((r) => r.file === file);
+    const segs = (raw?.segments ?? []).filter((s) => s.file === file);
+    if (!raw || (!rows.length && !segs.length)) { missing++; continue; }
+    const noteFor = (at: string): string => {
+      const own = segs.find((s) => s.at === at) ?? segs[0];
+      if (own) return own.text;
+      const before = raw.segments.filter((s) => !at || s.at <= at).sort((a, b) => b.at.localeCompare(a.at))[0];
+      return (before ?? raw.segments[0])?.text ?? "";
+    };
+    const emit = (fields: Record<string, string>, at: string, own: boolean) => {
+      const out = { ...fields };
+      const col = Object.keys(out).find((k) => NOTE_COL.test(k));
+      const hasOwnNote = !!col && !!String(out[col] || "").trim();
+      const text = own || !hasOwnNote ? noteFor(at) : "";
+      if (text) out[col || "Comments"] = text;
+      data.push(out);
+    };
+    if (rows.length) {
+      for (const r of rows) emit(r.fields, r.at, segs.some((s) => s.at === r.at));
+    } else {
+      // Only a note was saved for this file: carry the person's identity
+      // from their newest saved row so the rebuilt row can be matched.
+      for (const s of segs) emit(raw.rows?.[0]?.fields ?? {}, s.at, true);
+    }
+  }
+  return { data, missing };
+}
