@@ -59,6 +59,8 @@ import { applyStickyState, buildContactIndex, lookupContact, type Contact } from
 import { applyCompetitorDQ, type CompanyProfile } from "../lib/companyProfiles";
 import { MAX_COMPANY_BATCH } from "../lib/apolloEnrich";
 import type { UploadedFile } from "../App";
+import type { StoredLead } from "../lib/leadStore";
+import { buildSeenIndex, seenFilesFor, seenLabel, type SeenFile } from "../lib/seenBefore";
 
 // Raised from 5. The old cap is what forced Jack to upload 14 CSVs as
 // three separate batches — and splitting an upload is exactly what makes
@@ -97,6 +99,10 @@ interface Facets {
   /** Rows hidden everywhere — table, counts and downloads — because they
    *  are already on a list Jack built. */
   hideIds?: Set<string>;
+  /** "Seen before" filter: rows that came in on an earlier file. View only;
+   *  downloads always pass "all". */
+  seenIds?: Set<string>;
+  seenMode?: "all" | "only" | "hide";
 }
 
 function applyFacets(rows: ResultRow[], f: Facets): ResultRow[] {
@@ -122,6 +128,8 @@ function applyFacets(rows: ResultRow[], f: Facets): ResultRow[] {
   if (f.partnerOnly) list = list.filter((r) => r.wantsPartner ?? r.isPartnerSeeking);
   if (f.excludeIds?.size) list = list.filter((r) => !f.excludeIds!.has(r.id));
   if (f.hideIds?.size) list = list.filter((r) => !f.hideIds!.has(r.id));
+  if (f.seenMode === "only") list = list.filter((r) => !!f.seenIds?.has(r.id));
+  if (f.seenMode === "hide" && f.seenIds?.size) list = list.filter((r) => !f.seenIds!.has(r.id));
   const q = f.q.trim().toLowerCase();
   if (q) {
     list = list.filter((r) => {
@@ -207,6 +215,8 @@ interface ScannerProps {
   // bar's "+ Add to list" reads existing lists from here and creates/adds
   // through these two, same pattern as every other bulk action.
   leadLists: LeadList[];
+  /** Every lead already stored, read-only — for the "Seen before" tag. */
+  storedLeads?: StoredLead[];
   // User-defined call dispositions on top of the built-ins (lib/dispositions.ts).
   dispositions: CustomDisposition[];
   // Upload-time Apollo company enrichment (see App.tsx) — toggle, the
@@ -252,6 +262,7 @@ export default function Scanner({
   loadedScanStats,
   loadedHistoryEntryId,
   leadLists,
+  storedLeads,
   onAddSelectedToList,
   dispositions,
   autoEnrichCompanies,
@@ -735,6 +746,25 @@ export default function Scanner({
     return m;
   }, [listedRows]);
 
+  // Per Jack: "has it been logged by that same contact name in the past so
+  // i dont keep importing contacts ... marcus bush was in 10/19 and 10/25".
+  // Same email, or same full name at the same company, on an EARLIER file
+  // already stored (this upload's own files don't count). Read-only.
+  const seenIndex = useMemo(() => buildSeenIndex(storedLeads ?? []), [storedLeads]);
+  const seenRows = useMemo(() => {
+    const m = new Map<string, SeenFile[]>();
+    if (!results || !seenIndex.dates.size) return m;
+    const current = new Set(uploadedFiles.map((u) => u.name));
+    for (const r of results) {
+      const f = r.row.__f;
+      const seen = seenFilesFor(seenIndex, { email: f.email, contact: getFullName(f), company: f.company }, current);
+      if (seen.length) m.set(r.id, seen);
+    }
+    return m;
+  }, [results, seenIndex, uploadedFiles]);
+  const seenIds = useMemo(() => new Set(seenRows.keys()), [seenRows]);
+  const [seenMode, setSeenMode] = useState<"all" | "only" | "hide">("all");
+
   const facets: Facets = {
     tier: tierFilter,
     category: categoryFilter,
@@ -745,6 +775,8 @@ export default function Scanner({
     partnerOnly,
     q: search,
     hideIds,
+    seenIds,
+    seenMode,
     // Per Jack: "says 171 strong signal show me 17". Hiding Apollo matches
     // from the TABLE made 154 Strong Signal leads vanish under a tab still
     // counting 171. The table now always shows every lead (each Apollo
@@ -779,7 +811,7 @@ export default function Scanner({
     // never overlap - a Google lead is always M365/Azure).
     return sortTopPriorityFirst(ranked);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [results, tierFilter, categoryFilter, duplicatesOnly, priorityOnly, partnerOnly, search, dynamicsSortDesc, sortBy, m365SubView, dynamicsSubView, hideIds]);
+  }, [results, tierFilter, categoryFilter, duplicatesOnly, priorityOnly, partnerOnly, search, dynamicsSortDesc, sortBy, m365SubView, dynamicsSubView, hideIds, seenIds, seenMode]);
 
   // Every count badge is computed with EVERY OTHER active filter applied,
   // but not its own — so the number on a button is exactly how many rows
@@ -820,9 +852,11 @@ export default function Scanner({
       duplicates: n({ dupOnly: true }),
       priority: n({ prioOnly: true }),
       partner: n({ partnerOnly: true }),
+      seen: n({ seenMode: "only" }),
+      notSeen: n({ seenMode: "hide" }),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [results, tierFilter, categoryFilter, duplicatesOnly, priorityOnly, partnerOnly, search, m365SubView, dynamicsSubView, hideIds]);
+  }, [results, tierFilter, categoryFilter, duplicatesOnly, priorityOnly, partnerOnly, search, m365SubView, dynamicsSubView, hideIds, seenIds, seenMode]);
 
   // The KPI rail describes the BATCH, not the current view — it sits next
   // to "Rows scanned", which is always the whole upload. Wiring it to the
@@ -1045,7 +1079,7 @@ export default function Scanner({
    * mean sitting on "Needs review" silently emptied every download.
    */
   function bucketRowsFor(bucketKey: BucketKey) {
-    const scoped = results ? applyFacets(results, { ...facets, tier: "all", category: "all", excludeIds: hideInApollo ? apolloIds : undefined }) : [];
+    const scoped = results ? applyFacets(results, { ...facets, tier: "all", category: "all", seenMode: "all", excludeIds: hideInApollo ? apolloIds : undefined }) : [];
     return exportRowsForBucket(scoped, bucketKey);
   }
   function defaultBucketFileName(bucketKey: BucketKey) {
@@ -1398,7 +1432,7 @@ export default function Scanner({
         // Per Jack: "says all strong signal is 91 but has 887 as the number".
         // The downloads leave out leads already in Apollo; the dropdown in the
         // download bar says how many, so the two numbers never look like a bug.
-        const allSignal = results ? exportRowsForBucketsCount(applyFacets(results, { ...facets, tier: "all", category: "all" })) : 0;
+        const allSignal = results ? exportRowsForBucketsCount(applyFacets(results, { ...facets, tier: "all", category: "all", seenMode: "all" })) : 0;
         const inDownloads = mergedRows().length;
         const leftOut = Math.max(0, allSignal - inDownloads);
         const noSignal = lastScanStats ? Math.max(0, lastScanStats.rowsScanned - lastScanStats.duplicatesRemoved - results.length) : null;
@@ -1652,6 +1686,15 @@ export default function Scanner({
           >
             {partnerOnly ? `Showing wants a partner (${counts.partner})` : `⚑ Wants a partner (${counts.partner})`}
           </button>
+          {seenIds.size > 0 && (
+            <select className="field" aria-label="Seen before" value={seenMode} onChange={(e) => setSeenMode(e.target.value as "all" | "only" | "hide")}
+              title="Leads that already came in on an earlier file: same email, or same full name at the same company. Filters the table only; downloads are unchanged."
+              style={{ fontWeight: 600 }}>
+              <option value="all">Seen before: show all</option>
+              <option value="only">↺ Only seen before ({counts.seen})</option>
+              <option value="hide">Hide seen before ({counts.notSeen} new)</option>
+            </select>
+          )}
         </div>
 
         {droppedView === "none" && (
@@ -1909,6 +1952,12 @@ export default function Scanner({
                         <span className="pill" data-on-list style={{ marginLeft: 6, fontSize: 11, color: "var(--ink-2)", background: "var(--surface-sunken)" }}
                               title={`Already on: ${listedRows.get(r.id)!.map((id) => listIndex.lists.find((l) => l.id === id)?.name || "a list").join(", ")}`}>
                           On a list
+                        </span>
+                      )}
+                      {seenRows.get(r.id) && (
+                        <span className="pill" data-seen-before style={{ marginLeft: 6, fontSize: 11, color: "#5B4A9A", background: "#EFEBFA" }}
+                              title={`Already came in on:\n${seenRows.get(r.id)!.map((s) => `${s.file}${s.date ? ` (${s.date})` : ""}`).join("\n")}`}>
+                          ↺ Seen {seenLabel(seenRows.get(r.id)!)}
                         </span>
                       )}
                     </td>

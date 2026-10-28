@@ -1426,6 +1426,7 @@ export default function App() {
               loadedDropped={loadedDropped}
               loadedHistoryEntryId={loadedHistoryEntryId}
               leadLists={leadLists}
+              storedLeads={leads}
               dispositions={dispositions}
               autoEnrichCompanies={autoEnrichCompanies}
               onToggleAutoEnrichCompanies={toggleAutoEnrichCompanies}

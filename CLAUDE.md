@@ -7480,3 +7480,24 @@ months", "strong signal or not dynamics or m365azure whatever".
   for everyone (`allLeadsPanelsRemoved1`); Customize brings either back and
   the Apollo standing tab keeps the same tiles.
 - Suite `files-live` 9 → 19.
+
+### 2026-10-28: "Seen before" — the same person on an earlier file (scanner-platform-v29)
+
+Per Jack: "has it been logged by that same contact name in the past so i
+dont keep importing contacts to be updated ... marcus bush was in 10/19 and
+10/25". Approved: same email, or same full name at the same company; tag +
+filter, downloads unchanged.
+- `lib/seenBefore.ts`: `buildSeenIndex(leads)` (email and name+company →
+  files), `seenFilesFor(idx, person, exclude?)` (oldest first, dated by
+  `fileDates`, the same dates Files shows), `seenLabel` ("10/19, 10/25").
+  The name key needs two name words and a company, so a first name alone or
+  a different Marcus Bush at another company never matches.
+- **Main Scanner** (before saving): a "↺ Seen 10/19" pill on any row whose
+  person is already stored from an earlier file (this upload's own files
+  don't count), and a "Seen before" dropdown: show all / only seen before /
+  hide seen before. Table and counts only; `bucketRowsFor` passes
+  `seenMode: "all"`, so downloads are unchanged.
+- **All leads**: a "Seen in" column (default on, in Customize) listing every
+  file date for someone on 2+ files, and a "Seen before" dropdown (seen on
+  2+ files / first time only) with a chip.
+- Suite `seen-before-live` (13).

@@ -56,6 +56,7 @@ import { laneOf, indexChecks, emailsToVerify, isGreenLit, LANE_META, LANE_ORDER,
 import { EXPORT_LABELS, type ExportRow } from "../lib/detection";
 import { apolloStandingOf, listRowForLead, NEEDS, NO_SEQUENCE, STATUS_META as STANDING_META, STATUS_ORDER as STANDING_ORDER, type Status as Standing } from "./ApolloStatus";
 import { isIntentDate, soonestUpcoming, type NoteDate } from "../lib/noteDates";
+import { buildSeenIndex, seenFilesFor, seenLabel, type SeenFile } from "../lib/seenBefore";
 import {
   FUNCTION_META, LEVEL_META, LEVEL_ORDER, titleFunction, titleLevel,
   type TitleFunction, type TitleLevel,
@@ -297,6 +298,7 @@ const ALL_LEADS_PARTS = [
   { id: "col-stored", group: "Table columns", label: "Signal" },
   { id: "col-line", group: "Table columns", label: "Product line" },
   { id: "col-received", group: "Table columns", label: "Month" },
+  { id: "col-seen", group: "Table columns", label: "Seen in (files)" },
   { id: "col-inapollo", group: "Table columns", label: "Apollo (where it stands)" },
   { id: "col-touches", group: "Table columns", label: "Touchpoints" },
   { id: "col-recycle", group: "Table columns", label: "Recycle" },
@@ -407,6 +409,10 @@ export default function AllLeads({
   // anyone on a list he built (smart lists don't count) — on any list, or on
   // one picked list. Same matcher as the three scanners (listsHolding).
   const [listF, setListF] = useState<"all" | ListPick>("all");
+  // Per Jack: "has it been logged by that same contact name in the past ...
+  // marcus bush was in 10/19 and 10/25". Seen on 2+ files = same email, or
+  // same full name at the same company (lib/seenBefore.ts).
+  const [seenF, setSeenF] = useState<"all" | "only" | "hide">("all");
   const [rawIndexState, setRawIndexState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [sourceF, setSourceF] = useState<LeadSource | "all">("all");
   const [tierF, setTierF] = useState(initialPreset ? TOP : "all");
@@ -619,6 +625,15 @@ export default function AllLeads({
     }
     return m;
   }, [leads, listIndex]);
+  const seenMap = useMemo(() => {
+    const idx = buildSeenIndex(leads);
+    const m = new Map<string, SeenFile[]>();
+    for (const l of leads) {
+      const files = seenFilesFor(idx, { email: l.email, contact: l.contact, company: l.company });
+      if (files.length >= 2) m.set(l.key, files);
+    }
+    return m;
+  }, [leads]);
   const listFEff = listF === "all" || listF === "any" || listIndex.lists.some((x) => x.id === listF) ? listF : "all";
   // What a smart rule reads, built from `derived` only once the chat or a
   // rule is in use: nothing pays for it otherwise.
@@ -651,7 +666,7 @@ export default function AllLeads({
   const fromT = from ? Date.parse(`${from}T00:00:00`) : null;
   const toT = to ? Date.parse(`${to}T23:59:59.999`) : null;
 
-  type Key = "where" | "listed" | "rule" | "visited" | "partner" | "inApollo" | "verdict" | "company" | "contact" | "level" | "fn" | "month" | "dates" | "status" | "search" | "notes" | "standing" | "lane" | "ready" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "owner" | "plan" | "planSeq" | "files" | "fileName" | "date";
+  type Key = "where" | "seen" | "listed" | "rule" | "visited" | "partner" | "inApollo" | "verdict" | "company" | "contact" | "level" | "fn" | "month" | "dates" | "status" | "search" | "notes" | "standing" | "lane" | "ready" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "owner" | "plan" | "planSeq" | "files" | "fileName" | "date";
   const tests = useMemo(() => {
     const t: Record<Key, (l: StoredLead, d: Derived) => boolean> = {
       inApollo: (l, d) => inApolloF === "all"
@@ -683,6 +698,7 @@ export default function AllLeads({
       standing: (_l, d) => (standingF === "all" || (standingF === "needs" ? NEEDS.has(d.standing) : standingF === "noseq" ? NO_SEQUENCE.has(d.standing) : d.standing === standingF))
         && !(hideActive && d.standing === "active"),
       partner: (l) => !partnerKeys || partnerKeys.has(l.key),
+      seen: (l) => seenF === "all" || (seenF === "only" ? seenMap.has(l.key) : !seenMap.has(l.key)),
       listed: (l) => {
         if (listFEff === "all") return true;
         const on = listedKeys.get(l.key);
@@ -726,7 +742,7 @@ export default function AllLeads({
       },
     };
     return t;
-  }, [ruleF, ruleFacts, periodSet, periodKind, inApolloF, verdictF, companyF, companyStats, contactF, levelF, fnF, dateF, statusF, q, kq, nq, rawIndex, standingF, laneF, readyOnly, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, ownerF, planF, planSeqF, filesF, fileSet, fromT, toT, partnerKeys, exclIndustries, hideActive, visitedOnly, listFEff, listedKeys, whereF]);
+  }, [ruleF, ruleFacts, periodSet, periodKind, inApolloF, verdictF, companyF, companyStats, contactF, levelF, fnF, dateF, statusF, q, kq, nq, rawIndex, standingF, laneF, readyOnly, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, ownerF, planF, planSeqF, filesF, fileSet, fromT, toT, partnerKeys, exclIndustries, hideActive, visitedOnly, listFEff, listedKeys, whereF, seenF, seenMap]);
 
   // Each lead's filters are evaluated ONCE per change, recording whether it
   // passes all of them ("") or fails exactly one (that key) or more (null).
@@ -950,6 +966,7 @@ export default function AllLeads({
   const chips: { label: string; clear: () => void }[] = [];
   if (readyOnly) chips.push({ label: "Ready to sequence", clear: () => setReadyOnly(false) });
   if (partnerF) chips.push({ label: "⚑ Wants a partner", clear: () => setPartnerF(false) });
+  if (seenF !== "all") chips.push({ label: seenF === "only" ? "↺ Seen on 2+ files" : "First time seen only", clear: () => setSeenF("all") });
   if (listFEff !== "all") chips.push({ label: listFEff === "any" ? "Hiding leads on a list" : `Hiding leads on ${listIndex.lists.find((x) => x.id === listFEff)?.name ?? "a list"}`, clear: () => setListF("all") });
   if (laneF !== "all") chips.push({ label: `Email: ${laneF === "green" ? "Green-lit" : LANE_META[laneF].label}`, clear: () => setLaneF("all") });
   if (standingF !== "all") chips.push({ label: `Apollo: ${standingF === "needs" ? "Needs a sequence" : standingF === "noseq" ? "Never sequenced" : STANDING_META[standingF].label}`, clear: () => setStandingF("all") });
@@ -1605,6 +1622,18 @@ export default function AllLeads({
             ⚑ Wants a partner{partnerF && partnerKeys && rawIndexState !== "loading" ? ` (${partnerKeys.size.toLocaleString()})` : ""}
             {partnerF && rawIndexState === "loading" ? " · reading notes…" : ""}
           </button>
+          {seenMap.size > 0 && (() => {
+            const pool = leads.filter((l) => passes(l, "seen"));
+            const seenN = pool.filter((l) => seenMap.has(l.key)).length;
+            return (
+              <select className="field" aria-label="Seen before" value={seenF} onChange={(e) => setSeenF(e.target.value as "all" | "only" | "hide")}
+                      title="The same person on more than one file: same email, or same full name at the same company.">
+                <option value="all">Seen before: show all</option>
+                <option value="only">↺ Seen on 2+ files ({seenN.toLocaleString()})</option>
+                <option value="hide">First time only ({(pool.length - seenN).toLocaleString()})</option>
+              </select>
+            );
+          })()}
           {listedKeys.size > 0 && (() => {
             // Counts honour every other filter, so each option says how many
             // it would take off the screen.
@@ -1959,6 +1988,7 @@ export default function AllLeads({
               <th data-col="stored" title="Strong Signal, Needs Review or Bad Lead — from the scanner that stored it">Signal</th>
               <th data-col="line">Product line</th>
               <th data-col="received" title="The date the file states, or the upload date if it states none">Month</th>
+              <th data-col="seen" title="Every file this person came in on, by date (same email, or same full name at the same company)">Seen in</th>
               <th data-col="inapollo" title="Where it stands in Apollo: in a sequence, ended, in Apollo with no sequence, or not in Apollo">Apollo</th>
               <th data-col="touches" className="num" title="Calls and emails Apollo has logged to this lead">Touchpoints</th>
               <th data-col="recycle" title="When an unanswered or not-interested lead comes back for a new sequence — see the Recycle tab">Recycle</th>
@@ -2018,6 +2048,11 @@ export default function AllLeads({
                   </td>
                   <td data-col="line">{d.line === NO_LINE ? <span className="muted">—</span> : d.line}</td>
                   <td data-col="received" title={monthLabelOf(d.month)}>{d.month.endsWith("~") ? "~" : ""}{shortMonthLabel(viewMonthKey(d.month))}</td>
+                  <td data-col="seen" title={seenMap.get(l.key)?.map((x) => `${x.file}${x.date ? ` (${x.date})` : ""}`).join("\n")}>
+                    {seenMap.get(l.key)
+                      ? <span className="pill" data-seen-before style={{ color: "#5B4A9A", background: "#EFEBFA" }}>↺ {seenLabel(seenMap.get(l.key)!)}</span>
+                      : <span className="muted">—</span>}
+                  </td>
                   <td data-col="inapollo" title={d.inApollo ? [`Matched by ${d.inApollo.how === "sync" ? "an Apollo sync" : d.inApollo.how}`, d.inApollo.uploadedAt ? `Uploaded to Apollo ${d.inApollo.uploadedAt}` : "", ...d.inApollo.sequences].filter(Boolean).join("\n") : "Not found among your Apollo uploads"}>
                     {d.inApollo
                       ? <span className="pill" style={{ color: "#0A66C2", background: "#EAF3FC" }}>In Apollo{d.inApollo.uploadedAt ? ` · ${d.inApollo.uploadedAt}` : ""}</span>
