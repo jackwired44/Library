@@ -336,6 +336,10 @@ export default function App() {
   const [uploadCheckLabel, setUploadCheckLabel] = useState("");
   const [uploadCheckSkipped, setUploadCheckSkipped] = useState(0);
   const [uploadCheckNothingDue, setUploadCheckNothingDue] = useState(false);
+  // A forced check (a list's "Re-check not added") looks every lead up again,
+  // even ones checked this week: someone added to a sequence since their last
+  // check still reads "never sequenced" until they are looked up again.
+  const uploadCheckForce = useRef(false);
   useEffect(() => {
     if (!uploadCheckKeys || (homeCheck && !homeCheck.finished)) return;
     const want = new Set(uploadCheckKeys);
@@ -345,7 +349,8 @@ export default function App() {
     // to do that". A lead already checked in Apollo this week is not looked
     // up again; re-uploading a file to refresh its notes costs no lookups
     // for anyone already done. Same 7-day rule as every other check.
-    const targets = leadsDueForApollo(inUpload);
+    const targets = uploadCheckForce.current ? inUpload : leadsDueForApollo(inUpload);
+    uploadCheckForce.current = false;
     setUploadCheckSkipped(inUpload.length - targets.length);
     setUploadCheckKeys(null);
     if (!targets.length) { setUploadCheckNothingDue(true); return; }
@@ -1497,7 +1502,7 @@ export default function App() {
             checkBusy={!!homeCheck && !homeCheck.finished}
             // Same run as Save & check: the strip at the top shows progress,
             // Stop and the hourly cap, and leads checked this week are skipped.
-            onCheckLeads={(keys, label) => { setUploadCheckLabel(label); setUploadCheckSkipped(0); setUploadCheckNothingDue(false); setUploadCheckKeys(keys); }}
+            onCheckLeads={(keys, label, force) => { uploadCheckForce.current = !!force; setUploadCheckLabel(label); setUploadCheckSkipped(0); setUploadCheckNothingDue(false); setUploadCheckKeys(keys); }}
             onRename={(id, name) => {
               const next = renameLeadList(leadLists, id, name);
               setLeadLists(next);

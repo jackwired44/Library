@@ -167,12 +167,30 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('an active lead reads added, with its step', /Added/.test(await crow('ACTIVE CO')) && /step 2 of 5/.test(await crow('ACTIVE CO')), await crow('ACTIVE CO'));
   ok('a lead not in Apollo says why it was not added', /Not in Apollo as a contact/.test(await crow('NEW CO')), await crow('NEW CO'));
   ok('a row not saved in All leads says so', /Not saved in All leads/.test(await crow('GHOST CO')), await crow('GHOST CO'));
-  await cmp.locator('button', { hasText: /^Not added \(2\)$/ }).click(); await sleep(300);
+  // Per Jack: "simplify those filterting fields" — one Show dropdown.
+  const showSel = cmp.locator('select[aria-label="Show"]');
+  ok('the filters are one Show dropdown', await showSel.count() === 1 && await cmp.locator('button[data-compare-group]').count() === 0);
+  const opts = (await showSel.locator('option').allInnerTexts()).join(' | ');
+  ok('  listing Everyone, Added, Not added and the groups with counts', /Everyone \(4\)/.test(opts) && /Added \(2\)/.test(opts) && /Not added \(2\)/.test(opts) && /All can add now \(1\)/.test(opts) && /All check first \(1\)/.test(opts), opts);
+  await showSel.selectOption('not'); await sleep(300);
   ok('"Not added" shows just those two', await cmp.locator('[data-compare-row]').count() === 2);
+  await showSel.selectOption('g:ready'); await sleep(300);
+  ok('a group shows just its leads', await cmp.locator('[data-compare-row]').count() === 1 && await cmp.locator('[data-compare-row="NEW CO"]').count() === 1);
+  await showSel.selectOption('not'); await sleep(300);
+  // A lead checked this week is normally skipped; the compare panel's
+  // re-check looks it up again (someone added since reads as never sequenced).
+  await page.evaluate(() => { window.__calls = []; });
+  const recheck = cmp.locator('button', { hasText: /Re-check 1 not added/ });
+  ok('a Re-check button counts the stored leads not added', await recheck.count() === 1);
+  await recheck.click();
+  await page.waitForFunction(() => (window.__calls || []).some(c => /contacts_search/.test(c.tool)), null, { timeout: 30000 });
+  await sleep(1200);
+  const re = (await page.evaluate(() => window.__calls)).filter(c => c.tool.endsWith('contacts_search')).map(c => c.args.q_keywords);
+  ok('  it looks that lead up again even though it was checked this week', re.includes('nia@new.com') && re.length === 1, JSON.stringify(re));
   await cmp.locator('input[aria-label="Note for NEW CO"]').fill('domain bounced in Apollo');
   await cmp.locator('input[aria-label="Note for NEW CO"]').press('Tab'); await sleep(500);
   await page.evaluate(() => { window.__saved = []; });
-  await cmp.locator('button', { hasText: 'Download comparison' }).click(); await sleep(600);
+  await cmp.locator('button', { hasText: 'Download' }).last().click(); await sleep(600);
   const ctext = await page.evaluate(() => window.__saved.map(x => x.data).join('\n'));
   ok('the comparison downloads with the reason and your note', /Why Not Added/.test(ctext) && /Not in Apollo as a contact/.test(ctext) && /domain bounced in Apollo/.test(ctext), ctext.slice(0, 400));
   await page.reload(); await sleep(1500);

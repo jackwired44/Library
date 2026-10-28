@@ -7649,3 +7649,24 @@ can start fully managing the leads in apollo … built off a list".
   pulled date on hover).
 - Suites: `list-apollo-live` 25 → 39; `apollo-check-live`, `in-apollo-live`,
   `touchpoints-meetings-live` re-pointed from tiles to the dropdown.
+
+### 2026-10-28: list vs sequence compare — one filter, forced re-check (scanner-platform-v29)
+
+Per Jack, on the compare filter counts: "lets try and make this cleaner",
+"simplify those filterting fields", and "In Apollo, never sequenced (123)
+these are active in the dynamics sequence".
+- **One Show dropdown** replaces the reason chips: Everyone / ✓ Added /
+  Not added, then five groups (`MISS_GROUPS`: Can add now, Email problem,
+  In another sequence, Don't add, Check first), each with its reasons
+  underneath when it has more than one. A stacked bar and a plain legend
+  sum it up. 50 rows a page.
+- **Why the 123 read "never sequenced"**: their Apollo data predates the
+  sequence. Dynamics Email Sequence was created 2026-10-27; the uploads were
+  last pulled 2026-10-16, and a lead checked in the last 7 days is skipped.
+  "↻ Re-check N not added" in the compare panel looks every stored, not-added
+  lead up again now, ignoring the 7-day skip (`uploadCheckForce`, App.tsx;
+  `onCheckLeads(keys, label, force)`). Read-only, 400 an hour.
+- `sequencesForLead` now merges sources: a live check wins for every
+  sequence it names, and a sequence only the pulled uploads know is added,
+  so either source seeing the lead in the sequence counts as added.
+- Suite `list-apollo-live` 39 → 44.

@@ -36,7 +36,7 @@ interface ListsProps {
   leads?: StoredLead[];
   apolloIndex?: RosterIndex | null;
   /** Run the read-only Apollo check over these stored leads. */
-  onCheckLeads?: (keys: string[], label: string) => void;
+  onCheckLeads?: (keys: string[], label: string, force?: boolean) => void;
   checkBusy?: boolean;
   /** The pulled Apollo uploads, for who else is in a sequence. */
   roster?: ApolloRosterEntry[];
@@ -331,6 +331,8 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
                 )}
                 {comparingId === list.id && comparing && compared && (
                   <ComparePanel list={comparing} compared={compared.rows} extras={compared.extras}
+                    onRecheck={onCheckLeads ? (keys) => onCheckLeads(keys, `list "${list.name}" vs ${list.targetSequence}`, true) : undefined}
+                    recheckBusy={checkBusy}
                     onNote={onUpdateMeta ? (rowKey, note) => {
                       const next = { ...(list.rowNotes ?? {}) };
                       if (note.trim()) next[rowKey] = note.trim(); else delete next[rowKey];

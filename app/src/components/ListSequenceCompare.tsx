@@ -144,10 +144,6 @@ const stepText = (s: Seq) => [s.active ? "Active" : s.status === "finished" ? "F
   s.addedAt ? `added ${s.addedAt.slice(0, 10)}` : "",
   s.reason ? s.reason : ""].filter(Boolean).join(" · ");
 
-const chip = (m: { label: string; color: string; bg: string }) => (
-  <span style={{ fontSize: 10.5, fontWeight: 700, color: m.color, background: m.bg, borderRadius: 999, padding: "2px 8px", whiteSpace: "nowrap" }}>{m.label}</span>
-);
-
 /** Pick the sequence a list is for: search Apollo by name, or pick one the
  *  platform already knows (works without Apollo). */
 export function SequencePicker({ list, known, onPick, onSearch, onClose }: {
@@ -207,98 +203,191 @@ export function SequencePicker({ list, known, onPick, onSearch, onClose }: {
   );
 }
 
+/** The reasons, in five plain groups. Per Jack, on the first version's wall
+ *  of thirteen reason chips: "lets try and make this cleaner". */
+type GroupKey = "ready" | "email" | "working" | "dont" | "check";
+const MISS_GROUPS: { key: GroupKey; label: string; hint: string; color: string; reasons: MissReason[] }[] = [
+  { key: "ready", label: "Can add now", color: "#0E7A72", reasons: ["notInApollo", "noSequence", "endedElsewhere"],
+    hint: "Not in Apollo, never sequenced, or ended another sequence without a conversation." },
+  { key: "email", label: "Email problem", color: "#C98A1B", reasons: ["personal", "catchAll", "badEmail", "noEmail"],
+    hint: "Personal domain, catch-all not green-lit, bad or no email. Apollo flags or refuses these." },
+  { key: "working", label: "In another sequence", color: "#0A66C2", reasons: ["activeElsewhere"],
+    hint: "Active in a different sequence right now." },
+  { key: "dont", label: "Don't add", color: "#B5443B", reasons: ["account", "meeting", "notInterested", "reached"],
+    hint: "A deal or meeting on file, a meeting booked, not interested, or already had a conversation." },
+  { key: "check", label: "Check first", color: "#8A979B", reasons: ["unchecked", "notStored", "unknown"],
+    hint: "Not checked in Apollo yet, not saved in All leads, or no reason found." },
+];
+const GROUP_OF = new Map<MissReason, GroupKey>(MISS_GROUPS.flatMap((g) => g.reasons.map((r) => [r, g.key] as [MissReason, GroupKey])));
+const ADDED_COLOR = "#1F7A4D";
+const PAGE = 50;
+
 /** The list (left) beside the sequence (right). */
-export function ComparePanel({ list, compared, extras, onNote }: {
+export function ComparePanel({ list, compared, extras, onNote, onRecheck, recheckBusy = false }: {
   list: LeadList;
   compared: CompareRow[];
   extras: SequenceOnly[];
   onNote?: (rowKey: string, note: string) => void;
+  /** Look these stored leads up in Apollo again now, read-only, ignoring the
+   *  usual 7-day skip: a lead imported into Apollo since its last check
+   *  still reads "Not in Apollo" until it is looked up again. */
+  onRecheck?: (keys: string[]) => void;
+  recheckBusy?: boolean;
 }) {
-  const [show, setShow] = useState<"all" | "added" | "missing" | MissReason>("all");
+  // One filter, per Jack: "simplify those filterting fields". Values: all,
+  // added, not, g:<group>, r:<reason>.
+  const [show, setShow] = useState("all");
+  const [page, setPage] = useState(0);
   const target = list.targetSequence || "";
   const added = compared.filter((c) => c.here);
-  const missing = compared.filter((c) => !c.here);
-  const byReason = useMemo(() => {
-    const m = new Map<MissReason, number>();
-    for (const c of missing) if (c.miss) m.set(c.miss, (m.get(c.miss) || 0) + 1);
-    return [...m.entries()].sort((a, b) => b[1] - a[1]);
-  }, [missing]);
-  const shown = compared.filter((c) => show === "all" || (show === "added" ? !!c.here : show === "missing" ? !c.here : c.miss === show));
+  const counts = useMemo(() => {
+    const byGroup = new Map<GroupKey, number>();
+    const byReason = new Map<MissReason, number>();
+    for (const c of compared) if (!c.here && c.miss) {
+      byReason.set(c.miss, (byReason.get(c.miss) || 0) + 1);
+      const g = GROUP_OF.get(c.miss)!;
+      byGroup.set(g, (byGroup.get(g) || 0) + 1);
+    }
+    return { byGroup, byReason };
+  }, [compared]);
+  const shown = compared.filter((c) => show === "all" ? true : show === "added" ? !!c.here : c.here || !c.miss ? false
+    : show === "not" ? true : show.startsWith("g:") ? GROUP_OF.get(c.miss) === show.slice(2) : c.miss === show.slice(2));
+  const pages = Math.max(1, Math.ceil(shown.length / PAGE));
+  const pageRows = shown.slice(page * PAGE, page * PAGE + PAGE);
+  const pickShow = (v: string) => { setShow(v); setPage(0); };
+  const recheckKeys = [...new Set(compared.filter((c) => !c.here && c.lead && c.miss !== "account").map((c) => c.lead!.key))];
   const noteOf = (k: string) => list.rowNotes?.[k] ?? "";
   function download() {
-    const rows = compared.map((c) => ({
+    const rows = shown.map((c) => ({
       "First Name": c.row["First Name"], "Last Name": c.row["Last Name"], "Company Name": c.row["Company Name"], Email: c.row.Email,
       Sequence: target, "In Sequence": c.here ? "Yes" : "No", "Sequence Status": c.here ? stepText(c.here) : "",
+      Group: c.here ? "Added" : c.miss ? MISS_GROUPS.find((g) => g.key === GROUP_OF.get(c.miss!))!.label : "",
       "Why Not Added": c.miss ? `${MISS_META[c.miss].label}${c.other ? ` (${c.other})` : ""}` : "", "Your Note": noteOf(c.row.__rowKey),
     }));
-    void downloadBlob(toCSV(rows, ["First Name", "Last Name", "Company Name", "Email", "Sequence", "In Sequence", "Sequence Status", "Why Not Added", "Your Note"]), `${list.name} vs ${target}.csv`);
+    void downloadBlob(toCSV(rows, ["First Name", "Last Name", "Company Name", "Email", "Sequence", "In Sequence", "Sequence Status", "Group", "Why Not Added", "Your Note"]), `${list.name} vs ${target}.csv`);
   }
-  const seg = (k: typeof show, label: string) => (
-    <button key={k} className={`chip-btn${show === k ? " active" : ""}`} aria-pressed={show === k} onClick={() => setShow(k)}>{label}</button>
-  );
+  const segs: { key: "added" | GroupKey; label: string; hint: string; color: string; n: number }[] = [
+    { key: "added", label: "Added", hint: `In ${target}.`, color: ADDED_COLOR, n: added.length },
+    ...MISS_GROUPS.map((g) => ({ key: g.key, label: g.label, hint: g.hint, color: g.color, n: counts.byGroup.get(g.key) || 0 })),
+  ];
+  const total = compared.length || 1;
+  const activeGroup = show.startsWith("g:") ? show.slice(2) : show.startsWith("r:") ? GROUP_OF.get(show.slice(2) as MissReason) : show === "added" ? "added" : null;
   return (
-    <div aria-label={`Compare ${list.name} with ${target}`} style={{ marginTop: 12, border: "1px solid var(--border)", borderRadius: 10, padding: 12 }}>
-      <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap", marginBottom: 8 }}>
-        <strong>{list.name}</strong><span className="muted">⇄</span><strong>{target}</strong>
-        {list.targetSequenceOwner && <span className="muted">owner {list.targetSequenceOwner}</span>}
-        <span data-compare-summary style={{ marginLeft: "auto", fontSize: 12.5 }}>
-          {added.length} of {compared.length} added · {missing.length} not added
+    <div aria-label={`Compare ${list.name} with ${target}`} style={{ marginTop: 12, border: "1px solid var(--border)", borderRadius: 10, padding: 14 }}>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontWeight: 700 }}>{target}</div>
+          <div className="muted" style={{ fontSize: 12 }}>
+            <span data-compare-summary>{added.length} of {compared.length} added · {compared.length - added.length} not added</span>
+            {list.targetSequenceOwner && <> · owner {list.targetSequenceOwner}</>}
+          </div>
+        </div>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+          {onRecheck && recheckKeys.length > 0 && (
+            <button className="btn btn-sm btn-secondary" disabled={recheckBusy} onClick={() => onRecheck(recheckKeys)}
+              title="Looks these leads up in Apollo again now, even ones checked in the last 7 days, so anyone imported since shows as added. Read-only. Apollo allows 400 lookups an hour.">
+              ↻ Re-check {recheckKeys.length.toLocaleString()} not added
+            </button>
+          )}
+          <button className="btn btn-sm btn-ghost" onClick={download} title="The rows shown below, with the group, the reason and your note">⬇ Download</button>
+        </div>
+      </div>
+
+      <div aria-hidden style={{ display: "flex", height: 8, borderRadius: 999, overflow: "hidden", background: "var(--surface-sunken)", margin: "12px 0 6px" }}>
+        {segs.filter((x) => x.n).map((x) => (
+          <div key={x.key} title={`${x.label}: ${x.n}`} style={{ width: `${(x.n / total) * 100}%`, background: x.color, opacity: !activeGroup || activeGroup === x.key ? 1 : 0.25 }} />
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", fontSize: 12 }}>
+        <select className="field" aria-label="Show" value={show} onChange={(e) => pickShow(e.target.value)} style={{ fontSize: 13, minWidth: 260 }}>
+          <option value="all">Everyone ({compared.length.toLocaleString()})</option>
+          <option value="added">✓ Added ({added.length.toLocaleString()})</option>
+          <option value="not">Not added ({(compared.length - added.length).toLocaleString()})</option>
+          {MISS_GROUPS.filter((g) => counts.byGroup.get(g.key)).map((g) => (
+            <optgroup key={g.key} label={g.label}>
+              <option value={`g:${g.key}`}>All {g.label.toLowerCase()} ({counts.byGroup.get(g.key)!.toLocaleString()})</option>
+              {g.reasons.filter((r) => counts.byReason.get(r)).length > 1 && g.reasons.filter((r) => counts.byReason.get(r)).map((r) => (
+                <option key={r} value={`r:${r}`}>{MISS_META[r].label} ({counts.byReason.get(r)!.toLocaleString()})</option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+        <span className="muted" data-compare-legend style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          {segs.filter((x) => x.n).map((x) => (
+            <span key={x.key} title={x.hint} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <span style={{ width: 8, height: 8, borderRadius: 999, background: x.color, display: "inline-block" }} />{x.label} {x.n.toLocaleString()}
+            </span>
+          ))}
         </span>
-        <button className="btn btn-sm btn-secondary" onClick={download}>⬇ Download comparison</button>
       </div>
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
-        {seg("all", `All (${compared.length})`)}
-        {seg("added", `Added (${added.length})`)}
-        {seg("missing", `Not added (${missing.length})`)}
-        {byReason.map(([k, n]) => seg(k, `${MISS_META[k].label} (${n})`))}
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 3fr) minmax(0, 2fr)", gap: 12 }}>
-        <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "auto", maxHeight: 420 }}>
-          <div style={{ padding: "6px 10px", fontWeight: 600, fontSize: 12, background: "var(--surface-sunken)" }}>On the list</div>
-          <table className="data-table" style={{ width: "100%" }}>
-            <thead><tr><th>Contact</th><th>In {target}?</th><th>Your note</th></tr></thead>
-            <tbody>
-              {shown.map((c) => (
-                <tr key={c.row.__rowKey} data-compare-row={c.row["Company Name"]}>
-                  <td style={{ fontSize: 12 }}>
-                    <div>{`${c.row["First Name"]} ${c.row["Last Name"]}`.trim() || "—"}</div>
-                    <div className="muted">{c.row["Company Name"]}{c.row.Email ? ` · ${c.row.Email}` : ""}</div>
-                  </td>
-                  <td style={{ fontSize: 11.5 }}>
-                    {c.here
-                      ? <>{chip({ label: "✓ Added", color: "#1F7A4D", bg: "#E5F4EC" })}<div className="muted">{stepText(c.here)}</div></>
-                      : c.miss && <>{chip(MISS_META[c.miss])}{c.other && <div className="muted">{c.other}</div>}</>}
-                  </td>
-                  <td>
-                    <input className="field" aria-label={`Note for ${c.row["Company Name"]}`} placeholder={c.here ? "" : "Why not added?"} defaultValue={noteOf(c.row.__rowKey)}
-                      disabled={!onNote} onBlur={(e) => { if (e.target.value !== noteOf(c.row.__rowKey)) onNote?.(c.row.__rowKey, e.target.value); }}
-                      style={{ width: "100%", minWidth: 120, fontSize: 12 }} />
-                  </td>
-                </tr>
-              ))}
-              {!shown.length && <tr><td colSpan={3} className="muted" style={{ textAlign: "center", padding: 14 }}>Nothing here.</td></tr>}
-            </tbody>
-          </table>
+
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 3fr) minmax(0, 2fr)", gap: 12, marginTop: 12 }}>
+        <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
+          <div style={{ padding: "6px 10px", fontWeight: 600, fontSize: 12, background: "var(--surface-sunken)", display: "flex", gap: 8, alignItems: "center" }}>
+            On the list <span className="muted" style={{ fontWeight: 400 }}>{shown.length.toLocaleString()} shown</span>
+            {pages > 1 && (
+              <span style={{ marginLeft: "auto", display: "flex", gap: 4, alignItems: "center", fontWeight: 400 }}>
+                <button className="btn btn-sm btn-ghost" disabled={page === 0} onClick={() => setPage(page - 1)} aria-label="Previous page">‹</button>
+                {page + 1} / {pages}
+                <button className="btn btn-sm btn-ghost" disabled={page >= pages - 1} onClick={() => setPage(page + 1)} aria-label="Next page">›</button>
+              </span>
+            )}
+          </div>
+          <div style={{ overflow: "auto", maxHeight: 440 }}>
+            <table className="data-table" style={{ width: "100%" }}>
+              <thead><tr><th>Contact</th><th>Where they stand</th><th>Your note</th></tr></thead>
+              <tbody>
+                {pageRows.map((c) => {
+                  const g = c.miss ? MISS_GROUPS.find((x) => x.key === GROUP_OF.get(c.miss!)) : null;
+                  return (
+                    <tr key={c.row.__rowKey} data-compare-row={c.row["Company Name"]}>
+                      <td style={{ fontSize: 12 }}>
+                        <div>{`${c.row["First Name"]} ${c.row["Last Name"]}`.trim() || "—"}</div>
+                        <div className="muted">{c.row["Company Name"]}{c.row.Email ? ` · ${c.row.Email}` : ""}</div>
+                      </td>
+                      <td style={{ fontSize: 12 }}>
+                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                          <span style={{ width: 8, height: 8, borderRadius: 999, background: c.here ? ADDED_COLOR : g?.color, flex: "none" }} />
+                          <span>{c.here ? "✓ Added" : c.miss ? MISS_META[c.miss].label : ""}</span>
+                        </div>
+                        {(c.here || c.other) && <div className="muted" style={{ fontSize: 11, paddingLeft: 14 }}>{c.here ? stepText(c.here) : c.other}</div>}
+                      </td>
+                      <td>
+                        <input className="field" aria-label={`Note for ${c.row["Company Name"]}`} placeholder={c.here ? "" : "Why not added?"} defaultValue={noteOf(c.row.__rowKey)}
+                          disabled={!onNote} onBlur={(e) => { if (e.target.value !== noteOf(c.row.__rowKey)) onNote?.(c.row.__rowKey, e.target.value); }}
+                          style={{ width: "100%", minWidth: 120, fontSize: 12 }} />
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!shown.length && <tr><td colSpan={3} className="muted" style={{ textAlign: "center", padding: 14 }}>Nothing here.</td></tr>}
+              </tbody>
+            </table>
+          </div>
         </div>
-        <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "auto", maxHeight: 420 }}>
-          <div style={{ padding: "6px 10px", fontWeight: 600, fontSize: 12, background: "var(--surface-sunken)" }}>In {target}, not on this list ({extras.length})</div>
-          <div className="muted" style={{ padding: "4px 10px", fontSize: 11 }}>From your pulled Apollo uploads and checked leads. Anyone added another way and never checked won't show here.</div>
-          <table className="data-table" style={{ width: "100%" }}>
-            <thead><tr><th>Contact</th><th>Status</th></tr></thead>
-            <tbody>
-              {extras.slice(0, 300).map((x, i) => (
-                <tr key={`${x.email}-${i}`} data-extra-row={x.company}>
-                  <td style={{ fontSize: 12 }}><div>{x.name || "—"}</div><div className="muted">{x.company}{x.email ? ` · ${x.email}` : ""}</div></td>
-                  <td style={{ fontSize: 11.5 }}>{stepText(x.seq)}{x.stored ? "" : <div className="muted">not in All leads</div>}</td>
-                </tr>
-              ))}
-              {!extras.length && <tr><td colSpan={2} className="muted" style={{ textAlign: "center", padding: 14 }}>No one else known in this sequence.</td></tr>}
-            </tbody>
-          </table>
-          {extras.length > 300 && <div className="muted" style={{ padding: 8, fontSize: 11 }}>Showing the first 300 of {extras.length}.</div>}
+        <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
+          <div style={{ padding: "6px 10px", fontWeight: 600, fontSize: 12, background: "var(--surface-sunken)" }}
+            title="From your pulled Apollo uploads and checked leads. Anyone added another way and never checked won't show here.">
+            In the sequence, not on this list <span className="muted" style={{ fontWeight: 400 }}>{extras.length.toLocaleString()}</span>
+          </div>
+          <div style={{ overflow: "auto", maxHeight: 440 }}>
+            <table className="data-table" style={{ width: "100%" }}>
+              <thead><tr><th>Contact</th><th>Status</th></tr></thead>
+              <tbody>
+                {extras.slice(0, 300).map((x, i) => (
+                  <tr key={`${x.email}-${i}`} data-extra-row={x.company}>
+                    <td style={{ fontSize: 12 }}><div>{x.name || "—"}</div><div className="muted">{x.company}{x.email ? ` · ${x.email}` : ""}</div></td>
+                    <td style={{ fontSize: 11.5 }}>{stepText(x.seq)}{x.stored ? "" : <div className="muted">not in All leads</div>}</td>
+                  </tr>
+                ))}
+                {!extras.length && <tr><td colSpan={2} className="muted" style={{ textAlign: "center", padding: 14 }}>No one else known in this sequence.</td></tr>}
+              </tbody>
+            </table>
+            {extras.length > 300 && <div className="muted" style={{ padding: 8, fontSize: 11 }}>Showing the first 300 of {extras.length.toLocaleString()}.</div>}
+          </div>
         </div>
       </div>
-      <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>Nothing here is written to Apollo.</div>
+      <div className="muted" style={{ fontSize: 11, marginTop: 8 }}>Read-only: nothing here is written to Apollo.</div>
     </div>
   );
 }

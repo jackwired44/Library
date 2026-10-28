@@ -178,15 +178,19 @@ export function apolloDetailOf(l: StoredLead, index: RosterIndex | null): { stat
  *  added when the pull stated them). */
 export function sequencesForLead(l: StoredLead, index: RosterIndex | null): { status: Status; seqs: Seq[] } {
   const r = rowFor(l, index);
+  const hit = apolloHitFor({ email: l.email, contact: l.contact, company: l.company }, index);
+  const fromRoster: Seq[] = (hit?.seqStates ?? []).map((s) => ({ name: s.name, active: s.status === "active", status: s.status, step: s.step, addedAt: s.addedAt ?? "",
+    steps: s.steps, finishedAt: s.finishedAt, reason: s.reason }));
   if (!l.apollo) {
-    const hit = apolloHitFor({ email: l.email, contact: l.contact, company: l.company }, index);
-    if (hit?.seqStates?.length) {
-      const seqs = hit.seqStates.map((s) => ({ name: s.name, active: s.status === "active", status: s.status, step: s.step, addedAt: s.addedAt ?? "",
-        steps: s.steps, finishedAt: s.finishedAt, reason: s.reason }));
-      return { status: r.status, seqs: seqs.sort(bySeqOrder) };
-    }
+    if (fromRoster.length) return { status: r.status, seqs: fromRoster.sort(bySeqOrder) };
+    return { status: r.status, seqs: [...r.seqs].sort(bySeqOrder) };
   }
-  return { status: r.status, seqs: [...r.seqs].sort(bySeqOrder) };
+  // A live check wins for every sequence it names; a sequence only the pulled
+  // uploads know about (pulled after the check) is added, so whichever source
+  // saw the lead in a sequence counts.
+  const have = new Set(r.seqs.map((s) => s.name.trim().toLowerCase()));
+  const extra = fromRoster.filter((s) => !have.has(s.name.trim().toLowerCase()));
+  return { status: r.status, seqs: [...r.seqs, ...extra].sort(bySeqOrder) };
 }
 
 /** Where one lead stands in Apollo — the same answer In Apollo shows. */
