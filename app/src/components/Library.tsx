@@ -53,6 +53,7 @@ import {
 import { hashFolderPassword, checkFolderPassword } from "../lib/folderAuth";
 import { toCSV } from "../lib/csv";
 import TopPriorityBadge from "./TopPriorityBadge";
+import { confirmAction } from "../lib/confirmBox";
 
 // Fields editable inline per lead — Product Area is controlled via the
 // "Move to" select instead (matches legacy's editableFields split).
@@ -231,9 +232,9 @@ export default function LibraryView({ backup, contacts, companyProfiles, entries
   // whole filed file and every Strong Signal lead in it, and its button
   // sits inches from Download/Load — it was the only destructive control
   // in the app with no confirmation at all.
-  function handleDeleteEntry(id: string) {
+  async function handleDeleteEntry(id: string) {
     const entry = entries.find((e) => e.id === id);
-    if (entry && !window.confirm(`Delete "${entry.fileName}" and all ${entry.rows.length} filed lead${entry.rows.length === 1 ? "" : "s"} in it? This cannot be undone.`)) return;
+    if (entry && !await confirmAction(`Delete "${entry.fileName}" and all ${entry.rows.length} filed lead${entry.rows.length === 1 ? "" : "s"} in it? This cannot be undone.`)) return;
     setEntries((prev) => prev.filter((e) => e.id !== id));
     deleteLibraryEntryFromDB(id);
   }
@@ -292,10 +293,10 @@ export default function LibraryView({ backup, contacts, companyProfiles, entries
       return next;
     });
   }
-  function handleRowDelete(entryId: string, rowKey: string) {
+  async function handleRowDelete(entryId: string, rowKey: string) {
     // A filed lead is permanent data; the ✕ that removes it sits in a row
     // of small icon buttons. Confirm before destroying it.
-    if (!window.confirm("Delete this lead from the filed file? This cannot be undone.")) return;
+    if (!await confirmAction("Delete this lead from the filed file? This cannot be undone.", "Delete")) return;
     setEntries((prev) => {
       const next = deleteLibraryRow(prev, entryId, rowKey);
       const stillThere = next.find((e) => e.id === entryId);
@@ -376,7 +377,7 @@ export default function LibraryView({ backup, contacts, companyProfiles, entries
 
       <FolderSection title="Custom folders">
         {filterFolders(customFolders).map((g) => (
-          <FolderCard key={g.id} group={g} fileCount={fileCountFor(g.id)} onOpen={() => setOpenFolderId(g.id)} onDelete={() => { if (window.confirm(`Delete the folder "${g.name}"? Its ${fileCountFor(g.id)} file(s) are kept and become ungrouped.`)) handleDeleteGroup(g.id); }} />
+          <FolderCard key={g.id} group={g} fileCount={fileCountFor(g.id)} onOpen={() => setOpenFolderId(g.id)} onDelete={async () => { if (await confirmAction(`Delete the folder "${g.name}"? Its ${fileCountFor(g.id)} file(s) are kept and become ungrouped.`)) handleDeleteGroup(g.id); }} />
         ))}
         {showNewGroupForm ? (
           <div style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 14, display: "flex", flexDirection: "column", gap: 8, minWidth: 160 }}>

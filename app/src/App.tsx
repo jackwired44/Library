@@ -100,6 +100,7 @@ import Reps from "./components/Reps";
 import { lockRawNotes } from "./lib/rawNoteLock";
 import { countRecycle, loadRecycleRules, saveRecycleRules, type RecycleRules } from "./lib/recycle";
 import "./styles.css";
+import { confirmAction } from "./lib/confirmBox";
 
 export interface UploadedFile {
   name: string;
@@ -1515,10 +1516,10 @@ export default function App() {
               if (updated) persistLeadList(updated);
             }}
             onRefreshSmart={(id) => refreshSmartLists(id)}
-            onCycle={(id) => {
+            onCycle={async (id) => {
               const src = leadLists.find((l) => l.id === id);
               if (!src) return;
-              if (!window.confirm(`Cycle "${src.name}"? Its ${src.rows.length} leads move into a new list dated today, and this one is kept as history (marked cycled).`)) return;
+              if (!await confirmAction(`Cycle "${src.name}"? Its ${src.rows.length} leads move into a new list dated today, and this one is kept as history (marked cycled).`)) return;
               const { lists: next, list } = cycleLeadList(leadLists, id);
               if (!list) return;
               setLeadLists(next);

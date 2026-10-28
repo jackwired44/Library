@@ -13,6 +13,7 @@ import { seenNameKey } from "../lib/seenBefore";
 import type { RosterIndex } from "../lib/apolloRoster";
 import { apolloDetailOf, NEEDS, STATUS_META, STATUS_ORDER, type Status } from "./ApolloStatus";
 import { leadsDueForApollo } from "./ApolloSyncPanel";
+import { confirmAction } from "../lib/confirmBox";
 
 interface ListsProps {
   lists: LeadList[];
@@ -22,7 +23,7 @@ interface ListsProps {
   onDelete: (id: string) => void;
   onRemoveRow: (listId: string, rowKey: string) => void;
   /** Campaign fields: tags, campaign name, cycle window. */
-  onUpdateMeta?: (id: string, patch: Partial<Pick<LeadList, "tags" | "campaign" | "cycleDays" | "status">>) => void;
+  onUpdateMeta?: (id: string, patch: Partial<Pick<LeadList, "tags" | "campaign" | "cycleDays" | "status" | "includeActive" | "includeRowKeys">>) => void;
   /** Move a campaign list's leads into a new dated list. */
   onCycle?: (id: string) => void;
   /** Re-run a smart list's saved rule against the current leads now. */
@@ -87,6 +88,18 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
     const st = standings.get(list.id);
     return list.rows.filter((r) => { const s = st?.get(r.__rowKey)?.status; return !!s && s !== "notStored" && NEEDS.has(s); });
   };
+  // Active in an Apollo sequence: stays on the list, left out of its
+  // download unless overridden for the list or for that lead.
+  const isActiveRow = (list: LeadList, r: ListedLeadRow) => standings.get(list.id)?.get(r.__rowKey)?.status === "active";
+  const rowOverridden = (list: LeadList, r: ListedLeadRow) => !!list.includeActive || (list.includeRowKeys ?? []).includes(r.__rowKey);
+  const heldBack = (list: LeadList, r: ListedLeadRow) => isActiveRow(list, r) && !rowOverridden(list, r);
+  const downloadRows = (list: LeadList) => shownRows(list).filter((r) => !heldBack(list, r));
+  function toggleRowOverride(list: LeadList, rowKey: string) {
+    if (!onUpdateMeta) return;
+    const cur = new Set(list.includeRowKeys ?? []);
+    if (cur.has(rowKey)) cur.delete(rowKey); else cur.add(rowKey);
+    onUpdateMeta(list.id, { includeRowKeys: [...cur] });
+  }
   function checkList(list: LeadList) {
     if (!onCheckLeads) return;
     const st = standings.get(list.id);
@@ -123,10 +136,10 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
   }
   function download(list: LeadList) {
     const fileName = /\.csv$/i.test(list.name) ? list.name : `${list.name}.csv`;
-    downloadCSV(fileName, shownRows(list), EXPORT_LABELS);
+    downloadCSV(fileName, downloadRows(list), EXPORT_LABELS);
   }
-  function handleDelete(list: LeadList) {
-    if (window.confirm(`Delete the list "${list.name}"? This only removes the list — the original leads stay in Scanner/History/Lead Library. This can't be undone.`)) {
+  async function handleDelete(list: LeadList) {
+    if (await confirmAction(`Delete the list "${list.name}"? This only removes the list — the original leads stay in Scanner/History/Lead Library. This can't be undone.`, "Delete list")) {
       onDelete(list.id);
       if (expandedId === list.id) setExpandedId(null);
     }
@@ -247,9 +260,17 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
                         </button>
                       );
                     })()}
-                    <button onClick={() => download(list)} disabled={!shownRows(list).length} style={{ background: "#2CC295", color: "#081E22", border: "none", borderRadius: 8, padding: "6px 12px", fontWeight: 700, opacity: shownRows(list).length ? 1 : 0.5 }}>
-                      ⬇ Download CSV{readyOnly.has(list.id) ? ` (${shownRows(list).length} ready)` : ""}
-                    </button>
+                    {(() => {
+                      const n = downloadRows(list).length;
+                      const held = shownRows(list).length - n;
+                      return (
+                        <button onClick={() => download(list)} disabled={!n} aria-label={`Download ${list.name}`}
+                          title={held ? `${held} active in an Apollo sequence ${held === 1 ? "is" : "are"} left out of the download (still on the list).` : undefined}
+                          style={{ background: "#2CC295", color: "#081E22", border: "none", borderRadius: 8, padding: "6px 12px", fontWeight: 700, opacity: n ? 1 : 0.5 }}>
+                          ⬇ Download CSV{readyOnly.has(list.id) || held ? ` (${n}${readyOnly.has(list.id) ? " ready" : ""}${held ? `, ${held} active left out` : ""})` : ""}
+                        </button>
+                      );
+                    })()}
                     {list.rule && onRefreshSmart && list.status !== "cycled" && <button onClick={() => onRefreshSmart(list.id)} aria-label={`Refresh ${list.name}`} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 12px" }}>↻ Refresh</button>}
                     <button onClick={() => startRename(list)} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 12px" }}>Rename</button>
                     {onUpdateMeta && <button onClick={() => setEditingId(editing ? null : list.id)} aria-label={`Campaign settings for ${list.name}`} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 12px" }}>🏷 Tags & cycle</button>}
@@ -270,6 +291,21 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
                     </label>
                   </div>
                 )}
+                {expanded && list.rows.some((r) => isActiveRow(list, r)) && (() => {
+                  const active = list.rows.filter((r) => isActiveRow(list, r)).length;
+                  return (
+                    <label style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 10, fontSize: 12.5 }}>
+                      {active} active in an Apollo sequence:
+                      <select className="field" aria-label={`Active in a sequence in ${list.name}`} value={list.includeActive ? "include" : "leave"}
+                        disabled={!onUpdateMeta}
+                        onChange={(e) => onUpdateMeta?.(list.id, { includeActive: e.target.value === "include" })}>
+                        <option value="leave">Keep on the list, leave out of the download</option>
+                        <option value="include">Include them in the download</option>
+                      </select>
+                      {!list.includeActive && <span className="muted">(tick "Include" on a row to let one through)</span>}
+                    </label>
+                  );
+                })()}
                 {expanded && list.rows.length > 0 && (
                   <label style={{ display: "inline-flex", gap: 6, alignItems: "center", marginTop: 10, fontSize: 12.5 }}>
                     <input type="checkbox" aria-label={`Ready for a sequence only in ${list.name}`} checked={readyOnly.has(list.id)} onChange={() => toggleReady(list.id)} />
@@ -331,6 +367,14 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
                                 </td>
                                 <td style={{ padding: "7px 12px" }} data-apollo={s?.status}>
                                   {sm && <span title={sm.hint} style={{ fontSize: 10.5, fontWeight: 700, color: sm.color, background: sm.bg, borderRadius: 999, padding: "2px 9px", whiteSpace: "nowrap" }}>{sm.short}</span>}
+                                  {s?.status === "active" && !list.includeActive && (
+                                    <label style={{ display: "flex", gap: 4, alignItems: "center", marginTop: 4, fontSize: 11, whiteSpace: "nowrap" }}
+                                      title="Active in an Apollo sequence: left out of the download unless ticked">
+                                      <input type="checkbox" aria-label={`Include ${r["Company Name"]} in the download`} disabled={!onUpdateMeta}
+                                        checked={(list.includeRowKeys ?? []).includes(r.__rowKey)} onChange={() => toggleRowOverride(list, r.__rowKey)} />
+                                      {(list.includeRowKeys ?? []).includes(r.__rowKey) ? "In download" : "Include"}
+                                    </label>
+                                  )}
                                 </td>
                                 <td style={{ padding: "7px 12px", fontSize: 11.5 }}>
                                   {s?.seq ? (

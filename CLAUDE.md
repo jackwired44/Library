@@ -7577,3 +7577,41 @@ Supersedes the earlier BC / Sales-CRM / SCM tab notes above.
   else.
 - `NOTE_RULES_VERSION` bumped. `dynamics-views` 55 → 64 (Jack's examples);
   four old assertions re-pointed to the new rule.
+
+- **Follow-up the same day (supersedes the order above).** Per Jack: "if the
+  word business central is in it its good to go to business central erp not
+  everything else", then "if fno is there everything else". Order now:
+  F&O (incl. D365 Finance, FnO) → Everything else; Business Central named →
+  BC / ERP; supply chain → Everything else; ERP / back office → BC / ERP;
+  the rest → Sales / CRM / Customer Service.
+- **Bug fixed: the tab read every column.** A contact titled "VP of Supply
+  Chain" or an address like supplychain@… sent real BC / Sales leads to
+  Everything else. The tab now reads the notes and Product Area only (the
+  whole row only when a file has no notes column).
+- **F&O in any wording always goes to Everything else** (per Jack: "anything
+  to do with fno is anything else"): F&O, F and O, FnO, Fin Ops, Finance &
+  Ops, D365 Finance, Finance and Supply Chain (`DYNAMICS_FNO_TAB_RE`). A
+  note that lists D365 Finance only as a pitched option still counts.
+- Real files after: Sales 135 / BC 229 / Everything else 38.
+  `dynamics-views` 64 → 75.
+
+### 2026-10-28: Delete works inside the artifact; active leads left out of list downloads (scanner-platform-v29)
+
+- **Delete did nothing on the live page.** Per Jack: "make sure the delete
+  button works in lists". The artifact frame blocks the browser's own
+  confirm() popup, and a blocked confirm() answers false at once, so every
+  Delete read as Cancel. `confirmAction` (`lib/confirmBox.ts`) uses the
+  browser popup where it works and asks in the page when it comes back
+  false faster than anyone could click. All 12 confirm prompts use it
+  (Lists delete and cycle, History, Files, Library, Scanner, All leads,
+  Dispositions). Suite `list-delete-live` (9) runs the app inside an
+  iframe sandboxed the same way.
+- **Active in a sequence: kept on the list, left out of its download.** Per
+  Jack: "if in lists it checks in apollo and is active in a sequence we
+  want to have the option to override those leads being added or not
+  allowed to be downloaded but stays in the list". After a list's Apollo
+  check, an Active lead stays on the list and is left out of "Download CSV"
+  (the button says "N active left out"). Override per list (a dropdown,
+  `LeadList.includeActive`) or per lead (an "Include" tick in the Apollo
+  cell, `LeadList.includeRowKeys`); both optional, saved with the list.
+  `list-apollo-live` 17 → 25.

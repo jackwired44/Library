@@ -58,6 +58,12 @@ export interface LeadList {
   targetSequence?: string;
   handedOffAt?: string;
   refresherId?: string;
+  /** Per Jack: a lead an Apollo check shows ACTIVE in a sequence stays on
+   *  the list but is left out of the list's download, unless overridden —
+   *  for the whole list (`includeActive`) or one lead at a time
+   *  (`includeRowKeys`). Both optional: unset = leave them out. */
+  includeActive?: boolean;
+  includeRowKeys?: string[];
 }
 
 /** Replace a smart list's rows with a fresh run of its rule. Rows already
@@ -174,7 +180,7 @@ export function onPickedList(idx: ListMatchIndex, lead: { contact?: string; comp
   return pick === "any" ? on.length > 0 : on.some((l) => l.id === pick);
 }
 
-export function updateLeadListMeta(lists: LeadList[], id: string, patch: Partial<Pick<LeadList, "tags" | "campaign" | "cycleDays" | "status">>): LeadList[] {
+export function updateLeadListMeta(lists: LeadList[], id: string, patch: Partial<Pick<LeadList, "tags" | "campaign" | "cycleDays" | "status" | "includeActive" | "includeRowKeys">>): LeadList[] {
   return lists.map((l) => (l.id === id ? { ...l, ...patch } : l));
 }
 /** "a, b ,c" -> ["a","b","c"], deduped, case kept from first sight. */

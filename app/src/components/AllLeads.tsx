@@ -61,6 +61,7 @@ import {
   FUNCTION_META, LEVEL_META, LEVEL_ORDER, titleFunction, titleLevel,
   type TitleFunction, type TitleLevel,
 } from "../lib/titleLevel";
+import { confirmAction } from "../lib/confirmBox";
 
 const PAGE_SIZES = [25, 100, 250, 500];
 
@@ -1093,7 +1094,7 @@ export default function AllLeads({
   async function runEnrich() {
     if (!onEnrichCompanies || enriching || !enrichTargets.length) return;
     const n = Math.min(enrichTargets.length, MAX_COMPANY_BATCH);
-    if (!window.confirm(`Enrich ${n.toLocaleString()} compan${n === 1 ? "y" : "ies"} from Apollo? This will consume up to ${n.toLocaleString()} Apollo credits (no charge for any not found).${enrichTargets.length > n ? ` The first ${n} of ${enrichTargets.length.toLocaleString()} per click.` : ""}`)) return;
+    if (!await confirmAction(`Enrich ${n.toLocaleString()} compan${n === 1 ? "y" : "ies"} from Apollo? This will consume up to ${n.toLocaleString()} Apollo credits (no charge for any not found).${enrichTargets.length > n ? ` The first ${n} of ${enrichTargets.length.toLocaleString()} per click.` : ""}`)) return;
     setEnriching(true); setEnrichNote("");
     const pool = selected.size ? leads.filter((l) => selected.has(l.key)) : filtered;
     const r = await onEnrichCompanies(pool);
@@ -1879,8 +1880,8 @@ export default function AllLeads({
               Queue {selected.size ? selected.size.toLocaleString() : ""}
             </button>
             <button className="btn btn-sm btn-ghost" disabled={!selected.size}
-                    onClick={() => {
-                      if (window.confirm(`Remove ${selected.size} lead(s) from the Apollo queue? They stay stored.`)) {
+                    onClick={async () => {
+                      if (await confirmAction(`Remove ${selected.size} lead(s) from the Apollo queue? They stay stored.`)) {
                         onSetPlan([...selected], null); setSelected(new Set());
                       }
                     }}>

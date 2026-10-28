@@ -3,6 +3,7 @@ import { ACTIVE_BUCKET_KEYS, ACTIVE_CATEGORY_KEYS, BUCKET_META, CATEGORY_META, E
 import { downloadCSV, toCSV, downloadBlob } from "../lib/csv";
 import { getWeeks, getDays, getMonths, getFilteredHistory, buildAuditTrailRows, AUDIT_TRAIL_COLUMNS, type HistoryEntry } from "../lib/history";
 import type { LibraryEntry } from "../lib/library";
+import { confirmAction } from "../lib/confirmBox";
 
 type GroupBy = "week" | "day" | "month";
 
@@ -39,24 +40,24 @@ export default function HistoryView({ history, loading, error, onLoadIntoScanner
     return ids;
   }, [libraryEntries]);
 
-  function requestDeleteEntry(entry: HistoryEntry) {
+  async function requestDeleteEntry(entry: HistoryEntry) {
     if (linkedHistoryIds.has(entry.id)) {
       setPendingDelete({ kind: "single", id: entry.id, fileName: entry.fileName });
       return;
     }
-    if (window.confirm(`Delete "${entry.fileName}" from History? This can't be undone.`)) {
+    if (await confirmAction(`Delete "${entry.fileName}" from History? This can't be undone.`, "Delete")) {
       onDeleteEntry(entry.id);
       setSelected((prev) => { const next = new Set(prev); next.delete(entry.id); return next; });
     }
   }
 
-  function requestClearHistory() {
+  async function requestClearHistory() {
     if (history.length === 0) return;
     if (history.some((h) => linkedHistoryIds.has(h.id))) {
       setPendingDelete({ kind: "clear" });
       return;
     }
-    if (window.confirm(`Clear all ${history.length} import${history.length === 1 ? "" : "s"} from History? This can't be undone.`)) {
+    if (await confirmAction(`Clear all ${history.length} import${history.length === 1 ? "" : "s"} from History? This can't be undone.`)) {
       onClearHistory();
       setSelected(new Set());
     }

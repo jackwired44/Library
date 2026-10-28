@@ -124,6 +124,28 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await card().locator('input[aria-label="Ready for a sequence only in Call list"]').uncheck(); await sleep(300);
   ok('unticking shows every row again', (await card().locator('tbody tr').count()) === 4);
 
+  // Per Jack: an active lead "stays in the list" but is not downloaded,
+  // with an option to override that.
+  console.log('\n== active in a sequence: kept, not downloaded, unless overridden ==');
+  const dlText = async () => { await page.evaluate(() => { window.__saved = []; }); await card().locator('button', { hasText: 'Download CSV' }).click(); await sleep(600); return page.evaluate(() => window.__saved.map(x => x.data).join('\n')); };
+  ok('the active lead is still on the list', /ACTIVE CO/.test(await card().innerText()));
+  ok('the download button says one active lead is left out', /Download CSV \(3, 1 active left out\)/.test(await card().innerText()), (await card().innerText()).match(/Download CSV[^\n]*/)?.[0]);
+  let t = await dlText();
+  ok('the download leaves the active lead out and keeps the rest', !/ACTIVE CO/.test(t) && /ENDED CO/.test(t) && /NEW CO/.test(t), t.slice(0, 300));
+  await card().locator('input[aria-label="Include ACTIVE CO in the download"]').check(); await sleep(400);
+  t = await dlText();
+  ok('ticking Include on that row lets it into the download', /ACTIVE CO/.test(t));
+  await card().locator('input[aria-label="Include ACTIVE CO in the download"]').uncheck(); await sleep(400);
+  ok('unticking leaves it out again', !/ACTIVE CO/.test(await dlText()));
+  await card().locator('select[aria-label="Active in a sequence in Call list"]').selectOption('include'); await sleep(400);
+  ok('the list-wide override includes every active lead', /ACTIVE CO/.test(await dlText()));
+  await page.reload(); await sleep(1500);
+  await nav('Lists');
+  await card().locator('button[title="Expand"]').click(); await sleep(300);
+  ok('the override survives a reload', await card().locator('select[aria-label="Active in a sequence in Call list"]').inputValue() === 'include');
+  await card().locator('select[aria-label="Active in a sequence in Call list"]').selectOption('leave'); await sleep(400);
+  ok('switching back leaves them out again', !/ACTIVE CO/.test(await dlText()));
+
   ok('no page errors', errs.length === 0, errs.join(' | '));
   await b.close();
   console.log(`\n${pass} passed, ${fail} failed`);

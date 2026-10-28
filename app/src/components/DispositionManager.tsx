@@ -6,6 +6,7 @@
 import { useState } from "react";
 import { dispositionOptions, type CustomDisposition } from "../lib/dispositions";
 import { DISPOSITION_GROUP_LABEL } from "../lib/detection";
+import { confirmAction } from "../lib/confirmBox";
 
 interface DispositionManagerProps {
   dispositions: CustomDisposition[];
@@ -95,9 +96,9 @@ export default function DispositionManager({ dispositions, onAdd, onRemove }: Di
               </span>
               <span style={{ flex: 1 }} />
               <button
-                onClick={() => {
+                onClick={async () => {
                   if (
-                    window.confirm(
+                    await confirmAction(
                       `Remove "${o.label}"? Any lead already set to it keeps the value — it just shows as "${o.label} (removed)" until you change it.`
                     )
                   ) {

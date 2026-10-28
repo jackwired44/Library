@@ -61,6 +61,7 @@ import { MAX_COMPANY_BATCH } from "../lib/apolloEnrich";
 import type { UploadedFile } from "../App";
 import type { StoredLead } from "../lib/leadStore";
 import { buildSeenIndex, seenFilesFor, seenLabel, type SeenFile } from "../lib/seenBefore";
+import { confirmAction } from "../lib/confirmBox";
 
 // Raised from 5. The old cap is what forced Jack to upload 14 CSVs as
 // three separate batches — and splitting an upload is exactly what makes
@@ -521,12 +522,12 @@ export default function Scanner({
    * against a copy in the file being dropped has to come back, and
    * filtering would make it vanish instead.
    */
-  function removeUploadedFile(name: string) {
+  async function removeUploadedFile(name: string) {
     if (!results || libraryFiledForBatch) return;
     const next = parsedFiles.filter((pf) => pf.name !== name);
     if (!next.length) { reset(); return; }
     const lost = countUncarryableEdits(results);
-    if (lost && !window.confirm(
+    if (lost && !await confirmAction(
       `Remove "${name}" and re-scan the other ${next.length} file${next.length === 1 ? "" : "s"}?\n\n` +
       `Your edits carry across wherever a lead can be matched by name + company. ` +
       `${lost} edited row${lost === 1 ? " has" : "s have"} no name or company to match on, so ${lost === 1 ? "it" : "they"} will reset.`

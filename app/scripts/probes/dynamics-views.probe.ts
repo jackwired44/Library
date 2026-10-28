@@ -61,12 +61,31 @@ for (const note of [
   ok(`Everything else <- ${note.slice(0, 52)}`, tabOf(r) === "Everything else", `got ${tabOf(r)}`);
 }
 
-console.log("\n== F&O and supply chain win even over Business Central ==");
-// Per Jack (2026-10-28): "none of those should pass through bc or sales".
-// Replaces the earlier "naming Business Central outright wins".
+console.log("\n== naming Business Central beats supply chain, not F&O ==");
+// Per Jack (2026-10-28): "if the word business central is in it its good to
+// go to business central erp not everything else", then "if fno is there
+// everything else".
 const bcAndScm = scan(["We want Dynamics 365 Business Central to fix our supply chain management, 80 users."])[0];
-ok("Business Central + supply chain goes to Everything else",
-   tabOf(bcAndScm) === "Everything else", tabOf(bcAndScm));
+ok("Business Central + supply chain stays Business Central / ERP",
+   tabOf(bcAndScm) === "Business Central / ERP", tabOf(bcAndScm));
+const bcAndFno = scan(["Wants Dynamics 365 Business Central + Dynamics 365 Finance & Operations, 40 users."])[0];
+ok("Business Central + F&O goes to Everything else", tabOf(bcAndFno) === "Everything else", tabOf(bcAndFno));
+const bcAndFin = scan(["Wants Dynamics 365 Business Central + D365 Finance, 40 users."])[0];
+ok("Business Central + D365 Finance goes to Everything else", tabOf(bcAndFin) === "Everything else", tabOf(bcAndFin));
+const erpAndScm = scan(["Supply Chain Management is the ERP piece we need, 80 users."])[0];
+ok("a bare ERP with supply chain is still Everything else", tabOf(erpAndScm) === "Everything else", tabOf(erpAndScm));
+// "anything to do with fno is anything else": every F&O wording, even
+// beside Business Central or Sales.
+for (const note of [
+  "Wants Dynamics 365 Business Central or F and O, 40 users.",
+  "Evaluating Dynamics 365 Sales and FnO for 40 users.",
+  "Business Central vs Finance & Ops for 40 users on Dynamics 365.",
+  "Looking at Dynamics 365 Finance and Supply Chain, 40 users.",
+  "Dynamics 365 Fin Ops implementation for 40 users.",
+]) {
+  const r = scan([note])[0];
+  ok(`F&O wording -> Everything else <- ${note.slice(0, 48)}`, tabOf(r) === "Everything else", `got ${tabOf(r)}`);
+}
 
 console.log("\n== the tab is not the ranking, and not the download ==");
 const scmRow = scan(["Evaluating Dynamics 365 Supply Chain Management for 80 users."])[0];
@@ -120,9 +139,19 @@ for (const [note, want] of [
   ["Wants Dynamics 365 Field Service with Finance and Operations (25 users).", "Everything else"],
   ["Wants Dynamics 365 Field Service and Supply Chain Management (25 users).", "Everything else"],
   ["Wants Dynamics 365 Finance (13 users).", "Everything else"],
+  ["Wants Dynamics 365. Partner: ERP Transformation with.", "Business Central / ERP"],
+  ["Wants Dynamics 365 Business Central. Why: to support manufacturing operations Key requirements: Manage storeroom inventory and supply chain.", "Business Central / ERP"],
 ] as [string, string][]) {
   const got = tabOf(scan([note])[0]);
   ok(`${want.padEnd(23)} <- ${note.slice(0, 60)}`, got === want, `got ${got}`);
+}
+
+console.log("\n== the tab reads the notes, not the contact's title or email ==");
+{
+  const csv = ["Company,Full Name,Title,Email,Phone,Comments",
+    ["Jefe Co", "Ryan Harman", "VP of Supply Chain", "supplychain@jefe.com", "312-555-0100", "Wants Dynamics 365 Sales for 20 users."].map(q).join(",")].join("\n");
+  const r = scanParsedFiles([parseCSVText("t.csv", csv)]).results[0];
+  ok("a Supply Chain job title does not send a Sales lead to Everything else", tabOf(r) === "Sales / CRM", tabOf(r));
 }
 
 console.log("\n== F&O is not Business Central, even when it says ERP ==");

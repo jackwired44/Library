@@ -1035,6 +1035,11 @@ const DYNAMICS_OTHER_TAB_RE =
 /** The customer-facing apps beside Sales: they go to Sales / CRM / Customer
  *  Service, per Jack ("customer service should be with sales / crm"). */
 const FRONT_OFFICE_RE = /\b(?:customer\s*(?:service|engagement|insights?)|contact\s*center|field\s*service|(?:dynamics\s*(?:365\s*)?|d\s*365\s*)marketing)\b/i;
+/** Finance and Operations in any wording (F&O, F and O, FnO, Fin Ops,
+ *  Finance & Ops, D365 Finance, Finance and Supply Chain): per Jack,
+ *  "anything to do with fno is anything else", so it wins over everything. */
+const DYNAMICS_FNO_TAB_RE =
+  /\b(?:finance\s*(?:and|&)\s*(?:operations|ops|supply\s*chain)|f\s*(?:&|and)\s*o|fno|fin\s*&?\s*ops|(?:dynamics\s*(?:365\s*)?|d\s*365\s*)finance)\b/i;
 /** Back-office Dynamics that is a BC / ERP conversation, per Jack ("Project
  *  Operations … should be with bc erp"): Project Operations, HR, Commerce,
  *  the legacy ERPs, and Power Platform build work. */
@@ -1804,9 +1809,9 @@ export function scanRowPlatform(
   const isPartnerSeeking = hits.some((h) => h.isPartnerSeeking);
   // Per Jack (2026-10-28), which replaces the earlier keyword tabs: every
   // Dynamics lead lands in exactly one of three tabs, decided top-down.
-  //   Everything else  = Finance and Operations and supply chain — "none of
-  //                      those should pass through bc or sales", so they
-  //                      win even when BC is named too.
+  //   Everything else  = Finance and Operations, always ("if fno is there
+  //                      everything else"); supply chain too, unless the
+  //                      note names Business Central.
   //   BC / ERP         = Business Central or the word ERP anywhere (a
   //                      partner named "ERP Transformation" counts), and
   //                      back-office modules: Project Operations, HR,
@@ -1815,9 +1820,21 @@ export function scanRowPlatform(
   //   Sales / CRM / Customer Service = everything else Dynamics: Sales,
   //                      CRM, Customer Service, Field Service, Marketing,
   //                      Customer Insights, and a bare "Wants Dynamics 365".
-  const said = stripScorecard(combined);
+  // Read the notes and the Product Area only: a contact titled "VP of Supply
+  // Chain" or an address like supplychain@… is not what the lead wants, and
+  // was sending real Business Central leads to Everything else. A file with
+  // no notes column falls back to the whole row.
+  const notesText = String(commentsValue ?? "").trim();
+  const said = stripScorecard(notesText ? `${notesText}   ${paStr}` : combined);
   const hasDynamics = hits.some((h) => h.category === "Dynamics 365");
-  const isOtherTab = hasDynamics && DYNAMICS_OTHER_TAB_RE.test(said);
+  // "if the word business central is in it its good to go to business
+  // central erp not everything else": naming BC outright beats F&O and
+  // supply chain. A bare "ERP" does not.
+  const namesBc = /\bbusiness\s*central\b|\bd\s*365\s*bc\b|\bdynamics\s*(?:365\s*)?\(?\s*bc\b/i.test(said);
+  // …except Finance and Operations: "if fno is there everything else",
+  // Business Central or not.
+  const namesFno = DYNAMICS_FNO_TAB_RE.test(said);
+  const isOtherTab = hasDynamics && (namesFno || (!namesBc && DYNAMICS_OTHER_TAB_RE.test(said)));
   // An accounting or project need only counts when no customer-facing app is
   // named: a Sales lead "on Sage today" is still a Sales lead.
   const namesFrontOffice = SALES_CRM_RE.test(said) || FRONT_OFFICE_RE.test(said);

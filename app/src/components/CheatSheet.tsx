@@ -252,11 +252,15 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
             <strong>Four tabs, always: All Dynamics 365 · Business Central / ERP · Sales / CRM / Customer Service · Everything else.</strong>
             Every Dynamics lead lands in exactly one, checked in this order:
             <br />
-            <strong>Everything else</strong> — Finance and Operations (incl. Dynamics 365 Finance) and supply chain / Supply
-            Chain Management. These never go to BC / ERP or Sales, even when the note names Business Central, Sales or Field
-            Service too.
+            <strong>Everything else, always, for anything F&amp;O</strong> — Finance and Operations in any wording (F&amp;O,
+            F and O, FnO, Fin Ops, Finance &amp; Ops, Dynamics 365 Finance, Finance and Supply Chain). This wins even when the
+            note names Business Central, Sales or Field Service too.
             <br />
-            <strong>Business Central / ERP</strong> — the note says "Business Central" or "ERP" anywhere (a partner named
+            <strong>Business Central / ERP</strong> — the note names Business Central (this beats supply chain).
+            <br />
+            <strong>Everything else</strong> — supply chain / Supply Chain Management, when Business Central isn't named.
+            <br />
+            <strong>Business Central / ERP</strong> — otherwise, the note says "ERP" anywhere (a partner named
             "ERP Transformation" counts), or names Project Operations, Human Resources, Commerce, Dynamics GP / NAV / AX / SL
             or Power Platform, or describes an accounting or project-management need with no customer-facing app named.
             <br />

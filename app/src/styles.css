@@ -2549,6 +2549,7 @@ details.panel.fold[open] > summary.fold-head::before { content: "▾"; }
 .name-file-ext { font-family: var(--mono, monospace); font-size: 12px; color: var(--ink-3); }
 .name-file-skip { font-size: 12px; color: var(--ink-3); display: flex; gap: 6px; align-items: center; }
 .name-file-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.name-file-msg { font-size: 13px; line-height: 1.45; white-space: pre-line; }
 
 /* ============================================================
    MAIN SCANNER — one summary bar above the table.

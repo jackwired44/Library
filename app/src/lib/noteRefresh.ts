@@ -22,7 +22,7 @@ import { loadRawNotesMany, newestRaw, type RawNotes } from "./rawNotes";
 import { scan2, emptyRuleSet, loadRuleSets, profileColumns, guessFieldMapping, type RuleSet2, type ScannerKind } from "./scanner2";
 
 /** Bump when the Main note rules change, so stored notes refresh once. */
-export const NOTE_RULES_VERSION = "2026-10-28-dynamics-tabs";
+export const NOTE_RULES_VERSION = "2026-10-28-dynamics-tabs-2";
 const VERSION_KEY = "mainNoteRulesVersion";
 
 /** Today's Main Scanner read of one lead's stored raw row, or null when

@@ -8,6 +8,7 @@ import type { StoredLead, LeadSource } from "../lib/leadStore";
 import { LEAD_SOURCE_META } from "../lib/leadStore";
 import { fileDateOverrideOf, fileDates, fileMonthKey, isPreMaySheet, shortMonthLabel, sheetNumberOf } from "../lib/leadFiling";
 import { verdictOf, VERDICT_META, VERDICT_ORDER, type Verdict } from "../lib/leadStatus";
+import { confirmAction } from "../lib/confirmBox";
 
 interface FileRow {
   file: string;
@@ -79,7 +80,7 @@ export default function Files({ leads, onOpen, onSetDate, onRemove, onRescan, on
     const msg = `Delete ${f}?\n\n${t.only.toLocaleString()} lead${t.only === 1 ? "" : "s"} came only from this file and will be deleted.`
       + (t.shared ? `\n${t.shared.toLocaleString()} also came from another file; they stay and just lose this file's name.` : "")
       + "\n\nLists, the Lead Library and History are not touched. This can't be undone (a Backup restores it).";
-    if (!window.confirm(msg)) return;
+    if (!await confirmAction(msg, "Delete")) return;
     const r = await onRemove(f);
     setPicked((p) => { const n = new Set(p); n.delete(f); return n; });
     setNotice(`Deleted ${f}: ${r.deleted.toLocaleString()} lead${r.deleted === 1 ? "" : "s"} removed, ${r.kept.toLocaleString()} kept from other files.`);
