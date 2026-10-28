@@ -26,7 +26,7 @@ import {
 import { SYNC_STALE_DAYS, syncAgeDays, leadsToSync } from "../lib/apolloSync";
 import { parseCSVFile, toCSV, downloadBlob, downloadCSV } from "../lib/csv";
 import Customize, { loadHiddenSet, saveHiddenSet } from "./Customize";
-import { arrivalOf, isPreMaySheet, sheetNumberOf, sheetEstimateOf, monthLabelOf, viewMonthKey, shortMonthLabel, EARLIEST_MONTH, PRE_MAY_2026_MONTH } from "../lib/leadFiling";
+import { arrivalOf, isPreMaySheet, sheetNumberOf, monthLabelOf, viewMonthKey, shortMonthLabel, EARLIEST_MONTH, fileDates, fileMonthKey } from "../lib/leadFiling";
 import { engagementOf, engagementLabel, isCustomer, ENGAGEMENT_SOURCE_META, type EngagementMatch } from "../lib/engagements";
 import type { ParsedFile } from "../lib/detection";
 import { MAX_COMPANY_BATCH } from "../lib/apolloEnrich";
@@ -302,7 +302,7 @@ const NO_LINE = "(no product line)";
 /* --------------------------------------------------------------- component */
 
 export default function AllLeads({
-  leads, companyProfiles = [], onApplySync, initialSequence = "",
+  leads, companyProfiles = [], onApplySync, initialSequence = "", initialFiles, initialVerdict, initialLine,
   sequenceNames = [], onSetPlan, onSetStatus, funnels = [], initialStatus, initialPreset,
   apolloIndex = null, rosterPulledAt = "", onPullApollo, onCheckLeads, onEnrichCompanies, onCheckVisits, lists = [], onAddToList,
   emailChecks = [], onImportVerifier, onSaveSmartList, noteRefresh = null, onRefreshNotes,
@@ -342,6 +342,10 @@ export default function AllLeads({
    *  keys this component on it, so arriving twice for the same sequence
    *  still remounts and re-seeds. */
   initialSequence?: string;
+  /** Open with these uploaded files picked (from the Files tab). */
+  initialFiles?: string[];
+  initialVerdict?: Verdict | "all";
+  initialLine?: string;
   sequenceNames?: string[];
   onSetPlan?: (keys: string[], sequence: string | null) => void;
   /** Hand-set (or clear, with null) the status of these leads. */
@@ -389,7 +393,7 @@ export default function AllLeads({
   const [rawIndexState, setRawIndexState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [sourceF, setSourceF] = useState<LeadSource | "all">("all");
   const [tierF, setTierF] = useState(initialPreset ? TOP : "all");
-  const [lineF, setLineF] = useState("all");
+  const [lineF, setLineF] = useState(initialLine || "all");
   const [industryF, setIndustryF] = useState("all");
   // Per Jack: filter by "indsutry or excluded industry employee range and
   // the contacts not in active sequences".
@@ -411,7 +415,10 @@ export default function AllLeads({
   const [listTarget, setListTarget] = useState("");
   const [newListName, setNewListName] = useState("");
   const [listNotice, setListNotice] = useState("");
-  const [fileNameF, setFileNameF] = useState("all");
+  // Per Jack: "filter by the specific csv file". Several can be picked from
+  // the Files tab; the picker here chooses one.
+  const [fileKeys, setFileKeys] = useState<string[]>(initialFiles ?? []);
+  const fileSet = useMemo(() => new Set(fileKeys), [fileKeys]);
   const [statusF, setStatusF] = useState<LeadStatus | "all">(initialStatus ?? "all");
   // "untouched" = no outreach on record at all: in Apollo with no call or
   // email, OR never matched by any sync. Per Jack, the point of the store is
@@ -444,7 +451,7 @@ export default function AllLeads({
   /** Per Jack: "if the company has more than one lead we have on file". */
   const [companyF, setCompanyF] = useState<"all" | "multi" | "single">("all");
   /** The vault's three buckets — see verdictOf. */
-  const [verdictF, setVerdictF] = useState<Verdict | "all">("all");
+  const [verdictF, setVerdictF] = useState<Verdict | "all">(initialVerdict || "all");
   const [bulkStatus, setBulkStatus] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -691,7 +698,7 @@ export default function AllLeads({
       planSeq: (l) => planSeqF === "all" || l.plan?.sequence === planSeqF,
       files: (_l, d) => filesF === "all"
         || (filesF === "2c" ? d.files >= 2 && d.segs > 1 : d.files >= Number(filesF) && (filesF !== "1" || d.files === 1)),
-      fileName: (l) => fileNameF === "all" || l.sourceFiles.includes(fileNameF),
+      fileName: (l) => !fileSet.size || l.sourceFiles.some((f) => fileSet.has(f)),
       date: (l) => {
         if (fromT === null && toT === null) return true;
         // The CSV's own date (the date the file states, else when it was
@@ -702,7 +709,7 @@ export default function AllLeads({
       },
     };
     return t;
-  }, [ruleF, ruleFacts, periodSet, periodKind, inApolloF, verdictF, companyF, companyStats, contactF, levelF, fnF, dateF, statusF, q, kq, nq, rawIndex, standingF, laneF, readyOnly, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, ownerF, planF, planSeqF, filesF, fileNameF, fromT, toT, partnerKeys, exclIndustries, hideActive, visitedOnly, listFEff, listedKeys, whereF]);
+  }, [ruleF, ruleFacts, periodSet, periodKind, inApolloF, verdictF, companyF, companyStats, contactF, levelF, fnF, dateF, statusF, q, kq, nq, rawIndex, standingF, laneF, readyOnly, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, ownerF, planF, planSeqF, filesF, fileSet, fromT, toT, partnerKeys, exclIndustries, hideActive, visitedOnly, listFEff, listedKeys, whereF]);
 
   // Each lead's filters are evaluated ONCE per change, recording whether it
   // passes all of them ("") or fails exactly one (that key) or more (null).
@@ -813,42 +820,18 @@ export default function AllLeads({
    *  month first. A file's date is the date in its name ("Book9-30",
    *  "10-1-26 big") when it states one, else the date its leads say they
    *  were received, else the upload date. */
+  const fileDateMap = useMemo(() => fileDates(leads), [leads]);
   const fileMonths = useMemo(() => {
-    const upload = new Map<string, string>();
-    const recv = new Map<string, string>();
-    for (const l of leads) for (const f of l.sourceFiles) {
-      const at = l.fileSeen?.find((x) => x.file === f)?.at || l.firstSeenAt || "";
-      if (at && (!upload.has(f) || at < upload.get(f)!)) upload.set(f, at);
-      if (l.receivedOn && (!recv.has(f) || l.receivedOn > recv.get(f)!)) recv.set(f, l.receivedOn);
-    }
-    const dateOf = (f: string): string => {
-      const up = (upload.get(f) || "").slice(0, 10);
-      const year = up.slice(0, 4) || String(new Date().getFullYear());
-      const m = /(?:^|[^\d])(\d{1,2})[-_.](\d{1,2})(?:[-_.](\d{2,4}))?(?:[^\d]|$)/.exec(f);
-      if (m) {
-        const mo = Number(m[1]), dd = Number(m[2]);
-        if (mo >= 1 && mo <= 12 && dd >= 1 && dd <= 31) {
-          const y = m[3] ? (m[3].length === 2 ? `20${m[3]}` : m[3]) : year;
-          return `${y}-${String(mo).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
-        }
-      }
-      // A Sheet file is pre-May: its estimate, or no day at all.
-      if (isPreMaySheet(f)) return sheetEstimateOf(f) ?? "";
-      return (recv.get(f) || up).slice(0, 10);
-    };
     const groups = new Map<string, [string, number, string][]>();
     for (const [f, n] of fileOptions) {
-      const d = dateOf(f);
-      // An early numbered sheet has no date, only "before May 2026".
-      // Same month keys as the period strip: estimates join their month and
-      // nothing goes earlier than EARLIEST_MONTH.
-      const mk = isPreMaySheet(f) ? (d ? viewMonthKey(d.slice(0, 7)) : PRE_MAY_2026_MONTH) : d ? viewMonthKey(d.slice(0, 7)) : "";
+      const d = fileDateMap.get(f) || "";
+      const mk = fileMonthKey(f, d);
       if (!groups.has(mk)) groups.set(mk, []);
       groups.get(mk)!.push([f, n, d]);
     }
     for (const list of groups.values()) list.sort((a, b) => b[2].localeCompare(a[2]) || (sheetNumberOf(b[0]) ?? 0) - (sheetNumberOf(a[0]) ?? 0) || a[0].localeCompare(b[0]));
     return [...groups.entries()].sort((a, b) => (b[0] || "").localeCompare(a[0] || ""));
-  }, [leads, fileOptions]);
+  }, [fileOptions, fileDateMap]);
 
   const laneCounts = useMemo(() => {
     const m = facet("lane", (_l, d) => d.lane);
@@ -982,7 +965,7 @@ export default function AllLeads({
   if (planF !== "all") chips.push({ label: PLAN_LABEL[planF], clear: () => setPlanF("all") });
   if (planSeqF !== "all") chips.push({ label: `Headed for: ${planSeqF}`, clear: () => setPlanSeqF("all") });
   if (filesF !== "all") chips.push({ label: FILES_LABEL[filesF], clear: () => setFilesF("all") });
-  if (fileNameF !== "all") chips.push({ label: `File: ${fileNameF}`, clear: () => setFileNameF("all") });
+  if (fileKeys.length) chips.push({ label: fileKeys.length === 1 ? `File: ${fileKeys[0]}` : `Files: ${fileKeys.length} picked`, clear: () => setFileKeys([]) });
   if (from || to) chips.push({ label: `CSV date ${from || "…"} → ${to || "…"}`, clear: () => { setFrom(""); setTo(""); } });
   // How many of the More filters panel's own filters are on — the badge on
   // its button. The open filters and the tiles show their own state.
@@ -1325,6 +1308,17 @@ export default function AllLeads({
             <option value="all">Scanner: any ({(sourceCounts.main + sourceCounts.smc + sourceCounts.csp).toLocaleString()})</option>
             {(["main", "smc", "csp"] as LeadSource[]).map((s) => <option key={s} value={s}>{LEAD_SOURCE_META[s].label} ({sourceCounts[s].toLocaleString()})</option>)}
           </select>
+          <select className="field" aria-label="Uploaded file" value={fileKeys.length === 1 ? fileKeys[0] : fileKeys.length ? "__many" : "all"}
+                  onChange={(e) => { if (e.target.value !== "__many") setFileKeys(e.target.value === "all" ? [] : [e.target.value]); }}
+                  title="Every CSV you have uploaded, filed under the month it is dated, newest first. Pick several from the Files tab." style={{ maxWidth: 260 }}>
+            <option value="all">Uploaded file: any ({fileOptions.length.toLocaleString()})</option>
+            {fileKeys.length > 1 && <option value="__many">{fileKeys.length} files picked</option>}
+            {fileMonths.map(([mk, files]) => (
+              <optgroup key={mk} label={mk ? shortMonthLabel(mk) : "Undated"}>
+                {files.map(([f, n, d]) => <option key={f} value={f}>{f}{d ? ` · ${isPreMaySheet(f) ? "~" : ""}${d.slice(5).replace("-", "/")}` : ""} ({n.toLocaleString()})</option>)}
+              </optgroup>
+            ))}
+          </select>
           <div className="toolbar-spacer" />
           <span style={{ fontSize: 12.5 }}><b>{filtered.length.toLocaleString()}</b> <span className="muted">of {leads.length.toLocaleString()}</span></span>
           {chips.length > 0 && <button className="btn btn-sm btn-ghost" onClick={clearAll}>Clear all</button>}
@@ -1619,15 +1613,6 @@ export default function AllLeads({
                   title={`Leads whose company visited ${TRACKED_DOMAIN}, from Apollo's website-visitor report. Run "Check … for site visits" first.`}>
             🌐 Visited {TRACKED_DOMAIN} ({leads.filter((l) => l.webVisits?.visited).length.toLocaleString()})
           </button>
-          <select className="field" aria-label="Uploaded file" value={fileNameF} onChange={(e) => setFileNameF(e.target.value)}
-                  title="Every CSV you have uploaded, filed under the month it is dated, newest first." style={{ maxWidth: 260 }}>
-            <option value="all">Uploaded file: any ({fileOptions.length.toLocaleString()})</option>
-            {fileMonths.map(([mk, files]) => (
-              <optgroup key={mk} label={mk ? shortMonthLabel(mk) : "Undated"}>
-                {files.map(([f, n, d]) => <option key={f} value={f}>{f}{d ? ` · ${isPreMaySheet(f) ? "~" : ""}${d.slice(5).replace("-", "/")}` : ""} ({n.toLocaleString()})</option>)}
-              </optgroup>
-            ))}
-          </select>
           <div className="filter-wrap" style={{ position: "relative" }}>
             <button className="filter-btn btn btn-sm btn-secondary" aria-label="More filters" onClick={() => setFiltersOpen((v) => !v)} aria-expanded={filtersOpen}>
               More filters{moreCount > 0 && <span className="filter-count"> {moreCount}</span>}

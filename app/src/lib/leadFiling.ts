@@ -345,3 +345,43 @@ export function leadInputsFromDuplicates(rows: DuplicateRow[], batchKeys: Set<st
   }
   return out;
 }
+
+/**
+ * The date each uploaded CSV is filed under (YYYY-MM-DD, or "" when nothing
+ * places it). The date in its name ("Book9-30", "10-1-26 big") when it
+ * states one; a pre-May Sheet file's estimate; else the date its leads say
+ * they were received; else the upload day. Shared by All leads' file picker
+ * and the Files tab, so the two can never file a CSV under different months.
+ */
+export function fileDates(leads: { sourceFiles: string[]; fileSeen?: { file: string; at: string }[]; firstSeenAt: string; receivedOn?: string }[]): Map<string, string> {
+  const upload = new Map<string, string>();
+  const recv = new Map<string, string>();
+  for (const l of leads) for (const f of l.sourceFiles) {
+    const at = l.fileSeen?.find((x) => x.file === f)?.at || l.firstSeenAt || "";
+    if (at && (!upload.has(f) || at < upload.get(f)!)) upload.set(f, at);
+    if (l.receivedOn && (!recv.has(f) || l.receivedOn > recv.get(f)!)) recv.set(f, l.receivedOn);
+  }
+  const out = new Map<string, string>();
+  for (const f of upload.keys()) {
+    const up = (upload.get(f) || "").slice(0, 10);
+    const year = up.slice(0, 4) || String(new Date().getFullYear());
+    const m = /(?:^|[^\d])(\d{1,2})[-_.](\d{1,2})(?:[-_.](\d{2,4}))?(?:[^\d]|$)/.exec(f);
+    let d = "";
+    if (m) {
+      const mo = Number(m[1]), dd = Number(m[2]);
+      if (mo >= 1 && mo <= 12 && dd >= 1 && dd <= 31) {
+        const y = m[3] ? (m[3].length === 2 ? `20${m[3]}` : m[3]) : year;
+        d = `${y}-${String(mo).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
+      }
+    }
+    if (!d) d = isPreMaySheet(f) ? (sheetEstimateOf(f) ?? "") : (recv.get(f) || up).slice(0, 10);
+    out.set(f, d);
+  }
+  return out;
+}
+
+/** The month a file is grouped under, on the same keys as the period strip. */
+export function fileMonthKey(file: string, date: string): string {
+  if (isPreMaySheet(file)) return date ? viewMonthKey(date.slice(0, 7)) : PRE_MAY_2026_MONTH;
+  return date ? viewMonthKey(date.slice(0, 7)) : "";
+}

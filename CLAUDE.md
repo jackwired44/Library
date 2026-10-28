@@ -7435,3 +7435,24 @@ raw are 2828".
 - Raw-note password is now 2828 (`RAW_NOTE_HASH`, `lib/rawNoteLock.ts`).
 - Suites that read hidden columns show every column via an init script;
   `dashboard-live` matches names across the first/last cell break.
+
+### 2026-10-28: All leads → Files tab; file filter in the main row (scanner-platform-v29)
+
+Per Jack: "filter by the specific csv file and see what the months on all
+leads have file wise", "filter this however i want by which files and
+months", "strong signal or not dynamics or m365azure whatever".
+- **Files** sub-tab (`components/Files.tsx`, first tab in All leads): every
+  uploaded CSV grouped by the month it is dated, newest first. Date per file
+  (`fileDates`, `lib/leadFiling.ts`): the date in its name, else a Sheet
+  file's estimate ("~"), else its leads' received date, else upload day;
+  month via `fileMonthKey` (folds pre-Oct 2025 into Oct 2025). Columns:
+  Dated, Scanner, Leads, Strong / Review / Bad, Checked in Apollo.
+- Grade switch and Product line select narrow every file's counts. Tick
+  files (or a whole month) → "Open N files in Leads"; click a file name to
+  open just that one. Leads opens with the files, grade and product line
+  already applied (`FilesPick` → `initialFiles`/`initialVerdict`/
+  `initialLine`).
+- Leads: the Uploaded file picker moved into the always-visible filter row
+  (after Scanner); several files picked read "N files picked" with a chip.
+  Read-only; nothing is written.
+- Suite `files-live` (9).

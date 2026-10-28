@@ -64,6 +64,7 @@ import AllLeads, { type LeadsPreset } from "./components/AllLeads";
 import ApolloStatus, { listRowForLead } from "./components/ApolloStatus";
 import { buildFactsMap, leadsForRule, type SmartRule } from "./lib/smartRules";
 import ApolloSyncPanel, { leadsDueForApollo } from "./components/ApolloSyncPanel";
+import Files, { type FilesPick } from "./components/Files";
 import RateLimitNote from "./components/RateLimitNote";
 import { loadEmailChecks, saveEmailChecks, readVerifierFiles, indexChecks, type EmailCheck } from "./lib/deliverability";
 import { loadEngagements, parseEngagements, replaceEngagements, buildEngagementIndex, setEngagementIndex, type Engagement } from "./lib/engagements";
@@ -108,7 +109,7 @@ export interface UploadedFile {
 
 export type View =
   | "home" | "scanner" | "scanner2" | "scanner3" | "library" | "allleads"
-  | "queue" | "recycle" | "refresher" | "reps" | "campaigns" | "history" | "lists" | "docs" | "diagnostics" | "agents";
+  | "queue" | "files" | "recycle" | "refresher" | "reps" | "campaigns" | "history" | "lists" | "docs" | "diagnostics" | "agents";
 
 /** The three scanners, kept in their own collapsible sidebar section.
  *  Per Jack: "build the scanners into a drop down section on the left hand
@@ -340,6 +341,8 @@ export default function App() {
   /** Seeds All leads' sequence filter when arriving from a campaign card,
    *  so "open these leads" lands on that sequence rather than everything. */
   const [leadsSequenceEntry, setLeadsSequenceEntry] = useState<string>("");
+  /** Files picked on the Files tab, handed to All leads as its file filter. */
+  const [leadsFilesEntry, setLeadsFilesEntry] = useState<FilesPick>({ files: [], verdict: "all", line: "all" });
   /** Same idea, for Home's status links. */
   const [leadsStatusEntry, setLeadsStatusEntry] = useState<LeadStatus | "">("");
   /** And for Home's named views ("Strong signal · never contacted" …). */
@@ -1239,7 +1242,7 @@ export default function App() {
           />
         )}
 
-        {(view === "allleads" || view === "library" || view === "campaigns" || view === "queue" || view === "recycle" || view === "refresher") && (
+        {(view === "allleads" || view === "library" || view === "campaigns" || view === "queue" || view === "files" || view === "recycle" || view === "refresher") && (
           // The Lead library lives inside All leads now. Per Jack: "re do
           // lead libary and build it into all leads". Every lead the
           // Library ever filed is already in the lead store, so the table
@@ -1248,6 +1251,9 @@ export default function App() {
           <div className="seg" role="tablist" aria-label="All leads view" style={{ marginBottom: 12 }}>
             <button role="tab" aria-selected={view === "allleads"} className={`seg-btn${view === "allleads" ? " active" : ""}`} onClick={() => setView("allleads")}>
               Leads{leads.length > 0 ? ` (${leads.length.toLocaleString()})` : ""}
+            </button>
+            <button role="tab" aria-selected={view === "files"} className={`seg-btn${view === "files" ? " active" : ""}`} onClick={() => setView("files")}>
+              Files
             </button>
             <button role="tab" aria-selected={view === "queue"} className={`seg-btn${view === "queue" ? " active" : ""}`} onClick={() => setView("queue")}>
               Apollo standing
@@ -1271,6 +1277,9 @@ export default function App() {
           // Apollo standing view lives inside All leads now, one sidebar entry.
           <ApolloStatus leads={leads} apolloIndex={apolloIndex} rosterPulledAt={rosterPulledAt} onPullApollo={pullApollo} onCheckLeads={checkLeadsLive} lists={leadLists} onAddToList={addExportRowsToLists} />
         )}
+        {view === "files" && (
+          <Files leads={leads} onOpen={(pick) => { setLeadsFilesEntry(pick); setLeadsSequenceEntry(""); setLeadsStatusEntry(""); setLeadsPresetEntry(""); setView("allleads"); }} />
+        )}
         {view === "reps" && <Reps leads={leads} apolloIndex={apolloIndex} recycleRules={recycleRules} roster={apolloRoster} funnels={funnels} />}
         {view === "refresher" && (
           <Refresher leads={leads} companyProfiles={companyProfiles} apolloIndex={apolloIndex} emailChecks={emailChecks}
@@ -1286,7 +1295,7 @@ export default function App() {
         )}
         {view === "allleads" && (
           <AllLeads
-            key={`leads-${leadsSequenceEntry}-${leadsStatusEntry}-${leadsPresetEntry}`}
+            key={`leads-${leadsSequenceEntry}-${leadsStatusEntry}-${leadsPresetEntry}-${leadsFilesEntry.files.join("|")}-${leadsFilesEntry.verdict}-${leadsFilesEntry.line}`}
             leads={leads}
             companyProfiles={companyProfiles}
             onEnrichCompanies={enrichCompaniesForLeads}
@@ -1297,6 +1306,9 @@ export default function App() {
             onPullApollo={pullApollo}
             onCheckLeads={checkLeadsLive}
             initialSequence={leadsSequenceEntry}
+            initialFiles={leadsFilesEntry.files}
+            initialVerdict={leadsFilesEntry.verdict}
+            initialLine={leadsFilesEntry.line}
             initialStatus={leadsStatusEntry || undefined}
             initialPreset={leadsPresetEntry || undefined}
             sequenceNames={knownSequences}
