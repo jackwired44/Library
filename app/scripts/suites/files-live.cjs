@@ -71,9 +71,56 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
 
   // Clicking a file name opens just that file.
   await page.locator('[role=tab]', { hasText: /^Files$/ }).click(); await sleep(500);
-  await page.locator('tr[data-file="Book10-15-25.csv"] button').click(); await sleep(800);
+  await page.locator('tr[data-file="Book10-15-25.csv"] button').first().click(); await sleep(800);
   const oct = (await page.locator('.all-leads-table tbody').innerText()).replace(/\s+/g, ' ');
   ok('clicking a file name opens only that file', /OCT M365 CO/.test(oct) && /OCT DYN CO/.test(oct) && !/MAY|SEP/.test(oct), oct.slice(0, 200));
+
+  // Per Jack: "edit where it is stored with which month and delete", and
+  // "rescan the files once in files".
+  await page.locator('[role=tab]', { hasText: /^Files$/ }).click(); await sleep(500);
+  await page.locator('[aria-label="Files grade"] button', { hasText: 'All grades' }).click(); await sleep(300);
+  await page.locator('button[aria-label="Edit date for Book9-20-26.csv"]').click(); await sleep(200);
+  await page.fill('input[aria-label="Date for Book9-20-26.csv"]', '2026-03-10');
+  await page.locator('button[aria-label="Save date for Book9-20-26.csv"]').click(); await sleep(600);
+  const moved = await page.$$eval('table[aria-label="Uploaded files"] tr[data-month]', rs => rs.map(r => r.getAttribute('data-month')));
+  ok('editing a file\'s date moves it to that month', JSON.stringify(moved) === JSON.stringify(['2026-05', '2026-03', '2025-10']), JSON.stringify(moved));
+  ok('  and marks it as set by hand', /03\/10\/26 · set/.test(await row('Book9-20-26.csv')), await row('Book9-20-26.csv'));
+  await page.locator('tr[data-file="Book9-20-26.csv"] button').first().click(); await sleep(700);
+  const strip = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
+  ok('  its leads move with it in the month strip', /Mar 2026/.test(strip) && !/Sep 2026/.test(strip), (strip.match(/All months.{0,160}/) || [''])[0]);
+  await page.reload(); await sleep(1200);
+  if (await page.locator('input[type=password]').count()) {
+    await page.fill('input[aria-label="Email"]', 'jack@wiredcio.com'); await page.fill('input[type=password]', 'changeme');
+    await page.click('button:has-text("Unlock")'); await sleep(1200);
+  }
+  await page.locator('.side-nav-btn', { hasText: 'All leads' }).first().click(); await sleep(800);
+  await page.locator('[role=tab]', { hasText: /^Files$/ }).click(); await sleep(500);
+  ok('  the date survives a reload', await page.locator('tr[data-month="2026-03"]').count() === 1);
+  await page.locator('button[aria-label="Reset date for Book9-20-26.csv"]').click(); await sleep(500);
+  ok('Reset puts it back on its own date', await page.locator('tr[data-month="2026-09"]').count() === 1 && await page.locator('tr[data-month="2026-03"]').count() === 0);
+
+  await page.locator('button[aria-label="Rescan Book5-2-26.csv"]').click();
+  await page.waitForFunction(() => !!document.querySelector('.data-table tbody tr'), null, { timeout: 60000 });
+  await sleep(600);
+  const scan = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
+  ok('Rescan opens the file in the Main Scanner, same view as an upload', /MAY DYN CO/.test(scan) && /MAY WEAK CO|Needs review/i.test(scan) && /Book5-2-26\.csv/.test(scan), scan.slice(0, 300));
+  ok('  with Save still to click', await page.locator('button[aria-label="Save to platform"]').count() >= 1);
+  await page.locator('.side-nav-btn', { hasText: 'All leads' }).first().click(); await sleep(700);
+  await page.locator('[role=tab]', { hasText: /^Files$/ }).click(); await sleep(500);
+  await page.locator('button[aria-label="Refresh notes with today\'s rules"]').click();
+  await page.waitForFunction(() => /Rescanned/.test(document.querySelector('[aria-label="Rescan status"]')?.textContent || ''), null, { timeout: 60000 });
+  const st = (await page.locator('[aria-label="Rescan status"]').innerText()).replace(/\s+/g, ' ');
+  ok('Refresh notes rewrites every stored lead in place', /Rescanned 5 leads/.test(st), st);
+
+  page.once('dialog', d => d.accept());
+  await page.locator('button[aria-label="Delete Book5-2-26.csv"]').click(); await sleep(900);
+  ok('Delete removes the file from Files', await page.locator('tr[data-file="Book5-2-26.csv"]').count() === 0);
+  const stored = await page.evaluate(async () => {
+    const db = await new Promise(r => { const q = indexedDB.open('wiredCioUnifiedLeadScannerLibrary_v1'); q.onsuccess = () => r(q.result); });
+    const all = await new Promise(r => { const q = db.transaction('leads').objectStore('leads').getAll(); q.onsuccess = () => r(q.result); });
+    db.close(); return all.map(l => l.company);
+  });
+  ok('  and deletes its leads from storage, leaving the others', !stored.some(c => /^MAY /.test(c)) && stored.includes('OCT DYN CO') && stored.includes('SEP DYN CO'), JSON.stringify(stored));
   ok('no page errors', errs.length === 0, errs.join(' | '));
   await b.close();
   console.log(`\n${pass}/${pass + fail} checks passed`);

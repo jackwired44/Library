@@ -42,7 +42,7 @@ import {
 import { applyCompetitorDQ } from "./lib/companyProfiles";
 import { refreshMainNotes, noteRulesStale, markNoteRulesCurrent } from "./lib/noteRefresh";
 import {
-  loadLeads, saveLeads, mergeLeads, leadKeyOfInput, type StoredLead, type LeadInput,
+  loadLeads, saveLeads, deleteLeads, mergeLeads, leadKeyOfInput, type StoredLead, type LeadInput,
 } from "./lib/leadStore";
 import {
   qualifyLeadInputs, requalifyStoredLeads, summarizeDiscards, type DiscardedLead,
@@ -54,12 +54,12 @@ import {
 } from "./lib/apolloFunnel";
 import Campaigns from "./components/Campaigns";
 import Overview from "./components/Overview";
-import { appendRawNotes } from "./lib/rawNotes";
+import { appendRawNotes, removeRawNotesForFile, loadRawNotesMany } from "./lib/rawNotes";
 import { setStatusRoster, withStatusOverride, type LeadStatus } from "./lib/leadStatus";
 import {
   DEFAULT_ROUTING, loadRouting, withPlan, type RoutingRules,
 } from "./lib/sequenceRouting";
-import { leadInputsFromResults, leadInputsFromRows2, leadInputsFromNoSignal, leadInputsFromDuplicates, estimateSheetMonths, setSheetEstimates } from "./lib/leadFiling";
+import { leadInputsFromResults, leadInputsFromRows2, leadInputsFromNoSignal, leadInputsFromDuplicates, estimateSheetMonths, setSheetEstimates, setFileDateOverride } from "./lib/leadFiling";
 import AllLeads, { type LeadsPreset } from "./components/AllLeads";
 import ApolloStatus, { listRowForLead } from "./components/ApolloStatus";
 import { buildFactsMap, leadsForRule, type SmartRule } from "./lib/smartRules";
@@ -233,7 +233,8 @@ export default function App() {
         const current = new Map(leadsRef.current.map((l) => [l.key, l]));
         await saveLeads(changed.map((c) => ({ ...(current.get(c.key) ?? c), notes: c.notes, tier: c.tier, score: c.score, productArea: c.productArea })));
       }
-      markNoteRulesCurrent();
+      // A rescan of a few files from Files doesn't make the whole store current.
+      if (!from || from.length >= leadsRef.current.length) markNoteRulesCurrent();
       setNoteRefresh((p) => ({ done: p?.total ?? 0, total: p?.total ?? 0, changed: changed.length, finished: true,
         missing: [...missing.entries()].sort((a, b) => b[1] - a[1]) }));
     } catch (e) {
@@ -247,6 +248,33 @@ export default function App() {
   const apolloIndex = useMemo(() => buildRosterIndex(apolloRoster, leads), [apolloRoster, leads, engagementIndex]); // eslint-disable-line react-hooks/exhaustive-deps
   setStatusRoster(apolloIndex);
   const leadsRef = useRef(leads);
+  // Per Jack: "be able to edit where it stored with which month and delete".
+  // A file's date is set by hand (lib/leadFiling.ts); the new array makes
+  // every view that groups by month re-read it.
+  function setFileDate(file: string, date: string | null) {
+    setFileDateOverride(file, date);
+    setLeads((prev) => [...prev]);
+  }
+  /** Delete an uploaded file: leads that came only from it are deleted,
+   *  leads also in another file just lose this file's name. Lists, Library
+   *  and History copies are separate and untouched. */
+  async function removeFile(file: string): Promise<{ deleted: number; kept: number }> {
+    const del: string[] = [];
+    const trimmed: StoredLead[] = [];
+    for (const l of leadsRef.current) {
+      if (!l.sourceFiles.includes(file)) continue;
+      if (l.sourceFiles.length <= 1) { del.push(l.key); continue; }
+      trimmed.push({ ...l, sourceFiles: l.sourceFiles.filter((f) => f !== file), ...(l.fileSeen ? { fileSeen: l.fileSeen.filter((x) => x.file !== file) } : {}) });
+    }
+    const gone = new Set(del);
+    const byKey = new Map(trimmed.map((l) => [l.key, l]));
+    setLeads((prev) => prev.filter((l) => !gone.has(l.key)).map((l) => byKey.get(l.key) ?? l));
+    await deleteLeads(del);
+    await saveLeads(trimmed);
+    await removeRawNotesForFile(file, del, trimmed.map((l) => l.key)).catch(() => {});
+    setFileDateOverride(file, null);
+    return { deleted: del.length, kept: trimmed.length };
+  }
   leadsRef.current = leads;
   const rosterPulledAt = useMemo(
     () => apolloRoster.reduce((m, r) => (r.uploadedAt && r.syncedAt > m ? r.syncedAt : m), ""), [apolloRoster]);
@@ -773,6 +801,39 @@ export default function App() {
     setView("scanner");
   }
 
+  // Per Jack: "rescan the files once in files" and "see the same style view
+  // ... as with the main scanner when i first upload a csv before saving".
+  // Rebuilds each Main file from the CSV rows saved with its leads and runs
+  // it through the Main Scanner exactly like a fresh upload; nothing is saved
+  // until Save is clicked there. Leads saved before rows were kept can't be
+  // rebuilt and are counted.
+  async function rescanFilesInScanner(files: string[]): Promise<{ rows: number; missing: number }> {
+    const parsed: ParsedFile[] = [];
+    let missing = 0;
+    for (const file of files) {
+      const inFile = leadsRef.current.filter((l) => l.source === "main" && l.sourceFiles.includes(file));
+      const raws = await loadRawNotesMany(inFile.map((l) => l.key));
+      const data: Record<string, unknown>[] = [];
+      const cols: string[] = [];
+      for (const l of inFile) {
+        const raw = raws.get(l.key);
+        const rowRec = raw?.rows?.find((r) => r.file === file) ?? raw?.rows?.[0];
+        const seg = raw?.segments.find((x) => x.file === file) ?? raw?.segments[0];
+        if (!rowRec && !seg) { missing++; continue; }
+        const fields: Record<string, string> = { ...(rowRec?.fields ?? {}) };
+        if (seg?.text) {
+          const notesCol = Object.keys(fields).find((k) => /comment|note|description/i.test(k)) || "Comments";
+          fields[notesCol] = seg.text;
+        }
+        for (const k of Object.keys(fields)) if (!cols.includes(k)) cols.push(k);
+        data.push(fields);
+      }
+      if (data.length) parsed.push({ name: file, fields: cols, data });
+    }
+    if (parsed.length) loadParsedFilesIntoScanner(parsed, missing ? `Rescanned from Files (${missing} saved before CSV rows were kept, not included)` : "Rescanned from Files");
+    return { rows: parsed.reduce((n, p) => n + p.data.length, 0), missing };
+  }
+
   function loadParsedFilesIntoScanner(parsedFiles: ParsedFile[], tag = "Loaded from Lead Library") {
     const { results: scanned, duplicatesRemoved, noSignalRows, duplicateRows } = scanParsedFiles(parsedFiles, ruleOverrides);
     applyStickyState(scanned, contacts);
@@ -1278,7 +1339,9 @@ export default function App() {
           <ApolloStatus leads={leads} apolloIndex={apolloIndex} rosterPulledAt={rosterPulledAt} onPullApollo={pullApollo} onCheckLeads={checkLeadsLive} lists={leadLists} onAddToList={addExportRowsToLists} />
         )}
         {view === "files" && (
-          <Files leads={leads} onOpen={(pick) => { setLeadsFilesEntry(pick); setLeadsSequenceEntry(""); setLeadsStatusEntry(""); setLeadsPresetEntry(""); setView("allleads"); }} />
+          <Files leads={leads} onSetDate={setFileDate} onRemove={removeFile} noteRefresh={noteRefresh}
+            onRescan={(files) => void runNoteRefresh(files ? leadsRef.current.filter((l) => l.sourceFiles.some((f) => files.includes(f))) : undefined)}
+            onRescanInScanner={rescanFilesInScanner} onOpen={(pick) => { setLeadsFilesEntry(pick); setLeadsSequenceEntry(""); setLeadsStatusEntry(""); setLeadsPresetEntry(""); setView("allleads"); }} />
         )}
         {view === "reps" && <Reps leads={leads} apolloIndex={apolloIndex} recycleRules={recycleRules} roster={apolloRoster} funnels={funnels} />}
         {view === "refresher" && (

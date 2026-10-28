@@ -7456,3 +7456,27 @@ months", "strong signal or not dynamics or m365azure whatever".
   (after Scanner); several files picked read "N files picked" with a chip.
   Read-only; nothing is written.
 - Suite `files-live` (9).
+- **Edit date / Delete / Rescan per file** (per Jack: "be able to edit where
+  it stored with which month and delete", "rescan the files once in files",
+  "see the same style view ... as with the main scanner when i first upload
+  a csv before saving"):
+  - Edit date: a date set by hand (`setFileDateOverride`, localStorage
+    `fileDateOverrides`, not in the backup) beats every automatic rule,
+    Sheet estimates included. `fileDates`, `fileMonthKey` and `arrivalOf`
+    (`manual: true`) read it, so the file and its leads move month
+    everywhere. "· set" marks it; Reset goes back to automatic.
+  - Delete (confirm states both counts): leads that came only from that
+    file are deleted with their raw notes (`deleteLeads`, `dbBulkDelete`,
+    `removeRawNotesForFile`); leads also in another file stay and lose this
+    file's name. Lists, Library, History untouched.
+  - Rescan: a Main file is rebuilt from the CSV rows saved with its leads
+    (`rescanFilesInScanner`, App.tsx) and opened in the Main Scanner exactly
+    like a fresh upload; nothing is stored until Save. Custom/CSP files, and
+    "↻ Refresh notes", rewrite notes and verdicts in place
+    (`runNoteRefresh` on a subset; the rules marker only moves on a full
+    run). Leads saved before rows were kept are counted and named.
+- **Removed from All leads** (per Jack: "remove this section", "remove"): the
+  Apollo standing tiles and the Email deliverability panel are hidden once
+  for everyone (`allLeadsPanelsRemoved1`); Customize brings either back and
+  the Apollo standing tab keeps the same tiles.
+- Suite `files-live` 9 → 19.

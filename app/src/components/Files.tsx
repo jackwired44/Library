@@ -6,7 +6,7 @@
 import { useMemo, useState } from "react";
 import type { StoredLead, LeadSource } from "../lib/leadStore";
 import { LEAD_SOURCE_META } from "../lib/leadStore";
-import { fileDates, fileMonthKey, isPreMaySheet, shortMonthLabel, sheetNumberOf } from "../lib/leadFiling";
+import { fileDateOverrideOf, fileDates, fileMonthKey, isPreMaySheet, shortMonthLabel, sheetNumberOf } from "../lib/leadFiling";
 import { verdictOf, VERDICT_META, VERDICT_ORDER, type Verdict } from "../lib/leadStatus";
 
 interface FileRow {
@@ -27,8 +27,63 @@ export interface FilesPick { files: string[]; verdict: Verdict | "all"; line: st
 
 const NO_LINE = "(no product line)";
 
-export default function Files({ leads, onOpen }: { leads: StoredLead[]; onOpen: (pick: FilesPick) => void }) {
+export default function Files({ leads, onOpen, onSetDate, onRemove, onRescan, onRescanInScanner, noteRefresh = null }: {
+  leads: StoredLead[];
+  onOpen: (pick: FilesPick) => void;
+  /** Per Jack: "edit where it is stored with which month". null resets. */
+  onSetDate?: (file: string, date: string | null) => void;
+  onRemove?: (file: string) => Promise<{ deleted: number; kept: number }>;
+  /** Per Jack: "rescan the files once in files" and "make sure the note is
+   *  up to date for old files". Re-reads each lead's saved CSV row with
+   *  today's rules (note + verdict), no re-upload. No files = all of them. */
+  onRescan?: (files?: string[]) => void;
+  /** Main files: rebuild from the saved CSV rows and open in the Main
+   *  Scanner, the same view as a fresh upload, before saving. */
+  onRescanInScanner?: (files: string[]) => Promise<{ rows: number; missing: number }>;
+  noteRefresh?: { done: number; total: number; changed: number; finished: boolean; missing?: [string, number][] } | null;
+}) {
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [editing, setEditing] = useState<{ file: string; date: string } | null>(null);
+  const [notice, setNotice] = useState("");
+  const busy = !!noteRefresh && !noteRefresh.finished;
+  const sourcesOf = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    for (const l of leads) for (const f of l.sourceFiles) { if (!m.has(f)) m.set(f, new Set()); m.get(f)!.add(l.source); }
+    return m;
+  }, [leads]);
+  // Main files open in the Main Scanner; Custom and CSP have no rebuilt
+  // scanner view yet, so theirs refresh in place.
+  const rescan = async (files: string[]) => {
+    const main = files.filter((f) => sourcesOf.get(f)?.has("main"));
+    const other = files.filter((f) => !main.includes(f));
+    if (other.length && onRescan) onRescan(other);
+    if (main.length && onRescanInScanner) {
+      const r = await onRescanInScanner(main);
+      if (!r.rows) setNotice(`Nothing to rescan: the leads in ${main.join(", ")} were saved before CSV rows were kept. Re-upload the file once.`);
+    } else if (main.length && onRescan) onRescan(main);
+  };
+  // Leads per file across every grade and line, so Delete states the real
+  // count rather than the filtered one.
+  const fileTotals = useMemo(() => {
+    const m = new Map<string, { only: number; shared: number }>();
+    for (const l of leads) for (const f of l.sourceFiles) {
+      const e = m.get(f) ?? { only: 0, shared: 0 };
+      if (l.sourceFiles.length <= 1) e.only++; else e.shared++;
+      m.set(f, e);
+    }
+    return m;
+  }, [leads]);
+  const remove = async (f: string) => {
+    if (!onRemove) return;
+    const t = fileTotals.get(f) ?? { only: 0, shared: 0 };
+    const msg = `Delete ${f}?\n\n${t.only.toLocaleString()} lead${t.only === 1 ? "" : "s"} came only from this file and will be deleted.`
+      + (t.shared ? `\n${t.shared.toLocaleString()} also came from another file; they stay and just lose this file's name.` : "")
+      + "\n\nLists, the Lead Library and History are not touched. This can't be undone (a Backup restores it).";
+    if (!window.confirm(msg)) return;
+    const r = await onRemove(f);
+    setPicked((p) => { const n = new Set(p); n.delete(f); return n; });
+    setNotice(`Deleted ${f}: ${r.deleted.toLocaleString()} lead${r.deleted === 1 ? "" : "s"} removed, ${r.kept.toLocaleString()} kept from other files.`);
+  };
   const [q, setQ] = useState("");
   // Per Jack: "strong signal or not dynamics or m365azure whatever". The
   // counts below follow these two, and Open carries them into Leads.
@@ -94,6 +149,20 @@ export default function Files({ leads, onOpen }: { leads: StoredLead[]; onOpen: 
           </div>
         </div>
       </div>
+      {noteRefresh && (
+        <div className="panel" role="status" aria-label="Rescan status" style={{ padding: "8px 12px", marginBottom: 10, fontSize: 13 }}>
+          {noteRefresh.finished
+            ? <>Rescanned {noteRefresh.total.toLocaleString()} lead{noteRefresh.total === 1 ? "" : "s"} with today's rules · {noteRefresh.changed.toLocaleString()} note{noteRefresh.changed === 1 ? "" : "s"} updated, the rest were already current.</>
+            : <>Rescanning… {noteRefresh.done.toLocaleString()} of {noteRefresh.total.toLocaleString()}</>}
+          {noteRefresh.finished && !!noteRefresh.missing?.length && (
+            <div style={{ marginTop: 4 }}>
+              <b>{noteRefresh.missing.reduce((t, [, c]) => t + c, 0).toLocaleString()}</b> were saved before CSV rows were kept, so they can't be rescanned here. Re-upload these files once to bring their notes up to date:{" "}
+              {noteRefresh.missing.map(([f, c]) => `${f} (${c.toLocaleString()})`).join(", ")}
+            </div>
+          )}
+        </div>
+      )}
+      {notice && <div className="panel" role="status" style={{ padding: "8px 12px", marginBottom: 10, fontSize: 13 }}>{notice} <button className="btn btn-sm btn-ghost" onClick={() => setNotice("")}>Dismiss</button></div>}
       <div className="toolbar" style={{ marginBottom: 10 }}>
         <div className="toolbar-row">
           <input className="field" aria-label="Find a file" placeholder="Find a file…" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 260 }} />
@@ -109,6 +178,20 @@ export default function Files({ leads, onOpen }: { leads: StoredLead[]; onOpen: 
           </select>
           <div className="toolbar-spacer" />
           {picked.size > 0 && <button className="btn btn-sm btn-ghost" onClick={() => setPicked(new Set())}>Clear</button>}
+          {onRescanInScanner && picked.size > 0 && (
+            <button className="btn btn-sm btn-secondary" disabled={busy} aria-label="Rescan picked files in the scanner"
+              title="Opens the picked Main Scanner files in the Main Scanner with today's rules, like a fresh upload. Save there to update the stored notes."
+              onClick={() => void rescan([...picked])}>
+              ↻ Rescan {picked.size.toLocaleString()} picked
+            </button>
+          )}
+          {onRescan && (
+            <button className="btn btn-sm btn-ghost" disabled={busy} aria-label="Refresh notes with today's rules"
+              title="Rewrites each lead's note and verdict in place from its saved CSV row, no scanner view. For every file, or the picked ones."
+              onClick={() => onRescan(picked.size ? [...picked] : undefined)}>
+              ↻ Refresh notes {picked.size ? "in place" : "for all files"}
+            </button>
+          )}
           <button className="btn btn-sm btn-primary" disabled={!picked.size} aria-label="Open picked files in Leads" onClick={() => open([...picked])}>
             Open {picked.size ? picked.size.toLocaleString() : ""} file{picked.size === 1 ? "" : "s"} in Leads
           </button>
@@ -127,6 +210,7 @@ export default function Files({ leads, onOpen }: { leads: StoredLead[]; onOpen: 
               <th className="num">{VERDICT_META.review.label}</th>
               <th className="num">{VERDICT_META.bad.label}</th>
               <th className="num" title="Leads looked up in Apollo at least once">Checked in Apollo</th>
+              {(onSetDate || onRemove || onRescan) && <th style={{ width: 210 }} />}
             </tr>
           </thead>
           <tbody>
@@ -142,6 +226,7 @@ export default function Files({ leads, onOpen }: { leads: StoredLead[]; onOpen: 
                   <td className="num">{sum("review").toLocaleString()}</td>
                   <td className="num">{sum("bad").toLocaleString()}</td>
                   <td />
+                  {(onSetDate || onRemove || onRescan) && <td />}
                 </tr>,
                 ...rs.map((r) => (
                   <tr key={r.file} data-file={r.file} className={picked.has(r.file) ? "is-selected" : undefined}>
@@ -149,13 +234,38 @@ export default function Files({ leads, onOpen }: { leads: StoredLead[]; onOpen: 
                     <td>
                       <button className="btn btn-sm btn-ghost" style={{ padding: 0, textAlign: "left" }} title="Open just this file in Leads" onClick={() => open([r.file])}>{r.file}</button>
                     </td>
-                    <td>{r.date ? `${isPreMaySheet(r.file) ? "~" : ""}${r.date.slice(5).replace("-", "/")}/${r.date.slice(2, 4)}` : <span className="muted">—</span>}</td>
+                    <td>
+                      {editing?.file === r.file ? (
+                        <span style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
+                          <input type="date" className="field" aria-label={`Date for ${r.file}`} value={editing.date} min="2025-10-01"
+                            onChange={(e) => setEditing({ file: r.file, date: e.target.value })} style={{ padding: "2px 4px" }} />
+                          <button className="btn btn-sm btn-primary" disabled={!editing.date} aria-label={`Save date for ${r.file}`}
+                            onClick={() => { onSetDate?.(r.file, editing.date); setEditing(null); }}>Save</button>
+                          <button className="btn btn-sm btn-ghost" onClick={() => setEditing(null)}>Cancel</button>
+                        </span>
+                      ) : r.date ? <>{`${isPreMaySheet(r.file) && !fileDateOverrideOf(r.file) ? "~" : ""}${r.date.slice(5).replace("-", "/")}/${r.date.slice(2, 4)}`}
+                          {fileDateOverrideOf(r.file) && <span className="muted" title="Date set by hand" style={{ fontSize: 11 }}> · set</span>}</>
+                        : <span className="muted">—</span>}
+                    </td>
                     <td>{r.sources.map((s) => LEAD_SOURCE_META[s].label).join(", ")}</td>
                     <td className="num">{r.total.toLocaleString()}</td>
                     <td className="num">{r.strong.toLocaleString()}</td>
                     <td className="num">{r.review.toLocaleString()}</td>
                     <td className="num">{r.bad.toLocaleString()}</td>
                     <td className="num">{r.checked.toLocaleString()}</td>
+                    {(onSetDate || onRemove || onRescan) && (
+                      <td style={{ whiteSpace: "nowrap", textAlign: "right" }}>
+                        {(onRescan || onRescanInScanner) && <button className="btn btn-sm btn-ghost" disabled={busy} aria-label={`Rescan ${r.file}`}
+                          title={r.sources.includes("main") && onRescanInScanner ? "Open this file in the Main Scanner with today's rules, like a fresh upload" : "Rewrite this file's notes and verdicts in place with today's rules"}
+                          onClick={() => void rescan([r.file])}>Rescan</button>}
+                        {onSetDate && <button className="btn btn-sm btn-ghost" aria-label={`Edit date for ${r.file}`} title="Move this file (and its leads) to another date"
+                          onClick={() => setEditing({ file: r.file, date: r.date || "" })}>Edit date</button>}
+                        {onSetDate && fileDateOverrideOf(r.file) && <button className="btn btn-sm btn-ghost" aria-label={`Reset date for ${r.file}`} title="Back to the automatic date"
+                          onClick={() => onSetDate(r.file, null)}>Reset</button>}
+                        {onRemove && <button className="btn btn-sm btn-ghost" aria-label={`Delete ${r.file}`} style={{ color: "var(--danger, #b5443b)" }}
+                          onClick={() => void remove(r.file)}>Delete</button>}
+                      </td>
+                    )}
                   </tr>
                 )),
               ];

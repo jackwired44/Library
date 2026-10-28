@@ -84,6 +84,26 @@ let sheetEstimates = new Map<string, string>();
 export function setSheetEstimates(m: Map<string, string>): void { sheetEstimates = m; }
 export function sheetEstimateOf(file: string): string | null { return sheetEstimates.get(file) ?? null; }
 
+/** A date Jack set by hand for an uploaded file (All leads → Files → Edit
+ *  date). It beats every automatic rule, Sheet estimates included, and moves
+ *  the file's leads with it. Kept in this browser (localStorage), keyed by
+ *  file name. */
+const FILE_DATE_KEY = "fileDateOverrides";
+let fileDateOverrides: Record<string, string> = (() => {
+  try { const o = JSON.parse(localStorage.getItem(FILE_DATE_KEY) || "{}"); return o && typeof o === "object" ? o : {}; } catch { return {}; }
+})();
+export function fileDateOverrideOf(file: string): string | null {
+  const d = fileDateOverrides[file];
+  return typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null;
+}
+/** Set (YYYY-MM-DD) or clear (null) a file's date. */
+export function setFileDateOverride(file: string, date: string | null): void {
+  const next = { ...fileDateOverrides };
+  if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) next[file] = date; else delete next[file];
+  fileDateOverrides = next;
+  try { localStorage.setItem(FILE_DATE_KEY, JSON.stringify(next)); } catch { /* private window: still applies this session */ }
+}
+
 /** Per Jack: "october of 2025 is the ltest back to go" (was July 2025).
  *  Sheet 45 is about October 2025 and Sheet 82 about April 2026; nothing
  *  is estimated earlier than October 2025. */
@@ -179,7 +199,11 @@ export function monthLabelOf(key: string): string {
  *  else "before May 2026" when its earliest file is an early numbered
  *  sheet, else the upload date. `month` is a YYYY-MM key, or
  *  PRE_MAY_2026_MONTH. */
-export function arrivalOf(l: { receivedOn?: string; firstSeenAt: string; sourceFiles: string[] }): { date: string; month: string; approx: boolean } {
+export function arrivalOf(l: { receivedOn?: string; firstSeenAt: string; sourceFiles: string[] }): { date: string; month: string; approx: boolean; manual?: boolean } {
+  // A date set by hand on one of its files wins; the earliest if several.
+  let set: string | null = null;
+  for (const f of l.sourceFiles) { const d = fileDateOverrideOf(f); if (d && (!set || d < set)) set = d; }
+  if (set) return { date: set, month: set.slice(0, 7), approx: false, manual: true };
   // Per Jack, a Sheet file is pre-May whatever else the row says.
   const sheet = l.sourceFiles.filter(isPreMaySheet).sort((a, b) => (sheetNumberOf(a) ?? 0) - (sheetNumberOf(b) ?? 0))[0];
   if (sheet) {
@@ -363,6 +387,8 @@ export function fileDates(leads: { sourceFiles: string[]; fileSeen?: { file: str
   }
   const out = new Map<string, string>();
   for (const f of upload.keys()) {
+    const set = fileDateOverrideOf(f);
+    if (set) { out.set(f, set); continue; }
     const up = (upload.get(f) || "").slice(0, 10);
     const year = up.slice(0, 4) || String(new Date().getFullYear());
     const m = /(?:^|[^\d])(\d{1,2})[-_.](\d{1,2})(?:[-_.](\d{2,4}))?(?:[^\d]|$)/.exec(f);
@@ -382,6 +408,7 @@ export function fileDates(leads: { sourceFiles: string[]; fileSeen?: { file: str
 
 /** The month a file is grouped under, on the same keys as the period strip. */
 export function fileMonthKey(file: string, date: string): string {
+  if (fileDateOverrideOf(file)) return viewMonthKey(date.slice(0, 7));
   if (isPreMaySheet(file)) return date ? viewMonthKey(date.slice(0, 7)) : PRE_MAY_2026_MONTH;
   return date ? viewMonthKey(date.slice(0, 7)) : "";
 }

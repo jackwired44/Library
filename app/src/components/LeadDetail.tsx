@@ -361,7 +361,9 @@ export default function LeadDetail({
                         {[lead.webVisits.visits != null ? `${lead.webVisits.visits} visits` : "", lead.webVisits.uniqueVisitors != null ? `${lead.webVisits.uniqueVisitors} people` : "", lead.webVisits.pages?.length ? `pages: ${lead.webVisits.pages.join(", ")}` : ""].filter(Boolean).join(" · ") || "details not reported"}
                         {" "}· {lead.webVisits.from} to {lead.webVisits.to}, checked {lead.webVisits.checkedAt.slice(0, 10)}</div></>
                     : <span style={muted}>No visit to {lead.webVisits.domain} since {lead.webVisits.from} (checked {lead.webVisits.checkedAt.slice(0, 10)})</span>)}
-                  {fact("Received", lead.sourceFiles.some(isPreMaySheet)
+                  {fact("Received", arrivalOf(lead).manual
+                    ? <><b>{arrivalOf(lead).date}</b><div style={{ fontSize: 12, ...muted }}>a date set by hand in Files</div></>
+                    : lead.sourceFiles.some(isPreMaySheet)
                     ? <><b>{monthLabelOf(arrivalOf(lead).month)}</b><div style={{ fontSize: 12, ...muted }}>a Sheet file: before May 2026, month estimated from dates in the notes</div></>
                     : lead.receivedOn
                     ? <><b>{lead.receivedOn}</b><div style={{ fontSize: 12, ...muted }}>the file's own date</div></>
@@ -396,7 +398,9 @@ export default function LeadDetail({
               <div style={{ fontWeight: 700, fontSize: 13 }}>Before</div>
               <div style={{ fontSize: 11.5, ...muted, marginBottom: 8 }}>The lead exactly as it arrived.</div>
               <Row label="Received">
-                {lead.sourceFiles.some(isPreMaySheet)
+                {arrivalOf(lead).manual
+                  ? <><b>{monthLabelOf(arrivalOf(lead).month)}</b> <span style={muted}>· {arrivalOf(lead).date} (set by hand in Files)</span></>
+                  : lead.sourceFiles.some(isPreMaySheet)
                   ? <><b>{monthLabelOf(arrivalOf(lead).month)}</b> <span style={muted}>· a Sheet file, so before May 2026; the month is estimated from dates its notes mention; first uploaded {lead.firstSeenAt.slice(0, 10)}</span></>
                   : lead.receivedOn
                   ? <><b>{monthOf(lead.receivedOn)}</b> <span style={muted}>· {lead.receivedOn} (the file's own date)</span></>

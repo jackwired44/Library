@@ -271,6 +271,20 @@ export async function dbUpdateMany<T>(
   });
 }
 
+/** Delete many records by key in ONE transaction. */
+export async function dbBulkDelete(storeName: string, ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readwrite");
+    const store = tx.objectStore(storeName);
+    for (const id of ids) store.delete(id);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
+    tx.onabort = () => { db.close(); reject(describeTxError(tx.error)); };
+  });
+}
+
 export async function dbDelete(storeName: string, id: string): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {

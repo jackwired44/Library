@@ -62,7 +62,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   // Downloads go straight through; the name box is tested in download-name-live.
   await page.addInitScript(() => { try { localStorage.setItem('skipFileNameBox', '1'); } catch { /* ignore */ } });
   // These checks read columns All leads now hides by default; show every column.
-  await page.addInitScript(() => { try { if (localStorage.getItem('allLeadsHiddenParts2') === null) localStorage.setItem('allLeadsHiddenParts2', '[]'); } catch { /* ignore */ } });
+  await page.addInitScript(() => { try { if (localStorage.getItem('allLeadsHiddenParts2') === null) { localStorage.setItem('allLeadsHiddenParts2', '[]'); localStorage.setItem('allLeadsPanelsRemoved1', '1'); } } catch { /* ignore */ } });
   const errs = [];
   page.on('pageerror', e => errs.push('PAGEERROR ' + e.message));
   page.on('dialog', d => d.accept());

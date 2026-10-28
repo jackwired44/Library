@@ -9,7 +9,7 @@
 // lead at a time, only when its record is opened. Additive across uploads:
 // a new upload adds a segment, an identical one is not stored twice, and
 // nothing here is ever rewritten by a scan.
-import { STORE_RAW_NOTES, dbGet, dbGetAll, dbGetMany, dbUpdateMany } from "./db";
+import { STORE_RAW_NOTES, dbBulkDelete, dbGet, dbGetAll, dbGetMany, dbUpdateMany } from "./db";
 
 export interface RawNoteSegment {
   /** When this text arrived (the upload time). */
@@ -150,4 +150,17 @@ export async function loadRawNoteSearchIndex(): Promise<Map<string, string>> {
     m.set(r.key, r.segments.map((s) => s.text || "").join(" \u0001").toLowerCase());
   }
   return m;
+}
+
+/** Removing an uploaded file: drop the raw records of leads that came only
+ *  from it, and strip that file's segments and rows from everyone else's. */
+export async function removeRawNotesForFile(file: string, deletedKeys: string[], trimmedKeys: string[]): Promise<void> {
+  await dbBulkDelete(STORE_RAW_NOTES, deletedKeys);
+  await dbUpdateMany<RawNotes>(STORE_RAW_NOTES, trimmedKeys, (_key, existing) => {
+    if (!existing) return null;
+    const segments = existing.segments.filter((s) => s.file !== file);
+    const rows = existing.rows?.filter((r) => r.file !== file);
+    if (segments.length === existing.segments.length && (rows?.length ?? 0) === (existing.rows?.length ?? 0)) return null;
+    return { ...existing, segments, ...(rows ? { rows } : {}) };
+  });
 }

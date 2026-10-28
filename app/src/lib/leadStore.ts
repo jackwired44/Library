@@ -11,7 +11,7 @@
 // up-to-3 files per month — a curated export shelf. This is the flat record
 // of everything scanned, every tier, all three scanners, which is a
 // different job. Neither replaces the other.
-import { STORE_LEADS, dbGetAll, dbBulkPut, dbDelete } from "./db";
+import { STORE_LEADS, dbGetAll, dbBulkPut, dbBulkDelete, dbDelete } from "./db";
 import type { SequencePlan } from "./sequenceRouting";
 import type { StatusOverride } from "./leadStatus";
 import { extractNoteDates, mergeNoteDates, type NoteDate } from "./noteDates";
@@ -536,6 +536,10 @@ export async function loadLeads(): Promise<StoredLead[]> {
  *  writes are not an option at this volume. */
 export async function saveLeads(leads: StoredLead[]): Promise<void> {
   await dbBulkPut(STORE_LEADS, leads);
+}
+
+export async function deleteLeads(keys: string[]): Promise<void> {
+  await dbBulkDelete(STORE_LEADS, keys);
 }
 
 export async function deleteLead(key: string): Promise<void> {

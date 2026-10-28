@@ -156,7 +156,7 @@ interface Derived {
   /** YYYY-MM the lead was received: the file's own date, else first upload. */
   month: string;
   /** arrivalOf(l), worked out once per lead set rather than per comparison. */
-  arrival: { date: string; month: string; approx: boolean };
+  arrival: { date: string; month: string; approx: boolean; manual?: boolean };
   /** "upcoming" / "past" / "logged" (stamps only) / "none". */
   dateKind: "upcoming" | "past" | "logged" | "none";
   nextDate: NoteDate | null;
@@ -253,12 +253,29 @@ const PRESET: Record<LeadsPreset, { label: string; apollo: ApolloFilter; hint: s
 const PARTS_KEY = "allLeadsHiddenParts2";
 const OLD_PARTS_KEY = "allLeadsHiddenParts";
 const DEFAULT_HIDDEN_COLS = ["col-touches", "col-recycle", "col-uploads", "col-atco", "col-outreach", "col-disposition", "col-sequence"];
+// Per Jack, on the "N of M leads checked against Apollo" tiles ("remove this
+// section") and the Email deliverability panel ("remove"). Hidden once for
+// everyone, including saved preferences; Customize still brings either back,
+// and the Apollo standing tab carries the same tiles.
+const STANDING_REMOVED_KEY = "allLeadsPanelsRemoved1";
+const REMOVED_PANELS = ["standing", "deliverability"];
 function loadParts(items: typeof ALL_LEADS_PARTS): Set<string> {
+  let out: Set<string>;
   try {
-    if (localStorage.getItem(PARTS_KEY) !== null) return loadHiddenSet(PARTS_KEY, items);
-  } catch { /* preference only */ }
-  const panels = [...loadHiddenSet(OLD_PARTS_KEY, items)].filter((id) => items.some((p) => p.id === id && p.group === "Panels"));
-  return new Set([...panels, ...DEFAULT_HIDDEN_COLS]);
+    if (localStorage.getItem(PARTS_KEY) !== null) out = loadHiddenSet(PARTS_KEY, items);
+    else {
+      const panels = [...loadHiddenSet(OLD_PARTS_KEY, items)].filter((id) => items.some((p) => p.id === id && p.group === "Panels"));
+      out = new Set([...panels, ...DEFAULT_HIDDEN_COLS]);
+    }
+  } catch { out = new Set(DEFAULT_HIDDEN_COLS); }
+  try {
+    if (localStorage.getItem(STANDING_REMOVED_KEY) === null) {
+      for (const id of REMOVED_PANELS) out.add(id);
+      localStorage.setItem(STANDING_REMOVED_KEY, "1");
+      localStorage.setItem(PARTS_KEY, JSON.stringify([...out]));
+    }
+  } catch { for (const id of REMOVED_PANELS) out.add(id); }
+  return out;
 }
 /** "Ada Brant" -> first "Ada", last "Brant". One word is a first name. */
 function splitName(full: string): { first: string; last: string } {
@@ -704,7 +721,7 @@ export default function AllLeads({
         // The CSV's own date (the date the file states, else when it was
         // uploaded), so a range walks back through the files by month.
         const arr = derived.get(l.key)!.arrival;
-        const t = Date.parse(arr.approx || l.receivedOn ? `${arr.date}T12:00:00` : l.firstSeenAt);
+        const t = Date.parse(arr.approx || arr.manual || l.receivedOn ? `${arr.date}T12:00:00` : l.firstSeenAt);
         return (fromT === null || t >= fromT) && (toT === null || t <= toT);
       },
     };
