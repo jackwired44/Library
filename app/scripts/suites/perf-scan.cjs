@@ -96,7 +96,7 @@ const ok = (name, cond, detail) => {
   await page.fill('input[aria-label="Email"]', 'jack@wiredcio.com');
   await page.fill('input[type=password]', 'changeme');
   await page.click('button:has-text("Unlock")'); await sleep(1200);
-  await page.locator('.side-nav-btn', { hasText: 'CSP Scanner' }).first().click(); await sleep(600);
+  await page.locator('button[aria-label="Retired scanners"][aria-expanded="false"]').click({ timeout: 2000 }).catch(() => {}); await page.locator('.side-nav-btn', { hasText: 'CSP Scanner' }).first().click(); await sleep(600);
 
   console.log(`\n== search latency (${N} rows) ==`);
   const base = await gcHeap();

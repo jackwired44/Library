@@ -58,7 +58,7 @@ const smcCsv = [HEAD.join(',')].concat(samples.map((d, i) => [
      JSON.stringify(mainCols));
 
   console.log('\n== Custom Scanner download ==');
-  await page.locator('.side-nav-btn', { hasText: 'Custom Scanner' }).first().click(); await sleep(700);
+  await page.locator('button[aria-label="Retired scanners"][aria-expanded="false"]').click({ timeout: 2000 }).catch(() => {}); await page.locator('.side-nav-btn', { hasText: 'Custom Scanner' }).first().click(); await sleep(700);
   await page.setInputFiles('input[type=file]', { name: 'smc.csv', mimeType: 'text/csv', buffer: Buffer.from(smcCsv) });
   await sleep(3000);
   const [d2] = await Promise.all([

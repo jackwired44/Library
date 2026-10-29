@@ -47,6 +47,7 @@ const csv = ['companyname,description,campaignidname,emailaddress1,fullname']
   await page.click('button:has-text("Unlock")'); await sleep(1200);
 
   console.log('\n== nav placement ==');
+  await page.locator('button[aria-label="Retired scanners"][aria-expanded="false"]').click({ timeout: 2000 }).catch(() => {}); 
   const nav = (await page.locator('.side-nav-btn').allInnerTexts()).map(t => t.split('\n')[0].trim());
   // The three scanners sit together at the top, in the order they were
   // built, with the rest of the platform below them.
@@ -61,7 +62,7 @@ const csv = ['companyname,description,campaignidname,emailaddress1,fullname']
      nav.indexOf('CSP Scanner') === nav.indexOf('Custom Scanner September') + 1 &&
      nav.indexOf('All leads') > nav.indexOf('CSP Scanner') && !nav.includes('Lead library'), JSON.stringify(nav));
 
-  await page.locator('.side-nav-btn', { hasText: 'Custom Scanner' }).first().click(); await sleep(600);
+  await page.locator('button[aria-label="Retired scanners"][aria-expanded="false"]').click({ timeout: 2000 }).catch(() => {}); await page.locator('.side-nav-btn', { hasText: 'Custom Scanner' }).first().click(); await sleep(600);
 
   console.log('\n== upload the real SMC batch ==');
   await page.setInputFiles('input[type=file]', { name: 'smc.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });

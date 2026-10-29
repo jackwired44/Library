@@ -2651,3 +2651,8 @@ details.panel.fold[open] > summary.fold-head::before { content: "▾"; }
   font-size: 13px; line-height: 1.45; color: var(--ink-2, #3f5257);
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
 }
+
+/* Retired scanners toggle: deliberately quiet, it is not a destination. */
+.side-nav-retired { display: block; width: 100%; text-align: left; background: none; border: none; cursor: pointer;
+  font-size: 11px; color: var(--muted); padding: 4px 12px 4px 30px; opacity: 0.75; }
+.side-nav-retired:hover { opacity: 1; text-decoration: underline; }

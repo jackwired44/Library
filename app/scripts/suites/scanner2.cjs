@@ -43,8 +43,8 @@ const csv = [
   await page.click('button:has-text("Unlock")'); await sleep(1200);
 
   console.log('\n== nav + separate gate ==');
-  ok('Custom Scanner appears in the nav', await page.locator('.side-nav-btn:has-text("Custom Scanner")').count() > 0);
-  await page.locator('.side-nav-btn', { hasText: 'Custom Scanner' }).first().click(); await sleep(700);
+  await page.locator('button[aria-label="Retired scanners"][aria-expanded="false"]').click({ timeout: 2000 }).catch(() => {}); ok('Custom Scanner appears in the nav', await page.locator('.side-nav-btn:has-text("Custom Scanner")').count() > 0);
+  await page.locator('button[aria-label="Retired scanners"][aria-expanded="false"]').click({ timeout: 2000 }).catch(() => {}); await page.locator('.side-nav-btn', { hasText: 'Custom Scanner' }).first().click(); await sleep(700);
   ok('Custom Scanner opens directly — no gate', await page.locator('input[type=file]').count() > 0);
 
   console.log('\n== upload an unfamiliar CSV shape ==');
@@ -190,7 +190,7 @@ const csv = [
 
   console.log('\n== persistence ==');
   await page.reload(); await sleep(1800);
-  await page.locator('.side-nav-btn', { hasText: 'Custom Scanner' }).first().click(); await sleep(700);
+  await page.locator('button[aria-label="Retired scanners"][aria-expanded="false"]').click({ timeout: 2000 }).catch(() => {}); await page.locator('.side-nav-btn', { hasText: 'Custom Scanner' }).first().click(); await sleep(700);
   ok('Custom Scanner still opens directly after reload', await page.locator('input[type=file]').count() > 0);
   // Rules panel is collapsed by default; open it to read the rule names.
   await page.setInputFiles('input[type=file]', { name: 'accounts.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });

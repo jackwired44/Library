@@ -117,6 +117,12 @@ export type View =
  *  side." They are the on-ramp; the groups below are where leads live. */
 const SCANNER_NAV: { key: View; label: string }[] = [
   { key: "scanner", label: "Main Scanner" },
+];
+/** Per Jack: "custom and csp scanner are not important anymore those were
+ *  one time builds … do not delete them, but instead just hide them". Both
+ *  still work exactly as before; they sit behind a small closed toggle at
+ *  the bottom of the Scanners group, and their leads stay in All leads. */
+const RETIRED_SCANNER_NAV: { key: View; label: string }[] = [
   { key: "scanner2", label: "Custom Scanner September" },
   { key: "scanner3", label: "CSP Scanner" },
 ];
@@ -156,6 +162,16 @@ export default function App() {
   function toggleNavCollapsed() {
     setNavCollapsed((v) => {
       try { localStorage.setItem("navCollapsed", v ? "0" : "1"); } catch { /* preference only */ }
+      return !v;
+    });
+  }
+  // Retired scanners: closed unless opened, or one of them is on screen.
+  const [retiredOpen, setRetiredOpen] = useState(() => {
+    try { return localStorage.getItem("navRetiredScannersOpen") === "1"; } catch { return false; }
+  });
+  function toggleRetired() {
+    setRetiredOpen((v) => {
+      try { localStorage.setItem("navRetiredScannersOpen", v ? "0" : "1"); } catch { /* preference only */ }
       return !v;
     });
   }
@@ -1169,12 +1185,12 @@ export default function App() {
           <button
             className="sidebar-group"
             onClick={toggleScanners}
-            aria-expanded={scannersOpen || SCANNER_NAV.some((i) => i.key === view)}
+            aria-expanded={scannersOpen || [...SCANNER_NAV, ...RETIRED_SCANNER_NAV].some((i) => i.key === view)}
           >
-            <span className="sidebar-group-caret">{scannersOpen || SCANNER_NAV.some((i) => i.key === view) ? "▾" : "▸"}</span>
+            <span className="sidebar-group-caret">{scannersOpen || [...SCANNER_NAV, ...RETIRED_SCANNER_NAV].some((i) => i.key === view) ? "▾" : "▸"}</span>
             <span>Scanners</span>
           </button>
-          {(navCollapsed || scannersOpen || SCANNER_NAV.some((i) => i.key === view)) && SCANNER_NAV.map((item) => (
+          {(navCollapsed || scannersOpen || [...SCANNER_NAV, ...RETIRED_SCANNER_NAV].some((i) => i.key === view)) && SCANNER_NAV.map((item) => (
             <button
               key={item.key}
               className={`side-nav-btn side-nav-sub${view === item.key ? " active" : ""}`}
@@ -1185,6 +1201,28 @@ export default function App() {
               <span className="side-nav-label">{item.label}</span>
             </button>
           ))}
+          {(scannersOpen || [...SCANNER_NAV, ...RETIRED_SCANNER_NAV].some((i) => i.key === view)) && !navCollapsed && (() => {
+            const shown = retiredOpen || RETIRED_SCANNER_NAV.some((i) => i.key === view);
+            return (
+              <>
+                <button className="side-nav-retired" onClick={toggleRetired} aria-label="Retired scanners" aria-expanded={shown}
+                        title="Custom Scanner September and CSP Scanner: one-time builds, kept but hidden.">
+                  {shown ? "▾" : "▸"} Retired scanners
+                </button>
+                {shown && RETIRED_SCANNER_NAV.map((item) => (
+                  <button
+                    key={item.key}
+                    className={`side-nav-btn side-nav-sub${view === item.key ? " active" : ""}`}
+                    onClick={() => setView(item.key)}
+                    title={item.label}
+                  >
+                    <NavIcon name={item.key} />
+                    <span className="side-nav-label">{item.label}</span>
+                  </button>
+                ))}
+              </>
+            );
+          })()}
 
           {NAV_GROUPS.map((g) => (
             <div key={g.title}>

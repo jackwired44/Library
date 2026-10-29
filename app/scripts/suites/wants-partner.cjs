@@ -86,7 +86,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await page.fill('input[aria-label="Email"]', 'jack@wiredcio.com');
   await page.fill('input[type=password]', 'changeme');
   await page.click('button:has-text("Unlock")'); await sleep(1200);
-  await page.locator('.side-nav-btn', { hasText: 'CSP Scanner' }).first().click(); await sleep(700);
+  await page.locator('button[aria-label="Retired scanners"][aria-expanded="false"]').click({ timeout: 2000 }).catch(() => {}); await page.locator('.side-nav-btn', { hasText: 'CSP Scanner' }).first().click(); await sleep(700);
   await page.setInputFiles('input[type=file]', FILE);
   await page.waitForFunction(() => !!document.querySelector('.data-table tbody tr'), null, { timeout: 120000 });
   await sleep(900);

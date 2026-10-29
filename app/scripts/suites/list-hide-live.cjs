@@ -98,7 +98,7 @@ const ok = (name, cond, detail = '') => { if (cond) { pass++; console.log('  ✓
     'US', samples[3], e, n, 'IT Director', `312-555-90${i}`, `312-555-10${i}`, `ACCT-${i}`, '', 'Chicago', 'IL', 'Seg', 'Tech', 'Open', '100', '250',
     'US~US~FY26~CMP~Expand Security - VDS~SRAIM638026_2', co, '2026-12-01',
   ].map(q).join(','))).join('\n');
-  await page.locator('.side-nav-btn', { hasText: 'Custom Scanner' }).first().click(); await sleep(700);
+  await page.locator('button[aria-label="Retired scanners"][aria-expanded="false"]').click({ timeout: 2000 }).catch(() => {}); await page.locator('.side-nav-btn', { hasText: 'Custom Scanner' }).first().click(); await sleep(700);
   await page.setInputFiles('input[type=file]', { name: 'smc.csv', mimeType: 'text/csv', buffer: Buffer.from(scsv) });
   await sleep(3000);
   const ssel = page.locator('select[aria-label="Leads already on a list"]');

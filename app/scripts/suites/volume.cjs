@@ -36,7 +36,7 @@ const time=async(label,fn,budget)=>{const t=Date.now();await fn();const ms=Date.
   await page.fill('input[aria-label="Email"]','jack@wiredcio.com');
   await page.fill('input[type=password]','changeme');
   await page.click('button:has-text("Unlock")'); await sleep(1300);
-  await page.locator('.side-nav-btn',{hasText:'Custom Scanner'}).first().click(); await sleep(700);
+  await page.locator('button[aria-label="Retired scanners"][aria-expanded="false"]').click({ timeout: 2000 }).catch(() => {}); await page.locator('.side-nav-btn',{hasText:'Custom Scanner'}).first().click(); await sleep(700);
 
   console.log(`\n== uploading ${N} rows (${(csv.length/1e6).toFixed(1)} MB) ==`);
   const t0=Date.now();

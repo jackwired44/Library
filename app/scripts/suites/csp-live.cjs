@@ -41,10 +41,10 @@ fs.writeFileSync(CSP, csv);
   await page.click('button:has-text("Unlock")'); await sleep(1200);
 
   console.log('\n== nav ==');
-  const navs = await page.locator('.side-nav-btn').allInnerTexts();
+  await page.locator('button[aria-label="Retired scanners"][aria-expanded="false"]').click({ timeout: 2000 }).catch(() => {}); const navs = await page.locator('.side-nav-btn').allInnerTexts();
   ok('CSP Scanner is its own item in the left nav', navs.some(t => /CSP Scanner/.test(t)), navs.join(' | '));
   ok('the SMC scanner keeps its own name', navs.some(t => /Custom Scanner September/.test(t)), navs.join(' | '));
-  await page.locator('.side-nav-btn', { hasText: 'CSP Scanner' }).first().click(); await sleep(800);
+  await page.locator('button[aria-label="Retired scanners"][aria-expanded="false"]').click({ timeout: 2000 }).catch(() => {}); await page.locator('.side-nav-btn', { hasText: 'CSP Scanner' }).first().click(); await sleep(800);
   ok('it opens on its own page', /CSP Scanner/.test(await page.locator('main').innerText()));
   ok('the upload drop zone is there', await page.locator('input[type=file]').count() > 0);
 
@@ -278,7 +278,7 @@ fs.writeFileSync(CSP, csv);
   const listsTxt = await page.locator('main').innerText();
   ok('the list appears in Lists with every lead', /Aug open lane/.test(listsTxt), listsTxt.slice(0, 200));
   ok('  holding all six', /\b6\b/.test(listsTxt), listsTxt.slice(0, 300));
-  await page.locator('.side-nav-btn', { hasText: 'CSP Scanner' }).first().click(); await sleep(800);
+  await page.locator('button[aria-label="Retired scanners"][aria-expanded="false"]').click({ timeout: 2000 }).catch(() => {}); await page.locator('.side-nav-btn', { hasText: 'CSP Scanner' }).first().click(); await sleep(800);
   await page.setInputFiles('input[type=file]', CSP); await sleep(2500);
 
   console.log('\n== downloads ==');
@@ -316,11 +316,11 @@ fs.writeFileSync(CSP, csv);
   ok('  and the hard stop is an opt-in', await page.locator('label:has-text("hard stop") input[type=checkbox]').isChecked() === false);
 
   console.log('\n== isolation ==');
-  await page.locator('.side-nav-btn', { hasText: 'Custom Scanner September' }).first().click(); await sleep(900);
+  await page.locator('button[aria-label="Retired scanners"][aria-expanded="false"]').click({ timeout: 2000 }).catch(() => {}); await page.locator('.side-nav-btn', { hasText: 'Custom Scanner September' }).first().click(); await sleep(900);
   const smcBody = await page.locator('main').innerText();
   ok('the SMC scanner does not show the CSP scan', !/ACME MANUFACTURING/.test(smcBody));
   ok('  and shows its own rules, not the scoring ones', !/Score 0.100/.test(smcBody));
-  await page.locator('.side-nav-btn', { hasText: 'CSP Scanner' }).first().click(); await sleep(900);
+  await page.locator('button[aria-label="Retired scanners"][aria-expanded="false"]').click({ timeout: 2000 }).catch(() => {}); await page.locator('.side-nav-btn', { hasText: 'CSP Scanner' }).first().click(); await sleep(900);
   ok('CSP starts clean rather than replaying a stale scan', !/ACME MANUFACTURING/.test(await page.locator('main').innerText()));
 
   ok('no page errors', errs.length === 0, errs.join(' | '));

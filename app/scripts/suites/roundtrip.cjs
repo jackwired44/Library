@@ -58,7 +58,7 @@ const csv=buildCsv();
   await page.click('button:has-text("Unlock")'); await sleep(1500);
   ok('unlocks', await page.locator('.side-nav-btn').count()>0);
 
-  await page.locator('.side-nav-btn',{hasText:'Custom Scanner'}).first().click(); await sleep(700);
+  await page.locator('button[aria-label="Retired scanners"][aria-expanded="false"]').click({ timeout: 2000 }).catch(() => {}); await page.locator('.side-nav-btn',{hasText:'Custom Scanner'}).first().click(); await sleep(700);
   await page.setInputFiles('input[type=file]',{name:'real.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});
   await sleep(3200);
   const t=await page.locator('main').innerText();

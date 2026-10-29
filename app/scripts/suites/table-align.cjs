@@ -32,7 +32,7 @@ const csv = [HEAD.join(',')].concat(samples.map((d, i) => {
   await page.fill('input[aria-label="Email"]', 'jack@wiredcio.com');
   await page.fill('input[type=password]', 'changeme');
   await page.click('button:has-text("Unlock")'); await sleep(1300);
-  await page.locator('.side-nav-btn', { hasText: 'Custom Scanner' }).first().click(); await sleep(700);
+  await page.locator('button[aria-label="Retired scanners"][aria-expanded="false"]').click({ timeout: 2000 }).catch(() => {}); await page.locator('.side-nav-btn', { hasText: 'Custom Scanner' }).first().click(); await sleep(700);
   await page.setInputFiles('input[type=file]', { name: 'ragged.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   await sleep(2800);
 
