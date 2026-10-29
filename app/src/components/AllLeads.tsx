@@ -31,7 +31,7 @@ import { engagementOf, engagementLabel, isCustomer, ENGAGEMENT_SOURCE_META, type
 import type { ParsedFile } from "../lib/detection";
 import { MAX_COMPANY_BATCH } from "../lib/apolloEnrich";
 import { orgIdsOf, TRACKED_DOMAIN, type VisitProgress } from "../lib/webVisits";
-import { partnerStanceOf } from "../lib/detection";
+import { partnerStanceOf, dynamicsTabOfText, DYNAMICS_TAB_META, DYNAMICS_TAB_ORDER, type DynamicsTab } from "../lib/detection";
 import { downloadCampaignCSV } from "../lib/campaignExport";
 import { MIN_EMPLOYEES } from "../lib/leadQualify";
 import {
@@ -146,6 +146,9 @@ interface Derived {
   employees: number | null;
   sizeKey: string; // a SIZE_BUCKETS key, or "unknown"
   line: string;
+  /** Dynamics leads only: which Dynamics tab (BC / ERP, Sales / CRM,
+   *  Everything else). Stored by the scan, else read off the note. */
+  dyn: DynamicsTab | null;
   active: boolean;
   finished: boolean;
   sequenced: boolean;
@@ -435,6 +438,11 @@ export default function AllLeads({
   const [sourceF, setSourceF] = useState<LeadSource | "all">("all");
   const [tierF, setTierF] = useState(initialPreset ? TOP : "all");
   const [lineF, setLineF] = useState(initialLine || "all");
+  const [moreActionsOpen, setMoreActionsOpen] = useState(false);
+  // Per Jack: "filter in strong leads into dynamics then the breakdowns …
+  // erp bc and sales crm then everything". Offered once Dynamics is picked.
+  const [dynF, setDynF] = useState<DynamicsTab | "all">("all");
+  const isDynLine = /dynamics/i.test(lineF);
   const [industryF, setIndustryF] = useState("all");
   // Per Jack: filter by "indsutry or excluded industry employee range and
   // the contacts not in active sequences".
@@ -555,6 +563,7 @@ export default function AllLeads({
         employees: c.employees,
         sizeKey: bucket ? bucket.key : "unknown",
         line: l.productArea || NO_LINE,
+        dyn: /dynamics/i.test(l.productArea || "") ? (l.dynamicsView ?? dynamicsTabOfText(`${l.notes || ""}   ${l.productArea || ""}`)) : null,
         active: seqs.some((x) => x.status === "active"),
         finished: seqs.length > 0 && !seqs.some((x) => x.status === "active"),
         sequenced: seqs.length > 0,
@@ -695,7 +704,7 @@ export default function AllLeads({
   const fromT = from ? Date.parse(`${from}T00:00:00`) : null;
   const toT = to ? Date.parse(`${to}T23:59:59.999`) : null;
 
-  type Key = "where" | "seen" | "listed" | "rule" | "visited" | "partner" | "inApollo" | "verdict" | "company" | "contact" | "level" | "fn" | "month" | "dates" | "status" | "search" | "notes" | "standing" | "lane" | "ready" | "source" | "tier" | "line" | "industry" | "size" | "apollo" | "seq" | "owner" | "plan" | "planSeq" | "files" | "fileName" | "date";
+  type Key = "where" | "seen" | "listed" | "rule" | "visited" | "partner" | "inApollo" | "verdict" | "company" | "contact" | "level" | "fn" | "month" | "dates" | "status" | "search" | "notes" | "standing" | "lane" | "ready" | "source" | "tier" | "line" | "dyn" | "industry" | "size" | "apollo" | "seq" | "owner" | "plan" | "planSeq" | "files" | "fileName" | "date";
   const tests = useMemo(() => {
     const t: Record<Key, (l: StoredLead, d: Derived) => boolean> = {
       inApollo: (l, d) => inApolloF === "all"
@@ -738,6 +747,7 @@ export default function AllLeads({
       source: (l) => sourceF === "all" || l.source === sourceF,
       tier: (l) => tierF === "all" || (tierF === TOP ? TOP_TIER_SET.has(l.tier) : l.tier === tierF),
       line: (_l, d) => lineF === "all" || d.line === lineF,
+      dyn: (_l, d) => dynF === "all" || d.dyn === dynF,
       industry: (_l, d) => (industryF === "all" || d.industry === industryF)
         && !(exclIndustries.length && d.industry && exclIndustries.includes(d.industry)),
       size: (_l, d) => sizeF === "all" || d.sizeKey === sizeF,
@@ -771,7 +781,7 @@ export default function AllLeads({
       },
     };
     return t;
-  }, [ruleF, ruleFacts, periodSet, periodKind, inApolloF, verdictF, companyF, companyStats, contactF, levelF, fnF, dateF, statusF, q, kq, nq, rawIndex, standingF, laneF, readyOnly, sourceF, tierF, lineF, industryF, sizeF, apolloF, seqF, ownerF, planF, planSeqF, filesF, fileSet, fromT, toT, partnerKeys, exclIndustries, hideActive, visitedOnly, listFEff, listedKeys, whereF, seenF, seenMap]);
+  }, [ruleF, ruleFacts, periodSet, periodKind, inApolloF, verdictF, companyF, companyStats, contactF, levelF, fnF, dateF, statusF, q, kq, nq, rawIndex, standingF, laneF, readyOnly, sourceF, tierF, lineF, dynF, industryF, sizeF, apolloF, seqF, ownerF, planF, planSeqF, filesF, fileSet, fromT, toT, partnerKeys, exclIndustries, hideActive, visitedOnly, listFEff, listedKeys, whereF, seenF, seenMap]);
 
   // Each lead's filters are evaluated ONCE per change, recording whether it
   // passes all of them ("") or fails exactly one (that key) or more (null).
@@ -874,6 +884,13 @@ export default function AllLeads({
     const [a, b] = lo <= hi ? [lo, hi] : [hi, lo];
     setPeriodKeys(rangeKeys.filter((k) => k >= a && k <= b));
   };
+  const dynCounts = useMemo(() => {
+    const out: Record<string, number> = { all: 0 };
+    if (!isDynLine) return out;
+    for (const [k, n] of facet("dyn", (_l, d) => d.dyn ?? "").entries()) { if (!k) continue; out[k] = n; out.all += n; }
+    return out;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leads, derived, tests, isDynLine]);
   const lineCounts = useMemo(() => [...facet("line", (_l, d) => d.line).entries()].sort((a, b) => b[1] - a[1]),
   // eslint-disable-next-line react-hooks/exhaustive-deps
   [leads, derived, tests]);
@@ -1016,7 +1033,8 @@ export default function AllLeads({
   if (statusF !== "all") chips.push({ label: `Status: ${STATUS_META[statusF].label}`, clear: () => setStatusF("all") });
   if (sourceF !== "all") chips.push({ label: LEAD_SOURCE_META[sourceF].label, clear: () => setSourceF("all") });
   if (tierF !== "all") chips.push({ label: tierF === TOP ? "Top tier" : tierF, clear: () => setTierF("all") });
-  if (lineF !== "all") chips.push({ label: lineF, clear: () => setLineF("all") });
+  if (lineF !== "all") chips.push({ label: lineF, clear: () => { setLineF("all"); setDynF("all"); } });
+  if (dynF !== "all") chips.push({ label: DYNAMICS_TAB_META[dynF].label, clear: () => setDynF("all") });
   if (industryF !== "all") chips.push({ label: `Industry: ${industryF}`, clear: () => setIndustryF("all") });
   for (const x of exclIndustries) chips.push({ label: `Not ${x}`, clear: () => setExclIndustries((v) => v.filter((y) => y !== x)) });
   if (hideActive) chips.push({ label: "Hiding active in a sequence", clear: () => setHideActive(false) });
@@ -1355,10 +1373,17 @@ export default function AllLeads({
               </button>
             ))}
           </div>
-          <select className="field" aria-label="Product line" value={lineF} onChange={(e) => setLineF(e.target.value)}>
+          <select className="field" aria-label="Product line" value={lineF} onChange={(e) => { setLineF(e.target.value); if (!/dynamics/i.test(e.target.value)) setDynF("all"); }}>
             <option value="all">Product line: any</option>
             {lineCounts.map(([k, n]) => <option key={k} value={k}>{k} ({n.toLocaleString()})</option>)}
           </select>
+          {isDynLine && (
+            <select className="field" aria-label="Dynamics view" value={dynF} style={{ width: "auto" }} onChange={(e) => setDynF(e.target.value as DynamicsTab | "all")}
+                    title="The Dynamics breakdown: Business Central / ERP, Sales / CRM / Customer Service, Everything else (F&O, supply chain)">
+              <option value="all">All Dynamics 365 ({dynCounts.all.toLocaleString()})</option>
+              {DYNAMICS_TAB_ORDER.map((k) => <option key={k} value={k}>{DYNAMICS_TAB_META[k].label} ({(dynCounts[k] || 0).toLocaleString()})</option>)}
+            </select>
+          )}
           <select className="field" aria-label="Outreach" value={contactF}
                   onChange={(e) => setContactF(e.target.value as ContactState | "all" | "untouched")}
                   title="Has anyone got through? From Apollo's calls and emails.">
@@ -1856,12 +1881,16 @@ export default function AllLeads({
       )}
 
       {show("bulk") && (<>
-      {/* ---- bulk bar: acts on the selection, or on everything matched ---- */}
-      <div className="bulkbar" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8, fontSize: 12.5 }}>
-        <span>
+      {/* ---- bulk bar: acts on the selection, or on everything matched.
+           Per Jack: "this needs to be cleaned up". The everyday actions
+           (add to list, check in Apollo, export) stay in view; the rest
+           sit behind More actions. ---- */}
+      <div className="bulkbar" style={{ display: "flex", flexDirection: "column", alignItems: "stretch", gap: 8, marginBottom: 8, fontSize: 12.5 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <span data-bulk-scope>
           {selected.size > 0
-            ? <><b>{selected.size.toLocaleString()}</b> selected</>
-            : <span style={{ color: "var(--muted)" }}>Select leads, or act on all {filtered.length.toLocaleString()} matched</span>}
+            ? <><b>{selected.size.toLocaleString()}</b> selected of {filtered.length.toLocaleString()}</>
+            : <><b>{filtered.length.toLocaleString()}</b> matched <span className="muted">· actions apply to all, or tick rows</span></>}
         </span>
         {filtered.length > 0 && selected.size < filtered.length && (
           <button className="btn btn-sm btn-ghost" onClick={() => setSelected(new Set(filtered.map((l) => l.key)))}>
@@ -1869,91 +1898,9 @@ export default function AllLeads({
           </button>
         )}
         {selected.size > 0 && <button className="btn btn-sm btn-ghost" onClick={() => setSelected(new Set())}>Clear selection</button>}
-        {onSetPlan && (
-          <>
-            <span className="bulkbar-divider" style={{ width: 1, height: 18, background: "var(--border)" }} />
-            <input className="field" list="all-leads-seqs" style={{ width: 210 }} placeholder="Queue into sequence…"
-                   value={bulkSeq} onChange={(e) => setBulkSeq(e.target.value)} aria-label="Queue into sequence" />
-            <datalist id="all-leads-seqs">{sequenceNames.map((n) => <option key={n} value={n} />)}</datalist>
-            <button className="btn btn-sm btn-secondary" disabled={!selected.size || !bulkSeq.trim()}
-                    onClick={() => { onSetPlan([...selected], bulkSeq.trim()); setBulkSeq(""); setSelected(new Set()); }}>
-              Queue {selected.size ? selected.size.toLocaleString() : ""}
-            </button>
-            <button className="btn btn-sm btn-ghost" disabled={!selected.size}
-                    onClick={async () => {
-                      if (await confirmAction(`Remove ${selected.size} lead(s) from the Apollo queue? They stay stored.`)) {
-                        onSetPlan([...selected], null); setSelected(new Set());
-                      }
-                    }}>
-              Remove from queue
-            </button>
-          </>
-        )}
-        {onSetStatus && (
-          <>
-            <span style={{ width: 1, height: 18, background: "var(--border)" }} />
-            <select className="field" aria-label="Set status" style={{ width: 170 }} value={bulkStatus}
-                    onChange={(e) => setBulkStatus(e.target.value)}>
-              <option value="">Set status…</option>
-              {STATUS_ORDER.map((x) => <option key={x} value={x}>{STATUS_META[x].label}</option>)}
-              <option value="__auto">Back to automatic</option>
-            </select>
-            <button className="btn btn-sm btn-secondary" disabled={!selected.size || !bulkStatus}
-                    onClick={() => {
-                      onSetStatus([...selected], bulkStatus === "__auto" ? null : (bulkStatus as LeadStatus));
-                      setBulkStatus(""); setSelected(new Set());
-                    }}>
-              Apply{selected.size ? ` to ${selected.size.toLocaleString()}` : ""}
-            </button>
-          </>
-        )}
-        {onCheckVisits && (
-          <>
-            <span style={{ width: 1, height: 18, background: "var(--border)" }} />
-            {visits && !visits.finished
-              ? <button className="btn btn-sm btn-secondary" onClick={() => visitAbort.current?.abort()}>Stop · {visits.done}/{visits.total}</button>
-              : <button className="btn btn-sm btn-secondary" disabled={!visitOrgs.length} onClick={() => void runVisits()}
-                        title={`Asks Apollo whether each company behind these leads visited ${TRACKED_DOMAIN} since October 2025, and tags every lead there. Read-only, no credits. Needs the leads to have been checked in Apollo first (that is where the company id comes from).`}>
-                  🌐 Check {visitOrgs.length.toLocaleString()} compan{visitOrgs.length === 1 ? "y" : "ies"} for site visits
-                </button>}
-            {visits?.finished && <span className="muted" style={{ fontSize: 12 }}>{visits.visited} visited {TRACKED_DOMAIN}, {visits.done - visits.visited} did not{visits.errors ? `, ${visits.errors} failed` : ""}.</span>}
-            {visitErr && <span style={{ fontSize: 12, color: "#B5443B" }}>{visitErr}</span>}
-          </>
-        )}
-        {onEnrichCompanies && (
-          <>
-            <span style={{ width: 1, height: 18, background: "var(--border)" }} />
-            <button className="btn btn-sm btn-secondary" disabled={enriching || !enrichTargets.length} onClick={() => void runEnrich()}
-                    title="Look up industry and employee count in Apollo for the companies behind these leads that have no company profile yet. Costs Apollo credits (1 per company found); you confirm the count first.">
-              {enriching ? "Enriching…" : `🏢 Enrich ${Math.min(enrichTargets.length, MAX_COMPANY_BATCH).toLocaleString()} compan${enrichTargets.length === 1 ? "y" : "ies"}${selected.size ? " (selected)" : ""}`}
-            </button>
-            {enrichNote && <span className="muted" style={{ fontSize: 12 }}>{enrichNote}</span>}
-          </>
-        )}
-        {onCheckLeads && (
-          <>
-            <span style={{ width: 1, height: 18, background: "var(--border)" }} />
-            {checking
-              ? <button className="btn btn-sm btn-secondary" onClick={() => checkAbort.current?.abort()}>Stop Apollo check</button>
-              : <button className="btn btn-sm btn-primary" disabled={!checkTargets.length} onClick={() => runCheck()}
-                        title={"Looks each lead up in Apollo: whether they're a contact, which sequence, which step, finished and why.\nAlso reads every call and sequence email Apollo logged to them, so Touchpoints fills in. Read-only searches: nothing is written to Apollo."}>
-                  ⟳ Check {checkTargets.length.toLocaleString()} in Apollo{selected.size ? " (selected)" : checkDue.length > checkTargets.length ? ` of ${checkDue.length.toLocaleString()} due` : ""}
-                </button>}
-            {!selected.size && (
-              <select className="field" aria-label="Apollo batch" value={batchN} disabled={checking} onChange={(e) => setBatchN(Number(e.target.value))}>
-                {[100, 200, 400].map((n) => <option key={n} value={n}>Batch of {n}{n === 400 ? " (hourly max)" : ""}</option>)}
-                <option value={0}>All due</option>
-              </select>
-            )}
-            <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }} title="Leads checked in the last 7 days are skipped unless this is ticked">
-              <input type="checkbox" checked={recheck} disabled={checking} onChange={(e) => setRecheck(e.target.checked)} />
-              Re-check this week's
-            </label>
-          </>
-        )}
+        <span style={{ flex: 1 }} />
         {onAddToList && (
           <>
-            <span style={{ width: 1, height: 18, background: "var(--border)" }} />
             <select className="field" aria-label="Add to list" value={listTarget} onChange={(e) => setListTarget(e.target.value)} style={{ maxWidth: 190 }}>
               <option value="">＋ New list…</option>
               {lists.map((l) => <option key={l.id} value={l.id}>{l.name} ({l.rows.length.toLocaleString()})</option>)}
@@ -1975,11 +1922,113 @@ export default function AllLeads({
             {listNotice && <span style={{ color: "var(--success, #1F7A4D)" }} aria-label="List notice">{listNotice}</span>}
           </>
         )}
+        <span style={{ width: 1, height: 18, background: "var(--border)" }} />
+        {onCheckLeads && (
+          <>
+            {checking
+              ? <button className="btn btn-sm btn-secondary" onClick={() => checkAbort.current?.abort()}>Stop Apollo check</button>
+              : !checkTargets.length
+              ? <span className="muted" data-apollo-nothing-due title="Every lead here was checked in Apollo in the last 7 days. Tick Re-check this week's to look them up again.">✓ All checked in Apollo this week</span>
+              : <button className="btn btn-sm btn-primary" onClick={() => runCheck()}
+                        title={"Looks each lead up in Apollo: whether they're a contact, which sequence, which step, finished and why.\nAlso reads every call and sequence email Apollo logged to them, so Touchpoints fills in. Read-only searches: nothing is written to Apollo."}>
+                  ⟳ Check {checkTargets.length.toLocaleString()} in Apollo{selected.size ? " (selected)" : checkDue.length > checkTargets.length ? ` of ${checkDue.length.toLocaleString()} due` : ""}
+                </button>}
+            {!selected.size && (
+              <select className="field" aria-label="Apollo batch" value={batchN} disabled={checking} onChange={(e) => setBatchN(Number(e.target.value))}>
+                {[100, 200, 400].map((n) => <option key={n} value={n}>{n} at a time{n === 400 ? " (hourly max)" : ""}</option>)}
+                <option value={0}>All due</option>
+              </select>
+            )}
+            <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }} title="Leads checked in the last 7 days are skipped unless this is ticked">
+              <input type="checkbox" checked={recheck} disabled={checking} onChange={(e) => setRecheck(e.target.checked)} />
+              Re-check this week's
+            </label>
+          </>
+        )}
+        <span style={{ width: 1, height: 18, background: "var(--border)" }} />
         <button className="btn btn-sm btn-ghost" disabled={!selected.size || exporting}
                 onClick={() => exportSet(selectedLeads, "selection")}
                 title="Anyone already in Apollo is left out">
           ⬇ Export selection{selected.size ? ` (${notInApollo(selectedLeads).length.toLocaleString()} not in Apollo)` : ""}
         </button>
+        <button className={`btn btn-sm ${moreActionsOpen ? "btn-secondary" : "btn-ghost"}`} aria-label="More actions" aria-expanded={moreActionsOpen}
+                onClick={() => setMoreActionsOpen((v) => !v)}>
+          More actions {moreActionsOpen ? "▴" : "▾"}
+        </button>
+      </div>
+      {moreActionsOpen && (
+        <div data-more-actions style={{ width: "100%", boxSizing: "border-box", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 10, padding: "10px 12px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface-sunken)" }}>
+        {onSetStatus && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span className="muted" style={{ width: "100%", fontSize: 11, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase" }}>Set status{selected.size ? "" : " (tick rows first)"}</span>
+          <>
+            <select className="field" aria-label="Set status" style={{ width: 170 }} value={bulkStatus}
+                    onChange={(e) => setBulkStatus(e.target.value)}>
+              <option value="">Set status…</option>
+              {STATUS_ORDER.map((x) => <option key={x} value={x}>{STATUS_META[x].label}</option>)}
+              <option value="__auto">Back to automatic</option>
+            </select>
+            <button className="btn btn-sm btn-secondary" disabled={!selected.size || !bulkStatus}
+                    onClick={() => {
+                      onSetStatus([...selected], bulkStatus === "__auto" ? null : (bulkStatus as LeadStatus));
+                      setBulkStatus(""); setSelected(new Set());
+                    }}>
+              Apply{selected.size ? ` to ${selected.size.toLocaleString()}` : ""}
+            </button>
+          </>
+          </div>
+        )}
+        {onSetPlan && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span className="muted" style={{ width: "100%", fontSize: 11, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase" }}>Apollo sequence queue</span>
+          <>
+            <input className="field" list="all-leads-seqs" style={{ width: 210 }} placeholder="Queue into sequence…"
+                   value={bulkSeq} onChange={(e) => setBulkSeq(e.target.value)} aria-label="Queue into sequence" />
+            <datalist id="all-leads-seqs">{sequenceNames.map((n) => <option key={n} value={n} />)}</datalist>
+            <button className="btn btn-sm btn-secondary" disabled={!selected.size || !bulkSeq.trim()}
+                    onClick={() => { onSetPlan([...selected], bulkSeq.trim()); setBulkSeq(""); setSelected(new Set()); }}>
+              Queue {selected.size ? selected.size.toLocaleString() : ""}
+            </button>
+            <button className="btn btn-sm btn-ghost" disabled={!selected.size}
+                    onClick={async () => {
+                      if (await confirmAction(`Remove ${selected.size} lead(s) from the Apollo queue? They stay stored.`)) {
+                        onSetPlan([...selected], null); setSelected(new Set());
+                      }
+                    }}>
+              Remove from queue
+            </button>
+          </>
+          </div>
+        )}
+        {onCheckVisits && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span className="muted" style={{ width: "100%", fontSize: 11, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase" }}>Website visits</span>
+          <>
+            {visits && !visits.finished
+              ? <button className="btn btn-sm btn-secondary" onClick={() => visitAbort.current?.abort()}>Stop · {visits.done}/{visits.total}</button>
+              : <button className="btn btn-sm btn-secondary" disabled={!visitOrgs.length} onClick={() => void runVisits()}
+                        title={`Asks Apollo whether each company behind these leads visited ${TRACKED_DOMAIN} since October 2025, and tags every lead there. Read-only, no credits. Needs the leads to have been checked in Apollo first (that is where the company id comes from).`}>
+                  🌐 Check {visitOrgs.length.toLocaleString()} compan{visitOrgs.length === 1 ? "y" : "ies"} for site visits
+                </button>}
+            {visits?.finished && <span className="muted" style={{ fontSize: 12 }}>{visits.visited} visited {TRACKED_DOMAIN}, {visits.done - visits.visited} did not{visits.errors ? `, ${visits.errors} failed` : ""}.</span>}
+            {visitErr && <span style={{ fontSize: 12, color: "#B5443B" }}>{visitErr}</span>}
+          </>
+          </div>
+        )}
+        {onEnrichCompanies && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span className="muted" style={{ width: "100%", fontSize: 11, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase" }}>Company data</span>
+          <>
+            <button className="btn btn-sm btn-secondary" disabled={enriching || !enrichTargets.length} onClick={() => void runEnrich()}
+                    title="Look up industry and employee count in Apollo for the companies behind these leads that have no company profile yet. Costs Apollo credits (1 per company found); you confirm the count first.">
+              {enriching ? "Enriching…" : `🏢 Enrich ${Math.min(enrichTargets.length, MAX_COMPANY_BATCH).toLocaleString()} compan${enrichTargets.length === 1 ? "y" : "ies"}${selected.size ? " (selected)" : ""}`}
+            </button>
+            {enrichNote && <span className="muted" style={{ fontSize: 12 }}>{enrichNote}</span>}
+          </>
+          </div>
+        )}
+        </div>
+      )}
       </div>
 
       </>)}

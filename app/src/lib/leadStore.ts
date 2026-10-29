@@ -128,6 +128,11 @@ export interface StoredLead {
   /** Not a fit, and why — see LeadInput.notFit. The lead is kept (as a Bad
    *  Lead) rather than discarded. Per Jack: "i dont want to miss any". */
   notFit?: string;
+  /** Which Dynamics tab a Dynamics lead falls under (Business Central / ERP,
+   *  Sales / CRM, Everything else), from the scan. Absent on non-Dynamics
+   *  leads and on leads stored before it was kept; All leads then reads it
+   *  off the note with the same rule (dynamicsTabOfText). */
+  dynamicsView?: "bc" | "sales" | "other";
   /** Match key: the email, else first-name + company. See leadKeyOf. */
   key: string;
   source: LeadSource;
@@ -476,6 +481,7 @@ export function mergeLeads(
         fileSeen: inc.sourceFile ? [{ file: inc.sourceFile, at: now }] : [],
         noteDates: datesIn(inc, now),
         ...(inc.notFit ? { notFit: inc.notFit } : {}),
+        ...(inc.dynamicsView ? { dynamicsView: inc.dynamicsView } : {}),
       };
       byKey.set(key, lead);
       changed.set(key, lead);
@@ -494,6 +500,7 @@ export function mergeLeads(
       // Scan verdict: the newest scan wins.
       source: inc.source,
       productArea: inc.productArea || prev.productArea,
+      ...(inc.dynamicsView ? { dynamicsView: inc.dynamicsView } : inc.productArea && inc.productArea !== prev.productArea ? { dynamicsView: undefined } : {}),
       tier: nextTier(prev.tier, inc.tier),
       // The one scan-derived field that accumulates rather than replaces.
       notes: combineNotes(prev.notes, inc.notes, now),

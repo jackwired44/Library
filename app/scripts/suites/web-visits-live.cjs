@@ -65,6 +65,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await page.locator('button[aria-label="Save to platform"]').first().click(); await sleep(900);
 
   await page.locator('.side-nav-btn', { hasText: 'All leads' }).first().click(); await sleep(700);
+  await page.locator('button[aria-label="More actions"]').click(); await sleep(300);
   ok('before an Apollo check there is no company id, so nothing to check', /Check 0 companies for site visits/.test(await main()));
   await page.locator('button', { hasText: /Check 3 in Apollo/ }).click();
   await page.waitForFunction(() => /Check 2 companies for site visits/.test(document.querySelector('main').innerText), null, { timeout: 60000 });

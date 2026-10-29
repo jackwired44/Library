@@ -7707,3 +7707,33 @@ no stored key. Instead, stale Apollo data is surfaced where it bites.
 - A list whose sequence was picked before this field existed has no created
   date until the sequence is picked again; the sent-date check still works.
 - Suite `list-apollo-live` 52 → 56.
+
+### 2026-10-29: All leads — Dynamics breakdown filter, actions bar cleaned up (scanner-platform-v29)
+
+Per Jack: "need to be able to filter in strong leads into dynamics then the
+breakdowns as it follows with erp bc and sales crm then eveyrhting", and on
+the bulk bar: "this needs to be cleaned up and way better filter options".
+- **One Dynamics tab rule.** `dynamicsTabOfText(said)` /
+  `DYNAMICS_TAB_META` / `DYNAMICS_TAB_ORDER` (`lib/detection.ts`) is the
+  F&O → BC named → supply chain → ERP/back office → Sales order from the
+  2026-10-28 re-cut, now one exported function the scan itself calls
+  (`scanRowPlatform`), so the scan and All leads cannot disagree.
+- **`StoredLead.dynamicsView`** ("bc" | "sales" | "other"): set by
+  `leadInputsFromResults` from the row's flags, carried by `mergeLeads`
+  (cleared if the product line changes), and refreshed by
+  `withRefreshedScan`. `NOTE_RULES_VERSION` bumped so every stored Main lead
+  gets it on next load. A lead without it (Custom, or no saved CSV row) is
+  read off its note + product area with the same rule.
+- **All leads**: picking a Dynamics product line shows a "Dynamics view"
+  select (All Dynamics 365 / Business Central / ERP / Sales / CRM /
+  Customer Service / Everything else (F&O, supply chain)) with faceted
+  counts and a chip; leaving Dynamics clears it. Grade switch → Product line
+  → Dynamics view is the Strong → Dynamics → breakdown path.
+- **Actions bar**: one line reads "N matched · actions apply to all, or tick
+  rows" (or "N selected of M"); Add to list, Check in Apollo (batch,
+  Re-check this week's), Export selection stay in view. Set status, the
+  Apollo sequence queue, website visits and company enrichment moved behind
+  "More actions ▾", each only shown when available. "Check 0 in Apollo"
+  became "✓ All checked in Apollo this week". Batch reads "400 at a time".
+- Suites: `dynamics-filter-live` (10, new); `web-visits-live` opens More
+  actions first.

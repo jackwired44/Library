@@ -1561,6 +1561,33 @@ function matchCustomKeywords(combined: string, customKeywords: Record<CategoryKe
   return hits;
 }
 
+/** The three Dynamics tabs, decided on what the lead SAID (notes + Product
+ *  Area). One rule, used by the scan and by All leads' Dynamics filter:
+ *  F&O → Everything else; Business Central named → BC / ERP; supply chain →
+ *  Everything else; ERP / back office / an accounting or project need with
+ *  no customer-facing app named → BC / ERP; the rest → Sales / CRM. */
+export type DynamicsTab = "bc" | "sales" | "other";
+export const DYNAMICS_TAB_ORDER: DynamicsTab[] = ["bc", "sales", "other"];
+export const DYNAMICS_TAB_META: Record<DynamicsTab, { label: string; hint: string }> = {
+  bc: { label: "Business Central / ERP", hint: "Business Central, ERP, Project Operations, GP/NAV/AX, accounting or project needs" },
+  sales: { label: "Sales / CRM / Customer Service", hint: "Dynamics Sales, CRM, Customer Service, Field Service, Customer Insights, a bare Dynamics 365" },
+  other: { label: "Everything else (F&O, supply chain)", hint: "Finance and Operations, Dynamics 365 Finance, supply chain" },
+};
+export function dynamicsTabOfText(said: string): DynamicsTab {
+  // "if the word business central is in it its good to go to business
+  // central erp not everything else": naming BC outright beats supply
+  // chain. A bare "ERP" does not.
+  const namesBc = /\bbusiness\s*central\b|\bd\s*365\s*bc\b|\bdynamics\s*(?:365\s*)?\(?\s*bc\b/i.test(said);
+  // …except Finance and Operations: "if fno is there everything else".
+  if (DYNAMICS_FNO_TAB_RE.test(said) || (!namesBc && DYNAMICS_OTHER_TAB_RE.test(said))) return "other";
+  // An accounting or project need only counts when no customer-facing app is
+  // named: a Sales lead "on Sage today" is still a Sales lead.
+  const namesFrontOffice = SALES_CRM_RE.test(said) || FRONT_OFFICE_RE.test(said);
+  if (BUSINESS_CENTRAL_RE.test(said) || DYNAMICS_BACK_OFFICE_RE.test(said)
+    || (!namesFrontOffice && (PLATFORM_ACCOUNTING_RE.test(said) || PLATFORM_PROJECT_RE.test(said)))) return "bc";
+  return "sales";
+}
+
 export function scanRowPlatform(
   row: Record<string, unknown>,
   columns: string[],
@@ -1830,18 +1857,9 @@ export function scanRowPlatform(
   // "if the word business central is in it its good to go to business
   // central erp not everything else": naming BC outright beats F&O and
   // supply chain. A bare "ERP" does not.
-  const namesBc = /\bbusiness\s*central\b|\bd\s*365\s*bc\b|\bdynamics\s*(?:365\s*)?\(?\s*bc\b/i.test(said);
-  // …except Finance and Operations: "if fno is there everything else",
-  // Business Central or not.
-  const namesFno = DYNAMICS_FNO_TAB_RE.test(said);
-  const isOtherTab = hasDynamics && (namesFno || (!namesBc && DYNAMICS_OTHER_TAB_RE.test(said)));
-  // An accounting or project need only counts when no customer-facing app is
-  // named: a Sales lead "on Sage today" is still a Sales lead.
-  const namesFrontOffice = SALES_CRM_RE.test(said) || FRONT_OFFICE_RE.test(said);
-  const isBusinessCentral = hasDynamics && !isOtherTab && (
-    BUSINESS_CENTRAL_RE.test(said) || DYNAMICS_BACK_OFFICE_RE.test(said)
-    || (!namesFrontOffice && (PLATFORM_ACCOUNTING_RE.test(said) || PLATFORM_PROJECT_RE.test(said))));
-  const isSalesCrm = hasDynamics && !isOtherTab && !isBusinessCentral;
+  const tab = hasDynamics ? dynamicsTabOfText(said) : null;
+  const isBusinessCentral = tab === "bc";
+  const isSalesCrm = tab === "sales";
   const notes = stripScorecard(String(commentsValue ?? ""));
   const dynamicsCounts = hits.filter((h) => h.category === "Dynamics 365" && h.seatCount != null).map((h) => h.seatCount as number);
   const dynamicsSeatCount = dynamicsCounts.length

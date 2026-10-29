@@ -22,7 +22,7 @@ import { loadRawNotesMany, newestRaw, type RawNotes } from "./rawNotes";
 import { scan2, emptyRuleSet, loadRuleSets, profileColumns, guessFieldMapping, type RuleSet2, type ScannerKind } from "./scanner2";
 
 /** Bump when the Main note rules change, so stored notes refresh once. */
-export const NOTE_RULES_VERSION = "2026-10-28-dynamics-tabs-2";
+export const NOTE_RULES_VERSION = "2026-10-29-dynamics-view-stored";
 const VERSION_KEY = "mainNoteRulesVersion";
 
 /** Today's Main Scanner read of one lead's stored raw row, or null when
@@ -67,7 +67,11 @@ export function withRefreshedScan(lead: StoredLead, row: ResultRow): StoredLead 
   const next: StoredLead = keepVerdict
     ? { ...lead, notes }
     : { ...lead, notes, tier: input.tier || lead.tier, score: input.score, productArea: input.productArea || lead.productArea };
-  const same = next.notes === lead.notes && next.tier === lead.tier && next.score === lead.score && next.productArea === lead.productArea;
+  // The Dynamics tab follows the scan even for a not-a-fit lead: it says
+  // what they asked for, not whether they qualify.
+  if (input.dynamicsView) next.dynamicsView = input.dynamicsView; else if (next.productArea !== "Dynamics 365") delete next.dynamicsView;
+  const same = next.notes === lead.notes && next.tier === lead.tier && next.score === lead.score && next.productArea === lead.productArea
+    && next.dynamicsView === lead.dynamicsView;
   return same ? lead : next;
 }
 
