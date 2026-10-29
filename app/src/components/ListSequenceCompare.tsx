@@ -88,6 +88,21 @@ export function compareRow(row: ListedLeadRow, lead: StoredLead | null, target: 
   return { row, lead, here, miss: "unknown", other: "" };
 }
 
+/** Per Jack: "In Apollo, never sequenced (123) these are active in the
+ *  dynamics sequence". A lead whose last Apollo check came before the
+ *  sequence existed, or before it was sent from this list, can't show as
+ *  added yet: its standing is out of date, not wrong. Returns why, or null. */
+export function staleReason(c: CompareRow, list: LeadList): "created" | "sent" | null {
+  if (c.here || !c.lead || c.miss === "account" || c.miss === "notStored") return null;
+  const checked = c.lead.apolloCheckedAt || "";
+  if (!checked) return null; // never checked has its own reason
+  const sent = c.sentAt || list.sentAt?.[c.row.__rowKey] || "";
+  if (sent && checked < sent) return "sent"; // both full ISO stamps
+  const created = (list.targetSequenceCreatedAt || "").slice(0, 10);
+  if (created && checked.slice(0, 10) < created) return "created";
+  return null;
+}
+
 export interface SequenceOnly { name: string; email: string; company: string; seq: Seq; stored: boolean }
 
 /** People the platform knows are in the sequence but who are not on the
@@ -155,7 +170,7 @@ const stepText = (s: Seq) => [s.active ? "Active" : s.status === "finished" ? "F
 export function SequencePicker({ list, known, onPick, onSearch, onClose }: {
   list: LeadList;
   known: string[];
-  onPick: (s: { name: string; id?: string; owner?: string }) => void;
+  onPick: (s: { name: string; id?: string; owner?: string; createdAt?: string }) => void;
   onSearch?: (q: string) => Promise<FoundSequence[]>;
   onClose: () => void;
 }) {
@@ -187,7 +202,7 @@ export function SequencePicker({ list, known, onPick, onSearch, onClose }: {
           {found.length === 0 && <div className="muted">No Apollo sequence matches "{q}".</div>}
           {found.map((s) => (
             <div key={s.id} style={{ display: "flex", gap: 8, alignItems: "center", padding: "4px 0", borderTop: "1px solid var(--border)" }}>
-              <button className="btn btn-sm btn-primary" onClick={() => onPick({ name: s.name, id: s.id, owner: s.owner })}>Use</button>
+              <button className="btn btn-sm btn-primary" onClick={() => onPick({ name: s.name, id: s.id, owner: s.owner, createdAt: s.createdAt })}>Use</button>
               <strong>{s.name}</strong>
               <span className="muted">{[s.owner && `owner ${s.owner}`, s.steps ? `${s.steps} steps` : "", s.scheduled != null ? `${s.scheduled} scheduled` : "",
                 s.createdAt && `created ${s.createdAt}`, s.archived ? "archived" : s.active ? "active" : "paused"].filter(Boolean).join(" · ")}</span>
@@ -262,6 +277,8 @@ export function ComparePanel({ list, compared, extras, onNote, onRecheck, rechec
   const pages = Math.max(1, Math.ceil(shown.length / PAGE));
   const pageRows = shown.slice(page * PAGE, page * PAGE + PAGE);
   const pickShow = (v: string) => { setShow(v); setPage(0); };
+  const stale = compared.filter((c) => staleReason(c, list));
+  const staleKeys = [...new Set(stale.map((c) => c.lead!.key))];
   const recheckKeys = [...new Set(compared.filter((c) => !c.here && c.lead && c.miss !== "account").map((c) => c.lead!.key))];
   const noteOf = (k: string) => list.rowNotes?.[k] ?? "";
   function download() {
@@ -301,6 +318,12 @@ export function ComparePanel({ list, compared, extras, onNote, onRecheck, rechec
         </div>
       </div>
 
+      {staleKeys.length > 0 && (
+        <div role="status" data-stale-banner style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 10, padding: "8px 12px", borderRadius: 8, background: "#FFF4DD", color: "#6B4A00", fontSize: 12.5 }}>
+          <span>⚠ <b>{staleKeys.length.toLocaleString()}</b> lead{staleKeys.length === 1 ? " was" : "s were"} last checked in Apollo before {stale.some((c) => staleReason(c, list) === "sent") ? "they were sent" : `${target} was created`}{list.targetSequenceCreatedAt ? ` (${list.targetSequenceCreatedAt})` : ""}, so {staleKeys.length === 1 ? "its" : "their"} standing is out of date.</span>
+          {onRecheck && <button className="btn btn-sm btn-secondary" disabled={recheckBusy} onClick={() => onRecheck(staleKeys)} aria-label="Re-check out of date leads">↻ Re-check {staleKeys.length.toLocaleString()}</button>}
+        </div>
+      )}
       <div aria-hidden style={{ display: "flex", height: 8, borderRadius: 999, overflow: "hidden", background: "var(--surface-sunken)", margin: "12px 0 6px" }}>
         {segs.filter((x) => x.n).map((x) => (
           <div key={x.key} title={`${x.label}: ${x.n}`} style={{ width: `${(x.n / total) * 100}%`, background: x.color, opacity: !activeGroup || activeGroup === x.key ? 1 : 0.25 }} />

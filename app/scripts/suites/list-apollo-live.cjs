@@ -219,6 +219,16 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   const sum2 = (await cmp2.innerText()).replace(/\s+/g, ' ');
   ok('the compare counts a sent lead as added', /4 of 4 added · 0 not added/.test(sum2) && /2 sent, not seen in the sequence/.test(sum2), sum2.slice(0, 200));
   ok('  and the row says it was sent', /Sent to Apollo/.test((await cmp2.locator('[data-compare-row="NEW CO"]').innerText())));
+  // Checked before it was sent: its standing is out of date, so say so.
+  ok('the list header flags the lead checked before it was sent', /1 need a re-check/.test(await card().locator('[data-stale-chip]').innerText()));
+  ok('  and the comparison says why, with a re-check button', /last checked in Apollo before they were sent/.test(await cmp2.locator('[data-stale-banner]').innerText()));
+  await page.evaluate(() => { window.__calls = []; });
+  await cmp2.locator('button[aria-label="Re-check out of date leads"]').click();
+  await page.waitForFunction(() => (window.__calls || []).some(c => /contacts_search/.test(c.tool)), null, { timeout: 30000 });
+  await sleep(1500);
+  const re2 = (await page.evaluate(() => window.__calls)).filter(c => c.tool.endsWith('contacts_search')).map(c => c.args.q_keywords);
+  ok('  re-check looks up just that lead', re2.length === 1 && re2[0] === 'nia@new.com', JSON.stringify(re2));
+  ok('  and once re-checked the flag clears', await card().locator('[data-stale-chip]').count() === 0 && await cmp2.locator('[data-stale-banner]').count() === 0);
   await card().locator('button[aria-label="Compare Call list with its sequence"]').click(); await sleep(300);
   // A second list with the same people: its download skips anyone already sent.
   await nav('Main Scanner');

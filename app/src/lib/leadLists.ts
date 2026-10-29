@@ -79,6 +79,9 @@ export interface LeadList {
    *  note per row on why it wasn't added. All optional. */
   targetSequenceId?: string;
   targetSequenceOwner?: string;
+  /** The day Apollo created that sequence (YYYY-MM-DD), from the picker.
+   *  A lead checked before this day cannot show as in it yet. */
+  targetSequenceCreatedAt?: string;
   rowNotes?: Record<string, string>;
 }
 
@@ -196,7 +199,7 @@ export function onPickedList(idx: ListMatchIndex, lead: { contact?: string; comp
   return pick === "any" ? on.length > 0 : on.some((l) => l.id === pick);
 }
 
-export function updateLeadListMeta(lists: LeadList[], id: string, patch: Partial<Pick<LeadList, "tags" | "campaign" | "cycleDays" | "status" | "includeActive" | "includeRowKeys" | "sentAt" | "includeSent" | "targetSequence" | "targetSequenceId" | "targetSequenceOwner" | "rowNotes">>): LeadList[] {
+export function updateLeadListMeta(lists: LeadList[], id: string, patch: Partial<Pick<LeadList, "tags" | "campaign" | "cycleDays" | "status" | "includeActive" | "includeRowKeys" | "sentAt" | "includeSent" | "targetSequence" | "targetSequenceId" | "targetSequenceOwner" | "targetSequenceCreatedAt" | "rowNotes">>): LeadList[] {
   return lists.map((l) => (l.id === id ? { ...l, ...patch } : l));
 }
 /** "a, b ,c" -> ["a","b","c"], deduped, case kept from first sight. */

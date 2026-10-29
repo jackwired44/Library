@@ -16,7 +16,7 @@ import { leadsDueForApollo } from "./ApolloSyncPanel";
 import { confirmAction } from "../lib/confirmBox";
 import type { ApolloRosterEntry } from "../lib/apolloRoster";
 import type { FoundSequence } from "../lib/apolloLive";
-import { ComparePanel, SequencePicker, compareRow, knownSequenceNames, sequenceOnly } from "./ListSequenceCompare";
+import { ComparePanel, SequencePicker, compareRow, knownSequenceNames, sequenceOnly, staleReason } from "./ListSequenceCompare";
 
 interface ListsProps {
   lists: LeadList[];
@@ -26,7 +26,7 @@ interface ListsProps {
   onDelete: (id: string) => void;
   onRemoveRow: (listId: string, rowKey: string) => void;
   /** Campaign fields: tags, campaign name, cycle window. */
-  onUpdateMeta?: (id: string, patch: Partial<Pick<LeadList, "tags" | "campaign" | "cycleDays" | "status" | "includeActive" | "includeRowKeys" | "sentAt" | "includeSent" | "targetSequence" | "targetSequenceId" | "targetSequenceOwner" | "rowNotes">>) => void;
+  onUpdateMeta?: (id: string, patch: Partial<Pick<LeadList, "tags" | "campaign" | "cycleDays" | "status" | "includeActive" | "includeRowKeys" | "sentAt" | "includeSent" | "targetSequence" | "targetSequenceId" | "targetSequenceOwner" | "targetSequenceCreatedAt" | "rowNotes">>) => void;
   /** Move a campaign list's leads into a new dated list. */
   onCycle?: (id: string) => void;
   /** Re-run a smart list's saved rule against the current leads now. */
@@ -152,6 +152,22 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
       extras: sequenceOnly(comparing.targetSequence || "", comparing, leads, roster, apolloIndex),
     };
   }, [comparing, standings, leads, roster, apolloIndex]);
+  // How many leads on each sequence list were last checked before the
+  // sequence existed or before they were sent: shown on the list header.
+  const staleCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const l of lists) {
+      if (!l.targetSequence) continue;
+      const st = standings.get(l.id);
+      const keys = new Set<string>();
+      for (const r of l.rows) {
+        const c = compareRow(r, st?.get(r.__rowKey)?.lead ?? null, l.targetSequence, apolloIndex, l.sentAt?.[r.__rowKey]);
+        if (staleReason(c, l) && c.lead) keys.add(c.lead.key);
+      }
+      if (keys.size) m.set(l.id, keys.size);
+    }
+    return m;
+  }, [lists, standings, apolloIndex]);
   const listNeedle = listQ.trim().toLowerCase();
   const shownLists = (tagF ? lists.filter((l) => (l.tags ?? []).some((t) => t.toLowerCase() === tagF.toLowerCase())) : lists)
     .filter((l) => kindF === "all" || (kindF === "smart" ? !!l.rule : !l.rule))
@@ -274,6 +290,8 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
                           {list.campaign && <> · campaign <b>{list.campaign}</b></>}
                           {list.targetSequence && list.targetSequence !== list.campaign && <> · sequence <b>{list.targetSequence}</b></>}
                           {list.targetSequence && list.targetSequenceOwner && <> · owner {list.targetSequenceOwner}</>}
+                          {staleCounts.get(list.id) ? <> · <button data-stale-chip onClick={() => setComparingId(list.id)} title="Last checked in Apollo before the sequence existed or before they were sent. Open the comparison to re-check them."
+                            style={{ background: "#FFF4DD", color: "#6B4A00", border: "none", borderRadius: 999, padding: "1px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>⚠ {staleCounts.get(list.id)} need a re-check</button></> : null}
                           {d !== null && list.status !== "cycled" && <> · {d > 0 ? `cycles in ${d}d (${cycleDueOn(list)})` : <b style={{ color: "#9A5B22" }}>due to cycle</b>}</>}
                           {list.status === "cycled" && <> · <span title="Its leads moved into a newer list">cycled</span></>}
                           {(() => {
@@ -371,7 +389,7 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
                 {pickingId === list.id && onUpdateMeta && (
                   <SequencePicker list={list} known={known} onSearch={onSearchSequences} onClose={() => setPickingId(null)}
                     onPick={(sq) => {
-                      onUpdateMeta(list.id, { targetSequence: sq.name, targetSequenceId: sq.id, targetSequenceOwner: sq.owner || undefined, campaign: sq.name });
+                      onUpdateMeta(list.id, { targetSequence: sq.name, targetSequenceId: sq.id, targetSequenceOwner: sq.owner || undefined, targetSequenceCreatedAt: sq.createdAt || undefined, campaign: sq.name });
                       setPickingId(null); setComparingId(list.id);
                     }} />
                 )}

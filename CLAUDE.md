@@ -7690,3 +7690,20 @@ in another sequence, skipped by the download. The download button now reads
   "N sent, not seen in the sequence by a check yet") until a check finds it.
   The re-check button now reads "Re-check N not seen in the sequence".
 - Suite `list-apollo-live` 44 → 52.
+
+### 2026-10-29: lists flag leads whose Apollo check is out of date (scanner-platform-v29)
+
+Per Jack, after deciding against an Apollo API key ("i am the only one who
+uses this"): the claude.ai connector stays the only Apollo path; no server,
+no stored key. Instead, stale Apollo data is surfaced where it bites.
+- `staleReason(row, list)` (`ListSequenceCompare.tsx`): a stored, not-added
+  lead (deal/meeting on file excluded) whose `apolloCheckedAt` is before the
+  row was sent from this list (`sentAt`, full ISO) or before the sequence was
+  created (`LeadList.targetSequenceCreatedAt`, set by the picker from
+  Apollo's `created_at`). Never-checked leads keep their own reason.
+- The list header shows "⚠ N need a re-check" (opens the comparison); the
+  comparison shows a banner with "↻ Re-check N", a forced read-only lookup
+  of just those leads. The flag clears once they are re-checked.
+- A list whose sequence was picked before this field existed has no created
+  date until the sequence is picked again; the sent-date check still works.
+- Suite `list-apollo-live` 52 → 56.
