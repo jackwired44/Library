@@ -14,7 +14,7 @@
 // is left alone. Older dated note segments are history and are not
 // rewritten. Custom and CSP leads get the Main-format note too, keeping
 // their own grade (see refreshMainNotes).
-import { scanParsedFiles, stripSnippetPrefix, noSignalNote, looksScanned, DEFAULT_RULE_OVERRIDES, type RuleOverrides } from "./detection";
+import { scanParsedFiles, stripSnippetPrefix, noSignalNote, DEFAULT_RULE_OVERRIDES, type RuleOverrides } from "./detection";
 import { NOTE_SEP, NO_SIGNAL_TIER, noteSegments, type StoredLead } from "./leadStore";
 import { leadInputsFromResults } from "./leadFiling";
 import type { ResultRow } from "./detection";
@@ -179,23 +179,19 @@ export async function refreshMainNotes(
         sliceStart = performance.now();
       }
       const r = raw.get(orig.key);
-      // Raw text sitting where the scanned note belongs (see unscannedFix)
-      // is replaced first, whether or not a CSV row was saved.
-      const l = unscannedFix(orig, r, overrides);
       if (!r) {
-        if (l !== orig) changed.push(l);
-        else if (missing) {
+        if (missing) {
           const f = orig.sourceFiles[orig.sourceFiles.length - 1] || "Unknown file";
           missing.set(f, (missing.get(f) || 0) + 1);
         }
         continue;
       }
+      // A note line that is a copy of the raw CSV note is replaced first
+      // (see unscannedFix); everything else goes through as before.
+      const l = unscannedFix(orig, r);
       if (orig.source !== "main") {
         const fresh = currentScanner2Note(r, orig.source as ScannerKind, sets[orig.source as ScannerKind]);
-        // Nothing qualified today: still a scanned line, never the raw text.
-        const next = fresh ? withRefreshedNoteOnly(orig, fresh)
-          : isScannedLine(noteSegments(orig.notes)[0]?.text ?? "") ? orig
-          : withRefreshedNoteOnly(orig, noSignalNote(newestRaw(r), NOTHING_QUALIFIED));
+        const next = fresh ? withRefreshedNoteOnly(l, fresh) : l;
         if (next !== orig) changed.push(next);
         continue;
       }
@@ -210,59 +206,51 @@ export async function refreshMainNotes(
   return changed;
 }
 
-/** A Main note line that is already a scanned brief: a score/mark head, or
- *  a Dynamics line (those carry no score by Jack's rule). */
-const DYNAMICS_BRIEF_RE = /^(?:Wants|Looked at|Sales platform:|Row reverses)\b/;
-function isScannedLine(line: string): boolean {
-  const t = line.replace(/^\d{4}-\d{2}-\d{2} · /, "").trim();
-  return looksScanned(t) || DYNAMICS_BRIEF_RE.test(t);
+/** A stored note line, without its date marker, for comparing to raw text. */
+function normNote(t: string): string {
+  return t.replace(/^\d{4}-\d{2}-\d{2} · /, "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+/** Whether a stored note line is a copy of the lead's raw CSV note: the same
+ *  words, or one wholly inside the other. Only a line PROVEN to be raw text
+ *  is ever rewritten — a note in an older scanned shape (a CSP renewal line,
+ *  an older Custom or Dynamics line) is not raw and is left exactly as is. */
+export function isRawCopy(text: string, raw: RawNotes | undefined): boolean {
+  if (!raw?.segments.length) return false;
+  const n = normNote(text);
+  if (n.length < 20) return false;
+  return raw.segments.some((s) => {
+    const r = normNote(s.text);
+    return r === n || (n.length >= 40 && (r.includes(n) || n.includes(r)));
+  });
 }
 
 /**
  * Per Jack, pointing at Needs Review and Bad Lead leads whose scanned note
  * read exactly like the raw note: "needs reviewed and bad lead should store
  * as scanned with the new note updated i want no visibility of the raw note
- * without the pin code". Two sources of that:
- *  - No-signal rows were stored with the raw CSV note as their note. Every
- *    segment that is not already a scanned line becomes the no-signal line.
- *  - A lead saved before CSV rows were kept, whose note is still raw text,
- *    could never be re-scanned. Its own note is scanned instead, keeping
- *    the grade it was filed with.
+ * without the pin code". No-signal rows were stored with the raw CSV note
+ * as their note. Every note line that is a copy of the saved raw note
+ * becomes the scanned no-signal line; the main pass then puts today's brief
+ * on top where the scanner qualifies the row. A lead with no saved raw note
+ * is left alone: there is nothing to prove its note is raw.
  */
 const NOTHING_QUALIFIED = "Nothing in the note qualified on this scanner.";
-export function unscannedFix(l: StoredLead, raw: RawNotes | undefined, overrides: RuleOverrides = DEFAULT_RULE_OVERRIDES): StoredLead {
+export function unscannedFix(l: StoredLead, raw: RawNotes | undefined): StoredLead {
+  if (!raw) return l;
   const segs = noteSegments(l.notes);
-  if (l.source !== "main") {
-    // Custom / CSP: a saved row is re-read with that scanner's rules in the
-    // main pass. Without one, a raw note can only become the plain line.
-    const top = segs[0]?.text ?? "";
-    if (raw || !top || isScannedLine(top)) return l;
-    return withRefreshedNoteOnly(l, noSignalNote(top, NOTHING_QUALIFIED));
-  }
   if (!segs.length) {
-    if (l.tier !== NO_SIGNAL_TIER) return l;
+    if (l.source !== "main" || l.tier !== NO_SIGNAL_TIER) return l;
     const text = newestRaw(raw);
     return text ? { ...l, notes: noSignalNote(text) } : l;
   }
-  if (segs.every((s) => isScannedLine(s.text))) return l;
-  if (l.tier === NO_SIGNAL_TIER) {
-    const lines = segs.map((s) => { const text = isScannedLine(s.text) ? s.text : noSignalNote(s.text); return s.date ? `${s.date} · ${text}` : text; });
-    const notes = lines.join(NOTE_SEP);
-    return notes === l.notes ? l : { ...l, notes };
-  }
-  if (raw) return l; // a saved row re-scans it properly in the main pass
-  const top = segs[0].text;
-  if (isScannedLine(top)) return l;
-  let fresh = "";
-  try {
-    const row = scanParsedFiles([{ name: "note", fields: ["Comments"], data: [{ Comments: top }] }], overrides).results[0];
-    fresh = row?.notesSummary || "";
-  } catch { /* fall through to the no-signal line */ }
-  if (!fresh) {
-    const lines = segs.map((s, i) => { const text = i === 0 ? noSignalNote(top) : s.text; return s.date ? `${s.date} · ${text}` : text; });
-    return { ...l, notes: lines.join(NOTE_SEP) };
-  }
-  return withRefreshedNoteOnly(l, fresh);
+  if (!segs.some((s) => isRawCopy(s.text, raw))) return l;
+  const says = l.source === "main" ? undefined : NOTHING_QUALIFIED;
+  const lines = segs.map((s) => {
+    const text = isRawCopy(s.text, raw) ? noSignalNote(s.text, says) : s.text;
+    return s.date ? `${s.date} · ${text}` : text;
+  });
+  const notes = lines.join(NOTE_SEP);
+  return notes === l.notes ? l : { ...l, notes };
 }
 
 /** Longest stretch the refresh holds the page before handing it back. */

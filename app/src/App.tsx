@@ -54,7 +54,7 @@ import {
 } from "./lib/apolloFunnel";
 import Campaigns from "./components/Campaigns";
 import Overview from "./components/Overview";
-import { appendRawNotes, removeRawNotesForFile, loadRawNotesMany, rebuildFileRows } from "./lib/rawNotes";
+import { appendRawNotes, removeRawNotesForFile, loadRawNotesMany, rebuildFileRows, loadRawNoteSearchIndex } from "./lib/rawNotes";
 import { setStatusRoster, withStatusOverride, type LeadStatus } from "./lib/leadStatus";
 import {
   DEFAULT_ROUTING, loadRouting, withPlan, type RoutingRules,
@@ -989,13 +989,25 @@ export default function App() {
     return { listId: list.id, added: rows.length };
   }
   /** Re-run every smart list's rule; only lists whose leads changed are written. */
+  // A smart list whose rule has keywords searches the original notes, the
+  // same as the Ask for leads preview did when it was saved; otherwise a
+  // lead that matched only in its original note drops off on refresh.
+  const [ruleRawNotes, setRuleRawNotes] = useState<Map<string, string> | null>(null);
+  const smartNeedsRaw = view === "lists" && leadLists.some((l) => l.rule?.keywords?.trim() && l.status !== "cycled");
+  useEffect(() => {
+    if (!smartNeedsRaw) return;
+    let live = true;
+    loadRawNoteSearchIndex().then((m) => { if (live) setRuleRawNotes(m); }).catch(() => { if (live) setRuleRawNotes(new Map()); });
+    return () => { live = false; };
+  }, [smartNeedsRaw, leads.length]);
   function refreshSmartLists(onlyId?: string) {
     if (!ruleFacts) return;
+    if (smartNeedsRaw && !ruleRawNotes) return; // runs again once they load
     let next = leadLists;
     const changed: string[] = [];
     for (const l of leadLists) {
       if (!l.rule || l.status === "cycled" || (onlyId && l.id !== onlyId)) continue;
-      const rows = rowsForLeads(leadsForRule(l.rule, leads, ruleFacts));
+      const rows = rowsForLeads(leadsForRule(l.rule, leads, ruleFacts, undefined, ruleRawNotes));
       const before = l.rows.map((r) => r.__rowKey).join("|");
       if (!onlyId && before === rows.map((r) => r.__rowKey).join("|")) continue;
       next = setSmartListRows(next, l.id, rows);
@@ -1009,7 +1021,7 @@ export default function App() {
   useEffect(() => {
     if (view === "lists" && ruleFacts && leadLists.some((l) => l.rule && l.status !== "cycled")) refreshSmartLists();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, ruleFacts]);
+  }, [view, ruleFacts, ruleRawNotes]);
 
   function updateRuleOverrides(next: RuleOverrides) {
     setRuleOverrides(next);

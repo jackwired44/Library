@@ -169,10 +169,10 @@ export function buildFactsMap(leads: StoredLead[], profiles: CompanyProfile[], i
 }
 
 /** Every lead the rule matches, best first: Strong Signal, then score, then newest. */
-export function leadsForRule(rule: SmartRule, leads: StoredLead[], facts: Map<string, RuleFacts>, today = new Date()): StoredLead[] {
+export function leadsForRule(rule: SmartRule, leads: StoredLead[], facts: Map<string, RuleFacts>, today = new Date(), rawNotes?: Map<string, string> | null): StoredLead[] {
   const rank: Record<Verdict, number> = { strong: 0, review: 1, bad: 2 };
   return leads
-    .filter((l) => { const f = facts.get(l.key); return !!f && ruleMatches(rule, l, f, today); })
+    .filter((l) => { const f = facts.get(l.key); return !!f && ruleMatches(rule, l, f, today, rawNotes?.get(l.key) ?? ""); })
     .sort((a, b) => {
       const fa = facts.get(a.key)!, fb = facts.get(b.key)!;
       return rank[fa.verdict] - rank[fb.verdict] || (b.score ?? -1) - (a.score ?? -1) || fb.arrivalDate.localeCompare(fa.arrivalDate);
@@ -393,12 +393,12 @@ export function parseRuleText(text: string, ctx: RuleContext): SmartRule {
 
 /** What a few common asks mean in a note, as keyword OR-groups. */
 export const RULE_TOPICS: { label: string; when: RegExp; terms: string }[] = [
-  { label: "ongoing support", when: /\b(ongoing|managed\s+(?:it|service)|msp|it support|help\s?desk|co-?managed|outsourc\w*|support)\b/,
+  { label: "ongoing support", when: /\b(ongoing support|ongoing it|managed\s+(?:it|services?)|msps?|it support|help\s?desk|co-?managed|outsourc\w*|support partner)\b/,
     terms: '"ongoing support" OR "managed service" OR msp OR "co-managed" OR "it support" OR "help desk" OR helpdesk OR "support partner" OR outsourc OR "managed it" OR "full engagement" OR "partner engagement"' },
   { label: "security", when: /\b(security|secure|intune|defender|entra|purview|mfa|compliance|conditional access)\b/,
     terms: 'security OR intune OR defender OR entra OR purview OR "conditional access" OR mfa OR compliance' },
   { label: "migration", when: /\b(migrat\w*|lift and shift|on-?prem\w*|move to (?:the )?cloud)\b/,
-    terms: 'migrat OR "lift and shift" OR on-prem OR "on prem" OR "move to"' },
+    terms: 'migrat OR "lift and shift" OR on-prem OR "on prem"' },
   { label: "Google", when: /\b(google|gmail|g suite|gsuite|workspace)\b/,
     terms: 'google OR gmail OR "g suite" OR gsuite' },
   { label: "Copilot", when: /\bcopilot\b/, terms: "copilot" },

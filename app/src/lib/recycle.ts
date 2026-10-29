@@ -178,7 +178,7 @@ export function recycleOf(l: StoredLead, rules: RecycleRules = DEFAULT_RECYCLE_R
   if (st === "meeting") return { ...base, stage: "excluded", reason: "Meeting booked" };
   // Not interested set by hand counts the same as Apollo saying so: it rests
   // for notInterestedMonths from when it was set, never the 22-day rest.
-  const handNo = st === "not-interested";
+  const handNo = l.statusOverride?.status === "not-interested";
   const handNoAt = handNo ? (l.statusOverride?.at || "") : "";
   if (st === "reached") return { ...base, stage: "working", reason: "Spoken with, already handled" };
   if (st === "in-sequence") return { ...base, stage: l.recycle?.downloadedAt ? "back" : "working", reason: "In a live sequence" };

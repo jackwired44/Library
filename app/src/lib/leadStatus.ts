@@ -218,7 +218,6 @@ export function contactStateOf(l: StoredLead): ContactState {
   // Apollo's end-of-sequence reason is read the same way derivedStatus reads
   // it: "Not interested" there is a no, not a "Contact made".
   const reasons = a.sequences.map((s) => s.reason || "").filter(Boolean);
-  if (reasons.some((r) => MEETING_RE.test(r))) return "meeting";
   if (reasons.some((r) => NO_RE.test(r) && !/not\s*interested\s*yet/i.test(r))) return "no";
   if (wasReached(a)) return "made";
   if (a.callCount > 0 || (a.emailCount ?? 0) > 0) return "attempted";

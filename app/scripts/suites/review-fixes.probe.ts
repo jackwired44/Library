@@ -78,14 +78,25 @@ const storedNoSignal = { ...base, tier: "No signal", notes: RAW, apollo: undefin
 const fixedNs = unscannedFix(storedNoSignal, rawRec);
 ok("a stored no-signal lead with a raw note is rewritten", fixedNs.notes !== RAW && /^\u25BC /.test(fixedNs.notes), fixedNs.notes);
 const oldBad = { ...base, tier: "Bad Leads", notes: "We are not interested at this time, happy with our current provider. They run Microsoft 365 E3 for 40 users.", apollo: undefined } as StoredLead;
-const fixedBad = unscannedFix(oldBad, undefined);
-ok("an old Bad Lead with a raw note and no saved row gets a scanned note", fixedBad.notes !== oldBad.notes && /^\(\d+\) /.test(fixedBad.notes), fixedBad.notes);
-ok("  and keeps its grade", fixedBad.tier === "Bad Leads");
-const dyn = { ...base, notes: "Wants Dynamics 365 Business Central (25 users).", productArea: "Dynamics 365" } as StoredLead;
-ok("a scanned Dynamics line (no score by design) is left alone", unscannedFix(dyn, undefined) === dyn);
-const csp = { ...base, source: "csp", tier: "Low priority", score: 12, notes: "Some pasted seller text about the account with no product named at all here.", apollo: undefined } as StoredLead;
-const fixedCsp = unscannedFix(csp, undefined);
-ok("a CSP lead with a raw note gets one scanned line, one mark", /^\(12\) \u25BC Nothing in the note qualified/.test(fixedCsp.notes) && (fixedCsp.notes.match(/[\u25B2\u25B8\u25BC\u2715]/g) || []).length === 1, fixedCsp.notes);
+ok("a lead with no saved raw note is left alone (nothing proves its note is raw)", unscannedFix(oldBad, undefined) === oldBad);
+const cspRenewal = { ...base, source: "csp", tier: "High priority", score: 95, notes: "\u23F0 Renews ~December (56d) \u00b7 $504k on Copilot \u00b7 no partner yet \u00b7 annual renewal, paid upfront \u00b7 (95)", apollo: undefined } as StoredLead;
+ok("an older CSP renewal note is never wiped", unscannedFix(cspRenewal, undefined) === cspRenewal && unscannedFix(cspRenewal, { key: "k", segments: [{ at: "2026-10-01T00:00:00Z", file: "c.csv", text: "Long seller history about the renewal and the partner and licensing over many months of notes." }] }) === cspRenewal);
+const oldDyn = { ...base, notes: "Dynamics 365 Business Central \u00b7 25 seats \u00b7 partner: Netwize", productArea: "Dynamics 365" } as StoredLead;
+ok("an older Dynamics line keeps its shape and partner", unscannedFix(oldDyn, rawRec) === oldDyn);
+const smcNoSignal = { ...base, source: "smc", tier: "No signal", notes: "No signal \u2014 nothing qualifying found in the row", apollo: undefined } as StoredLead;
+ok("a Custom 'No signal' scanned line is left alone", unscannedFix(smcNoSignal, rawRec) === smcNoSignal);
+const cspRaw = { ...base, source: "csp", tier: "Low priority", score: 12, notes: RAW, apollo: undefined } as StoredLead;
+const fixedCsp = unscannedFix(cspRaw, rawRec);
+ok("a CSP note that IS the raw note becomes a scanned line", fixedCsp.notes !== RAW && /^\u25BC Nothing in the note qualified/.test(fixedCsp.notes), fixedCsp.notes);
+const twoSeg = { ...base, tier: "No signal", notes: `(40) \u25BC Wants Copilot for 20 users.\n2026-09-01 \u00b7 ${RAW}`, apollo: undefined } as StoredLead;
+const fixedTwo = unscannedFix(twoSeg, rawRec);
+ok("only the raw-copy line is rewritten; the scanned line stays", fixedTwo.notes.startsWith("(40) \u25BC Wants Copilot for 20 users.") && !fixedTwo.notes.includes("copier"), fixedTwo.notes);
+
+// 7b. The generated "Ask" tail is still found after an ellipsis or a mark.
+const ell = combineNotes("(50) \u25B2 Wants dashboards, track performance, analyze\u2026 Ask how they manage licensing today.", "(60) \u25B2 Newer.", "2026-10-29");
+ok("'Ask' after an ellipsis is still stripped from the older line", !/Ask how they manage/.test(ell.split("\n").slice(1).join("\n")), ell);
+const markAsk = combineNotes("(72) \u25B2 Ask how they manage licensing today.", "(60) \u25B2 Newer.", "2026-10-29");
+ok("'Ask' right after the mark is still stripped", !/Ask how/.test(markAsk.split("\n").slice(1).join("\n")), markAsk);
 
 // 8. Ask for leads: plain topics and leftover words become a keyword search.
 const ctx = { industries: [] as string[], today: new Date("2026-10-29T12:00:00") };
@@ -102,6 +113,9 @@ const sec = parseRuleText("strong signal leads with security needs not contacted
 ok("topic + grade + stale combine", sec.grades?.[0] === "strong" && sec.contact === "stale" && /intune/.test(sec.keywords || ""), JSON.stringify(sec));
 const dynAsk = parseRuleText("Uncontacted Dynamics leads from the last 30 days", ctx);
 ok("existing presets are unchanged (no keywords added)", !dynAsk.keywords && dynAsk.contact === "never" && dynAsk.product?.[0] === "dynamics", JSON.stringify(dynAsk));
+
+const plainSupport = parseRuleText("M365 leads needing licensing support", ctx);
+ok("bare 'support' does not pull in the MSP topic", !/help desk/.test(plainSupport.keywords || ""), JSON.stringify(plainSupport));
 
 console.log(`review-fixes ${fail ? "FAIL" : "PASS"} ${pass}/${pass + fail}`);
 if (fail) process.exit(1);
