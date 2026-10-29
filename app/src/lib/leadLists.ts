@@ -64,6 +64,15 @@ export interface LeadList {
    *  (`includeRowKeys`). Both optional: unset = leave them out. */
   includeActive?: boolean;
   includeRowKeys?: string[];
+  /** Rows sent to Apollo from this list: rowKey → when. Stamped when the
+   *  list is downloaded (or marked sent by hand), so a later list, or a
+   *  re-check, can tell the lead was already handed off. Per Jack: "i
+   *  uploaded 830 into apollo … we need it to catch the already added ones
+   *  for the future". */
+  sentAt?: Record<string, string>;
+  /** Include leads already sent to Apollo from another list in this list's
+   *  download. Off by default. */
+  includeSent?: boolean;
   /** Per Jack: "pull up a seuqnece here … side by side to see which leads got
    *  added and which didnt so i can note why". The Apollo sequence this list
    *  is compared against (its name is `targetSequence`), who owns it, and a
@@ -187,7 +196,7 @@ export function onPickedList(idx: ListMatchIndex, lead: { contact?: string; comp
   return pick === "any" ? on.length > 0 : on.some((l) => l.id === pick);
 }
 
-export function updateLeadListMeta(lists: LeadList[], id: string, patch: Partial<Pick<LeadList, "tags" | "campaign" | "cycleDays" | "status" | "includeActive" | "includeRowKeys" | "targetSequence" | "targetSequenceId" | "targetSequenceOwner" | "rowNotes">>): LeadList[] {
+export function updateLeadListMeta(lists: LeadList[], id: string, patch: Partial<Pick<LeadList, "tags" | "campaign" | "cycleDays" | "status" | "includeActive" | "includeRowKeys" | "sentAt" | "includeSent" | "targetSequence" | "targetSequenceId" | "targetSequenceOwner" | "rowNotes">>): LeadList[] {
   return lists.map((l) => (l.id === id ? { ...l, ...patch } : l));
 }
 /** "a, b ,c" -> ["a","b","c"], deduped, case kept from first sight. */
@@ -387,4 +396,46 @@ export function listsForContact(
     if (onList) out.push({ list, categories: [...categories] });
   });
   return out;
+}
+
+/** Where a person was already sent to Apollo from a list. */
+export interface SentRecord { listId: string; listName: string; sequence: string; at: string }
+export interface SentIndex { byName: Map<string, SentRecord[]>; byEmail: Map<string, SentRecord[]> }
+
+/** Every lead stamped as sent from any list, keyed the same way the list
+ *  matcher is: the same email, or the full name at the same company. */
+export function sentIndex(lists: LeadList[]): SentIndex {
+  const byName = new Map<string, SentRecord[]>();
+  const byEmail = new Map<string, SentRecord[]>();
+  const add = (m: Map<string, SentRecord[]>, k: string, rec: SentRecord) => {
+    if (!k) return;
+    const arr = m.get(k);
+    if (!arr) m.set(k, [rec]); else if (!arr.some((x) => x.listId === rec.listId)) arr.push(rec);
+  };
+  for (const l of lists) {
+    if (!l.sentAt) continue;
+    for (const r of l.rows) {
+      const at = l.sentAt[r.__rowKey];
+      if (!at) continue;
+      const rec = { listId: l.id, listName: l.name, sequence: l.targetSequence || "", at };
+      add(byEmail, emailKey(r.Email), rec);
+      add(byName, nameKey(`${r["First Name"] || ""} ${r["Last Name"] || ""}`, r["Company Name"]), rec);
+    }
+  }
+  return { byName, byEmail };
+}
+
+/** Lists this person was sent to Apollo from, oldest first. */
+export function sentRecordsFor(idx: SentIndex, lead: { contact?: string; company?: string; email?: string }): SentRecord[] {
+  const out: SentRecord[] = [];
+  for (const x of idx.byEmail.get(emailKey(lead.email)) ?? []) out.push(x);
+  for (const x of idx.byName.get(nameKey(lead.contact, lead.company)) ?? []) if (!out.some((y) => y.listId === x.listId)) out.push(x);
+  return out.sort((a, b) => a.at.localeCompare(b.at));
+}
+
+/** Stamp these rows as sent now (keeps an earlier stamp). */
+export function stampSent(list: LeadList, rowKeys: string[], at = new Date().toISOString()): Record<string, string> {
+  const next = { ...(list.sentAt ?? {}) };
+  for (const k of rowKeys) if (!next[k]) next[k] = at;
+  return next;
 }

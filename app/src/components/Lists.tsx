@@ -5,9 +5,9 @@
 // removes a lead, deletes a list, and downloads.
 import { useMemo, useState } from "react";
 import { CATEGORY_META, EXPORT_LABELS, stripSnippetPrefix } from "../lib/detection";
-import { downloadCSV } from "../lib/csv";
+import { downloadBlob, toCSV } from "../lib/csv";
 import { describeRule } from "../lib/smartRules";
-import { campaignMembership, cycleDueOn, daysToCycle, isActiveCampaign, isCampaignList, parseTags, CYCLE_CHOICES, type LeadList, type ListedLeadRow } from "../lib/leadLists";
+import { campaignMembership, cycleDueOn, daysToCycle, isActiveCampaign, isCampaignList, parseTags, sentIndex, sentRecordsFor, stampSent, CYCLE_CHOICES, type LeadList, type SentRecord, type ListedLeadRow } from "../lib/leadLists";
 import { normEmail, type StoredLead } from "../lib/leadStore";
 import { seenNameKey } from "../lib/seenBefore";
 import type { RosterIndex } from "../lib/apolloRoster";
@@ -26,7 +26,7 @@ interface ListsProps {
   onDelete: (id: string) => void;
   onRemoveRow: (listId: string, rowKey: string) => void;
   /** Campaign fields: tags, campaign name, cycle window. */
-  onUpdateMeta?: (id: string, patch: Partial<Pick<LeadList, "tags" | "campaign" | "cycleDays" | "status" | "includeActive" | "includeRowKeys" | "targetSequence" | "targetSequenceId" | "targetSequenceOwner" | "rowNotes">>) => void;
+  onUpdateMeta?: (id: string, patch: Partial<Pick<LeadList, "tags" | "campaign" | "cycleDays" | "status" | "includeActive" | "includeRowKeys" | "sentAt" | "includeSent" | "targetSequence" | "targetSequenceId" | "targetSequenceOwner" | "rowNotes">>) => void;
   /** Move a campaign list's leads into a new dated list. */
   onCycle?: (id: string) => void;
   /** Re-run a smart list's saved rule against the current leads now. */
@@ -99,7 +99,17 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
   // download unless overridden for the list or for that lead.
   const isActiveRow = (list: LeadList, r: ListedLeadRow) => standings.get(list.id)?.get(r.__rowKey)?.status === "active";
   const rowOverridden = (list: LeadList, r: ListedLeadRow) => !!list.includeActive || (list.includeRowKeys ?? []).includes(r.__rowKey);
-  const heldBack = (list: LeadList, r: ListedLeadRow) => isActiveRow(list, r) && !rowOverridden(list, r);
+  // Sent to Apollo from ANOTHER list: left out of this list's download too,
+  // so the same lead isn't uploaded twice. Per Jack: "i uploaded 830 into
+  // apollo … we need it to catch the already added ones for the future".
+  // A list's own sent rows still re-download (a lost file can be fetched again).
+  const sentIdx = useMemo(() => sentIndex(lists), [lists]);
+  const sentElsewhere = (list: LeadList, r: ListedLeadRow): SentRecord | null =>
+    sentRecordsFor(sentIdx, { contact: `${r["First Name"] || ""} ${r["Last Name"] || ""}`, company: r["Company Name"], email: r.Email })
+      .find((x) => x.listId !== list.id) ?? null;
+  const activeHeld = (list: LeadList, r: ListedLeadRow) => isActiveRow(list, r) && !rowOverridden(list, r);
+  const sentHeld = (list: LeadList, r: ListedLeadRow) => !list.includeSent && !(list.includeRowKeys ?? []).includes(r.__rowKey) && !!sentElsewhere(list, r);
+  const heldBack = (list: LeadList, r: ListedLeadRow) => activeHeld(list, r) || sentHeld(list, r);
   const downloadRows = (list: LeadList) => shownRows(list).filter((r) => !heldBack(list, r));
   function toggleRowOverride(list: LeadList, rowKey: string) {
     if (!onUpdateMeta) return;
@@ -138,7 +148,7 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
     if (!comparing) return null;
     const st = standings.get(comparing.id);
     return {
-      rows: comparing.rows.map((r) => compareRow(r, st?.get(r.__rowKey)?.lead ?? null, comparing.targetSequence || "", apolloIndex)),
+      rows: comparing.rows.map((r) => compareRow(r, st?.get(r.__rowKey)?.lead ?? null, comparing.targetSequence || "", apolloIndex, comparing.sentAt?.[r.__rowKey])),
       extras: sequenceOnly(comparing.targetSequence || "", comparing, leads, roster, apolloIndex),
     };
   }, [comparing, standings, leads, roster, apolloIndex]);
@@ -158,9 +168,17 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
     onRename(id, renameValue);
     setRenamingId(null);
   }
-  function download(list: LeadList) {
+  async function download(list: LeadList) {
     const fileName = /\.csv$/i.test(list.name) ? list.name : `${list.name}.csv`;
-    downloadCSV(fileName, downloadRows(list), EXPORT_LABELS);
+    const rows = downloadRows(list);
+    // Stamp who went out, so the next list knows they were already sent.
+    if (await downloadBlob(toCSV(rows, EXPORT_LABELS), fileName)) onUpdateMeta?.(list.id, { sentAt: stampSent(list, rows.map((r) => r.__rowKey)) });
+  }
+  async function markSent(list: LeadList, rows: ListedLeadRow[]) {
+    if (!onUpdateMeta || !rows.length) return;
+    if (await confirmAction(`Mark ${rows.length.toLocaleString()} lead${rows.length === 1 ? "" : "s"} on "${list.name}" as already uploaded to Apollo? Future lists will skip them in their downloads.`, "Mark as sent")) {
+      onUpdateMeta(list.id, { sentAt: stampSent(list, rows.map((r) => r.__rowKey)) });
+    }
   }
   async function handleDelete(list: LeadList) {
     if (await confirmAction(`Delete the list "${list.name}"? This only removes the list — the original leads stay in Scanner/History/Lead Library. This can't be undone.`, "Delete list")) {
@@ -258,6 +276,12 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
                           {list.targetSequence && list.targetSequenceOwner && <> · owner {list.targetSequenceOwner}</>}
                           {d !== null && list.status !== "cycled" && <> · {d > 0 ? `cycles in ${d}d (${cycleDueOn(list)})` : <b style={{ color: "#9A5B22" }}>due to cycle</b>}</>}
                           {list.status === "cycled" && <> · <span title="Its leads moved into a newer list">cycled</span></>}
+                          {(() => {
+                            const at = Object.values(list.sentAt ?? {});
+                            if (!at.length) return null;
+                            const last = [...at].sort().pop()!;
+                            return <> · <span data-sent-summary>{at.length.toLocaleString()} sent to Apollo (last {new Date(last).toLocaleDateString([], { month: "short", day: "numeric" })})</span></>;
+                          })()}
                           {list.rule && list.ruleRefreshedAt && <> · refreshed {new Date(list.ruleRefreshedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</>}
                         </div>
                         {list.rows.length > 0 && <ApolloSummary rows={list.rows} st={standings.get(list.id)} />}
@@ -304,22 +328,34 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
                       </button>
                     )}
                     {(() => {
-                      const n = downloadRows(list).length;
-                      const held = shownRows(list).length - n;
+                      const rows = downloadRows(list);
+                      const n = rows.length;
+                      const shown = shownRows(list);
+                      const active = shown.filter((r) => activeHeld(list, r)).length;
+                      const sentOther = shown.filter((r) => !activeHeld(list, r) && sentHeld(list, r)).length;
+                      const unsent = rows.filter((r) => !list.sentAt?.[r.__rowKey]);
                       // Per Jack: "Download CSV (830, 42 active left out) this
                       // is nonsense". The button says how many leads you get;
-                      // the skipped ones are a separate plain note.
+                      // anything skipped is a separate plain note.
                       return (
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                           <button onClick={() => download(list)} disabled={!n} aria-label={`Download ${list.name}`}
+                            title="Downloading marks these leads as sent to Apollo, so later lists skip them."
                             style={{ background: "#2CC295", color: "#081E22", border: "none", borderRadius: 8, padding: "6px 12px", fontWeight: 700, opacity: n ? 1 : 0.5 }}>
                             ⬇ Download {n.toLocaleString()} lead{n === 1 ? "" : "s"}
                           </button>
-                          {held > 0 && (
+                          {(active > 0 || sentOther > 0) && (
                             <span className="muted" data-download-skipped style={{ fontSize: 12 }}
-                              title="Already active in an Apollo sequence, so they aren't in the file. They stay on the list. Change this in the list's 'Active in a sequence' setting.">
-                              skips {held.toLocaleString()} already in a sequence
+                              title="Not in the file but still on the list. Change it in the list's settings below, or tick Include on a row.">
+                              skips {[active ? `${active.toLocaleString()} already in a sequence` : "", sentOther ? `${sentOther.toLocaleString()} sent from another list` : ""].filter(Boolean).join(" · ")}
                             </span>
+                          )}
+                          {onUpdateMeta && unsent.length > 0 && (
+                            <button onClick={() => markSent(list, unsent)} aria-label={`Mark ${list.name} as sent`}
+                              title="Already uploaded these to Apollo? Mark them, so future lists skip them."
+                              style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 12px" }}>
+                              ✓ Mark {unsent.length.toLocaleString()} as sent
+                            </button>
                           )}
                         </span>
                       );
@@ -373,6 +409,21 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
                         <option value="include">Include them in the download</option>
                       </select>
                       {!list.includeActive && <span className="muted">(tick "Include" on a row to let one through)</span>}
+                    </label>
+                  );
+                })()}
+                {expanded && (() => {
+                  const n = list.rows.filter((r) => sentElsewhere(list, r)).length;
+                  if (!n) return null;
+                  return (
+                    <label style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 10, fontSize: 12.5 }}>
+                      {n} already sent to Apollo from another list:
+                      <select className="field" aria-label={`Sent from another list in ${list.name}`} value={list.includeSent ? "include" : "leave"}
+                        disabled={!onUpdateMeta}
+                        onChange={(e) => onUpdateMeta?.(list.id, { includeSent: e.target.value === "include" })}>
+                        <option value="leave">Keep on the list, leave out of the download</option>
+                        <option value="include">Include them in the download</option>
+                      </select>
                     </label>
                   );
                 })()}
@@ -437,9 +488,11 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
                                 </td>
                                 <td style={{ padding: "7px 12px" }} data-apollo={s?.status}>
                                   {sm && <span title={sm.hint} style={{ fontSize: 10.5, fontWeight: 700, color: sm.color, background: sm.bg, borderRadius: 999, padding: "2px 9px", whiteSpace: "nowrap" }}>{sm.short}</span>}
-                                  {s?.status === "active" && !list.includeActive && (
+                                  {list.sentAt?.[r.__rowKey] && <div className="muted" data-sent-row style={{ fontSize: 11, marginTop: 3 }}>Sent {new Date(list.sentAt[r.__rowKey]).toLocaleDateString([], { month: "short", day: "numeric" })}</div>}
+                                  {(() => { const o = !list.sentAt?.[r.__rowKey] ? sentElsewhere(list, r) : null; return o ? <div className="muted" style={{ fontSize: 11, marginTop: 3 }} title={o.sequence ? `For ${o.sequence}` : undefined}>Sent from “{o.listName}” {new Date(o.at).toLocaleDateString([], { month: "short", day: "numeric" })}</div> : null; })()}
+                                  {((s?.status === "active" && !list.includeActive) || (!list.includeSent && !!sentElsewhere(list, r))) && (
                                     <label style={{ display: "flex", gap: 4, alignItems: "center", marginTop: 4, fontSize: 11, whiteSpace: "nowrap" }}
-                                      title="Active in an Apollo sequence: left out of the download unless ticked">
+                                      title="Left out of the download (active in a sequence, or sent from another list) unless ticked">
                                       <input type="checkbox" aria-label={`Include ${r["Company Name"]} in the download`} disabled={!onUpdateMeta}
                                         checked={(list.includeRowKeys ?? []).includes(r.__rowKey)} onChange={() => toggleRowOverride(list, r.__rowKey)} />
                                       {(list.includeRowKeys ?? []).includes(r.__rowKey) ? "In download" : "Include"}

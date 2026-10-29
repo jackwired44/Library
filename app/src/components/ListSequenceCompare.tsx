@@ -52,14 +52,20 @@ export interface CompareRow {
   miss: MissReason | null;
   /** The other sequence that explains a miss (active or ended elsewhere). */
   other: string;
+  /** Sent to Apollo from this list (downloaded or marked sent) but not yet
+   *  seen in the sequence by a check. Counts as added. */
+  sentAt?: string;
 }
 
 /** One list row against the target sequence. */
-export function compareRow(row: ListedLeadRow, lead: StoredLead | null, target: string, index: RosterIndex | null): CompareRow {
-  if (!lead) return { row, lead, here: null, miss: "notStored", other: "" };
-  const { status, seqs } = sequencesForLead(lead, index);
-  const here = seqs.find((s) => norm(s.name) === norm(target)) ?? null;
+export function compareRow(row: ListedLeadRow, lead: StoredLead | null, target: string, index: RosterIndex | null, sentAt?: string): CompareRow {
+  const seqInfo = lead ? sequencesForLead(lead, index) : null;
+  const here = seqInfo?.seqs.find((s) => norm(s.name) === norm(target)) ?? null;
   if (here) return { row, lead, here, miss: null, other: "" };
+  // Uploaded to Apollo from this list: added, until a check says otherwise.
+  if (sentAt) return { row, lead, here: null, miss: null, other: "", sentAt };
+  if (!lead || !seqInfo) return { row, lead, here: null, miss: "notStored", other: "" };
+  const { status, seqs } = seqInfo;
   if (engagementOf(lead)) return { row, lead, here, miss: "account", other: "" };
   const ls = statusOf(lead);
   if (ls === "meeting") return { row, lead, here, miss: "meeting", other: "" };
@@ -239,7 +245,8 @@ export function ComparePanel({ list, compared, extras, onNote, onRecheck, rechec
   const [show, setShow] = useState("all");
   const [page, setPage] = useState(0);
   const target = list.targetSequence || "";
-  const added = compared.filter((c) => c.here);
+  const added = compared.filter((c) => c.here || c.sentAt);
+  const confirmed = compared.filter((c) => c.here).length;
   const counts = useMemo(() => {
     const byGroup = new Map<GroupKey, number>();
     const byReason = new Map<MissReason, number>();
@@ -250,7 +257,7 @@ export function ComparePanel({ list, compared, extras, onNote, onRecheck, rechec
     }
     return { byGroup, byReason };
   }, [compared]);
-  const shown = compared.filter((c) => show === "all" ? true : show === "added" ? !!c.here : c.here || !c.miss ? false
+  const shown = compared.filter((c) => show === "all" ? true : show === "added" ? !!(c.here || c.sentAt) : c.here || c.sentAt || !c.miss ? false
     : show === "not" ? true : show.startsWith("g:") ? GROUP_OF.get(c.miss) === show.slice(2) : c.miss === show.slice(2));
   const pages = Math.max(1, Math.ceil(shown.length / PAGE));
   const pageRows = shown.slice(page * PAGE, page * PAGE + PAGE);
@@ -260,8 +267,8 @@ export function ComparePanel({ list, compared, extras, onNote, onRecheck, rechec
   function download() {
     const rows = shown.map((c) => ({
       "First Name": c.row["First Name"], "Last Name": c.row["Last Name"], "Company Name": c.row["Company Name"], Email: c.row.Email,
-      Sequence: target, "In Sequence": c.here ? "Yes" : "No", "Sequence Status": c.here ? stepText(c.here) : "",
-      Group: c.here ? "Added" : c.miss ? MISS_GROUPS.find((g) => g.key === GROUP_OF.get(c.miss!))!.label : "",
+      Sequence: target, "In Sequence": c.here ? "Yes" : c.sentAt ? "Sent" : "No", "Sequence Status": c.here ? stepText(c.here) : c.sentAt ? `Sent ${c.sentAt.slice(0, 10)}` : "",
+      Group: c.here || c.sentAt ? "Added" : c.miss ? MISS_GROUPS.find((g) => g.key === GROUP_OF.get(c.miss!))!.label : "",
       "Why Not Added": c.miss ? `${MISS_META[c.miss].label}${c.other ? ` (${c.other})` : ""}` : "", "Your Note": noteOf(c.row.__rowKey),
     }));
     void downloadBlob(toCSV(rows, ["First Name", "Last Name", "Company Name", "Email", "Sequence", "In Sequence", "Sequence Status", "Group", "Why Not Added", "Your Note"]), `${list.name} vs ${target}.csv`);
@@ -279,14 +286,15 @@ export function ComparePanel({ list, compared, extras, onNote, onRecheck, rechec
           <div style={{ fontWeight: 700 }}>{target}</div>
           <div className="muted" style={{ fontSize: 12 }}>
             <span data-compare-summary>{added.length} of {compared.length} added · {compared.length - added.length} not added</span>
+            {added.length > confirmed && <span data-compare-sent> ({(added.length - confirmed).toLocaleString()} sent, not seen in the sequence by a check yet)</span>}
             {list.targetSequenceOwner && <> · owner {list.targetSequenceOwner}</>}
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
           {onRecheck && recheckKeys.length > 0 && (
             <button className="btn btn-sm btn-secondary" disabled={recheckBusy} onClick={() => onRecheck(recheckKeys)}
-              title="Looks these leads up in Apollo again now, even ones checked in the last 7 days, so anyone imported since shows as added. Read-only. Apollo allows 400 lookups an hour.">
-              ↻ Re-check {recheckKeys.length.toLocaleString()} not added
+              title="Looks these leads up in Apollo again now, even ones checked in the last 7 days, so anyone imported since shows as added (sent ones are confirmed). Read-only. Apollo allows 400 lookups an hour.">
+              ↻ Re-check {recheckKeys.length.toLocaleString()} not seen in the sequence
             </button>
           )}
           <button className="btn btn-sm btn-ghost" onClick={download} title="The rows shown below, with the group, the reason and your note">⬇ Download</button>
@@ -347,13 +355,13 @@ export function ComparePanel({ list, compared, extras, onNote, onRecheck, rechec
                       </td>
                       <td style={{ fontSize: 12 }}>
                         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                          <span style={{ width: 8, height: 8, borderRadius: 999, background: c.here ? ADDED_COLOR : g?.color, flex: "none" }} />
-                          <span>{c.here ? "✓ Added" : c.miss ? MISS_META[c.miss].label : ""}</span>
+                          <span style={{ width: 8, height: 8, borderRadius: 999, background: c.here || c.sentAt ? ADDED_COLOR : g?.color, flex: "none" }} />
+                          <span>{c.here ? "✓ Added" : c.sentAt ? "✓ Sent to Apollo" : c.miss ? MISS_META[c.miss].label : ""}</span>
                         </div>
-                        {(c.here || c.other) && <div className="muted" style={{ fontSize: 11, paddingLeft: 14 }}>{c.here ? stepText(c.here) : c.other}</div>}
+                        {(c.here || c.other || c.sentAt) && <div className="muted" style={{ fontSize: 11, paddingLeft: 14 }}>{c.here ? stepText(c.here) : c.sentAt ? `Sent ${new Date(c.sentAt).toLocaleDateString([], { month: "short", day: "numeric" })} · not seen in the sequence by a check yet` : c.other}</div>}
                       </td>
                       <td>
-                        <input className="field" aria-label={`Note for ${c.row["Company Name"]}`} placeholder={c.here ? "" : "Why not added?"} defaultValue={noteOf(c.row.__rowKey)}
+                        <input className="field" aria-label={`Note for ${c.row["Company Name"]}`} placeholder={c.here || c.sentAt ? "" : "Why not added?"} defaultValue={noteOf(c.row.__rowKey)}
                           disabled={!onNote} onBlur={(e) => { if (e.target.value !== noteOf(c.row.__rowKey)) onNote?.(c.row.__rowKey, e.target.value); }}
                           style={{ width: "100%", minWidth: 120, fontSize: 12 }} />
                       </td>

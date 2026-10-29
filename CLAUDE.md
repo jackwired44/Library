@@ -7670,3 +7670,23 @@ these are active in the dynamics sequence".
   sequence it names, and a sequence only the pulled uploads know is added,
   so either source seeing the lead in the sequence counts as added.
 - Suite `list-apollo-live` 39 → 44.
+
+### 2026-10-29: lists remember who was sent to Apollo (scanner-platform-v29)
+
+Per Jack: "i uploaded 830 into apollo but it says 872 in the list we need to
+it catch the already added ones for the future". 872 − 830 = 42 leads active
+in another sequence, skipped by the download. The download button now reads
+"⬇ Download N leads" with a separate "skips …" note (per "Download CSV (830,
+42 active left out) this is nonsense").
+- `LeadList.sentAt` (rowKey → when) is stamped when a list is downloaded, or
+  by "✓ Mark N as sent" for a list uploaded before this existed (confirm).
+  `sentIndex` / `sentRecordsFor` / `stampSent` (`lib/leadLists.ts`) match a
+  person the list way: same email, or full name at the same company.
+- Another list's download skips anyone already sent from a DIFFERENT list
+  ("skips N sent from another list"); each row says which list and when.
+  Override per list (`includeSent`, "Sent from another list in <name>") or
+  per row (the same Include tick). A list's own sent rows still re-download.
+- Compare: a lead sent from this list counts as added ("✓ Sent to Apollo",
+  "N sent, not seen in the sequence by a check yet") until a check finds it.
+  The re-check button now reads "Re-check N not seen in the sequence".
+- Suite `list-apollo-live` 44 → 52.

@@ -20,6 +20,8 @@ fs.writeFileSync(LEADS, csv(HEAD, [
   ['ENDED CO','Ben Cole','CFO','ben@ended.com','312-555-0102', SIGNAL],
   ['NEW CO','Nia Rowe','CIO','nia@new.com','312-555-0103', SIGNAL],
 ]));
+const OLD = path.join(os.tmpdir(), 'listapollo-old.csv');
+fs.writeFileSync(OLD, csv(HEAD, [['OLD CO','Olga Pike','CIO','olga@old.com','312-555-0110', SIGNAL]]));
 fs.writeFileSync(GHOST, csv(HEAD, [['GHOST CO','Gus Hale','CIO','gus@ghost.com','312-555-0109', SIGNAL]]));
 
 const FAKE = () => {
@@ -113,39 +115,6 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('the summary updates: 1 ready, 1 active, 1 reached, 1 not stored', /1 ready for a sequence/.test(head) && /1 active/.test(head) && /1 ended · reached/.test(head) && /1 not in All leads/.test(head), head.slice(0, 300));
   ok('checked this week: the button has nothing due', await btn.isDisabled());
 
-  console.log('\n== ready for a sequence only ==');
-  await card().locator('input[aria-label="Ready for a sequence only in Call list"]').check(); await sleep(300);
-  const rows = await card().locator('tbody tr').allInnerTexts();
-  ok('only the lead ready for a sequence shows', rows.length === 1 && /NEW CO/.test(rows[0]), rows.join(' | '));
-  ok('the download follows it', /Download 1 lead\b/.test(await card().innerText()));
-  await card().locator('button[aria-label="Download Call list"]').click(); await sleep(600);
-  const text = (await page.evaluate(() => window.__saved.map(x => x.data).join('\n')));
-  ok('the downloaded CSV holds just that lead', /NEW CO/.test(text) && !/ACTIVE CO|ENDED CO|GHOST CO/.test(text), text.slice(0, 200));
-  await card().locator('input[aria-label="Ready for a sequence only in Call list"]').uncheck(); await sleep(300);
-  ok('unticking shows every row again', (await card().locator('tbody tr').count()) === 4);
-
-  // Per Jack: an active lead "stays in the list" but is not downloaded,
-  // with an option to override that.
-  console.log('\n== active in a sequence: kept, not downloaded, unless overridden ==');
-  const dlText = async () => { await page.evaluate(() => { window.__saved = []; }); await card().locator('button[aria-label="Download Call list"]').click(); await sleep(600); return page.evaluate(() => window.__saved.map(x => x.data).join('\n')); };
-  ok('the active lead is still on the list', /ACTIVE CO/.test(await card().innerText()));
-  ok('the download button counts the leads you get, and a note says one active lead is skipped', /Download 3 leads/.test(await card().innerText()) && /skips 1 already in a sequence/.test(await card().innerText()), (await card().innerText()).match(/Download \d[^\n]*/)?.[0]);
-  let t = await dlText();
-  ok('the download leaves the active lead out and keeps the rest', !/ACTIVE CO/.test(t) && /ENDED CO/.test(t) && /NEW CO/.test(t), t.slice(0, 300));
-  await card().locator('input[aria-label="Include ACTIVE CO in the download"]').check(); await sleep(400);
-  t = await dlText();
-  ok('ticking Include on that row lets it into the download', /ACTIVE CO/.test(t));
-  await card().locator('input[aria-label="Include ACTIVE CO in the download"]').uncheck(); await sleep(400);
-  ok('unticking leaves it out again', !/ACTIVE CO/.test(await dlText()));
-  await card().locator('select[aria-label="Active in a sequence in Call list"]').selectOption('include'); await sleep(400);
-  ok('the list-wide override includes every active lead', /ACTIVE CO/.test(await dlText()));
-  await page.reload(); await sleep(1500);
-  await nav('Lists');
-  await card().locator('button[title="Expand"]').click(); await sleep(300);
-  ok('the override survives a reload', await card().locator('select[aria-label="Active in a sequence in Call list"]').inputValue() === 'include');
-  await card().locator('select[aria-label="Active in a sequence in Call list"]').selectOption('leave'); await sleep(400);
-  ok('switching back leaves them out again', !/ACTIVE CO/.test(await dlText()));
-
   // Per Jack: "pull up a certain sequence … with the list here side by side
   // to see which leads got added and which didnt so i can note why".
   console.log('\n== the list beside its Apollo sequence ==');
@@ -180,7 +149,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   // A lead checked this week is normally skipped; the compare panel's
   // re-check looks it up again (someone added since reads as never sequenced).
   await page.evaluate(() => { window.__calls = []; });
-  const recheck = cmp.locator('button', { hasText: /Re-check 1 not added/ });
+  const recheck = cmp.locator('button', { hasText: /Re-check 1 not seen in the sequence/ });
   ok('a Re-check button counts the stored leads not added', await recheck.count() === 1);
   await recheck.click();
   await page.waitForFunction(() => (window.__calls || []).some(c => /contacts_search/.test(c.tool)), null, { timeout: 30000 });
@@ -203,6 +172,88 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('  and a search that matches nothing hides it', await card().count() === 0);
   const calls2 = await page.evaluate(() => window.__calls);
   ok('only read tools were ever called', calls2.every(c => /contacts_search|emailer_campaigns_search/.test(c.tool)));
+
+  await page.fill('input[aria-label="Search lists"]', ''); await sleep(300);
+  await card().locator('button[aria-label="Compare Call list with its sequence"]').click(); await sleep(300);
+  await card().locator('button[title="Expand"]').click(); await sleep(300);
+
+  console.log('\n== ready for a sequence only ==');
+  await card().locator('input[aria-label="Ready for a sequence only in Call list"]').check(); await sleep(300);
+  const rows = await card().locator('tbody tr').allInnerTexts();
+  ok('only the lead ready for a sequence shows', rows.length === 1 && /NEW CO/.test(rows[0]), rows.join(' | '));
+  ok('the download follows it', /Download 1 lead\b/.test(await card().innerText()));
+  await card().locator('button[aria-label="Download Call list"]').click(); await sleep(600);
+  const text = (await page.evaluate(() => window.__saved.map(x => x.data).join('\n')));
+  ok('the downloaded CSV holds just that lead', /NEW CO/.test(text) && !/ACTIVE CO|ENDED CO|GHOST CO/.test(text), text.slice(0, 200));
+  await card().locator('input[aria-label="Ready for a sequence only in Call list"]').uncheck(); await sleep(300);
+  ok('unticking shows every row again', (await card().locator('tbody tr').count()) === 4);
+
+  // Per Jack: an active lead "stays in the list" but is not downloaded,
+  // with an option to override that.
+  console.log('\n== active in a sequence: kept, not downloaded, unless overridden ==');
+  const dlText = async () => { await page.evaluate(() => { window.__saved = []; }); await card().locator('button[aria-label="Download Call list"]').click(); await sleep(600); return page.evaluate(() => window.__saved.map(x => x.data).join('\n')); };
+  ok('the active lead is still on the list', /ACTIVE CO/.test(await card().innerText()));
+  ok('the download button counts the leads you get, and a note says one active lead is skipped', /Download 3 leads/.test(await card().innerText()) && /skips 1 already in a sequence/.test(await card().innerText()), (await card().innerText()).match(/Download \d[^\n]*/)?.[0]);
+  let t = await dlText();
+  ok('the download leaves the active lead out and keeps the rest', !/ACTIVE CO/.test(t) && /ENDED CO/.test(t) && /NEW CO/.test(t), t.slice(0, 300));
+  await card().locator('input[aria-label="Include ACTIVE CO in the download"]').check(); await sleep(400);
+  t = await dlText();
+  ok('ticking Include on that row lets it into the download', /ACTIVE CO/.test(t));
+  await card().locator('input[aria-label="Include ACTIVE CO in the download"]').uncheck(); await sleep(400);
+  ok('unticking leaves it out again', !/ACTIVE CO/.test(await dlText()));
+  await card().locator('select[aria-label="Active in a sequence in Call list"]').selectOption('include'); await sleep(400);
+  ok('the list-wide override includes every active lead', /ACTIVE CO/.test(await dlText()));
+  await page.reload(); await sleep(1500);
+  await nav('Lists');
+  await card().locator('button[title="Expand"]').click(); await sleep(300);
+  ok('the override survives a reload', await card().locator('select[aria-label="Active in a sequence in Call list"]').inputValue() === 'include');
+  await card().locator('select[aria-label="Active in a sequence in Call list"]').selectOption('leave'); await sleep(400);
+  ok('switching back leaves them out again', !/ACTIVE CO/.test(await dlText()));
+
+  // Per Jack: "i uploaded 830 into apollo but it says 872 in the list we
+  // need to it catch the already added ones for the future".
+  console.log('\n== sent to Apollo: remembered for the future ==');
+  ok('downloading stamps the leads as sent', /\d+ sent to Apollo/.test(await card().locator('[data-sent-summary]').innerText()));
+  await card().locator('button[aria-label="Compare Call list with its sequence"]').click(); await sleep(500);
+  const cmp2 = page.locator('[aria-label="Compare Call list with Jack Main Sequence"]');
+  const sum2 = (await cmp2.innerText()).replace(/\s+/g, ' ');
+  ok('the compare counts a sent lead as added', /4 of 4 added · 0 not added/.test(sum2) && /2 sent, not seen in the sequence/.test(sum2), sum2.slice(0, 200));
+  ok('  and the row says it was sent', /Sent to Apollo/.test((await cmp2.locator('[data-compare-row="NEW CO"]').innerText())));
+  await card().locator('button[aria-label="Compare Call list with its sequence"]').click(); await sleep(300);
+  // A second list with the same people: its download skips anyone already sent.
+  await nav('Main Scanner');
+  await page.locator('button:has-text("Start over")').first().click().catch(() => {}); await sleep(800);
+  await page.setInputFiles('input[type=file]', LEADS);
+  await page.waitForFunction(() => !!document.querySelector('.data-table tbody tr'), null, { timeout: 60000 });
+  await sleep(800);
+  await strip.locator('select').selectOption('__new__');
+  await strip.locator('input[aria-label="New list name"]').fill('Second list');
+  await strip.locator('button').click(); await sleep(500);
+  await nav('Lists');
+  const card2 = page.locator('[aria-label="List Second list"]');
+  const t2 = (await card2.innerText()).replace(/\s+/g, ' ');
+  ok('a later list with the same people downloads none of the ones already sent', /Download 0 leads/.test(t2) && /skips 1 already in a sequence · 2 sent from another list/.test(t2), t2.slice(0, 400));
+  await card2.locator('button[title="Expand"]').click(); await sleep(300);
+  ok('  each row says which list it was sent from', /Sent from “Call list”/.test(await card2.innerText()));
+  await card2.locator('select[aria-label="Sent from another list in Second list"]').selectOption('include'); await sleep(400);
+  ok('the override lets them back into the download', /Download 2 leads/.test(await card2.innerText()));
+  await card2.locator('select[aria-label="Sent from another list in Second list"]').selectOption('leave'); await sleep(400);
+  // Backfill: a list uploaded before stamping existed can be marked by hand.
+  await nav('Main Scanner');
+  await page.locator('button:has-text("Start over")').first().click().catch(() => {}); await sleep(800);
+  await page.setInputFiles('input[type=file]', OLD);
+  await page.waitForFunction(() => !!document.querySelector('.data-table tbody tr'), null, { timeout: 60000 });
+  await sleep(800);
+  await strip.locator('select').selectOption('__new__');
+  await strip.locator('input[aria-label="New list name"]').fill('Old upload');
+  await strip.locator('button').click(); await sleep(500);
+  await nav('Lists');
+  const card3 = page.locator('[aria-label="List Old upload"]');
+  await card3.locator('button[aria-label="Mark Old upload as sent"]').click(); await sleep(600);
+  ok('"Mark as sent" stamps a list uploaded before', /1 sent to Apollo/.test(await card3.innerText()) && await card3.locator('button[aria-label="Mark Old upload as sent"]').count() === 0, (await card3.innerText()).replace(/\s+/g, ' ').slice(0, 400));
+  await page.reload(); await sleep(1500);
+  await nav('Lists');
+  ok('the stamps survive a reload', /1 sent to Apollo/.test(await page.locator('[aria-label="List Old upload"]').innerText()) && /Download 0 leads/.test(await page.locator('[aria-label="List Second list"]').innerText()));
 
   ok('no page errors', errs.length === 0, errs.join(' | '));
   await b.close();
