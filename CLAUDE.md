@@ -7821,14 +7821,16 @@ where the gap is."
   sentence picked and cleaned like the Main brief's opening (`noteLead`). The
   raw text stays in `rawNotes`, behind the PIN.
 - Stored leads are fixed by the note refresh (`unscannedFix`, noteRefresh.ts;
-  `NOTE_RULES_VERSION` = `2026-10-29-scanned-not-raw`): every no-signal
-  segment that is not already a scanned line is rewritten; a Main lead
-  saved before CSV rows were kept, whose note is still raw, is scanned from
-  its own note and keeps its grade; a Custom/CSP lead whose note is raw, or
-  that today's rules no longer qualify, gets `(score) mark Nothing in the
-  note qualified on this scanner. …` and keeps its grade. "Scanned" =
-  `looksScanned` (a score/mark head) or a Dynamics brief line (Dynamics has
-  no score by Jack's rule).
+  `NOTE_RULES_VERSION` = `2026-10-29-scanned-not-raw`), narrowly: a note line
+  is rewritten ONLY when `isRawCopy` proves it is a copy of the lead's saved
+  raw note (same words, or one wholly inside the other, 40+ chars). Main →
+  the no-signal line (then today's brief on top if the row qualifies);
+  Custom/CSP → `▼ Nothing in the note qualified on this scanner. …`. A lead
+  with no saved raw note is left exactly as it is, and so is any note in an
+  older scanned shape (CSP "⏰ Renews…"/"$303k on…", Custom "No signal — …",
+  older Dynamics "… · 25 seats · partner: X"). The first pass recognised
+  "scanned" by shape and an independent review of the diff showed it wiping
+  those — do not go back to a shape test.
 - The Main Scanner's Non Relevant tab showed each row's raw note; it now
   shows the same scanned line.
 - `stripSnippetPrefix` accepts a mark with no score (the no-signal line).
@@ -7860,3 +7862,23 @@ file: the no-signal lead's note is scanned and its raw text appears nowhere
 in All leads or the Non Relevant tab, "leads that indicate ongoing support"
 finds exactly the managed-service lead, and "copier lease" finds the lead
 whose original note says it without displaying that text.
+
+### 2026-10-29: Custom and CSP scanners hidden (not deleted)
+
+Per Jack: "custom and csp scanner are not important anymore those were one
+time builds … do not delete them, but instead just hide them". The sidebar's
+Scanners group shows Main Scanner only; Custom Scanner September and CSP
+Scanner sit behind a small, closed "Retired scanners" toggle at the bottom
+of that group (`RETIRED_SCANNER_NAV`, App.tsx; open state in localStorage
+`navRetiredScannersOpen`). Both still work exactly as before and their
+leads, rule sets and runs are untouched. With the sidebar collapsed to
+icons they are not shown at all. Suites open the toggle before clicking
+either one.
+
+Review follow-ups in the same pass (from an independent read of the diff):
+the "Ask" tail is still stripped after "…" or a mark; bare "support" no
+longer triggers the MSP topic (only "ongoing support", "IT support", MSP,
+managed services, help desk, co-managed, outsourced, support partner);
+recycle's 6-month rest applies to a hand-set Not interested only; an Apollo
+"Meeting booked" end reason is NOT read by `contactStateOf` (unasked, left
+out); smart lists refresh against the original notes like the Ask preview.
