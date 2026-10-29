@@ -229,7 +229,7 @@ export default function ApolloStatus({
   const checkAbort = useRef<AbortController | null>(null);
   const [seqF, setSeqF] = useState("all");
   const [q, setQ] = useState("");
-  const [page, setPage] = useState(1);
+  const [pageRaw, setPage] = useState(1);
   const [pull, setPull] = useState<PullProgress | null>(null);
   const [pullError, setPullError] = useState("");
   const [months, setMonths] = useState(DEFAULT_PULL_MONTHS);
@@ -294,8 +294,10 @@ export default function ApolloStatus({
     && (seqF === "all" || r.seqs.some((s) => (seqF === MAIN_KEY ? isMainSequence(s.name) : norm(s.name) === norm(seqF)) && (statusF !== "active" || s.active)))
     && (!needle || `${r.lead.company} ${r.lead.contact} ${r.lead.email}`.toLowerCase().includes(needle)),
   ), [rows, statusF, seqF, needle]);
-  const shown = filtered.slice((page - 1) * PAGE, page * PAGE);
   const pages = Math.max(1, Math.ceil(filtered.length / PAGE));
+  // A check can move leads out of the active filter; never sit past the end.
+  const page = Math.min(pageRaw, pages);
+  const shown = filtered.slice((page - 1) * PAGE, page * PAGE);
 
   async function runPull() {
     if (!onPullApollo || (pull && !pull.done)) return;
@@ -552,9 +554,9 @@ export default function ApolloStatus({
         </table>
       </div>
       <div className="pager" style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
-        <button className="btn btn-sm btn-ghost" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Prev</button>
+        <button className="btn btn-sm btn-ghost" disabled={page <= 1} onClick={() => setPage(page - 1)}>Prev</button>
         <span style={{ fontSize: 12, color: "var(--muted)" }}>page {page} of {pages}</span>
-        <button className="btn btn-sm btn-ghost" disabled={page >= pages} onClick={() => setPage((p) => p + 1)}>Next</button>
+        <button className="btn btn-sm btn-ghost" disabled={page >= pages} onClick={() => setPage(page + 1)}>Next</button>
       </div>
     </>
   );

@@ -14,24 +14,30 @@
 // is left alone. Older dated note segments are history and are not
 // rewritten. Custom and CSP leads get the Main-format note too, keeping
 // their own grade (see refreshMainNotes).
-import { scanParsedFiles, stripSnippetPrefix, DEFAULT_RULE_OVERRIDES, type RuleOverrides } from "./detection";
-import { NOTE_SEP, noteSegments, type StoredLead } from "./leadStore";
+import { scanParsedFiles, stripSnippetPrefix, noSignalNote, looksScanned, DEFAULT_RULE_OVERRIDES, type RuleOverrides } from "./detection";
+import { NOTE_SEP, NO_SIGNAL_TIER, noteSegments, type StoredLead } from "./leadStore";
 import { leadInputsFromResults } from "./leadFiling";
 import type { ResultRow } from "./detection";
-import { loadRawNotesMany, newestRaw, type RawNotes } from "./rawNotes";
+import { loadRawNotesMany, newestRaw, type RawNotes, type RawRowRecord } from "./rawNotes";
 import { scan2, emptyRuleSet, loadRuleSets, profileColumns, guessFieldMapping, type RuleSet2, type ScannerKind } from "./scanner2";
 
 /** Bump when the Main note rules change, so stored notes refresh once. */
-export const NOTE_RULES_VERSION = "2026-10-29-dynamics-view-stored";
+export const NOTE_RULES_VERSION = "2026-10-29-scanned-not-raw";
 const VERSION_KEY = "mainNoteRulesVersion";
+
+/** The most recent CSV row kept for a lead. appendRow stores rows newest
+ *  first, but sort by date anyway so the answer never depends on that. */
+export function newestRow(raw: RawNotes | undefined): RawRowRecord | undefined {
+  const rows = raw?.rows ?? [];
+  return rows.length ? [...rows].sort((a, b) => b.at.localeCompare(a.at))[0] : undefined;
+}
 
 /** Today's Main Scanner read of one lead's stored raw row, or null when
  *  there is no raw row or the row no longer matches anything. */
 export function currentMainScan(raw: RawNotes | undefined, overrides: RuleOverrides = DEFAULT_RULE_OVERRIDES): ResultRow | null {
   const text = newestRaw(raw);
   if (!raw || !text) return null;
-  const rows = raw.rows ?? [];
-  const fields: Record<string, string> = { ...(rows[rows.length - 1]?.fields ?? {}) };
+  const fields: Record<string, string> = { ...(newestRow(raw)?.fields ?? {}) };
   const notesCol = Object.keys(fields).find((k) => /comment|note|description/i.test(k)) || "Comments";
   fields[notesCol] = text;
   try {
@@ -96,8 +102,7 @@ export function markNoteRulesCurrent(): void {
 export function currentScanner2Note(raw: RawNotes | undefined, kind: ScannerKind, ruleSet?: RuleSet2): string {
   const text = newestRaw(raw);
   if (!raw || !text) return "";
-  const rows = raw.rows ?? [];
-  const fields: Record<string, string> = { ...(rows[rows.length - 1]?.fields ?? {}) };
+  const fields: Record<string, string> = { ...(newestRow(raw)?.fields ?? {}) };
   const base = ruleSet && ruleSet.mode === kind ? ruleSet : emptyRuleSet("refresh", kind);
   const keys = Object.keys(fields);
   const notesCol = (base.notesColumns ?? []).find((c) => keys.includes(c))
@@ -159,28 +164,117 @@ export async function refreshMainNotes(
     try { sets[k] = (await loadRuleSets(k))[0]; } catch { /* default rules */ }
   }
   const changed: StoredLead[] = [];
+  // Re-scanning one lead costs a few ms on a long note, so a whole chunk in
+  // one go froze the page for 100-400 ms at a time — measured at 40,000
+  // leads, the first 20 s after a new version opened were ~80% frozen, which
+  // reads as "the Vault won't pull up". Work in slices of SLICE_MS and hand
+  // the page back between them so clicks and typing still land.
+  let sliceStart = performance.now();
   for (let i = 0; i < main.length; i += chunk) {
     const slice = main.slice(i, i + chunk);
     const raw = await loadRawNotesMany(slice.map((l) => l.key));
-    for (const l of slice) {
-      if (missing && !raw.get(l.key)) {
-        const f = l.sourceFiles[l.sourceFiles.length - 1] || "Unknown file";
-        missing.set(f, (missing.get(f) || 0) + 1);
+    for (const orig of slice) {
+      if (performance.now() - sliceStart > SLICE_MS) {
+        await yieldToPage();
+        sliceStart = performance.now();
+      }
+      const r = raw.get(orig.key);
+      // Raw text sitting where the scanned note belongs (see unscannedFix)
+      // is replaced first, whether or not a CSV row was saved.
+      const l = unscannedFix(orig, r, overrides);
+      if (!r) {
+        if (l !== orig) changed.push(l);
+        else if (missing) {
+          const f = orig.sourceFiles[orig.sourceFiles.length - 1] || "Unknown file";
+          missing.set(f, (missing.get(f) || 0) + 1);
+        }
         continue;
       }
-      if (l.source !== "main") {
-        const fresh = currentScanner2Note(raw.get(l.key), l.source as ScannerKind, sets[l.source as ScannerKind]);
-        const next = fresh ? withRefreshedNoteOnly(l, fresh) : l;
-        if (next !== l) changed.push(next);
+      if (orig.source !== "main") {
+        const fresh = currentScanner2Note(r, orig.source as ScannerKind, sets[orig.source as ScannerKind]);
+        // Nothing qualified today: still a scanned line, never the raw text.
+        const next = fresh ? withRefreshedNoteOnly(orig, fresh)
+          : isScannedLine(noteSegments(orig.notes)[0]?.text ?? "") ? orig
+          : withRefreshedNoteOnly(orig, noSignalNote(newestRaw(r), NOTHING_QUALIFIED));
+        if (next !== orig) changed.push(next);
         continue;
       }
-      const row = currentMainScan(raw.get(l.key), overrides);
-      if (!row) continue;
-      const next = withRefreshedScan(l, row);
-      if (next !== l) changed.push(next);
+      const row = currentMainScan(r, overrides);
+      const next = row ? withRefreshedScan(l, row) : l;
+      if (next !== orig) changed.push(next);
     }
     onProgress?.(Math.min(i + chunk, main.length), main.length);
-    await new Promise((r) => setTimeout(r, 0));
+    await yieldToPage();
+    sliceStart = performance.now();
   }
   return changed;
+}
+
+/** A Main note line that is already a scanned brief: a score/mark head, or
+ *  a Dynamics line (those carry no score by Jack's rule). */
+const DYNAMICS_BRIEF_RE = /^(?:Wants|Looked at|Sales platform:|Row reverses)\b/;
+function isScannedLine(line: string): boolean {
+  const t = line.replace(/^\d{4}-\d{2}-\d{2} · /, "").trim();
+  return looksScanned(t) || DYNAMICS_BRIEF_RE.test(t);
+}
+
+/**
+ * Per Jack, pointing at Needs Review and Bad Lead leads whose scanned note
+ * read exactly like the raw note: "needs reviewed and bad lead should store
+ * as scanned with the new note updated i want no visibility of the raw note
+ * without the pin code". Two sources of that:
+ *  - No-signal rows were stored with the raw CSV note as their note. Every
+ *    segment that is not already a scanned line becomes the no-signal line.
+ *  - A lead saved before CSV rows were kept, whose note is still raw text,
+ *    could never be re-scanned. Its own note is scanned instead, keeping
+ *    the grade it was filed with.
+ */
+const NOTHING_QUALIFIED = "Nothing in the note qualified on this scanner.";
+export function unscannedFix(l: StoredLead, raw: RawNotes | undefined, overrides: RuleOverrides = DEFAULT_RULE_OVERRIDES): StoredLead {
+  const segs = noteSegments(l.notes);
+  if (l.source !== "main") {
+    // Custom / CSP: a saved row is re-read with that scanner's rules in the
+    // main pass. Without one, a raw note can only become the plain line.
+    const top = segs[0]?.text ?? "";
+    if (raw || !top || isScannedLine(top)) return l;
+    return withRefreshedNoteOnly(l, noSignalNote(top, NOTHING_QUALIFIED));
+  }
+  if (!segs.length) {
+    if (l.tier !== NO_SIGNAL_TIER) return l;
+    const text = newestRaw(raw);
+    return text ? { ...l, notes: noSignalNote(text) } : l;
+  }
+  if (segs.every((s) => isScannedLine(s.text))) return l;
+  if (l.tier === NO_SIGNAL_TIER) {
+    const lines = segs.map((s) => { const text = isScannedLine(s.text) ? s.text : noSignalNote(s.text); return s.date ? `${s.date} · ${text}` : text; });
+    const notes = lines.join(NOTE_SEP);
+    return notes === l.notes ? l : { ...l, notes };
+  }
+  if (raw) return l; // a saved row re-scans it properly in the main pass
+  const top = segs[0].text;
+  if (isScannedLine(top)) return l;
+  let fresh = "";
+  try {
+    const row = scanParsedFiles([{ name: "note", fields: ["Comments"], data: [{ Comments: top }] }], overrides).results[0];
+    fresh = row?.notesSummary || "";
+  } catch { /* fall through to the no-signal line */ }
+  if (!fresh) {
+    const lines = segs.map((s, i) => { const text = i === 0 ? noSignalNote(top) : s.text; return s.date ? `${s.date} · ${text}` : text; });
+    return { ...l, notes: lines.join(NOTE_SEP) };
+  }
+  return withRefreshedNoteOnly(l, fresh);
+}
+
+/** Longest stretch the refresh holds the page before handing it back. */
+const SLICE_MS = 12;
+
+/** Give the page a turn. A MessageChannel message runs after pending input
+ *  and paint without setTimeout's 4 ms clamp on nested calls. */
+function yieldToPage(): Promise<void> {
+  if (typeof MessageChannel === "undefined") return new Promise((r) => setTimeout(r, 0));
+  return new Promise((r) => {
+    const ch = new MessageChannel();
+    ch.port1.onmessage = () => { ch.port1.close(); r(); };
+    ch.port2.postMessage(null);
+  });
 }

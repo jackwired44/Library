@@ -30,7 +30,8 @@ import { isIntentDate, soonestUpcoming, type NoteDate } from "../lib/noteDates";
 import { loadRawNotes, type RawNotes } from "../lib/rawNotes";
 import { useRawNoteUnlocked } from "../lib/rawNoteLock";
 import RawNoteLock from "./RawNoteLock";
-import { scanParsedFiles, stripSnippetPrefix } from "../lib/detection";
+import { stripSnippetPrefix } from "../lib/detection";
+import { currentMainNote } from "../lib/noteRefresh";
 import { FUNCTION_META, LEVEL_META, titleFunction, titleLevel } from "../lib/titleLevel";
 import { CONTACT_META, contactStateOf } from "../lib/leadStatus";
 import {
@@ -208,15 +209,12 @@ export default function LeadDetail({
   // re-runs today's Main Scanner over the stored CSV row so the current
   // call brief shows beside it. Read-only: nothing is saved.
   const currentNote = useMemo(() => {
-    if (lead.source !== "main" || !rawSegs.length) return "";
-    const fields = { ...(rawRows[rawRows.length - 1]?.fields ?? {}) };
-    const notesCol = Object.keys(fields).find((k) => /comment|note|description/i.test(k)) || "Comments";
-    fields[notesCol] = rawSegs[0].text;
-    try {
-      const r = scanParsedFiles([{ name: rawSegs[0].file || "lead", fields: Object.keys(fields), data: [fields] }]).results[0];
-      return r?.notesSummary ? stripSnippetPrefix(r.notesSummary) : "";
-    } catch { return ""; }
-  }, [lead.source, rawSegs, rawRows]);
+    if (lead.source !== "main" || !raw || raw === "loading" || !raw.segments.length) return "";
+    // Same read as "Refresh with today's rules": the newest note against the
+    // newest saved CSV row (this used to take the oldest row).
+    const note = currentMainNote(raw);
+    return note ? stripSnippetPrefix(note) : "";
+  }, [lead.source, raw]);
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(8,30,34,0.18)", zIndex: 60 }}>

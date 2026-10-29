@@ -11,12 +11,24 @@
 // scale would lose the meaning Jack set per scanner, so a lead records the
 // word its scanner used and which scanner that was.
 import {
-  CATEGORY_META, PRIORITY_META, getFullName,
+  CATEGORY_META, PRIORITY_META, getFullName, noSignalNote,
   type DuplicateRow, type NoSignalRow, type ResultRow, type Tier,
 } from "./detection";
 import { BUCKET2_META, CSP_BUCKET_META, type Row2, type ScannerKind } from "./scanner2";
 import { rawFieldsOf } from "./rawNotes";
 import { NO_SIGNAL_TIER, leadKeyOfInput, type LeadInput, type LeadSource } from "./leadStore";
+
+/** The local calendar day of a timestamp, "YYYY-MM-DD". A bare date is
+ *  already a day and passes through; a full ISO stamp is read in the
+ *  browser's own time zone, so an 8pm upload on the 31st files under the
+ *  31st, not the 1st of next month (which a UTC slice gave). */
+export function localDay(iso: string): string {
+  if (!iso) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso.slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 /**
  * The date a file states in its own name, as YYYY-MM-DD.
@@ -228,8 +240,9 @@ export function arrivalOf(l: { receivedOn?: string; firstSeenAt: string; sourceF
     const est = sheetEstimateOf(sheet);
     return est ? { date: est, month: `${est.slice(0, 7)}~`, approx: true } : { date: PRE_MAY_2026_DATE, month: PRE_MAY_2026_MONTH, approx: true };
   }
-  if (l.receivedOn) return { date: l.receivedOn.slice(0, 10), month: l.receivedOn.slice(0, 7), approx: false };
-  return { date: l.firstSeenAt.slice(0, 10), month: l.firstSeenAt.slice(0, 7), approx: false };
+  if (l.receivedOn) { const d = localDay(l.receivedOn); return { date: d, month: d.slice(0, 7), approx: false }; }
+  const d = localDay(l.firstSeenAt);
+  return { date: d, month: d.slice(0, 7), approx: false };
 }
 
 /** Scanner2's kind is the lead source directly; Main is its own. */
@@ -347,7 +360,10 @@ export function leadInputsFromNoSignal(rows: NoSignalRow[], rawOf?: RawRowOf): L
     mobilePhone: "",
     productArea: "",
     tier: NO_SIGNAL_TIER,
-    notes: r.notes || "",
+    // The scanned line, never the raw CSV text: the raw note stays behind
+    // the PIN (rawNotes below). Per Jack: "no visibility of the raw note
+    // without the pin code".
+    notes: noSignalNote(r.notes || ""),
     score: null,
     sourceFile: r.sourceFile || "",
     rawNotes: r.notes || "",
@@ -408,7 +424,7 @@ export function fileDates(leads: { sourceFiles: string[]; fileSeen?: { file: str
   for (const f of upload.keys()) {
     const set = fileDateOverrideOf(f);
     if (set) { out.set(f, set); continue; }
-    const up = (upload.get(f) || "").slice(0, 10);
+    const up = localDay(upload.get(f) || "");
     const year = up.slice(0, 4) || String(new Date().getFullYear());
     const m = /(?:^|[^\d])(\d{1,2})[-_.](\d{1,2})(?:[-_.](\d{2,4}))?(?:[^\d]|$)/.exec(f);
     let d = "";
@@ -419,7 +435,7 @@ export function fileDates(leads: { sourceFiles: string[]; fileSeen?: { file: str
         d = `${y}-${String(mo).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
       }
     }
-    if (!d) d = isPreMaySheet(f) ? (sheetEstimateOf(f) ?? "") : (recv.get(f) || up).slice(0, 10);
+    if (!d) d = isPreMaySheet(f) ? (sheetEstimateOf(f) ?? "") : localDay(recv.get(f) || up);
     out.set(f, d);
   }
   return out;

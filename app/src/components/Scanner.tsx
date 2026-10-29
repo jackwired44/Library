@@ -31,6 +31,7 @@ import {
   type DuplicateRow,
   carryRowEdits,
   countUncarryableEdits,
+  noSignalNote,
 } from "../lib/detection";
 import { dispositionMetaFor, type CustomDisposition } from "../lib/dispositions";
 import DispositionOptions from "./DispositionOptions";
@@ -2232,10 +2233,11 @@ function NonRelevantTable({ rows }: { rows: NoSignalRow[] }) {
                 <td style={{ padding: "9px 12px", color: "var(--muted)" }}>{r.title || "—"}</td>
                 <td style={{ padding: "9px 12px" }}>{r.email || "—"}</td>
                 <td style={{ padding: "9px 12px" }}>{r.phone || "—"}</td>
-                <td style={{ padding: "9px 12px", maxWidth: 340, color: "var(--muted)", fontSize: 12 }} title={r.notes || undefined}>
-                  {r.notesSummary || r.notes ? (
+                {/* The scanned line only: the raw note stays behind the PIN. */}
+                <td style={{ padding: "9px 12px", maxWidth: 340, color: "var(--muted)", fontSize: 12 }} title={r.notes ? noSignalNote(r.notes) : undefined}>
+                  {r.notes ? (
                     <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {r.notesSummary || r.notes}
+                      {noSignalNote(r.notes)}
                     </span>
                   ) : (
                     "—"

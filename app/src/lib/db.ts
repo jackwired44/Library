@@ -227,6 +227,9 @@ export async function dbGetMany<T>(storeName: string, keys: string[]): Promise<(
     keys.forEach((k, i) => { const r = store.get(k); r.onsuccess = () => { out[i] = r.result as T | undefined; }; });
     tx.oncomplete = () => { db.close(); resolve(out); };
     tx.onerror = () => { db.close(); reject(tx.error); };
+    // An aborted read fires neither of the above; without this the caller
+    // (the note refresh, a lead's raw notes) would wait forever.
+    tx.onabort = () => { db.close(); reject(tx.error ?? new Error("Read was aborted")); };
   });
 }
 

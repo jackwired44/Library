@@ -123,11 +123,16 @@ export interface RecycleInfo {
 
 const dayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
+/** A bare "2026-08-01" is read by Date as UTC midnight, which is the
+ *  evening before anywhere west of UTC; read it as that local day. */
+function localDate(iso: string): Date {
+  return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? new Date(`${iso}T12:00:00`) : new Date(iso);
+}
 function addDays(iso: string, days: number): string {
-  const d = new Date(iso); d.setDate(d.getDate() + days); return dayKey(d);
+  const d = localDate(iso); d.setDate(d.getDate() + days); return dayKey(d);
 }
 function addMonths(iso: string, months: number): string {
-  const d = new Date(iso); const day = d.getDate();
+  const d = localDate(iso); const day = d.getDate();
   d.setDate(1); d.setMonth(d.getMonth() + months);
   const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
   d.setDate(Math.min(day, last));
@@ -171,9 +176,20 @@ export function recycleOf(l: StoredLead, rules: RecycleRules = DEFAULT_RECYCLE_R
   // hand) is checked first, so none of those can ever read Ready.
   const st = statusOf(l);
   if (st === "meeting") return { ...base, stage: "excluded", reason: "Meeting booked" };
+  // Not interested set by hand counts the same as Apollo saying so: it rests
+  // for notInterestedMonths from when it was set, never the 22-day rest.
+  const handNo = st === "not-interested";
+  const handNoAt = handNo ? (l.statusOverride?.at || "") : "";
   if (st === "reached") return { ...base, stage: "working", reason: "Spoken with, already handled" };
   if (st === "in-sequence") return { ...base, stage: l.recycle?.downloadedAt ? "back" : "working", reason: "In a live sequence" };
   const a = l.apollo;
+  if (!a && handNo) {
+    const recycleOn = handNoAt ? addMonths(handNoAt, rules.notInterestedMonths) : "";
+    const out = { ...base, why: "not-interested" as const, recycleOn };
+    if (l.recycle?.downloadedAt) return { ...out, stage: "downloaded" };
+    if (recycleOn && recycleOn > today) return { ...out, stage: "resting" };
+    return { ...out, stage: "ready", reason: recycleOn ? "" : "No date on the not-interested mark" };
+  }
   // Looked up and not in Apollo: never sequenced, not a recycle.
   if (!a) return { ...base, stage: l.apolloCheckedAt ? "fresh" : "unchecked" };
   const callsKnown = !a.callsUnknown;
@@ -208,14 +224,15 @@ export function recycleOf(l: StoredLead, rules: RecycleRules = DEFAULT_RECYCLE_R
     return { ...info, stage: "working", reason: "In a live sequence" };
   }
 
-  const notInterested = signals.some((n) => NOT_INTERESTED_RE.test(n));
+  const notInterested = handNo || signals.some((n) => NOT_INTERESTED_RE.test(n));
   const reachedByCall = names.some((n) => !UNANSWERED_RE.test(n) && !WRONG_NUMBER_RE.test(n) && !NOT_INTERESTED_RE.test(n));
   const reachedByReason = reasons.some((r) => REACHED_REASON_RE.test(r) && !NOT_INTERESTED_RE.test(r));
   let why: RecycleInfo["why"];
   let recycleOn = "";
   if (notInterested) {
     why = "not-interested";
-    if (lastAttemptAt) recycleOn = addMonths(lastAttemptAt, rules.notInterestedMonths);
+    const from = [lastAttemptAt, handNoAt].filter(Boolean).sort().pop() || "";
+    if (from) recycleOn = addMonths(from, rules.notInterestedMonths);
   } else if (reachedByCall || reachedByReason) {
     return { ...info, stage: "working", reason: "Spoken with, already handled" };
   } else if (callsKnown && unanswered >= rules.attempts) {

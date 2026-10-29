@@ -32,6 +32,7 @@ import type { RuleFacts, ProductKey } from "./smartRules";
 import { PRODUCT_LABEL } from "./smartRules";
 import { apolloHitFor, type RosterIndex } from "./apolloRoster";
 import { parseKeywords, matchesKeywords } from "./keywords";
+import { localDay } from "./leadFiling";
 
 export const REFRESH_CAP = 100;
 /** A suggestion smaller than this is not worth a campaign; it is not shown. */
@@ -85,7 +86,7 @@ const GOOGLE_RE = /google\s*workspace|g\s*suite|\bgsuite\b|moving off google|on 
 const PARTNER_RE = /\bwants?\s+(?:to\s+work\s+with\s+)?a?\s*partner\b|⚑\s*wants\s+partner/i;
 
 const daysAgo = (n: number, today: Date) => {
-  const d = new Date(today.getTime()); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10);
+  const d = new Date(today.getTime()); d.setDate(d.getDate() - n); return localDay(d.toISOString());
 };
 
 interface Generator {

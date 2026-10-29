@@ -316,7 +316,9 @@ function fillBlank(existing: string, incoming: string): string {
 export const NOTE_SEP = "\n";
 /** The generated question a brief ends on. Everything from "Ask " to the
  *  end, which is exactly how buildCallBrief and the CSP note compose it. */
-const ASK_TAIL_RE = /\s*(?:Ask (?:if|how|what|who)\b.*)$/is;
+// Capital "Ask" at the start of a sentence only: with /i it also cut a
+// customer's own "wants to ask how much 40 E3 seats cost" in half.
+const ASK_TAIL_RE = /(?:^|(?<=[.!?:)"']))\s*Ask (?:if|how|what|who)\b.*$/s;
 /** A date marker this function wrote, so an existing combined note can be
  *  split back into its segments. */
 const SEGMENT_RE = /^(\d{4}-\d{2}-\d{2}) · /;

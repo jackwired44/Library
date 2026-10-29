@@ -508,7 +508,7 @@ export default function AllLeads({
   // newest file first, by the date the CSV states (else its upload date).
   const [sort, setSort] = useState<SortKey>("received");
   const [pageSize, setPageSize] = useState(100);
-  const [page, setPage] = useState(1);
+  const [pageRaw, setPage] = useState(1);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkSeq, setBulkSeq] = useState("");
@@ -628,15 +628,17 @@ export default function AllLeads({
   const nq = useMemo(() => parseKeywords(noteQ), [noteQ]);
   // Load the original notes the first time the notes search is used, and
   // again when the lead count changes (a new upload wrote new ones).
+  // A rule with keywords (Ask for leads) searches the original notes too.
+  const ruleWantsRaw = !!ruleF?.keywords?.trim() || chatUsed;
   useEffect(() => {
-    if (nq.empty && !partnerF) return;
+    if (nq.empty && !partnerF && !ruleWantsRaw) return;
     let live = true;
     setRawIndexState("loading");
     loadRawNoteSearchIndex()
       .then((m) => { if (live) { setRawIndex(m); setRawIndexState("ready"); } })
       .catch(() => { if (live) setRawIndexState("error"); });
     return () => { live = false; };
-  }, [nq.empty, partnerF, leads.length]);
+  }, [nq.empty, partnerF, ruleWantsRaw, leads.length]);
   // Per Jack: "filter by … if someone states they want a partner". The same
   // confirmed-ask rule as the ⚑ badge and the notes line (partnerStanceOf),
   // read over the original CSV note, plus the scanned note's own words for
@@ -690,12 +692,12 @@ export default function AllLeads({
   const leadsForRuleHere = useCallback((rule: SmartRule) => {
     if (!ruleFacts) return [];
     const rank: Record<Verdict, number> = { strong: 0, review: 1, bad: 2 };
-    return leads.filter((l) => ruleMatches(rule, l, ruleFacts.get(l.key)!))
+    return leads.filter((l) => ruleMatches(rule, l, ruleFacts.get(l.key)!, undefined, rawIndex?.get(l.key) ?? ""))
       .sort((a, b) => {
         const fa = ruleFacts.get(a.key)!, fb = ruleFacts.get(b.key)!;
         return rank[fa.verdict] - rank[fb.verdict] || (b.score ?? -1) - (a.score ?? -1) || fb.arrivalDate.localeCompare(fa.arrivalDate);
       });
-  }, [ruleFacts, leads]);
+  }, [ruleFacts, leads, rawIndex]);
   const industryNames = useMemo(() => {
     const seen = new Set<string>();
     for (const d of derived.values()) if (d.industry && d.industry !== NO_INDUSTRY) seen.add(d.industry);
@@ -722,7 +724,7 @@ export default function AllLeads({
       status: (_l, d) => statusF === "all" || d.status === statusF,
       where: (_l, d) => whereF === "all" || d.where === whereF,
       month: (_l, d) => !periodSet.size || periodSet.has(periodKeyOf(d.month, periodKind)),
-      rule: (l) => !ruleF || !ruleFacts || ruleMatches(ruleF, l, ruleFacts.get(l.key)!),
+      rule: (l) => !ruleF || !ruleFacts || ruleMatches(ruleF, l, ruleFacts.get(l.key)!, undefined, rawIndex?.get(l.key) ?? ""),
       level: (_l, d) => levelF === "all" || d.level === levelF,
       contact: (_l, d) => contactF === "all" || d.contact === contactF
         || (contactF === "untouched" && (d.contact === "never" || d.contact === "unknown"))
@@ -1001,6 +1003,8 @@ export default function AllLeads({
   useEffect(() => { setPage(1); }, [tests, sort, pageSize]);
 
   const pages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  // A check can move leads out of the active filter; never sit past the end.
+  const page = Math.min(pageRaw, pages);
   const shown = filtered.slice((page - 1) * pageSize, page * pageSize);
   // Per Jack: "only have summarized note visible". The raw CSV note is not
   // shown in this table at all; it lives in the lead record, behind its own
@@ -1056,7 +1060,7 @@ export default function AllLeads({
 
   /* ---- actions ---- */
   function toggle(key: string) {
-    setSelected((s) => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n; });
+    setSelected((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
   }
   function selectPage() {
     setSelected((s) => {
@@ -2209,12 +2213,12 @@ export default function AllLeads({
       </div>
 
       <div className="pager" style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
-        <button className="btn btn-sm btn-ghost" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Prev</button>
+        <button className="btn btn-sm btn-ghost" disabled={page <= 1} onClick={() => setPage(page - 1)}>Prev</button>
         <span style={{ fontSize: 12, color: "var(--muted)" }}>
           {filtered.length === 0 ? "0" : `${((page - 1) * pageSize + 1).toLocaleString()}–${Math.min(page * pageSize, filtered.length).toLocaleString()}`}
           {" "}of {filtered.length.toLocaleString()} · page {page} of {pages}
         </span>
-        <button className="btn btn-sm btn-ghost" disabled={page >= pages} onClick={() => setPage((p) => p + 1)}>Next</button>
+        <button className="btn btn-sm btn-ghost" disabled={page >= pages} onClick={() => setPage(page + 1)}>Next</button>
         <div className="toolbar-spacer" />
         <label style={{ fontSize: 12, color: "var(--muted)" }}>
           Rows per page{" "}

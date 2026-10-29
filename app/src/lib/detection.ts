@@ -1182,6 +1182,8 @@ const CONTACT_FIELD_RE =
 const URL_RE = /\b(?:https?:\/\/|www\.)\S*[^\s.,;:)]|\b[\w.-]+\.(?:com|net|org|io|co|us|ai|gov|edu)\/\S*[^\s.,;:)]/gi;
 /** Mangled text: mojibake ("â€™", "Ã©"), the replacement character, and
  *  zero-width / control characters. */
+// Control characters are matched on purpose: they are what gets stripped.
+// eslint-disable-next-line no-control-regex
 const MOJIBAKE_RE = /(?:\u00e2\u20ac[\u0080-\u00BF\u2122\u0153\uFFFD"]?|\u00c3[\u0080-\u00BF]|\u00c2(?=[\s\u00A0-\u00BF])|\uFFFD|[\u200B-\u200F\u2028-\u202F\u2060-\u206F\uFEFF]|[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F])/g;
 /** The final pass over every Main Scanner note: no links, no mangled
  *  characters, and anything outside plain text and normal punctuation is
@@ -3306,7 +3308,7 @@ const MEETING_CHROME_RE = /\b(follow[- ]up\s+meeting|next\s+(?:conversation|step
 const SELLER_CHATTER_RE = /\b(follow[- ]?up\s+sent|requesting\s+an\s+update|no\s+confirmation|pending\s+(?:partner\s+)?feedback|forecast\w*|pipeline\s+visibility|remain\w*\s+under\s+review|ACR)\b/i;
 const CUSTOMER_SUBJECT_RE = /\b(customer|client|they|their|company|organi[sz]ation|team|we|cu)\b/i;
 function cleanLeadSentence(u: string): string {
-  let t = u.trim()
+  const t = u.trim()
     .replace(/^[-–•*\s]+/, "")
     .replace(/^(?:situation|description|business\s+need|need|objective|summary|context|current\s+infrastructure|scope)\s*[:-]\s*/i, "")
     .replace(/^(.{0,100}?)\s+-\s+(?=(?:the\s+)?(?:customer|client|they|we|company|our)\b)/i, "")
@@ -3526,10 +3528,19 @@ const titleDest = (d: string) => {
  *  local midnight, so a date that is today still counts as ahead wherever
  *  the browser is. Kept inline: this file imports nothing. Same answer as
  *  lib/centralTime.ts's centralToday. */
+// Building an Intl formatter costs ~0.1 ms, and this ran for every timeline
+// phrase in every note: ~190 ms per 40,000-lead pass. The answer only
+// changes at midnight, so it is kept for a minute.
+let centralTodayCache = { at: 0, ms: 0 };
+let centralFmt: Intl.DateTimeFormat | null = null;
 function centralTodayMs(): number {
+  const now = Date.now();
+  if (now - centralTodayCache.at < 60_000) return centralTodayCache.ms;
+  centralFmt ??= new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit" });
   const p: Record<string, string> = {};
-  for (const x of new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date())) p[x.type] = x.value;
-  return new Date(Number(p.year), Number(p.month) - 1, Number(p.day)).getTime();
+  for (const x of centralFmt.formatToParts(new Date(now))) p[x.type] = x.value;
+  centralTodayCache = { at: now, ms: new Date(Number(p.year), Number(p.month) - 1, Number(p.day)).getTime() };
+  return centralTodayCache.ms;
 }
 function timelineAhead(phrase: string): boolean {
   const now = centralTodayMs();
@@ -3875,7 +3886,25 @@ export function formatMatchedSnippet(summary: string, score: number | null | und
  *  to compare against this, not the displayed string — the head is metadata
  *  the engine adds, and that guarantee still has to hold underneath it. */
 export function stripSnippetPrefix(snippet: string): string {
-  return String(snippet || "").replace(/^\(\d{1,3}\)\s*[\u25B2\u25B8\u25BC\u2715]\s*/, "");
+  // The score is optional: a no-signal line opens on the mark alone.
+  return String(snippet || "").replace(/^(?:\(\d{1,3}\)\s*)?[\u25B2\u25B8\u25BC\u2715]\s*/, "");
+}
+/** The scanned note for a row the engine found no Dynamics / M365 / Azure /
+ *  licensing signal in. Per Jack: Needs Review and Bad Leads "should store
+ *  as scanned with the new note" and "no visibility of the raw note without
+ *  the pin code" — these rows used to store the raw CSV note verbatim, so
+ *  the scanned note and the locked raw note read the same. One short line:
+ *  the mark, that nothing qualified, then the row's most relevant sentence
+ *  picked and cleaned the same way the Main brief opens. */
+export function noSignalNote(raw: unknown, says = "No Dynamics, M365, Azure or licensing signal."): string {
+  const lead = noteLead(String(raw ?? ""), "");
+  return cleanNoteText(`${PRIORITY_SYMBOL.low} ${says}${lead ? ` ${lead}` : ""}`);
+}
+/** Whether a stored note is already a scanned note (score or mark head, or
+ *  the no-signal line) rather than raw CSV text. */
+export function looksScanned(note: string): boolean {
+  const top = String(note || "").split("\n")[0].replace(/^\d{4}-\d{2}-\d{2} · /, "").trim();
+  return /^(?:\(\d{1,3}\)\s*)?[▲▸▼✕◆★⚑]/.test(top);
 }
 export const PRIORITY_META: Record<Priority, { label: string; short: string; color: string; bg: string; hint: string }> = {
   high:   { label: "High priority",   short: "High",   color: "#0E7A72", bg: "#E3F3F1", hint: "Cleared the promotion gate. These are the calls, and they are the only leads in the downloads." },

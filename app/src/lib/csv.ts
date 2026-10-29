@@ -59,6 +59,8 @@ export const ASK_FILE_NAME_KEY = "skipFileNameBox";
  *  carry are replaced. */
 export function cleanFileName(typed: string, suggested: string): string {
   const ext = (suggested.match(/\.[a-z0-9]{2,5}$/i) || [""])[0];
+  // Control characters are not allowed in a file name, so they are replaced.
+  // eslint-disable-next-line no-control-regex
   let name = typed.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, "-").replace(/\s+/g, " ").trim();
   if (!name) return suggested;
   if (ext && !name.toLowerCase().endsWith(ext.toLowerCase())) name += ext;

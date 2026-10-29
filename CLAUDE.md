@@ -7737,3 +7737,126 @@ the bulk bar: "this needs to be cleaned up and way better filter options".
   became "✓ All checked in Apollo this week". Batch reads "400 at a time".
 - Suites: `dynamics-filter-live` (10, new); `web-visits-live` opens More
   actions first.
+
+### 2026-10-29: code review — lag on open, nine data bugs, an error screen (scanner-platform-v29)
+
+Per Jack: "Check code for anything breaking, not well built and check for
+any errors. lagging to be improved", after "vault will not pull up".
+Measured at 40,000 seeded leads with raw notes; two report-only reviewers
+read lib/ and the components, and every finding was reproduced before it was
+fixed. Grades, filters, downloads and Apollo access are unchanged except
+where a bug was producing the wrong answer.
+- **The lag Jack hit was the note refresh on open.** After a version that
+  bumps `NOTE_RULES_VERSION`, `refreshMainNotes` re-scanned every lead in
+  chunks of 250 with a 0 ms yield: the first 20 s were ~16 s frozen (164
+  freezes, up to 366 ms), which reads as "won't pull up". It now works in
+  12 ms slices (`SLICE_MS`, yields via MessageChannel): ~1.7 s of freezes over
+  the ~19 s refresh, clicks answer in ~0.3 s while it runs.
+  `centralTodayMs` (detection.ts) built an Intl formatter per timeline phrase,
+  ~190 ms per pass; now cached a minute.
+- **Note refresh**: wrote back only notes/tier/score/productArea, so
+  `dynamicsView` was never stored (the 10-29 Dynamics filter fell back to the
+  note). It also wrote stale copies over leads deleted or re-uploaded while
+  it ran; it now applies only to leads still present whose note is unchanged.
+  And it graded the newest note against the OLDEST saved CSV row (`appendRow`
+  stores newest first, the refresh read the last): `newestRow()`.
+  `NOTE_RULES_VERSION` bumped to `2026-10-29-newest-row` so this reruns.
+- **Recycle**: a hand-set Not interested was ignored (Ready after 22 days); it
+  now rests `notInterestedMonths` from when it was set, with or without
+  Apollo data. Bare Apollo dates ("2026-08-01") were read as UTC midnight, so
+  every rest date was a day early west of UTC.
+- **Roster**: the "two people share this name" rule compared names to
+  themselves and never fired; a second John Smith with another email now
+  makes the name ambiguous instead of borrowing the first one's sequences.
+- **contactStateOf**: an Apollo end reason "Not interested" read as "Contact
+  made" (`SEQ_TALKED_RE` contains "interested"); now a no.
+- **combineNotes**: `ASK_TAIL_RE` had `/i`, so an older note reading
+  "wants to ask how much 40 E3 seats cost" was cut to "wants to". Now only a
+  sentence-initial capital "Ask".
+- **Local days**: `arrivalOf`, `fileDates`, smart rules' `daysAgo` /
+  `lastTouch` and the Refresher's `daysAgo` sliced UTC ISO strings, so an 8pm
+  upload on the 31st filed under next month. `localDay()` (leadFiling.ts).
+- **Stale state**: an Apollo sync import used the leads from the render that
+  started it (wiping check results that landed meanwhile); list rename/
+  delete/meta/cycle/save used the lists from before a dialog. Both read
+  refs now (`leadsRef`, new `leadListsRef`).
+- **Pages**: the list-vs-sequence compare, All leads and Apollo standing
+  tables could sit past the last page after a check moved rows out of the
+  filter (empty table, pager hidden). The shown page is clamped.
+- **`dbGetMany`** had no `onabort`: an aborted read left the caller waiting
+  forever.
+- **Error screen**: there was no error boundary, so one view's render error
+  blanked the whole app on every reload. `ViewErrorBoundary`, keyed on the
+  view, shows the error with Try again / Go to Home; the sidebar stays.
+- Lint: 4 errors → 0 (two intentional control-char regexes annotated).
+- Suite `review-fixes` (16): 7 of its behaviour checks fail on the old code.
+
+**Found, NOT changed — need Jack's call:**
+- Lists key rows on first name + company (`listRowKey`, `addExportRowsToList`),
+  so John Smith and John Doe at one company collapse to one row, and the
+  Refresher / campaign "Also on" treats them as one person. Changing the key
+  changes every stored list's row keys (sentAt, notes, includes), so it needs
+  a migration plan.
+- `fileDates` (Files tab) and `receivedOnFromFileName` (leads) parse file
+  names differently ("Book(9-20).csv" uploaded in 2027 → 2027-09-20 vs
+  2026-09-20; "Book 2-30.csv" → an invalid date).
+- Verifier import: a 0–1 scale "1" reads as 1, and a 0–100 file whose top
+  score is ≤10 is scaled ×10 (deliverability.ts:146, :192).
+- Remaining lag: first open of All leads ~0.7 s, Refresher/Leads tab ~0.3 s,
+  every Lists render recomputes each list's download/sent counts, and an
+  expanded list renders all its rows.
+
+### 2026-10-29: Needs Review / Bad Lead notes are always scanned; Ask for leads reads topics and plain words
+
+**Raw note showing as the scanned note.** Per Jack, naming Bill Christo
+(Regional One), Reto Giovanoli (Mears), Ahed Nahhas (Toledo Clinic), Andy
+Kummerer (Buckeye Pools) and others: "raw and scanned are the same …
+needs reviewed and bad lead should store as scanned with the new note
+updated i want no visibility of the raw note without the pin code … thats
+where the gap is."
+- The gap: a Main row with no Dynamics / M365 / Azure / licensing signal is
+  stored as "No signal" (shows as Needs Review), and `leadInputsFromNoSignal`
+  put the raw CSV note in `notes`. Now `noSignalNote()` (detection.ts):
+  `▼ No Dynamics, M365, Azure or licensing signal.` + the row's most relevant
+  sentence picked and cleaned like the Main brief's opening (`noteLead`). The
+  raw text stays in `rawNotes`, behind the PIN.
+- Stored leads are fixed by the note refresh (`unscannedFix`, noteRefresh.ts;
+  `NOTE_RULES_VERSION` = `2026-10-29-scanned-not-raw`): every no-signal
+  segment that is not already a scanned line is rewritten; a Main lead
+  saved before CSV rows were kept, whose note is still raw, is scanned from
+  its own note and keeps its grade; a Custom/CSP lead whose note is raw, or
+  that today's rules no longer qualify, gets `(score) mark Nothing in the
+  note qualified on this scanner. …` and keeps its grade. "Scanned" =
+  `looksScanned` (a score/mark head) or a Dynamics brief line (Dynamics has
+  no score by Jack's rule).
+- The Main Scanner's Non Relevant tab showed each row's raw note; it now
+  shows the same scanned line.
+- `stripSnippetPrefix` accepts a mark with no score (the no-signal line).
+- The lead view's "New note · today's rules" read the oldest CSV row; it now
+  uses `currentMainNote` (newest row), same as the refresh.
+
+**Ask for leads.** Per Jack: "leads that indicate ongoing support" read as
+"Nothing to filter on", "this needs to work much better keyword search
+ability built in also the find leads button … doesnt work".
+- The button worked, but the built-in reader only knew products, grades,
+  dates and contact words, and the page cannot ask Claude (no `sample`
+  grant), so the answer was empty. `RULE_TOPICS` (smartRules.ts) turns
+  plain topics into keyword OR-groups: ongoing support / managed service /
+  MSP / help desk, security, migration, Google, Copilot, reporting, app
+  builds. When nothing at all is recognised, the request's own words
+  (stopwords and greetings dropped) become the keyword search. Chips read
+  "Notes: about ongoing support".
+- Rule keywords now also search the lead's ORIGINAL note (`ruleMatches`'
+  `rawNote`, from the raw-note index All leads loads once the chat is used).
+  It filters on it only; nothing raw is shown.
+- `readRequest` time-limits the Claude call (2.5 s to get it, 20 s to
+  answer) so the button can never sit on "Reading…".
+- Known limit: a smart list saved from such a rule refreshes in Lists
+  without the original notes (App does not load that index), so it matches
+  on scanned notes only there.
+
+Verified: `review-fixes` 30 checks; a live browser pass (8/8) on a 3-row
+file: the no-signal lead's note is scanned and its raw text appears nowhere
+in All leads or the Non Relevant tab, "leads that indicate ongoing support"
+finds exactly the managed-service lead, and "copier lease" finds the lead
+whose original note says it without displaying that text.

@@ -258,7 +258,7 @@ export function ComparePanel({ list, compared, extras, onNote, onRecheck, rechec
   // One filter, per Jack: "simplify those filterting fields". Values: all,
   // added, not, g:<group>, r:<reason>.
   const [show, setShow] = useState("all");
-  const [page, setPage] = useState(0);
+  const [pageRaw, setPage] = useState(0);
   const target = list.targetSequence || "";
   const added = compared.filter((c) => c.here || c.sentAt);
   const confirmed = compared.filter((c) => c.here).length;
@@ -275,6 +275,8 @@ export function ComparePanel({ list, compared, extras, onNote, onRecheck, rechec
   const shown = compared.filter((c) => show === "all" ? true : show === "added" ? !!(c.here || c.sentAt) : c.here || c.sentAt || !c.miss ? false
     : show === "not" ? true : show.startsWith("g:") ? GROUP_OF.get(c.miss) === show.slice(2) : c.miss === show.slice(2));
   const pages = Math.max(1, Math.ceil(shown.length / PAGE));
+  // Rows move between groups as a re-check lands; never sit past the end.
+  const page = Math.min(pageRaw, pages - 1);
   const pageRows = shown.slice(page * PAGE, page * PAGE + PAGE);
   const pickShow = (v: string) => { setShow(v); setPage(0); };
   const stale = compared.filter((c) => staleReason(c, list));

@@ -29,13 +29,22 @@ export async function canAskClaude(): Promise<boolean> {
   try { return typeof window !== "undefined" && !!(await window.claude?.use?.("sample")); } catch { return false; }
 }
 
+/** Resolve `p`, or `fallback` after `ms`. The page runtime can leave a
+ *  capability call pending (a page that never declared it, a consent prompt
+ *  nobody answers); the Find leads button must still answer. */
+function within<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([p, new Promise<T>((r) => setTimeout(() => r(fallback), ms))]);
+}
+
 export async function readRequest(text: string, ctx: RuleContext): Promise<RuleAnswer> {
   const builtin = (note?: string): RuleAnswer => ({ rule: parseRuleText(text, ctx), by: "builtin", note });
   let sample = null;
-  try { sample = typeof window !== "undefined" ? await window.claude?.use?.("sample") : null; } catch { sample = null; }
+  try { sample = typeof window !== "undefined" && window.claude?.use ? await within(Promise.resolve(window.claude.use("sample")), 2500, null) : null; } catch { sample = null; }
   if (!sample) return builtin();
   try {
-    const { completion } = await sample({ prompt: rulePrompt(text, ctx), modelTier: "quick" });
+    const answered = await within(sample({ prompt: rulePrompt(text, ctx), modelTier: "quick" }).then((x) => x as { completion: string } | null), 20000, null);
+    if (!answered) return builtin("Claude took too long, so the built-in reader answered.");
+    const { completion } = answered;
     const rule = ruleFromCompletion(completion, ctx);
     if (!rule) return builtin("Claude's answer couldn't be read as a rule, so the built-in reader answered.");
     if (isEmptyRule(rule)) {

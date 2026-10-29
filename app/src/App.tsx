@@ -39,6 +39,7 @@ import {
   type LibraryEntry, type LibraryGroup,
 } from "./lib/library";
 import { applyCompetitorDQ } from "./lib/companyProfiles";
+import { ViewErrorBoundary } from "./components/ViewErrorBoundary";
 import { refreshMainNotes, noteRulesStale, markNoteRulesCurrent } from "./lib/noteRefresh";
 import {
   loadLeads, saveLeads, deleteLeads, mergeLeads, leadKeyOfInput, type StoredLead, type LeadInput,
@@ -209,6 +210,11 @@ export default function App() {
   const engagementIndex = useMemo(() => buildEngagementIndex(engagements), [engagements]);
   setEngagementIndex(engagementIndex);
   const [leadLists, setLeadLists] = useState<LeadList[]>([]);
+  /** Latest lists, for handlers that run after an await (a confirm or the
+   *  file-name box): smart lists can refresh while the dialog is open, and
+   *  the render that created the handler would put their old rows back. */
+  const leadListsRef = useRef(leadLists);
+  leadListsRef.current = leadLists;
   /** Every lead ever scanned, all three scanners. See lib/leadStore.ts. */
   const [leads, setLeads] = useState<StoredLead[]>([]);
   // Per Jack: Sheet files are pre-May 2026, "so lets try and guess its
@@ -226,12 +232,21 @@ export default function App() {
       const changed = await refreshMainNotes(base, overrides, (done, total) =>
         setNoteRefresh((p) => ({ done, total, changed: p?.changed ?? 0, finished: false })), 250, missing);
       if (changed.length) {
-        const byKey = new Map(changed.map((l) => [l.key, l]));
-        // Only the note and the scan verdict move; apply onto the latest state
-        // so nothing that changed while this ran is lost.
-        setLeads((prev) => prev.map((l) => { const n = byKey.get(l.key); return n ? { ...l, notes: n.notes, tier: n.tier, score: n.score, productArea: n.productArea } : l; }));
+        // A refresh can run for tens of seconds. Apply it only to leads that
+        // are still here and whose note nobody touched meanwhile: a lead
+        // deleted in Files must not come back, and a note a new upload just
+        // merged must not be replaced by the stale one.
+        const before = new Map(base.map((l) => [l.key, l.notes]));
         const current = new Map(leadsRef.current.map((l) => [l.key, l]));
-        await saveLeads(changed.map((c) => ({ ...(current.get(c.key) ?? c), notes: c.notes, tier: c.tier, score: c.score, productArea: c.productArea })));
+        const apply = (l: StoredLead, n: StoredLead): StoredLead => {
+          const out: StoredLead = { ...l, notes: n.notes, tier: n.tier, score: n.score, productArea: n.productArea };
+          if (n.dynamicsView) out.dynamicsView = n.dynamicsView; else delete out.dynamicsView;
+          return out;
+        };
+        const keep = changed.filter((c) => { const cur = current.get(c.key); return !!cur && cur.notes === before.get(c.key); });
+        const byKey = new Map(keep.map((l) => [l.key, l]));
+        setLeads((prev) => prev.map((l) => { const n = byKey.get(l.key); return n && l.notes === before.get(l.key) ? apply(l, n) : l; }));
+        if (keep.length) await saveLeads(keep.map((c) => apply(current.get(c.key)!, c)));
       }
       // A rescan of a few files from Files doesn't make the whole store current.
       if (!from || from.length >= leadsRef.current.length) markNoteRulesCurrent();
@@ -706,8 +721,11 @@ export default function App() {
    */
   async function applySyncFiles(files: ParsedFile[]) {
     const { rows, unmapped, skipped } = parseApolloSync(files);
-    const { leads: next, changed, matched, unmatched, matchedByName, ambiguous } = applyApolloSync(leads, rows);
-    setLeads(next);
+    // The latest leads, not the render that started the import: a running
+    // Apollo check may have written results while the file was read.
+    const { changed, matched, unmatched, matchedByName, ambiguous } = applyApolloSync(leadsRef.current, rows);
+    const byKey = new Map(changed.map((l) => [l.key, l]));
+    if (byKey.size) setLeads((prev) => prev.map((l) => byKey.get(l.key) ?? l));
     // Every person in the file joins the roster, matched or not.
     const fresh = rosterFromSync(rows);
     setApolloRoster((prev) => mergeRoster(prev, fresh));
@@ -945,7 +963,7 @@ export default function App() {
   }
   /** Save a rule as a smart list, filled with what it matches today. */
   function saveSmartList(name: string, rule: SmartRule, ruleText: string, matched: StoredLead[]): { listId: string; added: number } | null {
-    const { lists, list } = createLeadList(leadLists, name);
+    const { lists, list } = createLeadList(leadListsRef.current, name);
     if (!list) return null;
     const rows = rowsForLeads(matched);
     const withRule = lists.map((l) => (l.id === list.id ? { ...l, rule, ruleText, rows, ruleRefreshedAt: new Date().toISOString() } : l));
@@ -1213,6 +1231,7 @@ export default function App() {
       </aside>
 
       <main className="app-main" style={{ minWidth: 0 }}>
+        <ViewErrorBoundary key={view} onHome={() => setView("home")}>
         {uploadCheckLabel && (uploadCheckKeys || homeCheck || uploadCheckNothingDue) && (
           <div className="scan-note" role="status" aria-label="Upload Apollo check" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
             {uploadCheckNothingDue && !uploadCheckKeys
@@ -1504,30 +1523,30 @@ export default function App() {
             // Stop and the hourly cap, and leads checked this week are skipped.
             onCheckLeads={(keys, label, force) => { uploadCheckForce.current = !!force; setUploadCheckLabel(label); setUploadCheckSkipped(0); setUploadCheckNothingDue(false); setUploadCheckKeys(keys); }}
             onRename={(id, name) => {
-              const next = renameLeadList(leadLists, id, name);
+              const next = renameLeadList(leadListsRef.current, id, name);
               setLeadLists(next);
               const updated = next.find((l) => l.id === id);
               if (updated) persistLeadList(updated);
             }}
-            onDelete={(id) => { setLeadLists(deleteLeadList(leadLists, id)); deleteLeadListFromDB(id); }}
+            onDelete={(id) => { setLeadLists(deleteLeadList(leadListsRef.current, id)); deleteLeadListFromDB(id); }}
             onRemoveRow={(listId, rowKey) => {
-              const next = removeRowFromList(leadLists, listId, rowKey);
+              const next = removeRowFromList(leadListsRef.current, listId, rowKey);
               setLeadLists(next);
               const updated = next.find((l) => l.id === listId);
               if (updated) persistLeadList(updated);
             }}
             onUpdateMeta={(id, patch) => {
-              const next = updateLeadListMeta(leadLists, id, patch);
+              const next = updateLeadListMeta(leadListsRef.current, id, patch);
               setLeadLists(next);
               const updated = next.find((l) => l.id === id);
               if (updated) persistLeadList(updated);
             }}
             onRefreshSmart={(id) => refreshSmartLists(id)}
             onCycle={async (id) => {
-              const src = leadLists.find((l) => l.id === id);
+              const src = leadListsRef.current.find((l) => l.id === id);
               if (!src) return;
               if (!await confirmAction(`Cycle "${src.name}"? Its ${src.rows.length} leads move into a new list dated today, and this one is kept as history (marked cycled).`)) return;
-              const { lists: next, list } = cycleLeadList(leadLists, id);
+              const { lists: next, list } = cycleLeadList(leadListsRef.current, id);
               if (!list) return;
               setLeadLists(next);
               persistLeadList(list);
@@ -1536,6 +1555,7 @@ export default function App() {
             }}
           />
         )}
+        </ViewErrorBoundary>
       </main>
 
       {notesPanelTab && (

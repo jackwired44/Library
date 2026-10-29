@@ -103,6 +103,9 @@ export function buildRosterIndex(roster: ApolloRosterEntry[], leads: StoredLead[
   const byEmail = new Map<string, ApolloHit>();
   const byName = new Map<string, ApolloHit | null>();
   const people = new Set<string>();
+  /** The email first seen for each name, so a second person with the same
+   *  name and a different email reads as ambiguous rather than as the first. */
+  const nameEmail = new Map<string, string>();
   const add = (email: string, name: string, sequences: string[], uploadedAt?: string, more: string[] = [], company = "", seqStates?: ApolloSequenceState[]) => {
     const e = normEmail(email);
     const n = normPersonName(name);
@@ -112,7 +115,9 @@ export function buildRosterIndex(roster: ApolloRosterEntry[], leads: StoredLead[
     if (n.includes(" ")) {
       const prev = byName.get(n);
       // Same person seen twice (same email, or no email) is not ambiguity.
-      const same = prev && (!e.includes("@") || prev.name === name);
+      const firstEmail = nameEmail.get(n) || "";
+      const same = prev && (!e.includes("@") || !firstEmail || firstEmail === e);
+      if (e.includes("@") && !firstEmail) nameEmail.set(n, e);
       byName.set(n, prev === undefined ? { how: "name", ...hit } : same ? prev : null);
       if (!e.includes("@")) people.add(`x:${n}`);
     }

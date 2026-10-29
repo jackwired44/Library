@@ -18,7 +18,7 @@
 
 import type { LeadSource, StoredLead } from "./leadStore";
 import { verdictOf, wasReached, contactStateOf, statusOf, VERDICT_META, type Verdict } from "./leadStatus";
-import { arrivalOf, viewMonthKey } from "./leadFiling";
+import { arrivalOf, localDay, viewMonthKey } from "./leadFiling";
 import { matchesKeywords, parseKeywords } from "./keywords";
 import { ownersOf } from "./reps";
 import { apolloHitFor, type ApolloHit, type RosterIndex } from "./apolloRoster";
@@ -139,7 +139,7 @@ export function factsForLead(
     active,
     sequenced: seqs.length > 0 || (extra.hit?.sequences.length ?? 0) > 0,
     touched: (a?.callCount ?? 0) > 0 || (a?.emailCount ?? 0) > 0 || wasReached(a) || state === "meeting" || state === "no",
-    lastTouch: last.slice(0, 10),
+    lastTouch: localDay(last),
     closedOut: state === "meeting" || state === "no" || MEETING_RE.test(reasons) || CLOSED_RE.test(reasons),
     engaged: extra.engaged,
     reached: wasReached(a) || ["meeting", "reached"].includes(statusOf(l))
@@ -182,11 +182,11 @@ export function leadsForRule(rule: SmartRule, leads: StoredLead[], facts: Map<st
 function daysAgo(n: number, today: Date): string {
   const d = new Date(today.getTime());
   d.setDate(d.getDate() - n);
-  return d.toISOString().slice(0, 10);
+  return localDay(d.toISOString());
 }
 
 /** Does this lead match the rule? `hay` is lowercased note + company + title. */
-export function ruleMatches(rule: SmartRule, l: StoredLead, f: RuleFacts, today = new Date()): boolean {
+export function ruleMatches(rule: SmartRule, l: StoredLead, f: RuleFacts, today = new Date(), rawNote = ""): boolean {
   if (rule.grades?.length && !rule.grades.includes(f.verdict)) return false;
   if (rule.product?.length && !rule.product.includes(f.product)) return false;
   if (rule.scanners?.length && !rule.scanners.includes(l.source)) return false;
@@ -217,7 +217,9 @@ export function ruleMatches(rule: SmartRule, l: StoredLead, f: RuleFacts, today 
   }
   if (rule.keywords?.trim()) {
     const kq = parseKeywords(rule.keywords);
-    if (!kq.empty && !matchesKeywords(`${l.company} \u0001${l.title} \u0001${l.notes || ""}`.toLowerCase(), kq)) return false;
+    // The original note is searched too (it is only ever filtered on, never
+    // shown here); a lead's scanned note is one line and misses most words.
+    if (!kq.empty && !matchesKeywords(`${l.company} \u0001${l.title} \u0001${l.notes || ""} \u0001${rawNote}`.toLowerCase(), kq)) return false;
   }
   return true;
 }
@@ -249,7 +251,13 @@ export function ruleParts(r: SmartRule): { label: string; keys: (keyof SmartRule
   if (r.excludeActive) add("Not active in a sequence", "excludeActive");
   if (r.partnerAsk) add("Wants a partner", "partnerAsk");
   if (r.visited) add("Visited wiredcio.com", "visited");
-  if (r.keywords?.trim()) add(`Notes: ${r.keywords.trim()}`, "keywords");
+  if (r.keywords?.trim()) {
+    let rest = r.keywords.trim();
+    const named: string[] = [];
+    for (const x of RULE_TOPICS) if (rest.includes(x.terms)) { named.push(x.label); rest = rest.replace(x.terms, " "); }
+    rest = rest.replace(/\s+/g, " ").trim();
+    add(`Notes: ${[...named.map((n) => `about ${n}`), ...(rest ? [rest] : [])].join(" + ")}`, "keywords");
+  }
   return out;
 }
 
@@ -367,10 +375,42 @@ export function parseRuleText(text: string, ctx: RuleContext): SmartRule {
   const quoted = [...text.matchAll(/"([^"]+)"/g)].map((m) => `"${m[1]}"`);
   const about = /(?:mention(?:ing|s)?|about|notes? (?:say|with|containing))\s+([a-z][\w\s-]{2,40}?)(?:\s+(?:in|for|from|over|that|who|and)\b|[,.]|$)/.exec(t);
   const kw = [...quoted];
-  if (about && !/dynamics|m365|azure|licens|partner/.test(about[1])) kw.push(about[1].trim());
+  // Topics: plain words for something the notes say many ways. Per Jack:
+  // "leads that indicate ongoing support" read as nothing at all.
+  const topics = RULE_TOPICS.filter((x) => x.when.test(t));
+  for (const x of topics) kw.push(x.terms);
+  if (!topics.length && about && !/dynamics|m365|azure|licens|partner/.test(about[1])) kw.push(about[1].trim());
+  // Nothing recognised at all: the request's own words become the search,
+  // rather than "nothing to filter on".
+  if (!kw.length && isEmptyRule(r)) {
+    const words = text.toLowerCase().replace(/[^a-z0-9&+\s-]/g, " ").split(/\s+/)
+      .filter((w) => w.length >= 3 && !RULE_STOPWORDS.has(w));
+    if (words.length) kw.push(...words.slice(0, 6));
+  }
   if (kw.length) r.keywords = kw.join(" ");
   return r;
 }
+
+/** What a few common asks mean in a note, as keyword OR-groups. */
+export const RULE_TOPICS: { label: string; when: RegExp; terms: string }[] = [
+  { label: "ongoing support", when: /\b(ongoing|managed\s+(?:it|service)|msp|it support|help\s?desk|co-?managed|outsourc\w*|support)\b/,
+    terms: '"ongoing support" OR "managed service" OR msp OR "co-managed" OR "it support" OR "help desk" OR helpdesk OR "support partner" OR outsourc OR "managed it" OR "full engagement" OR "partner engagement"' },
+  { label: "security", when: /\b(security|secure|intune|defender|entra|purview|mfa|compliance|conditional access)\b/,
+    terms: 'security OR intune OR defender OR entra OR purview OR "conditional access" OR mfa OR compliance' },
+  { label: "migration", when: /\b(migrat\w*|lift and shift|on-?prem\w*|move to (?:the )?cloud)\b/,
+    terms: 'migrat OR "lift and shift" OR on-prem OR "on prem" OR "move to"' },
+  { label: "Google", when: /\b(google|gmail|g suite|gsuite|workspace)\b/,
+    terms: 'google OR gmail OR "g suite" OR gsuite' },
+  { label: "Copilot", when: /\bcopilot\b/, terms: "copilot" },
+  { label: "reporting", when: /\b(power bi|reporting|dashboards?|fabric|analytics)\b/,
+    terms: '"power bi" OR fabric OR reporting OR dashboard OR analytics' },
+  { label: "app builds", when: /\b(document intelligence|app build|custom app|power apps|automation)\b/,
+    terms: '"document intelligence" OR "app build" OR "custom app" OR "power apps" OR automat' },
+];
+const RULE_STOPWORDS = new Set(("leads lead that which who whom whose indicate indicates indicating show shows find me all any the and for with from about mention mentions mentioning notes note "
+  + "companies company people contacts contact give list pull get please some there their they them want wants wanted need needs looking are is was were have has had been "
+  + "this these those into onto over under than then also just only more most can could would should will our your you its it's not "
+  + "hello hey thanks thank what how why when where").split(" "));
 
 /** Accept only what a SmartRule can hold; drop everything else. */
 export function ruleFromJson(v: unknown, ctx: RuleContext): SmartRule | null {
@@ -413,7 +453,7 @@ export function ruleFromJson(v: unknown, ctx: RuleContext): SmartRule | null {
 
 /** The prompt that asks Claude to turn Jack's words into a rule. */
 export function rulePrompt(request: string, ctx: RuleContext): string {
-  const today = (ctx.today ?? new Date()).toISOString().slice(0, 10);
+  const today = localDay((ctx.today ?? new Date()).toISOString());
   const industries = ctx.industries.slice(0, 120).join(" | ");
   return [
     "You turn a sales director's request for a lead list into a JSON filter rule.",
