@@ -7882,3 +7882,53 @@ managed services, help desk, co-managed, outsourced, support partner);
 recycle's 6-month rest applies to a hand-set Not interested only; an Apollo
 "Meeting booked" end reason is NOT read by `contactStateOf` (unasked, left
 out); smart lists refresh against the original notes like the Ask preview.
+
+### 2026-11-05: move a lead's grade by hand in All leads (scanner-platform-v29)
+
+Per Jack: "in all leads i want to be able to move needs review to strong
+signal or bad lead" / "needs review has strong leads". Approved as proposed.
+- `StoredLead.gradeOverride {grade, at, was, wasMark?, reason?}`
+  (`lib/leadStore.ts`, optional, no migration). While present, `tier` IS
+  the hand grade, so every view, filter, download, list and the Refresher
+  follow it with no other change.
+- `moveGrade` / `clearGrade` / `keepHandGrade` / `gradeOfTier`. Moving to
+  the scanner's own grade clears the move (CSP "High priority" counts as
+  Strong Signal). `keepHandGrade(prev, next)` runs after every automatic
+  re-grade: `mergeLeads` (re-upload), the note refresh loop and
+  `requalifyAll`. Those only update `was`, the scanner's latest verdict,
+  which "Back to scanner's grade" restores (with its note mark).
+- The newest note's ▲ ▸ ✕ mark follows the hand grade. A note with no mark
+  (Dynamics briefs carry none) is left alone.
+- UI: lead record "Move grade…" select + "✋ moved by hand DATE" + an inline
+  reason box for Bad Lead (not `window.prompt`, which the artifact frame
+  blocks). All leads → More actions → Move grade, on ticked rows or
+  everything matched (confirm above one). The Signal cell shows "✋ moved",
+  with the reason and scanner's grade on hover.
+- Suites: `grade-move` (23), `grade-move-live` (14).
+
+### 2026-11-05: Dynamics leads that ask for the platform are Strong Signal (scanner-platform-v29)
+
+Per Jack: "alot of the needs review for dynamics from august and september
+should be strong review it and change the criteria". Cause, measured on his
+9/30 and 10/30 files: the Dynamics hit's own Strong test only knew trigger
+words and seat counts, so "wants to use Dynamics 365 CRM for their sales
+team ... get a quote, and see a product demo" sat at Needs Review.
+- `scanRowUnified` now promotes a Dynamics `mention` to `signal` when
+  `newPlatformSignal` holds (wants / would like / evaluating / quote / demo
+  / pricing beside the platform) or `dynamicsInboundLine` (Product Area is
+  a Dynamics code and the note is the short inbound line naming the
+  product: "Dynamics 365 Business Central", "Dynamic ERP"). Campaign codes
+  are stripped first (`withoutCampaignCodes`); every Auto-DQ still wins; a
+  personal-email-only row becomes a Personal Prospect as before.
+- `NEW_MOVE_RE`: `demo\w*` → `demo(?:s|ed|ing)?` ("demonstrating an
+  established foundation" was reading as a demo request), and "would like"
+  counts before a Dynamics product or "to get/use/see/discuss…".
+- Measured: Book9-30 Dynamics Strong 59 → 64, Book10-30 34 → 42, Jack's
+  strong-signal export 223 → 237. Empty notes with a Dynamics code, Azure
+  or Copilot rows misfiled under Dynamics, and seller milestone notes stay
+  Needs Review.
+- `NOTE_RULES_VERSION` = `2026-11-05-dynamics-intent`, so stored Main leads
+  with a saved CSV row re-grade on next open (hand-moved grades kept).
+- Suite `dynamics-intent` (13).
+- No August file was in the session; August leads are covered by the same
+  rule through the refresh.

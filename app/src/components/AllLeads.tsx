@@ -21,7 +21,7 @@ import { factsForLead, ruleMatches, ruleParts, quarterOf, quarterLabel, type Rul
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   LEAD_SOURCE_META, newestNote, noteSegments, outcomeSummary,
-  type LeadSource, type StoredLead,
+  type LeadSource, type StoredLead, HAND_GRADES, gradeOfTier, type HandGrade,
 } from "../lib/leadStore";
 import { SYNC_STALE_DAYS, syncAgeDays, leadsToSync } from "../lib/apolloSync";
 import { parseCSVFile, toCSV, downloadBlob, downloadCSV } from "../lib/csv";
@@ -339,7 +339,7 @@ let seenCache: { from: unknown; map: Map<string, SeenFile[]> } | null = null;
 
 export default function AllLeads({
   leads, companyProfiles = [], onApplySync, initialSequence = "", initialFiles, initialVerdict, initialLine,
-  sequenceNames = [], onSetPlan, onSetStatus, funnels = [], initialStatus, initialPreset,
+  sequenceNames = [], onSetPlan, onSetStatus, onMoveGrade, funnels = [], initialStatus, initialPreset,
   apolloIndex = null, rosterPulledAt = "", onPullApollo, onCheckLeads, onEnrichCompanies, onCheckVisits, lists = [], onAddToList,
   emailChecks = [], onImportVerifier, onSaveSmartList, noteRefresh = null, onRefreshNotes,
   engagementCount = 0, onImportEngagements, recycleRules = DEFAULT_RECYCLE_RULES,
@@ -386,6 +386,8 @@ export default function AllLeads({
   onSetPlan?: (keys: string[], sequence: string | null) => void;
   /** Hand-set (or clear, with null) the status of these leads. */
   onSetStatus?: (keys: string[], status: LeadStatus | null) => void;
+  /** Move these leads' grade by hand, or null for the scanner's own. */
+  onMoveGrade?: (keys: string[], grade: HandGrade | null, reason?: string) => void;
   /** For "step 5 of 6" — total steps per sequence, when a funnel is held. */
   funnels?: ApolloFunnel[];
   /** Seeded once on mount, from a Home status link. */
@@ -502,6 +504,8 @@ export default function AllLeads({
   /** The vault's three buckets — see verdictOf. */
   const [verdictF, setVerdictF] = useState<Verdict | "all">(initialVerdict || "all");
   const [bulkStatus, setBulkStatus] = useState("");
+  const [bulkGrade, setBulkGrade] = useState("");
+  const [bulkGradeReason, setBulkGradeReason] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   // Per Jack: "auto filter according to the csv date it was uploaded from" —
@@ -1962,6 +1966,35 @@ export default function AllLeads({
       </div>
       {moreActionsOpen && (
         <div data-more-actions style={{ width: "100%", boxSizing: "border-box", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 10, padding: "10px 12px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface-sunken)" }}>
+        {onMoveGrade && (() => {
+          // The ticked rows, else everything the filters matched.
+          const targets = selected.size ? [...selected] : filtered.map((l) => l.key);
+          const n = targets.length;
+          return (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span className="muted" style={{ width: "100%", fontSize: 11, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase" }}>Move grade{selected.size ? "" : " (all matched)"}</span>
+            <select className="field" aria-label="Move grade" style={{ width: 190 }} value={bulkGrade}
+                    onChange={(e) => setBulkGrade(e.target.value)}>
+              <option value="">Move to…</option>
+              {HAND_GRADES.map((g) => <option key={g} value={g}>{g}</option>)}
+              <option value="__auto">Back to scanner&apos;s grade</option>
+            </select>
+            {bulkGrade === "Bad Lead" && (
+              <input className="field" style={{ width: 190 }} placeholder="Reason (optional)" aria-label="Move grade reason"
+                     value={bulkGradeReason} onChange={(e) => setBulkGradeReason(e.target.value)} />
+            )}
+            <button className="btn btn-sm btn-secondary" disabled={!n || !bulkGrade}
+                    onClick={async () => {
+                      const label = bulkGrade === "__auto" ? "back to the scanner's grade" : `to ${bulkGrade}`;
+                      if (n > 1 && !await confirmAction(`Move ${n.toLocaleString()} lead${n === 1 ? "" : "s"} ${label}? It sticks through re-uploads and note refreshes until you move it back.`)) return;
+                      onMoveGrade(targets, bulkGrade === "__auto" ? null : (bulkGrade as HandGrade), bulkGradeReason);
+                      setBulkGrade(""); setBulkGradeReason(""); setSelected(new Set());
+                    }}>
+              Move {n.toLocaleString()}
+            </button>
+          </div>
+          );
+        })()}
         {onSetStatus && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span className="muted" style={{ width: "100%", fontSize: 11, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase" }}>Set status{selected.size ? "" : " (tick rows first)"}</span>
@@ -2125,8 +2158,11 @@ export default function AllLeads({
                       </span>
                     )}
                   </td>
-                  <td data-col="stored" title={`${VERDICT_META[d.verdict].hint}\nScanner's word: ${l.tier || "—"}`}>
+                  <td data-col="stored" title={l.gradeOverride
+                    ? `Moved by hand ${l.gradeOverride.at.slice(0, 10)}${l.gradeOverride.reason ? ` — ${l.gradeOverride.reason}` : ""}\nScanner's grade: ${gradeOfTier(l.gradeOverride.was)}`
+                    : `${VERDICT_META[d.verdict].hint}\nScanner's word: ${l.tier || "—"}`}>
                     <span className="pill" style={{ color: VERDICT_META[d.verdict].color, background: VERDICT_META[d.verdict].bg }}>{VERDICT_META[d.verdict].label}</span>
+                    {l.gradeOverride && <span className="muted" data-moved style={{ fontSize: 11, marginLeft: 4 }}>✋ moved</span>}
                   </td>
                   <td data-col="line">{d.line === NO_LINE ? <span className="muted">—</span> : d.line}</td>
                   <td data-col="received" title={monthLabelOf(d.month)}>{d.month.endsWith("~") ? "~" : ""}{shortMonthLabel(viewMonthKey(d.month))}</td>
@@ -2255,6 +2291,7 @@ export default function AllLeads({
             sequenceNames={sequenceNames}
             onSetPlan={onSetPlan ? (sq) => onSetPlan([openLead.key], sq) : undefined}
             onSetStatus={onSetStatus ? (st) => onSetStatus([openLead.key], st) : undefined}
+            onMoveGrade={onMoveGrade ? (g, why) => onMoveGrade([openLead.key], g, why) : undefined}
             onPrev={i > 0 ? () => go(i - 1) : undefined}
             onNext={i >= 0 && i < filtered.length - 1 ? () => go(i + 1) : undefined}
             position={i >= 0 ? `${(i + 1).toLocaleString()} of ${filtered.length.toLocaleString()}` : undefined}

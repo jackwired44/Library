@@ -1095,7 +1095,7 @@ export function dynamicsBackedByNotes(notes: unknown): boolean {
  * does not qualify.
  */
 const NEW_MOVE_RE =
-  /\b(?:evaluat\w*|looking\s*(?:at|for|into|to)|consider\w*|interest\w*\s*in|explor\w*|implement\w*|deploy\w*|roll(?:ing)?[\s-]*out|go[\s-]*live|replac\w*|switch\w*|mov(?:e|ing)\s*(?:to|off|from|away|onto)|migrat\w*\s*(?:to|onto|off|from)|transition\w*\s*(?:to|onto)|upgrad\w*|moderni[sz]\w*|standardi[sz]\w*\s*on|build\w*\s*(?:internal\s*)?apps|consolidat\w*\s*(?:data\s*)?into|new\s*(?:crm|erp|system|platform|accounting|software|solution)|need\w*\s*(?:a|an)\s*(?:new\s*)?(?:crm|erp|system|platform|solution|accounting)|demo\w*|quote\w*|pricing|proposal|purchas\w*|buy\w*|outgr\w*|select\w*|rfp|wants?\s*(?:to\s*)?(?:get|use|start|move|buy|implement)|would\s*like\s*to\s*(?:get|use|start|move|implement|have)|alternative\s*to)\b/i;
+  /\b(?:evaluat\w*|looking\s*(?:at|for|into|to)|consider\w*|interest\w*\s*in|explor\w*|implement\w*|deploy\w*|roll(?:ing)?[\s-]*out|go[\s-]*live|replac\w*|switch\w*|mov(?:e|ing)\s*(?:to|off|from|away|onto)|migrat\w*\s*(?:to|onto|off|from)|transition\w*\s*(?:to|onto)|upgrad\w*|moderni[sz]\w*|standardi[sz]\w*\s*on|build\w*\s*(?:internal\s*)?apps|consolidat\w*\s*(?:data\s*)?into|new\s*(?:crm|erp|system|platform|accounting|software|solution)|need\w*\s*(?:a|an)\s*(?:new\s*)?(?:crm|erp|system|platform|solution|accounting)|demo(?:s|ed|ing)?|quote\w*|pricing|proposal|purchas\w*|buy\w*|outgr\w*|select\w*|rfp|wants?\s*(?:to\s*)?(?:get|use|start|move|buy|implement)|would\s*like(?=\s+(?:to\s+(?:get|use|start|move|implement|have|purchase|buy|see|discuss|learn)|(?:microsoft\s+)?(?:dynamics|d\s*365|business\s*central|a\s+demo|a\s+quote|pricing)))|alternative\s*to)\b/i;
 /** The platforms Jack means — sales/CRM, accounting/ERP, project
  *  management, customer insights — plus the legacy Dynamics ERPs and Power
  *  Platform, which the Dynamics bucket has always sold through (the
@@ -1108,6 +1108,21 @@ const PLATFORM_WORD_RE =
  *  Central", "Scope: Dynamics". */
 const LABELLED_PLATFORM_RE =
   /\b(?:service\s*name|scope|products?(?:\s*of\s*interest)?|interest(?:ed)?\s*in|need)\s*[:?]+\s*(?:microsoft\s*)?(?:dynamics|d\s*365|business\s*central|crm\b|erp\b)/i;
+/** A Microsoft campaign identifier ("~CMP~Modernize Accounting/ERP Systems
+ *  with D365 Bus Central - VDS~SR…") is the name of a marketing play, not
+ *  the lead saying anything. */
+function withoutCampaignCodes(text: string): string {
+  return text.replace(/~CMP~[^.!?]*?(?:VDS~SR\S*|(?=[.!?])|$)/g, " ");
+}
+/** The inbound form line naming a Dynamics product, on a row whose Product
+ *  Area is a Dynamics code: "Dynamics 365 Business Central", "Services -
+ *  Dynamics 365 Business Central -", "Dynamic ERP". Short, no question. */
+function dynamicsInboundLine(notes: string, productArea: unknown): boolean {
+  if (!/^\s*dynamics/i.test(String(productArea ?? ""))) return false;
+  const t = notes.replace(/\s+/g, " ").trim();
+  return t.length > 0 && t.length <= 80 && !t.includes("?") &&
+    /\b(?:dynamics?|d\s*365|business\s*central|crm|erp|customer\s*(?:engagement|insights?)|field\s*service|project\s*operations|finance\s*(?:and|&)\s*operations|supply\s*chain)\b/i.test(t);
+}
 export function newPlatformSignal(notes: unknown): boolean {
   const t = stripScorecard(String(notes ?? "")).replace(/\s+/g, " ").trim();
   if (!t) return false;
@@ -2392,6 +2407,20 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
   // show they are moving onto a platform — see newPlatformSignal. Without
   // one it is Needs Review: still visible, still filed under Dynamics.
   if (tier === "signal" && autoCategory === "dynamics365" && !googleLead && !newPlatformSignal(resolved.comments)) tier = "mention";
+  // The other direction. Per Jack: "alot of the needs review for dynamics
+  // from august and september should be strong". The Dynamics hit's own
+  // Strong test only knew trigger words and seat counts, so "wants to use
+  // Dynamics 365 CRM for their sales team ... get a quote, and see a product
+  // demo" sat at Needs Review. A Dynamics lead now goes Strong when the
+  // notes show the move (newPlatformSignal: evaluating, wants, would like,
+  // a quote, a demo, pricing ... beside the platform), or when Product Area
+  // is a Dynamics code and the note is the short inbound line naming the
+  // product ("Dynamics 365 Business Central", "Dynamic ERP"). Campaign
+  // names never count. Every Auto-DQ still wins.
+  if (tier === "mention" && autoCategory === "dynamics365" && !subThreshold) {
+    const said = withoutCampaignCodes(String(resolved.comments ?? ""));
+    if (newPlatformSignal(said) || dynamicsInboundLine(said, resolved.productArea)) tier = "signal";
+  }
   // A Google lead also survives the CRM-opportunity rule: on Jack's 9/30
   // file every real Google row was a Microsoft seller's opportunity note,
   // and all of them were landing in Bad Leads.

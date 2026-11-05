@@ -128,6 +128,10 @@ export interface StoredLead {
   /** Not a fit, and why — see LeadInput.notFit. The lead is kept (as a Bad
    *  Lead) rather than discarded. Per Jack: "i dont want to miss any". */
   notFit?: string;
+  /** A grade a person set by hand — see moveGrade. While present, `tier`
+   *  IS this grade, and no re-upload, note refresh or requalify changes it;
+   *  the scanner's own latest verdict is kept in `was`. */
+  gradeOverride?: GradeOverride;
   /** Which Dynamics tab a Dynamics lead falls under (Business Central / ERP,
    *  Sales / CRM, Everything else), from the scan. Absent on non-Dynamics
    *  leads and on leads stored before it was kept; All leads then reads it
@@ -490,7 +494,8 @@ export function mergeLeads(
       added++;
       continue;
     }
-    const lead: StoredLead = {
+    // A grade moved by hand survives the re-scan (keepHandGrade).
+    const lead: StoredLead = keepHandGrade(prev, {
       ...prev,
       // Contact details: additive.
       company: fillBlank(prev.company, inc.company),
@@ -522,7 +527,7 @@ export function mergeLeads(
         : prev.fileSeen ?? [],
       noteDates: mergeNoteDates(prev.noteDates, datesIn(inc, now)),
       ...(inc.notFit ? { notFit: inc.notFit } : {}),
-    };
+    });
     byKey.set(key, lead);
     changed.set(key, lead);
     updated++;
@@ -532,6 +537,103 @@ export function mergeLeads(
     leads: [...byKey.values()],
     changed: [...changed.values()],
     added, updated, skipped,
+  };
+}
+
+/* ------------------------------------------------- grade moved by hand */
+
+/**
+ * Per Jack: "in all leads i want to be able to move needs review to strong
+ * signal or bad lead" — "needs review has strong leads". Any grade can be
+ * moved to any of the three, and the move sticks: `tier` becomes the hand
+ * grade, and every automatic re-grade afterwards (a re-upload, the note
+ * refresh, requalifying against company data) only updates `was`, the
+ * scanner's own verdict, which "Back to scanner's grade" restores.
+ */
+export type HandGrade = "Strong Signal" | "Needs Review" | "Bad Lead";
+export const HAND_GRADES: HandGrade[] = ["Strong Signal", "Needs Review", "Bad Lead"];
+
+export interface GradeOverride {
+  grade: HandGrade;
+  /** When it was moved. */
+  at: string;
+  /** The scanner's own tier wording, kept current by later re-scans. */
+  was: string;
+  /** The note mark the scanner gave it (▲ ▸ ▼ ✕), restored on undo. */
+  wasMark?: string;
+  reason?: string;
+}
+
+/** Which of the three a scanner tier reads as — the same split as
+ *  leadStatus.verdictOf. */
+export function gradeOfTier(tier: string): HandGrade {
+  if (tier === "Strong Signal" || tier === "High priority") return "Strong Signal";
+  if (tier === "Bad Lead" || tier === "Bad Leads") return "Bad Lead";
+  return "Needs Review";
+}
+
+const HAND_MARK: Record<HandGrade, string> ={ "Strong Signal": "▲", "Needs Review": "▸", "Bad Lead": "✕" };
+const HEAD_MARK_RE = /^(\(\d{1,3}\)\s*)?([▲▸▼✕])/;
+
+/** The mark at the head of the newest note segment, if any. */
+function topMark(notes: string): string | undefined {
+  return noteSegments(notes)[0]?.text.match(HEAD_MARK_RE)?.[2];
+}
+
+/** The note with its newest segment's mark set to `mark`. A note with no
+ *  mark is left alone: it was never graded, and a bare mark would read as
+ *  a score that is not there. */
+function withTopMark(notes: string, mark: string): string {
+  const segs = noteSegments(notes);
+  const top = segs[0];
+  if (!top || !HEAD_MARK_RE.test(top.text)) return notes;
+  const text = top.text.replace(HEAD_MARK_RE, (_m, score: string | undefined) => `${score ?? ""}${mark}`);
+  if (text === top.text) return notes;
+  return [top.date ? `${top.date} · ${text}` : text, ...segs.slice(1).map((s) => (s.date ? `${s.date} · ${s.text}` : s.text))].join(NOTE_SEP);
+}
+
+/** The lead moved to `grade` by hand. Moving it back to what the scanner
+ *  says clears the move rather than pinning the same grade. */
+export function moveGrade(l: StoredLead, grade: HandGrade, now = new Date().toISOString(), reason?: string): StoredLead {
+  const was = l.gradeOverride?.was ?? l.tier;
+  const wasMark = l.gradeOverride ? l.gradeOverride.wasMark : topMark(l.notes);
+  const why = reason?.trim();
+  // Same grade as the scanner's (CSP's "High priority" is Strong Signal
+  // here): nothing to pin.
+  if (gradeOfTier(was) === grade && !why) return clearGrade(l);
+  return {
+    ...l,
+    tier: grade,
+    notes: withTopMark(l.notes, HAND_MARK[grade]),
+    gradeOverride: { grade, at: now, was, ...(wasMark ? { wasMark } : {}), ...(why ? { reason: why } : {}) },
+  };
+}
+
+/** Back to the scanner's own grade and mark. */
+export function clearGrade(l: StoredLead): StoredLead {
+  const o = l.gradeOverride;
+  if (!o) return l;
+  const { gradeOverride: _drop, ...rest } = l;
+  void _drop;
+  return { ...rest, tier: o.was, notes: o.wasMark ? withTopMark(l.notes, o.wasMark) : l.notes };
+}
+
+/**
+ * `next` is `prev` after an automatic re-grade. If `prev` was moved by
+ * hand, the hand grade and its mark win; the scanner's new verdict is what
+ * an undo would now return to.
+ */
+export function keepHandGrade(prev: StoredLead, next: StoredLead): StoredLead {
+  const o = prev.gradeOverride;
+  if (!o) return next;
+  const regraded = next.tier !== prev.tier;
+  const noteChanged = next.notes !== prev.notes;
+  const wasMark = noteChanged ? topMark(next.notes) ?? o.wasMark : o.wasMark;
+  return {
+    ...next,
+    tier: o.grade,
+    notes: withTopMark(next.notes, HAND_MARK[o.grade]),
+    gradeOverride: { ...o, was: regraded ? next.tier : o.was, ...(wasMark ? { wasMark } : {}) },
   };
 }
 

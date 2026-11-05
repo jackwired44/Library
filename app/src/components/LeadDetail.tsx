@@ -22,7 +22,7 @@ import {
   STATUS_META, STATUS_ORDER, derivedStatus, statusOf, type LeadStatus,
 } from "../lib/leadStatus";
 import {
-  LEAD_SOURCE_META, noteSegments, type StoredLead,
+  LEAD_SOURCE_META, noteSegments, type StoredLead, HAND_GRADES, gradeOfTier, type HandGrade,
 } from "../lib/leadStore";
 import { SYNC_STALE_DAYS } from "../lib/apolloSync";
 import { realSteps, type ApolloFunnel } from "../lib/apolloFunnel";
@@ -130,7 +130,7 @@ function StepTrack({ funnel, step, status }: { funnel: ApolloFunnel | undefined;
 }
 
 export default function LeadDetail({
-  lead, companyProfiles, onClose, sequenceNames = [], onSetPlan, onSetStatus,
+  lead, companyProfiles, onClose, sequenceNames = [], onSetPlan, onSetStatus, onMoveGrade,
   onPrev, onNext, position, funnels = [], companyLeads = [], onOpenLead, apolloIndex = null, onCheckApollo, checkingApollo, recycleRules,
 }: {
   /** For the one-line recycle read — see lib/recycle.ts. */
@@ -145,6 +145,8 @@ export default function LeadDetail({
   onSetPlan?: (sequence: string | null) => void;
   /** Hand-set the status, or null to hand it back to the evidence. */
   onSetStatus?: (status: LeadStatus | null) => void;
+  /** Move this lead's grade by hand, or null for the scanner's own. */
+  onMoveGrade?: (grade: HandGrade | null, reason?: string) => void;
   onPrev?: () => void;
   onNext?: () => void;
   /** e.g. "12 of 340" — where this record sits in the list it came from. */
@@ -186,6 +188,7 @@ export default function LeadDetail({
   // entered (lib/rawNoteLock.ts).
   const rawUnlocked = useRawNoteUnlocked();
   const [showLogged, setShowLogged] = useState(false);
+  const [gradeReason, setGradeReason] = useState("");
 
   const a = lead.apollo;
   const scanned = noteSegments(lead.notes);
@@ -263,6 +266,34 @@ export default function LeadDetail({
                     ))}
                     {lead.statusOverride && <option value="__auto">Back to automatic ({STATUS_META[derivedStatus(lead)].label})</option>}
                   </select>
+                )}
+                {onMoveGrade && (
+                  <select
+                    className="field" style={{ fontSize: 12, width: 200 }} value=""
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === "__auto") onMoveGrade(null);
+                      else if (v) { onMoveGrade(v as HandGrade); setGradeReason(""); }
+                    }}
+                    aria-label="Move grade"
+                  >
+                    <option value="">Move grade…</option>
+                    {HAND_GRADES.filter((g) => g !== gradeOfTier(lead.tier)).map((g) => <option key={g} value={g}>Move to {g}</option>)}
+                    {lead.gradeOverride && <option value="__auto">Back to scanner&apos;s grade ({gradeOfTier(lead.gradeOverride.was)})</option>}
+                  </select>
+                )}
+                {lead.gradeOverride && (
+                  <span data-moved style={{ fontSize: 11.5, ...muted }}>
+                    ✋ moved by hand {lead.gradeOverride.at.slice(0, 10)}{lead.gradeOverride.reason ? ` — ${lead.gradeOverride.reason}` : ""}
+                  </span>
+                )}
+                {onMoveGrade && lead.gradeOverride?.grade === "Bad Lead" && !lead.gradeOverride.reason && (
+                  // Inline, not window.prompt: the artifact frame blocks prompts.
+                  <input className="field" style={{ fontSize: 12, width: 200 }} placeholder="Why? (optional, Enter to save)"
+                         aria-label="Bad Lead reason" value={gradeReason}
+                         onChange={(e) => setGradeReason(e.target.value)}
+                         onKeyDown={(e) => { if (e.key === "Enter" && gradeReason.trim()) onMoveGrade("Bad Lead", gradeReason); }}
+                         onBlur={() => { if (gradeReason.trim()) onMoveGrade("Bad Lead", gradeReason); }} />
                 )}
               </div>
             </div>

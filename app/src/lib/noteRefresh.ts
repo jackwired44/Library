@@ -15,14 +15,14 @@
 // rewritten. Custom and CSP leads get the Main-format note too, keeping
 // their own grade (see refreshMainNotes).
 import { scanParsedFiles, stripSnippetPrefix, noSignalNote, DEFAULT_RULE_OVERRIDES, type RuleOverrides } from "./detection";
-import { NOTE_SEP, NO_SIGNAL_TIER, noteSegments, type StoredLead } from "./leadStore";
+import { NOTE_SEP, NO_SIGNAL_TIER, noteSegments, keepHandGrade, gradeOfTier, type StoredLead } from "./leadStore";
 import { leadInputsFromResults } from "./leadFiling";
 import type { ResultRow } from "./detection";
 import { loadRawNotesMany, newestRaw, type RawNotes, type RawRowRecord } from "./rawNotes";
 import { scan2, emptyRuleSet, loadRuleSets, profileColumns, guessFieldMapping, type RuleSet2, type ScannerKind } from "./scanner2";
 
 /** Bump when the Main note rules change, so stored notes refresh once. */
-export const NOTE_RULES_VERSION = "2026-10-29-scanned-not-raw";
+export const NOTE_RULES_VERSION = "2026-11-05-dynamics-intent";
 const VERSION_KEY = "mainNoteRulesVersion";
 
 /** The most recent CSV row kept for a lead. appendRow stores rows newest
@@ -124,6 +124,7 @@ export function currentScanner2Note(raw: RawNotes | undefined, kind: ScannerKind
 /** The ▲ ▸ ▼ ✕ mark for a stored lead's own grade, so a rewritten note keeps
  *  the grade it was filed with. Per Jack: note only, keep the grade. */
 function markForStored(l: StoredLead): string {
+  if (l.gradeOverride) return { "Strong Signal": "\u25B2", "Needs Review": "\u25B8", "Bad Lead": "\u2715" }[gradeOfTier(l.gradeOverride.grade)];
   if (l.notFit) return "\u2715";
   const t = (l.tier || "").toLowerCase();
   if (/strong signal|high priority/.test(t)) return "\u25B2";
@@ -192,12 +193,13 @@ export async function refreshMainNotes(
       if (orig.source !== "main") {
         const fresh = currentScanner2Note(r, orig.source as ScannerKind, sets[orig.source as ScannerKind]);
         const next = fresh ? withRefreshedNoteOnly(l, fresh) : l;
-        if (next !== orig) changed.push(next);
+        if (next !== orig) changed.push(keepHandGrade(orig, next));
         continue;
       }
       const row = currentMainScan(r, overrides);
       const next = row ? withRefreshedScan(l, row) : l;
-      if (next !== orig) changed.push(next);
+      // A grade moved by hand stays; only the scanner's own verdict updates.
+      if (next !== orig) changed.push(keepHandGrade(orig, next));
     }
     onProgress?.(Math.min(i + chunk, main.length), main.length);
     await yieldToPage();

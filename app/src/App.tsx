@@ -43,6 +43,7 @@ import { ViewErrorBoundary } from "./components/ViewErrorBoundary";
 import { refreshMainNotes, noteRulesStale, markNoteRulesCurrent } from "./lib/noteRefresh";
 import {
   loadLeads, saveLeads, deleteLeads, mergeLeads, leadKeyOfInput, type StoredLead, type LeadInput,
+  keepHandGrade, moveGrade, clearGrade, type HandGrade,
 } from "./lib/leadStore";
 import {
   qualifyLeadInputs, requalifyStoredLeads, summarizeDiscards, type DiscardedLead,
@@ -256,6 +257,7 @@ export default function App() {
         const current = new Map(leadsRef.current.map((l) => [l.key, l]));
         const apply = (l: StoredLead, n: StoredLead): StoredLead => {
           const out: StoredLead = { ...l, notes: n.notes, tier: n.tier, score: n.score, productArea: n.productArea };
+          if (n.gradeOverride) out.gradeOverride = n.gradeOverride;
           if (n.dynamicsView) out.dynamicsView = n.dynamicsView; else delete out.dynamicsView;
           return out;
         };
@@ -704,6 +706,12 @@ export default function App() {
     return last;
   }
 
+  /** Move leads' grade by hand, or null to go back to the scanner's own. */
+  const moveLeadGrades = (keys: string[], grade: HandGrade | null, reason?: string) => {
+    const now = new Date().toISOString();
+    updateLeads(keys, (l) => (grade ? moveGrade(l, grade, now, reason) : clearGrade(l)));
+  };
+
   /** Hand-set a status, or null to give it back to the evidence. */
   const setLeadStatus = (keys: string[], status: LeadStatus | null) =>
     updateLeads(keys, (l) => withStatusOverride(l, status));
@@ -778,7 +786,8 @@ export default function App() {
     if (!discarded.length) return 0;
     // Marked, never deleted — see fileLeads.
     const why = new Map(discarded.map((d) => [d.key, `${d.reason}${d.detail ? ` — ${d.detail}` : ""}`]));
-    updateLeads([...why.keys()], (l) => ({ ...l, tier: "Bad Lead", notFit: why.get(l.key) }));
+    // A grade moved by hand wins over this automatic check too.
+    updateLeads([...why.keys()], (l) => keepHandGrade(l, { ...l, tier: "Bad Lead", notFit: why.get(l.key) }));
     setLastDiscards({ discarded, sizeUnknown: [] });
     return discarded.length;
   }
@@ -1441,6 +1450,7 @@ export default function App() {
             initialPreset={leadsPresetEntry || undefined}
             sequenceNames={knownSequences}
             onSetStatus={setLeadStatus}
+            onMoveGrade={moveLeadGrades}
             funnels={funnels}
             lists={leadLists}
             onAddToList={addExportRowsToLists}
