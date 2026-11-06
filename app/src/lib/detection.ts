@@ -564,6 +564,20 @@ const ONGOING_PARTNER_SRC =
 const MS_WORKLOAD_SRC =
   "\\b(purview|sharepoint(?:\\s*online)?|onedrive(?:\\s*for\\s*business)?|exchange\\s*online|teams\\s*rooms?|teams\\s*phone|intune|endpoint\\s*manager|microsoft\\s*endpoint|windows\\s*365|cloud\\s*pc|azure\\s*virtual\\s*desktop|avd|virtual\\s*desktop|copilot|microsoft\\s*sentinel|defender\\s*for\\s*(?:business|office\\s*365|endpoint|cloud|identity)|m(?:icrosoft)?\\s*365\\s*[aeg][1-7]|o(?:ffice)?\\s*365\\s*[aeg][1-7]|gcc\\s*high|business\\s*(?:basic|standard|premium))\\b";
 
+// Per Jack (11/6): "anything indicating msp or ongoing support" is a lead.
+// Two phrasings the patterns above missed, found on a real-shaped row that
+// produced no lead at all ("current IT provider is unresponsive and they
+// want a new partner for ongoing Microsoft 365 support"): leaving or
+// replacing the provider they have, and ongoing support for a named
+// Microsoft product rather than "IT support". Tenant Support only.
+const PROVIDER_SWITCH_SRC =
+  "\\b(?:new|another|different|replacement|better)\\s+(?:(?:it|msp|managed\\s+services?|tech\\w*|support|microsoft)\\s+(?:provider|partner|company|vendor)|msp)\\b" +
+  "|\\b(?:want\\w*|need\\w*|looking\\s+for|seek\\w*)\\s+(?:a\\s+)?(?:new|another|different)\\s+partner\\b" +
+  "|\\b(?:switch\\w*|replac\\w*|leav\\w*|mov\\w*\\s+away\\s+from)\\s+(?:their\\s+|our\\s+|the\\s+)?(?:current\\s+)?(?:(?:it|msp|support)\\s+(?:providers?|partners?|vendors?|company)|msps?|it\\s+partners?)\\b" +
+  "|\\b(?:current|existing)\\s+(?:it\\s+provider|it\\s+partner|msp|it\\s+support|support\\s+provider)\\s+(?:is|has\\s+been|was)\\s+(?:not\\s+)?(?:unresponsive|slow|poor|bad|not\\s+responsive|not\\s+meeting|lacking|letting)" +
+  "|\\bongoing\\s+(?:microsoft\\s*365|m365|office\\s*365|o365|azure|technical|tech|cloud|tenant)\\s+support\\b";
+export const PROVIDER_SWITCH_RE = new RegExp(PROVIDER_SWITCH_SRC, "i");
+
 const SECURITY_DESIGN_SRC =
   "\\bsecurity\\s*(?:design|architecture|hardening|posture|assessment|audit|review)\\b|\\bharden(?:ing)?\\s*(?:our|their|my)?\\s*security\\b";
 
@@ -599,12 +613,12 @@ const PLATFORM_CATALOGUE: { label: string; pattern: RegExp }[] = [
   {
     label: MIGRATION_LABEL,
     pattern:
-      /\b(data\s*migration|cloud\s*migration|legacy\s*system|migrating(?:\s*(?:off|from|to))?|moving\s*(?:off|away\s*from)|re-?platform(?:ing)?|lift\s*and\s*shift|moderniz\w+|on-?prem\s*to\s*cloud)\b/i,
+      /\b(data\s*migration|cloud\s*migration|legacy\s*system|migrating(?:\s*(?:off|from|to))?|moving\s*(?:off|away\s*from)|re-?platform(?:ing)?|lift\s*and\s*shift|moderniz\w+|on-?prem\s*to\s*cloud|mov(?:e|ing)\s+(?:[\w-]+\s+){1,6}?to\s+(?:the\s+)?cloud)\b/i,
   },
   {
     label: TENANT_SUPPORT_LABEL,
     pattern: new RegExp(
-      `${GOOGLE_TO_MICROSOFT_SRC}|\\btenant\\s*(?:creation|setup|set\\s*up|provisioning|onboarding|migration|support)\\b|\\b(?:create|creating|set(?:ting)?\\s*up|stand(?:ing)?\\s*up|provision(?:ing)?)\\s*(?:a\\s*)?(?:new\\s*)?tenant\\b|\\bnew\\s*tenant\\b|${ONGOING_PARTNER_SRC}|${SECURITY_DESIGN_SRC}|${MS_WORKLOAD_SRC}|\\bit\\s*support\\b|\\btechnical\\s*support\\b|\\bhelp\\s*desk\\b|\\bhelpdesk\\b|\\bsupport\\s*(?:contract|plan|request|team)\\b|\\bsupport\\s*ticket(?!\\s*(?:id|no|num|number|#|:))\\b|\\bneed(?:s|ing)?\\s*(?:it\\s*)?support\\b|\\blooking\\s*for\\s*(?:it\\s*)?support\\b`,
+      `${GOOGLE_TO_MICROSOFT_SRC}|\\btenant\\s*(?:creation|setup|set\\s*up|provisioning|onboarding|migration|support)\\b|\\b(?:create|creating|set(?:ting)?\\s*up|stand(?:ing)?\\s*up|provision(?:ing)?)\\s*(?:a\\s*)?(?:new\\s*)?tenant\\b|\\bnew\\s*tenant\\b|${ONGOING_PARTNER_SRC}|${PROVIDER_SWITCH_SRC}|${SECURITY_DESIGN_SRC}|${MS_WORKLOAD_SRC}|\\bit\\s*support\\b|\\btechnical\\s*support\\b|\\bhelp\\s*desk\\b|\\bhelpdesk\\b|\\bsupport\\s*(?:contract|plan|request|team)\\b|\\bsupport\\s*ticket(?!\\s*(?:id|no|num|number|#|:))\\b|\\bneed(?:s|ing)?\\s*(?:it\\s*)?support\\b|\\blooking\\s*for\\s*(?:it\\s*)?support\\b`,
       "i"
     ),
   },
@@ -1642,6 +1656,14 @@ export function scanRowPlatform(
           /\b(?:no|not|without|don'?t\s+have|doesn'?t\s+have|lack(?:s|ing)?)\s+(?:an?\s+|any\s+|separate\s+)?$/i.test(combined.slice(Math.max(0, m.index - 30), m.index))) {
         continue;
       }
+      // "a server hosting their ERP system": an ERP or CRM the row HOSTS on
+      // infrastructure is the workload, not a Dynamics lead. Only a bare
+      // word, and only when no Dynamics product is named anywhere.
+      if (cat.label === "Dynamics 365" && /^(?:erp|crm)$/i.test(m[0]) &&
+          /\b(?:hosting|hosts?|hosted|run(?:s|ning)?\s+(?:on|in)|servers?\s+(?:for|running|hosting))\s+(?:\w+\s+){0,2}$/i.test(combined.slice(Math.max(0, m.index - 40), m.index)) &&
+          !/\b(?:dynamics|d\s*365|business\s*central|navision|great\s*plains)\b/i.test(combined)) {
+        continue;
+      }
       if (paSpan && m.index >= paSpan[0] && m.index < paSpan[1]) continue;
       const [cellStart, cellEnd] = cellOf(m.index);
       let start = Math.max(0, m.index - SIGNAL_WINDOW);
@@ -1735,7 +1757,7 @@ export function scanRowPlatform(
           (cat.label !== TENANT_SUPPORT_LABEL && TRIGGER_WORDS_RE.test(win)) ||
           LICENSE_COUNT_RE.test(win) ||
           (cat.label === TENANT_SUPPORT_LABEL &&
-            (GROWTH_OVERLOAD_RE.test(win) || googleMoveIn(win) || ONGOING_PARTNER_RE.test(win) || PARTNER_ENGAGEMENT_RE.test(win) || SECURITY_DESIGN_RE.test(win))) ||
+            (GROWTH_OVERLOAD_RE.test(win) || googleMoveIn(win) || ONGOING_PARTNER_RE.test(win) || PROVIDER_SWITCH_RE.test(win) || PARTNER_ENGAGEMENT_RE.test(win) || SECURITY_DESIGN_RE.test(win))) ||
           // The "bare number sits next to the match" rule is Dynamics-365-
           // specific by design (see CLAUDE.md) — it used to run for every
           // category, so a support-ticket number, a software version
@@ -2807,6 +2829,33 @@ function reversalClause(text: string): string {
  * has already told us wastes one of only two questions. Same reason the
  * Dynamics ask drops "what they run today" once an incumbent is known.
  */
+/** What the lead is about, when it is one of the topics Jack wants asked
+ *  about directly (11/6): "if the lead is about azure document intelligence,
+ *  security anything indicating msp or ongoing support the scanned note is
+ *  direct", then "azure infrastructure or migrations everything". */
+type BriefTopic = "docintel" | "switch" | "support" | "security" | "migration" | "azureInfra";
+const SUPPORT_TOPIC_RE = /\b(?:msp|managed\s+(?:it|services?|service\s+provider)|co-?managed|outsourc\w*\s+(?:it|their\s+it|our\s+it)|it\s+outsourcing|it\s+support|help\s*desk|service\s+desk|ongoing\s+(?:it|tech\w*)\s+support|manag\w*\s+(?:their\s+it|our\s+it|it\s+(?:for|going))\b|(?:no|without)\s+(?:internal|in-house|dedicated)\s+it|extension\s+of\s+(?:our|their)\s+team)\b/i;
+/** Weaker support wording: a partner to run something. Azure
+ *  infrastructure wins over it, so "AVD … wants a partner to manage it"
+ *  is asked about Azure. */
+const SUPPORT_WEAK_RE = /\b(?:partner\s+to\s+(?:manage|support|run|maintain)|manage\s+it\s+ongoing|ongoing\s+(?:\w+\s+){0,2}support|ongoing\s+management)\b/i;
+const SECURITY_TOPIC_RE = /\b(?:cyber\s*security|cybersecurity|security\s+(?:evaluation|assessment|posture|gaps?|infrastructure|requirements?|review|audit|hardening|maturity|program|tools?|monitoring|concerns?)|endpoint\s+(?:protection|security|detection)|antivirus|anti-?virus|\bedr\b|\bxdr\b|\bmdr\b|phishing|ransomware|breach\w*|data\s+loss\s+prevention|\bdlp\b|conditional\s+access|\bmfa\b|multi-?factor|identity\s+(?:protection|and\s+access)|zero\s+trust|\bsiem\b)\b/i;
+const AZURE_INFRA_RE = /\b(?:azure\s+(?:virtual\s+machines?|vms?|virtual\s+desktop|infrastructure|landing\s+zone|hosting|backup|site\s+recovery|files|sql|storage|subscription|environment|tenant|reserved\s+instances?|consumption|credits?|costs?|spend|billing)|\bavd\b|landing\s+zone|vms?\s+(?:in|on)\s+azure|(?:on|in)\s+azure\b|disaster\s+recovery|data\s*cent(?:er|re))\b/i;
+const MIGRATION_TOPIC_RE = /\b(?:migrat\w*|lift[\s-]+and[\s-]+shift|on[\s-]?prem\w*\s+to|mov(?:e|es|ing)\s+(?:\w+\s+){0,3}(?:to|into|onto)\s+(?:the\s+)?(?:cloud|azure))\b/i;
+
+/** The first of Jack's direct topics the row is about, in order of how
+ *  specific it is. Null leaves the area ask (licensing / Azure) in place. */
+function briefTopicOf(fullText: string, platform: PlatformResult | null): BriefTopic | null {
+  if (DOCUMENT_INTELLIGENCE_RE.test(fullText)) return "docintel";
+  if (PROVIDER_SWITCH_RE.test(fullText)) return "switch";
+  if (SUPPORT_TOPIC_RE.test(fullText)) return "support";
+  if (SECURITY_TOPIC_RE.test(fullText)) return "security";
+  if (platform?.isGoogleToMicrosoft || MIGRATION_TOPIC_RE.test(fullText)) return "migration";
+  if (AZURE_INFRA_RE.test(fullText)) return "azureInfra";
+  if (SUPPORT_WEAK_RE.test(fullText)) return "support";
+  return null;
+}
+
 function briefQuestions(
   area: "dynamics" | "licensing" | "azure",
   knowsIncumbent: boolean,
@@ -3049,6 +3098,7 @@ const TIMELINE_PATTERNS: RegExp[] = [
   /\b(?:next|within|in)\s+(?:the\s+)?(?:\d+|a few|couple of|six|three|twelve)\s*(?:-\s*\d+\s*)?(?:month|week|quarter)s?\b/i,
   /\bend of (?:the )?(?:year|quarter|month|20\d{2})\b/i,
   /\b(?:this|next)\s+(?:year|quarter|fiscal year)\b/i,
+  /\b(?:end of|by)\s+Q[1-4]\b/i,
 ];
 
 /** The row's own words for when, or "" when it never says. Never inferred. */
@@ -3403,7 +3453,10 @@ function noteLead(fullText: string, anchor: string, skip?: RegExp): string {
         ? `Wants ${products.join(" + ")} for ${n} ${n === 1 ? "user" : "users"}.`
         : `Wants ${products.join(" + ")}.`;
       const keep = said.filter((x) => !isDatedSentence(x));
-      return keep.length ? `${normalizeSentence(cleanLeadSentence(keep[0]))} ${ask}` : ask;
+      if (!keep.length) return ask;
+      const said1 = normalizeSentence(cleanLeadSentence(keep[0]));
+      // Document Intelligence is the thing they want: it leads.
+      return /document\s*intelligence/i.test(ask) ? `${ask} ${said1}` : `${said1} ${ask}`;
     }
   }
   const anchorWords = new Set((anchor.toLowerCase().match(/[a-z][a-z0-9]{3,}/g) ?? []));
@@ -3413,7 +3466,10 @@ function noteLead(fullText: string, anchor: string, skip?: RegExp): string {
     // sentence ("… by Q1 2027") is cut rather than costing the sentence.
     // Per Jack: a sentence carrying a date or time is scrapped outright,
     // unless it is a direct meeting with Microsoft — then it stays as written.
-    const whole = cleanLeadSentence(raw);
+    // A relative time ("last month", "this year") says when, not a date:
+    // it is cut, so "They had a phishing incident last month and want a
+    // security assessment" still leads instead of being scrapped whole.
+    const whole = cleanLeadSentence(raw.replace(RELATIVE_TIME_RE, " ").replace(/\s+([,.;])/g, "$1").replace(/\s{2,}/g, " "));
     const msMeeting = isMicrosoftMeeting(whole);
     if (!msMeeting && isDatedSentence(whole)) return;
     const u = msMeeting ? whole : stripTimelinePhrase(whole);
@@ -3448,13 +3504,17 @@ function noteLead(fullText: string, anchor: string, skip?: RegExp): string {
   if (NEED_TOPIC_RE.test(best) || partnerAskMatch(best)) return finishAsWritten(best) || finish(best);
   return finish(best);
 }
+const RELATIVE_TIME_RE = /\s*\b(?:in\s+|during\s+|over\s+)?(?:the\s+)?(?:last|this|next|past)\s+(?:few\s+)?(?:weeks?|months?|quarters?|years?)\b/gi;
 /** Cybersecurity and IT-support needs, as the row words them. */
-const NEED_TOPIC_RE = /\b(?:cyber\s*security|cybersecurity|security\s+(?:evaluation|assessment|posture|gaps?|infrastructure|requirements?|capabilities|concerns?|stack|review|audit|hardening|maturity|program|tools?)|secur(?:e|ing)\s+(?:their|the|our)\s+\w+|endpoint\s+(?:protection|security|detection)|antivirus|anti-?virus|\bedr\b|\bxdr\b|\bmdr\b|phishing|ransomware|data\s+loss\s+prevention|\bdlp\b|conditional\s+access|identity\s+(?:protection|and\s+access)|zero\s+trust|\bsiem\b|it\s+support|help\s*desk|service\s+desk|managed\s+(?:it|services?|service\s+provider)|\bmsp\b|co-?managed|outsourc\w*\s+(?:it|their\s+it)|ongoing\s+(?:it\s+)?support)\b/i;
-const NEED_VERB_RE = /\b(?:need\w*|want\w*|looking|seek\w*|interest\w*|request\w*|requir\w*|priorit\w*|goals?|focus\w*|evaluat\w*|explor\w*|plan\w*|help|assist\w*|improv\w*|strengthen\w*|expand\w*|implement\w*|deploy\w*)\b/gi;
+const NEED_TOPIC_RE = /\b(?:cyber\s*security|cybersecurity|security\s+(?:evaluation|assessment|posture|gaps?|infrastructure|requirements?|capabilities|concerns?|stack|review|audit|hardening|maturity|program|tools?)|secur(?:e|ing)\s+(?:their|the|our)\s+\w+|endpoint\s+(?:protection|security|detection)|antivirus|anti-?virus|\bedr\b|\bxdr\b|\bmdr\b|phishing|ransomware|data\s+loss\s+prevention|\bdlp\b|conditional\s+access|identity\s+(?:protection|and\s+access)|zero\s+trust|\bsiem\b|it\s+support|help\s*desk|service\s+desk|managed\s+(?:it|services?|service\s+provider)|\bmsp\b|co-?managed|outsourc\w*\s+(?:it|their\s+it)|ongoing\s+(?:\w+\s+){0,2}support|document\s*intelligence|azure\s+(?:virtual\s+machines?|vms?|virtual\s+desktop|infrastructure|landing\s+zone|hosting|backup|site\s+recovery)|\bavd\b|landing\s+zone|disaster\s+recovery|migrat\w*|lift[\s-]+and[\s-]+shift|(?:new|another|different)\s+(?:it\s+)?(?:provider|partner|msp)|switch\w*\s+(?:\w+\s+){0,2}(?:providers?|partners?|msps?)|\bmfa\b|multi-?factor|defender|purview|sentinel)\b/i;
+const NEED_VERB_RE = /\b(?:need\w*|want\w*|looking|seek\w*|interest\w*|request\w*|requir\w*|priorit\w*|goals?|focus\w*|evaluat\w*|explor\w*|plan\w*|help|assist\w*|improv\w*|strengthen\w*|expand\w*|implement\w*|deploy\w*|use|using|build\w*|migrat\w*|mov(?:e|ing)|host\w*|manag\w*|switch\w*|replac\w*|digiti[sz]\w*|extract\w*|automat\w*|set\s*up|configur\w*)\b/gi;
 function finishAsWritten(sentence: string): string {
   let u = cleanLeadSentence(sentence);
   const topic = NEED_TOPIC_RE.exec(u) ?? (partnerAskMatch(u) ? { index: u.toLowerCase().indexOf("partner") } : null);
-  if (u.length > NOTE_LEAD_MAX && topic) {
+  // A sentence that fits whole is kept whole: cutting it at the need verb
+  // split "Customer's current IT provider is unresponsive and they want a
+  // new partner …" into a lead and a duplicate pain quote.
+  if (u.length > NOTE_LEAD_MAX + 30 && topic) {
     // Start at the need verb nearest before the topic, so the line reads
     // "needs a security evaluation …" rather than opening mid-sentence.
     let start = 0;
@@ -3608,6 +3668,15 @@ function migrationClause(fullText: string, google: boolean): { what: string; whe
   // Per Jack: "if a company is looking to migrate to azure or on prem to
   // azure just be direct with the notes". On-prem → Azure, and a named
   // workload moving to Azure, read as one plain line.
+  // What is moving, in the row's words: "migrate 3 on-prem Hyper-V servers
+  // to Azure" reads "Migrating 3 on-prem Hyper-V servers to Azure."
+  const named = /\b(?:migrat\w*|mov(?:e|ing)|lift(?:ing)?\s+and\s+shift\w*)\s+((?:(?!to\b|into\b|onto\b)[\w&/-]+\s+){1,7}?)(?:to|into|onto)\s+(?:the\s+)?(azure|cloud)\b/i.exec(t);
+  if (named) {
+    const obj = named[1].trim().replace(/^(?:our|their|the|its|all|a)\s+/i, "");
+    if (obj && !/^(?:it|them|this|that|everything|entirely|fully|completely|over|forward)$/i.test(obj) && !/^(?:from|off|away)\b/i.test(obj) && !/\b(?:google|gmail|workspace)\b/i.test(obj)) {
+      return { what: `Migrating ${obj} to ${titleDest(named[2])}.`, when: wantedTimeline(t, named.index) };
+    }
+  }
   const onPrem = /\bon[\s-]?prem(?:ise|ises)?\b[^.;]{0,80}?\b(?:to|into|→|->)\s+(?:the\s+)?(azure|cloud)\b/i.exec(t);
   if (onPrem) return { what: `Migrating on-prem to ${titleDest(onPrem[1])}.`, when: wantedTimeline(t, onPrem.index) };
   const workload = /\b(server\s+estate|servers?|vms?|virtual\s+machines?|workloads?|infrastructure|data\s*cent(?:er|re)s?|databases?|file\s+servers?|applications?|apps?)\b[^.;]{0,60}?\b(?:move|moving|migrat\w*|lift(?:ing)?\s+and\s+shift\w*)\s+(?:to|into)\s+(azure)\b/i.exec(t);
@@ -3769,9 +3838,16 @@ export function buildCallBrief(
   // the ask with nothing in front of it, name the thing that matched and
   // say plainly that the row carries no product detail.
   const matchedArea = platform?.hits[0]?.category ?? "";
+  const topicNoDetail: Partial<Record<BriefTopic, string>> = {
+    switch: "Wants to change IT provider; the row gives no more detail.",
+    support: "Wants IT support or a managed service; the row gives no more detail.",
+    security: "Security need; the row gives no more detail.",
+    azureInfra: "Azure infrastructure; the row gives no more detail.",
+  };
+  const plainTopic = topicNoDetail[briefTopicOf(fullText, platform) ?? "docintel"];
   const noted = what || direction
     ? what
-    : matchedArea ? `${matchedArea}, no products or seat count named in the row.` : "";
+    : plainTopic ?? (matchedArea ? `${matchedArea}, no products or seat count named in the row.` : "");
   // The first sentence leads with what the raw note says. The SKU clause
   // stays only when it carries a count the lead sentence does not, and then
   // says "Mentions", since naming a product is not the same as running it.
@@ -3787,10 +3863,13 @@ export function buildCallBrief(
   // "Direct with Microsoft today, wants to work with a partner." already
   // says what the Product Area's "Goes direct with Microsoft." would.
   const dirShown = columnDirect && /^Direct with Microsoft today/.test(stance) ? "" : direction;
-  const stated = [lead
-    ? (what && !leadCovers(lead, what) ? `${lead}${seatsLine(what, lead)}` : lead)
-    : (wantsDocIntel ? "" : noted),
+  // Document Intelligence leads the note: it is the thing they want, and
+  // the row's own sentence (what the documents are) follows it.
+  const stated = [
     wantsDocIntel && !/document\s*intelligence/i.test(lead) ? "Wants Azure Document Intelligence." : "",
+    lead
+      ? (what && !leadCovers(lead, what) ? `${lead}${seatsLine(what, lead)}` : lead)
+      : (wantsDocIntel ? "" : noted),
     azureHelp].filter(Boolean).join(" ");
 
   // WHAT ELSE THE ROW SAYS — quoted, windowed to the match, dropped when
@@ -3849,7 +3928,6 @@ export function buildCallBrief(
   const migration = mig && !leadIsCountedAsk && (!mig.bare || !lead) ? mig.what : "";
   if (migration && mig) {
     const when = mig.when;
-    const azureMove = /\b(?:Azure|the cloud)\.$/.test(migration);
     return sentenceCase([
       // A stated user/employee count still rides along — per Jack, never
       // drop one.
@@ -3858,7 +3936,7 @@ export function buildCallBrief(
       // The migration line does not show the opening sentence, so a partner
       // ask in it still has to be said here.
       stanceBase,
-      azureMove
+      /\b(?:Azure|the cloud)\.$/.test(migration)
         ? briefQuestions("azure", false, false)
         : briefQuestions(hits.length > 0 || /Microsoft 365|Google/.test(migration) ? "licensing" : "azure", false, false),
     ].filter(Boolean).join(" "));

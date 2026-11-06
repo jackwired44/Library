@@ -7932,3 +7932,50 @@ team ... get a quote, and see a product demo" sat at Needs Review.
 - Suite `dynamics-intent` (13).
 - No August file was in the session; August leads are covered by the same
   rule through the refresh.
+
+### 2026-11-06: Main notes are direct for Document Intelligence, security, MSP / support, Azure infra and migrations (scanner-platform-v29)
+
+Per Jack: "if the lead is about azure document intelligence, security
+anything indiciating msp or ongoing support the scanned note is direct for
+main scanner", then "azure infrastructure or migrations everything".
+Opening lines only; the closing questions are unchanged (see below).
+- `NEED_TOPIC_RE` (detection.ts) now also covers Document Intelligence,
+  Azure infrastructure (VMs, AVD, landing zone, hosting, backup, site
+  recovery, disaster recovery), migrations, switching provider, MFA,
+  Defender / Purview / Sentinel; `NEED_VERB_RE` adds use, build, migrate,
+  move, host, manage, switch, replace, digitize, extract, automate, set up,
+  configure. Such a sentence leads as written.
+- A sentence that fits (up to `NOTE_LEAD_MAX + 30`) is kept whole rather
+  than cut at the need verb, which split "current IT provider is
+  unresponsive and they want a new partner…" into a lead plus a repeated
+  pain quote.
+- A relative time ("last month", "this year", `RELATIVE_TIME_RE`) is cut
+  from a candidate sentence instead of scrapping it as dated: "They had a
+  phishing incident last month and want a security assessment" had
+  produced "Tenant Support, no products or seat count named in the row."
+- Document Intelligence leads: "Wants Azure Document Intelligence." comes
+  before the row's own sentence, also on the form-line path.
+- A row with nothing quotable says what it is about (`topicNoDetail`):
+  "Security need; the row gives no more detail.", "Wants IT support or a
+  managed service; …", "Wants to change IT provider; …", "Azure
+  infrastructure; …".
+- Migrations name what is moving in the row's words ("Migrating 3 on-prem
+  Hyper-V servers to Azure."), and "by end of Q1" reads as a timeline.
+- `PROVIDER_SWITCH_RE`: wanting a new / different IT partner or MSP,
+  switching or replacing the current one, the current IT provider being
+  unresponsive, or ongoing Microsoft 365 / Azure support now qualify Tenant
+  Support and promote it like MSP language. Never a bare "provider" (on the
+  healthcare order-desk logs a provider is a doctor: the first draft made 9
+  false Strong Signals on Book10-30; measured after: 0 tier changes on
+  Book9-30, Book10-30 and the strong-signal export).
+- A bare ERP / CRM the row HOSTS ("a server hosting their ERP system") is
+  no longer a Dynamics hit when no Dynamics product is named.
+- **Questions kept as approved.** A first pass gave each topic its own ask
+  (security, support, switching, Document Intelligence, Azure, migration);
+  `snippet-truth` failed on Jack's approved lines ("Wants Azure Document
+  Intelligence. Ask how Azure is managed today, internal IT or an external
+  partner" is "gold"; general IT / MSP goes to the Azure ask). Reverted;
+  `briefTopicOf` remains only for the no-detail opener. Topic questions are
+  an open proposal for Jack.
+- `NOTE_RULES_VERSION` = `2026-11-06-direct-topics`. Suite `direct-notes`
+  (14).
