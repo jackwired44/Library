@@ -8082,3 +8082,40 @@ only explained, for Apollo alone, inside the folded Scan details.
   sentence in Scan details is gone.
 - `chip-counts-live` 8 → 12; `apollo-roster-live` re-pointed to the new
   wording (same facts).
+
+### 2026-11-06: Sep/Oct Strong Signal export audit — count and wording fixes (scanner-platform-v29)
+
+Per Jack, on his 2,059-row Sep/Oct All Strong Signal export: "check these
+are all how i want them scanned". Fixed (notes only; 0 grade changes on
+Book9-30 + Book10-30, 4 notes read better):
+- `dynamicsHeadcountIn` reads the masked text: "Microsoft 365 users" was
+  "(365 users)" on 9 rows.
+- `PRODUCT_TOKEN_RE` masks version years (LTSC / Office / Visio / Project /
+  SharePoint / Outlook 2019–2024): "LTSC 2024 seats" was "2024 seats. Large
+  estate."
+- The licence matcher skips a product written as "non-X" ("a non-Intune
+  MDM" read as "Runs Intune").
+- The form-line reader no longer splits a hyphen inside a word ("non-
+  profit", "Co-Pilot", "non-Intune"), and drops a trailing period from a
+  product field ("Licenses..").
+- "(1 users)" reads "(1 user)".
+- `NOTE_RULES_VERSION` = `2026-11-06-note-counts`. Suite `note-counts` (8),
+  6 fail on the old code.
+
+**Found, NOT changed — need Jack's call** (from the same export):
+- 2,054 of 2,059 rows put the full name in First Name with Last Name blank
+  (Main download, `buildExportRow`, deliberate earlier choice). Recycle,
+  Apollo standing and Reps exports already split it; Apollo's
+  `{{first_name}}` merge field gets the full name.
+- 93 Strong rows whose note says the deal was lost / reversed ("Looked at
+  … Reversed: lost", "staying on google workspace").
+- Likely IT firms / partners still Strong (Honu IT & Security, Moser
+  Consulting, Prutech Solutions, Data Center Systems, Egen, Chameleon
+  Integrated Services, GISI), and contacts on another firm's email domain
+  (TAT Technologies @nexustek.com, Jack Morton @rkon.com).
+- 46 people appear twice (97 rows) because the company is written two ways
+  ("&" / "and", "LLC"); the duplicate check is exact name + company.
+- Quoted licence lists keep the source's own numbers ("Office 365 Extra
+  File Storage 5,000 seats", "Windows Store for Business 1,000,000").
+- Rows with "(1 user)" of a product (MONARCH STEEL, PA Care) are Bad Leads
+  under the under-5 rule even when the company is large.

@@ -123,6 +123,9 @@ const PRODUCT_TOKEN_RE = new RegExp(
     "\\bserver\\s*\\d{4}\\b",
     "\\bwindows\\s*(?:1[01]|7|8)\\b",
     "\\bexchange\\s*\\d{4}\\b",
+    // A product's version year is not a seat count: "Windows 11 Enterprise
+    // LTSC 2024 seats" read as 2024 seats (a real Sep/Oct export row, 11/6).
+    "\\b(?:ltsc|ltsb|office|visio|project|sharepoint|outlook|skype\\s*for\\s*business)\\s*(?:19|20)\\d{2}\\b",
     // Plan/SKU codes: E1/E3/E5/E7, F1/F3, G1/G3/G5, A1/A3/A5, P1/P2, plus
     // "Plan 1"/"Plan 2".
     "(?<![a-z0-9])[efgap][1-7](?![a-z0-9])",
@@ -419,6 +422,11 @@ export function scanRowLicensing(row: Record<string, unknown>, columns: string[]
     const re = new RegExp(sku.pattern.source, sku.pattern.flags.includes("g") ? sku.pattern.flags : sku.pattern.flags + "g");
     let m: RegExpExecArray | null;
     while ((m = re.exec(combined)) !== null) {
+      // "a non-Intune MDM" names the product they are NOT buying (11/6).
+      if (/\bnon[-\s]?$/i.test(combined.slice(Math.max(0, m.index - 4), m.index))) {
+        if (m.index === re.lastIndex) re.lastIndex++;
+        continue;
+      }
       const { count, window } = extractCountNear(combined, masked, m.index, m[0].length);
       // m[0] is what the row actually wrote - keep it, it is the whole point.
       hits.push({
@@ -692,7 +700,9 @@ export function formLineCount(notes: string): number | null {
   return n;
 }
 export function dynamicsHeadcountIn(text: string): number | null {
-  const m = DYN_HEADCOUNT_RE.exec(text);
+  // Read off the masked text, so "Microsoft 365 users" is never 365 users
+  // (it was, on 9 rows of Jack's Sep/Oct Strong Signal export, 11/6).
+  const m = DYN_HEADCOUNT_RE.exec(maskAll(text));
   if (!m) return null;
   const n = Number(m[1] ?? m[2]);
   // A year is never a headcount.
@@ -3376,7 +3386,7 @@ function buildDynamicsBrief(
   let count = "";
   if (seats != null && seats > 0) {
     const asEmployees = new RegExp(`\\b${seats}\\b\\s*\\+?\\s*(?:full[- ]time\\s*)?(?:employees?|staff|people|person)\\b(?!\\s*(?:will|would|who|that)?\\s*(?:use|using|need|be\\s*using|on\\s*it))`, "i").test(fullText);
-    count = ` (${seats} ${asEmployees ? "employees" : "users"})`;
+    count = ` (${seats} ${asEmployees ? (seats === 1 ? "employee" : "employees") : (seats === 1 ? "user" : "users")})`;
   }
   // Only a row that names Sales / CRM / Customer Insights reads as a sales
   // platform; Customer Service or a bare Dynamics 365 keeps its own name.
@@ -3577,7 +3587,10 @@ function noteLead(fullText: string, anchor: string, skip?: RegExp): string {
   }
   // A CRM form line: a few dash-separated fields ending in a quantity.
   if (t.length <= 160 && !/[.!?]\s+\S/.test(t)) {
-    const segs = t.split(/\s*[-–:]\s+|\s+[-–:]\s*|(?<=[a-z0-9)])-(?=[A-Za-z0-9])/i).map((x) => x.trim()).filter(Boolean);
+    // A hyphen inside a word is not a field break: "via a non-Intune MDM"
+    // split into "non" + "Intune MDM" and read as "Wants Intune MDM", the
+    // opposite of the note (11/6).
+    const segs = t.split(/\s*[-–:]\s+|\s+[-–:]\s*|(?<!\b(?:non|co|re|pre|multi|cross|self|anti|sub|semi|e|on|off|third|end|real|full|part|high|low|well))(?<=[a-z0-9)])-(?=[A-Za-z0-9])/i).map((x) => x.trim()).filter(Boolean);
     let n: number | null = null;
     for (const sg of segs.slice(-2)) {
       const q = /^(?:users?\s*)?(\d{1,6})\s*(?:users?|seats?|licen[cs]es?)?\.?$/i.exec(sg);
@@ -3587,7 +3600,7 @@ function noteLead(fullText: string, anchor: string, skip?: RegExp): string {
     const products: string[] = [];
     for (const raw of segs) {
       if (FORM_LABEL_RE.test(raw) || /^(?:users?\s*)?\d{1,6}\s*(?:users?|seats?|licen[cs]es?)?\.?$/i.test(raw)) continue;
-      const sg = raw.replace(/\s+f[13]\s+services?$/i, "").replace(/^(?:f[13]\s+)?(?:support\s+(?:f[13]\s+)?)?(?:services?(?:\s+industry)?\s+)?/i, "").trim();
+      const sg = raw.replace(/[.;,]+$/, "").replace(/\s+f[13]\s+services?$/i, "").replace(/^(?:f[13]\s+)?(?:support\s+(?:f[13]\s+)?)?(?:services?(?:\s+industry)?\s+)?/i, "").trim();
       if (!sg) continue;
       if (sg.split(/\s+/).length >= 5 && LEAD_INTENT_RE.test(sg)) said.push(sg);
       // A product field is a short noun phrase — "Microsoft 365 E3", not a
