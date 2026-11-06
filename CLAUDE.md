@@ -8064,3 +8064,21 @@ totals did add up (1,810 + 359 + 190 = 2,359 processed; + 5,568 no signal +
 - "N companies to look up" counts every company in the whole upload (all
   rows, not just leads with a signal); the wording now says so.
 - Suite `chip-counts-live` (8), fails on the old code.
+
+### 2026-11-06: the gap between Strong Signal and the download is itemised (scanner-platform-v29)
+
+Per Jack: "strong signals say 2059 then download all strong signal says
+1406". The KPI counts the whole upload; the downloads leave out leads
+already in Apollo, leads hidden for being on a list, and anything outside
+the filters on (Wants a partner, Priority, Duplicates, search). That was
+only explained, for Apollo alone, inside the folded Scan details.
+- A line directly under the Download buttons (`.dl-gap`, Scanner.tsx),
+  shown only when the numbers differ: "Downloads hold N of M Strong Signal:
+  X already in Apollo · Y hidden because they're on a list · Z outside the
+  filter you have on (⚑ Wants a partner) left out." Each part is one step
+  (filters → list hide → Apollo), so they always sum to the gap; "in no
+  download file" catches anything else (legacy category).
+- Display only: no count, filter or download changed. The old Apollo-only
+  sentence in Scan details is gone.
+- `chip-counts-live` 8 → 12; `apollo-roster-live` re-pointed to the new
+  wording (same facts).

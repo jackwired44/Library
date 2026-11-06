@@ -1442,6 +1442,24 @@ export default function Scanner({
         const allSignal = results ? exportRowsForBucketsCount(applyFacets(results, { ...facets, tier: "all", category: "all", seenMode: "all" })) : 0;
         const inDownloads = mergedRows().length;
         const leftOut = Math.max(0, allSignal - inDownloads);
+        // Per Jack: "strong signals say 2059 then download all strong signal
+        // says 1406". The KPI counts the whole upload; the download leaves out
+        // three things. Each step below adds one of them, so the parts always
+        // sum to the gap and nothing is unexplained.
+        const baseSignal = results ? exportRowsForBucketsCount(results) : 0;
+        const afterFilters = results ? exportRowsForBucketsCount(applyFacets(results, { ...facets, tier: "all", category: "all", seenMode: "all", hideIds: undefined })) : 0;
+        const gap = {
+          other: Math.max(0, batchTotals.signal - baseSignal),
+          filters: Math.max(0, baseSignal - afterFilters),
+          listed: Math.max(0, afterFilters - allSignal),
+          apollo: leftOut,
+        };
+        const activeFilters = [
+          partnerOnly && "⚑ Wants a partner",
+          priorityOnly && "Priority",
+          duplicatesOnly && "Duplicates",
+          search.trim() && `search "${search.trim()}"`,
+        ].filter(Boolean) as string[];
         const noSignal = lastScanStats ? Math.max(0, lastScanStats.rowsScanned - lastScanStats.duplicatesRemoved - results.length) : null;
         const n = apolloHits.size;
         const byName = n - apolloByEmail;
@@ -1528,6 +1546,18 @@ export default function Scanner({
                 )}
               </div>
             </div>
+            {inDownloads !== batchTotals.signal && (
+              <p className="scan-line dl-gap" aria-label="Why the downloads hold fewer">
+                Downloads hold <strong>{inDownloads.toLocaleString()}</strong> of {batchTotals.signal.toLocaleString()} Strong Signal:{" "}
+                {[
+                  gap.apollo > 0 && `${gap.apollo.toLocaleString()} already in Apollo`,
+                  gap.listed > 0 && `${gap.listed.toLocaleString()} hidden because they're on a list`,
+                  gap.filters > 0 && `${gap.filters.toLocaleString()} outside the filter${activeFilters.length === 1 ? "" : "s"} you have on${activeFilters.length ? ` (${activeFilters.join(", ")})` : ""}`,
+                  gap.other > 0 && `${gap.other.toLocaleString()} in no download file`,
+                ].filter(Boolean).join(" · ")}
+                {" "}left out.
+              </p>
+            )}
             <details className="scan-fold" open={detailsOpen}
                        onToggle={(e) => { const o = (e.target as HTMLDetailsElement).open; setDetailsOpen(o); try { localStorage.setItem("scanDetailsOpen", o ? "1" : "0"); } catch { /* preference only */ } }}>
                 <summary>
@@ -1544,12 +1574,6 @@ export default function Scanner({
                     <input type="checkbox" checked={autoEnrichCompanies} onChange={(e) => onToggleAutoEnrichCompanies(e.target.checked)} />
                     Offer Apollo company look-up after each upload
                   </label>
-                  {leftOut > 0 && (
-                    <p className="scan-line" aria-label="Left out of downloads">
-                      Downloads hold <strong>{inDownloads.toLocaleString()}</strong> of {allSignal.toLocaleString()} Strong Signal leads.{" "}
-                      <strong>{leftOut.toLocaleString()}</strong> {leftOut === 1 ? "is" : "are"} left out because {leftOut === 1 ? "it is" : "they are"} already in Apollo. Change it with the dropdown beside Download.
-                    </p>
-                  )}
                   {apolloIndex && apolloIndex.size === 0 && (
                     <p className="scan-line">Import an Apollo sync in All leads and every upload is checked against it.</p>
                   )}

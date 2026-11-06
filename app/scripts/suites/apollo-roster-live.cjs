@@ -90,7 +90,10 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   const picked = await apolloSel.evaluate((el) => el.selectedOptions[0].textContent);
   ok('  and the download dropdown says how many Strong Signal leads that leaves out', /Leave out 2 already in Apollo \(2 Strong Signal\)/.test(picked), picked);
   await page.locator('.scan-fold > summary').click(); await sleep(300);
-  ok('  and the scan details spell it out', /Downloads hold 1 of 3 Strong Signal leads\.\s*2 are left out because they are already in Apollo/.test(await main()), (await main()).slice(0, 900));
+  // 2026-11-06: the sentence moved under the Download buttons and itemises
+  // every cause (per Jack: "strong signals say 2059 then download all strong
+  // signal says 1406"). Same facts: 1 of 3 held, 2 left out for Apollo.
+  ok('  and the line under Download spells it out', /Downloads hold 1 of 3 Strong Signal:\s*2 already in Apollo\s*left out/.test(await main()), (await main()).slice(0, 900));
   await page.locator('.scan-fold > summary').click(); await sleep(200);
   ok('  Zed carries an In Apollo badge (email match)', /Zed Quinn[^|]*In Apollo(?!\?)/.test(r), r);
   ok('  Lou carries an In Apollo? badge (name only)', /Lou Park[^|]*In Apollo\?/.test(r), r);

@@ -62,6 +62,19 @@ const num = s => Number((String(s).match(/\((\d+)\)/) || [])[1]);
   ok('Dynamics chip ignores a remembered Business Central tab', d1 === d0, `${d1} vs ${d0}`);
   await chip('Dynamics 365').click(); await sleep(300);
   ok('  and opens exactly that many rows', await rows() === d1);
+  // Per Jack: "strong signals say 2059 then download all strong signal says
+  // 1406". With a filter on, the line under Download names why, and its
+  // parts add up to the gap.
+  await chip(/^All \(/).click(); await sleep(300);
+  const total = Number((await page.locator('.kpi', { hasText: 'Strong Signal' }).first().innerText()).match(/[\d,]+/)[0].replace(/,/g, ''));
+  ok('no gap line while every Strong Signal is in the download', await page.locator('.dl-gap').count() === 0);
+  await page.locator('button', { hasText: /wants a partner/i }).first().click(); await sleep(400);
+  const held = Number((await page.locator('button', { hasText: 'All Strong Signal' }).first().innerText()).match(/(\d+)\s*$/)[1]);
+  const gapText = (await page.locator('.dl-gap').first().innerText()).replace(/\s+/g, ' ');
+  ok('filter on: a line under Download explains the gap', new RegExp(`Downloads hold ${held} of ${total} Strong Signal`).test(gapText), gapText);
+  ok('  and names the filter', /outside the filter you have on \(⚑ Wants a partner\)/.test(gapText), gapText);
+  const parts = [...gapText.matchAll(/(\d+) (?:already in Apollo|hidden|outside|in no download)/g)].reduce((a, m) => a + Number(m[1]), 0);
+  ok('  and its parts add up to the gap', parts === total - held, `${parts} vs ${total - held}`);
   ok('no page errors', errs.length === 0, errs.join(' | '));
   await b.close();
   console.log(`\n${pass} passed, ${fail} failed`);
