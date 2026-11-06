@@ -1201,6 +1201,20 @@ export function m365WantSignal(notes: unknown, threshold: number): boolean {
   return false;
 }
 
+/** The note says nothing but a Dynamics product name: "Dynamics CRM",
+ *  "dynamics crm", "Services - Dynamics 365 Business Central -", "Dynamic
+ *  ERP", "dynamics 365 customer engagement". Form-line chrome (Service,
+ *  Products, f1, Microsoft, Online) is not content. A count, or any other
+ *  word, makes it more than a bare mention. */
+const BARE_DYN_STRIP_RE =
+  /\b(?:microsoft|ms|dynamics?|d\s*365|365|crm|erp|online|business\s*central|bc|sales(?:\s*hub)?|customer\s*(?:engagement|insights?|service)|field\s*service|finance(?:\s*(?:and|&)\s*operations)?|f\s*&\s*o|fno|supply\s*chain(?:\s*management)?|scm|project\s*operations|human\s*resources|commerce|marketing|contact\s*center|services?|products?|solutions?|interest(?:ed)?(?:\s*in)?|f1|f3|n\/a)\b/gi;
+export function bareDynamicsMention(notes: unknown): boolean {
+  const t = withoutCampaignCodes(String(notes ?? "")).replace(/\s+/g, " ").trim();
+  if (!t || t.length > 80 || /\d/.test(t.replace(/\b(?:d\s*365|365)\b/gi, ""))) return false;
+  if (!/\bdynamics?\b|\bd\s*365\b/i.test(t)) return false;
+  return t.replace(BARE_DYN_STRIP_RE, " ").replace(/[^a-z]+/gi, "").length === 0;
+}
+
 function hasBareTrailingCount(afterText: string) {
   const snippet = afterText.slice(0, 80);
   const terminatorIdx = snippet.search(/[.!?\n]/);
@@ -2555,6 +2569,10 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
   // empty notes. Every Auto-DQ still wins (below).
   const realDynamics = dynHits.some((h) => !h.genericDynamics && (!h.fromProductArea || h.hasTrigger));
   if (autoCategory === "dynamics365" && realDynamics) tier = "signal";
+  // ...except a note that is nothing but the product name. Per Jack (11/6):
+  // "if it just straight up says dynamics crm like needs review does yeah
+  // leave it there", "those lots of time are inaccurate lead".
+  if (autoCategory === "dynamics365" && !googleLead && bareDynamicsMention(resolved.comments)) tier = "mention";
   // Per Jack (11/6): a customer asking for a partner is Strong ("yes this
   // is strong"). A confirmed sub-threshold licensing count still pulls it
   // to Needs Review — "Copilot Studio - 2 users ... this is low".

@@ -40,5 +40,10 @@ ok("the CRM-notes rule no longer fires (11/6)", tier("", "Nicole Vargas is the o
 ok("an unsubscribe still wins over Dynamics", tier("", "Not interested. We would like Dynamics 365 Business Central later maybe but please unsubscribe us.") === "dq");
 ok("an IT services company is still a Bad Lead", (() => { const csv = `fullname,companyname,emailaddress1,Comments\nPat Lee,Stellar IT Solutions,tom@stellarit.net,"Wants Microsoft 365 E5 for 40 users."`; return (scanParsedFiles([parseCSVText("t.csv", csv) as any]).results[0] as any)?.tier === "dq"; })());
 
+// 11/6, per Jack: a note that just says the product stays Needs Review.
+ok("bare 'Dynamics CRM' stays Needs Review", tier("", "Dynamics CRM") === "mention");
+ok("bare product line with a Dynamics code stays Needs Review", tier("Dynamics 365", "Services - Dynamics 365 Business Central -") === "mention");
+ok("the product with a count is Strong", tier("", "Dynamics 365 Business Central - 20 users") === "signal");
+ok("the product with an ask is Strong", tier("", "Dynamics CRM demo please") === "signal");
 console.log(`${pass} / ${pass + fail}`);
 if (fail) process.exit(1);

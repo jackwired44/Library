@@ -8038,3 +8038,14 @@ a new platform" rule and the seat-floor demotion.
   pinned the rules Jack replaced: qualification (6), dynamics-intent (3),
   dynamics-views (3), top-priority (partner boundary), seat-count (3, the
   count halves unchanged), sku-truth (1), grade-move-live (fixture).
+- **Follow-up (11/6), per Jack: "if it just straight up says dynamics crm
+  like needs review does yeah leave it there", "those lots of time are
+  inaccurate lead".** A note that is nothing but a Dynamics product name
+  ("Dynamics CRM", "Dynamic ERP", "Services - Dynamics 365 Business Central
+  -", "dynamics 365 customer engagement") stays Needs Review, whatever the
+  Product Area code (`bareDynamicsMention`, detection.ts). A count or any
+  other word ("- 20 users", "demo please", "They mentioned Dynamics 365
+  once") keeps it Strong. Reverses the 11-05 inbound-line promotion for
+  bare lines. Real files: 5 leads Strong → Needs Review (1,377 / 129 / 77).
+  `NOTE_RULES_VERSION` = `2026-11-06-bare-dynamics`; grade-fixes 22 → 26;
+  dynamics-intent's 5 inbound-line cases re-pointed.
