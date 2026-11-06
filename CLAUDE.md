@@ -7979,3 +7979,12 @@ Opening lines only; the closing questions are unchanged (see below).
   an open proposal for Jack.
 - `NOTE_RULES_VERSION` = `2026-11-06-direct-topics`. Suite `direct-notes`
   (14).
+
+- **Follow-up (11/6), per Jack: "device managemnet, intune … rolling out co
+  poliot".** `NEED_TOPIC_RE` adds Intune, Endpoint Manager, device
+  management, MDM, Autopilot, enrolling devices and Copilot / Copilot
+  rollout; `NEED_VERB_RE` adds roll out, enrol, adopt and "ask" ("Main ask
+  is MDM…"). New no-detail openers: "Device management (Intune); …",
+  "Copilot; …". Each named topic now leads even when buried mid-note
+  (`direct-notes` 14 → 25). Real files: 0 grade changes, 129 notes now
+  quote that sentence. `NOTE_RULES_VERSION` = `2026-11-06-direct-topics-2`.

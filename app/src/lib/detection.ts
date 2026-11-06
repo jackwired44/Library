@@ -2833,7 +2833,11 @@ function reversalClause(text: string): string {
  *  about directly (11/6): "if the lead is about azure document intelligence,
  *  security anything indicating msp or ongoing support the scanned note is
  *  direct", then "azure infrastructure or migrations everything". */
-type BriefTopic = "docintel" | "switch" | "support" | "security" | "migration" | "azureInfra";
+type BriefTopic = "docintel" | "switch" | "support" | "security" | "devices" | "copilot" | "migration" | "azureInfra";
+/** Device management (11/6, per Jack: "device management, intune"). */
+const DEVICE_TOPIC_RE = /\b(?:intune|endpoint\s+manager|device\s+management|manag\w*\s+(?:their\s+|our\s+|the\s+)?(?:devices|laptops|endpoints|phones|mobile\s+devices)|\bmdm\b|\bmam\b|mobile\s+device\s+management|autopilot|enrol\w*\s+(?:\w+\s+){0,3}(?:devices?|laptops?|phones?))\b/i;
+/** Rolling out Copilot (11/6, per Jack: "rolling out co pilot"). */
+const COPILOT_TOPIC_RE = /\bcopilot\b/i;
 const SUPPORT_TOPIC_RE = /\b(?:msp|managed\s+(?:it|services?|service\s+provider)|co-?managed|outsourc\w*\s+(?:it|their\s+it|our\s+it)|it\s+outsourcing|it\s+support|help\s*desk|service\s+desk|ongoing\s+(?:it|tech\w*)\s+support|manag\w*\s+(?:their\s+it|our\s+it|it\s+(?:for|going))\b|(?:no|without)\s+(?:internal|in-house|dedicated)\s+it|extension\s+of\s+(?:our|their)\s+team)\b/i;
 /** Weaker support wording: a partner to run something. Azure
  *  infrastructure wins over it, so "AVD … wants a partner to manage it"
@@ -2850,9 +2854,11 @@ function briefTopicOf(fullText: string, platform: PlatformResult | null): BriefT
   if (PROVIDER_SWITCH_RE.test(fullText)) return "switch";
   if (SUPPORT_TOPIC_RE.test(fullText)) return "support";
   if (SECURITY_TOPIC_RE.test(fullText)) return "security";
+  if (DEVICE_TOPIC_RE.test(fullText)) return "devices";
   if (platform?.isGoogleToMicrosoft || MIGRATION_TOPIC_RE.test(fullText)) return "migration";
   if (AZURE_INFRA_RE.test(fullText)) return "azureInfra";
   if (SUPPORT_WEAK_RE.test(fullText)) return "support";
+  if (COPILOT_TOPIC_RE.test(fullText)) return "copilot";
   return null;
 }
 
@@ -3506,8 +3512,8 @@ function noteLead(fullText: string, anchor: string, skip?: RegExp): string {
 }
 const RELATIVE_TIME_RE = /\s*\b(?:in\s+|during\s+|over\s+)?(?:the\s+)?(?:last|this|next|past)\s+(?:few\s+)?(?:weeks?|months?|quarters?|years?)\b/gi;
 /** Cybersecurity and IT-support needs, as the row words them. */
-const NEED_TOPIC_RE = /\b(?:cyber\s*security|cybersecurity|security\s+(?:evaluation|assessment|posture|gaps?|infrastructure|requirements?|capabilities|concerns?|stack|review|audit|hardening|maturity|program|tools?)|secur(?:e|ing)\s+(?:their|the|our)\s+\w+|endpoint\s+(?:protection|security|detection)|antivirus|anti-?virus|\bedr\b|\bxdr\b|\bmdr\b|phishing|ransomware|data\s+loss\s+prevention|\bdlp\b|conditional\s+access|identity\s+(?:protection|and\s+access)|zero\s+trust|\bsiem\b|it\s+support|help\s*desk|service\s+desk|managed\s+(?:it|services?|service\s+provider)|\bmsp\b|co-?managed|outsourc\w*\s+(?:it|their\s+it)|ongoing\s+(?:\w+\s+){0,2}support|document\s*intelligence|azure\s+(?:virtual\s+machines?|vms?|virtual\s+desktop|infrastructure|landing\s+zone|hosting|backup|site\s+recovery)|\bavd\b|landing\s+zone|disaster\s+recovery|migrat\w*|lift[\s-]+and[\s-]+shift|(?:new|another|different)\s+(?:it\s+)?(?:provider|partner|msp)|switch\w*\s+(?:\w+\s+){0,2}(?:providers?|partners?|msps?)|\bmfa\b|multi-?factor|defender|purview|sentinel)\b/i;
-const NEED_VERB_RE = /\b(?:need\w*|want\w*|looking|seek\w*|interest\w*|request\w*|requir\w*|priorit\w*|goals?|focus\w*|evaluat\w*|explor\w*|plan\w*|help|assist\w*|improv\w*|strengthen\w*|expand\w*|implement\w*|deploy\w*|use|using|build\w*|migrat\w*|mov(?:e|ing)|host\w*|manag\w*|switch\w*|replac\w*|digiti[sz]\w*|extract\w*|automat\w*|set\s*up|configur\w*)\b/gi;
+const NEED_TOPIC_RE = /\b(?:cyber\s*security|cybersecurity|security\s+(?:evaluation|assessment|posture|gaps?|infrastructure|requirements?|capabilities|concerns?|stack|review|audit|hardening|maturity|program|tools?)|secur(?:e|ing)\s+(?:their|the|our)\s+\w+|endpoint\s+(?:protection|security|detection)|antivirus|anti-?virus|\bedr\b|\bxdr\b|\bmdr\b|phishing|ransomware|data\s+loss\s+prevention|\bdlp\b|conditional\s+access|identity\s+(?:protection|and\s+access)|zero\s+trust|\bsiem\b|it\s+support|help\s*desk|service\s+desk|managed\s+(?:it|services?|service\s+provider)|\bmsp\b|co-?managed|outsourc\w*\s+(?:it|their\s+it)|ongoing\s+(?:\w+\s+){0,2}support|document\s*intelligence|azure\s+(?:virtual\s+machines?|vms?|virtual\s+desktop|infrastructure|landing\s+zone|hosting|backup|site\s+recovery)|\bavd\b|landing\s+zone|disaster\s+recovery|migrat\w*|lift[\s-]+and[\s-]+shift|(?:new|another|different)\s+(?:it\s+)?(?:provider|partner|msp)|switch\w*\s+(?:\w+\s+){0,2}(?:providers?|partners?|msps?)|\bmfa\b|multi-?factor|defender|purview|sentinel|intune|endpoint\s+manager|device\s+management|\bmdm\b|mobile\s+device\s+management|autopilot|enrol\w*\s+(?:\w+\s+){0,3}(?:devices?|laptops?|phones?)|copilot(?:\s+studio)?|(?:roll\w*[\s-]*out|rollout|adoption|deploy\w*)\s+(?:of\s+)?(?:microsoft\s+365\s+)?copilot)\b/i;
+const NEED_VERB_RE = /\b(?:need\w*|want\w*|looking|seek\w*|interest\w*|request\w*|requir\w*|priorit\w*|goals?|focus\w*|evaluat\w*|explor\w*|plan\w*|help|assist\w*|improv\w*|strengthen\w*|expand\w*|implement\w*|deploy\w*|use|using|build\w*|migrat\w*|mov(?:e|ing)|host\w*|manag\w*|switch\w*|replac\w*|digiti[sz]\w*|extract\w*|automat\w*|set\s*up|configur\w*|roll\w*[\s-]*out|rollout|enrol\w*|adopt\w*|ask)\b/gi;
 function finishAsWritten(sentence: string): string {
   let u = cleanLeadSentence(sentence);
   const topic = NEED_TOPIC_RE.exec(u) ?? (partnerAskMatch(u) ? { index: u.toLowerCase().indexOf("partner") } : null);
@@ -3842,6 +3848,8 @@ export function buildCallBrief(
     switch: "Wants to change IT provider; the row gives no more detail.",
     support: "Wants IT support or a managed service; the row gives no more detail.",
     security: "Security need; the row gives no more detail.",
+    devices: "Device management (Intune); the row gives no more detail.",
+    copilot: "Copilot; the row gives no more detail.",
     azureInfra: "Azure infrastructure; the row gives no more detail.",
   };
   const plainTopic = topicNoDetail[briefTopicOf(fullText, platform) ?? "docintel"];

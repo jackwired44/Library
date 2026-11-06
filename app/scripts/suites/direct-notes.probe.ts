@@ -46,5 +46,29 @@ ok("migration carries the timeline", /Timeline: end of Q1\./.test(n), n);
 const kb = scan("Azure", "Kitchen and Bath - Azure Virtual Machines - The customer stated that they need about 4 TB of Azure storage for a server hosting their ERP system and shared files.");
 ok("an ERP hosted on Azure is not a Dynamics lead", kb?.category !== "dynamics365", `${kb?.category} ${kb?.notesSummary}`);
 
+// 11/6 follow-up, per Jack: device management / Intune and rolling out
+// Copilot too — and each topic must still lead when buried in a longer note.
+const pre = "Spoke with the office manager about their current environment. They have about 70 employees across two locations and use Microsoft 365 Business Standard today. ";
+const post = " Follow-up meeting scheduled with the owner next week to review options.";
+const buried: [string, string, RegExp][] = [
+  ["security", "They want a security review and help tightening MFA and conditional access.", /^\(\d+\) ▲ They want a security review/],
+  ["device management", "They need device management for their laptops and phones and want Intune set up.", /^\(\d+\) ▲ They need device management for their laptops and phones and want Intune set up\./],
+  ["MDM / Autopilot", "Main ask is MDM and Autopilot so new devices are enrolled automatically.", /^\(\d+\) ▲ Main ask is MDM and Autopilot/],
+  ["ongoing support", "They need ongoing IT support since their last IT person left.", /^\(\d+\) ▲ They need ongoing IT support/],
+  ["MSP", "They are looking for an MSP to take over day to day IT.", /^\(\d+\) ▲ They are looking for an MSP to take over day to day IT\./],
+  ["partner", "They want to work with a partner going forward on their Microsoft stack.", /^\(\d+\) ▲ They want to work with a partner going forward/],
+  ["Azure migration", "They want to migrate their on-prem file server and SQL server to Azure.", /^\(\d+\) ▲ Migrating on-prem file server and SQL server to Azure\./],
+  ["Document Intelligence", "They are interested in Azure Document Intelligence to read scanned invoices.", /^\(\d+\) ▲ They are interested in Azure Document Intelligence/],
+  ["Copilot rollout", "They want to roll out Copilot to the leadership team first and then the whole company.", /^\(\d+\) ▲ They want to roll out Copilot to the leadership team/],
+];
+for (const [name, line, want] of buried) {
+  n = note(name === "Azure migration" || name === "Document Intelligence" ? "Azure" : "M365", pre + line + post);
+  ok(`buried ${name}: leads the note`, want.test(n), n);
+}
+n = note("Intune", "Customer wants to roll out Intune to manage 120 laptops and mobile devices, needs a partner to set it up.");
+ok("Intune: quoted with its count", /roll out Intune to manage 120 laptops and mobile devices/.test(n), n);
+n = note("Copilot", "Customer is rolling out Microsoft 365 Copilot to 50 users and wants help with adoption and training.");
+ok("Copilot rollout: quoted with its count", /rolling out Microsoft 365 Copilot to 50 users/.test(n), n);
+
 console.log(`${pass} / ${pass + fail}`);
 if (fail) process.exit(1);
