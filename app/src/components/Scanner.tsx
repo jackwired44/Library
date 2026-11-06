@@ -829,8 +829,13 @@ export default function Scanner({
   const counts = useMemo(() => {
     const rows = results || [];
     const n = (o: Partial<Facets>) => applyFacets(rows, { ...facets, ...o }).length;
+    // A product-line chip counts the WHOLE line. Clicking it resets that
+    // line's View tab to "All" (see the chip's onClick), so counting with a
+    // remembered sub-view made the chip disagree with the table it opens.
+    // Per Jack: "strong signal says 1810 but doesnt add up" — M365 / Azure
+    // read 4 (the Google tab left selected) while its download held 15.
     const category: Record<string, number> = { all: n({ category: "all" }) };
-    (Object.keys(CATEGORY_META) as CategoryKey[]).forEach((k) => { category[k] = n({ category: k }); });
+    (Object.keys(CATEGORY_META) as CategoryKey[]).forEach((k) => { category[k] = n({ category: k, m365Sub: "all", dynSub: "all" }); });
     return {
       tier: {
         signal: n({ tier: "signal" }),
@@ -1449,7 +1454,7 @@ export default function Scanner({
         if (n > 0) facts.push({ key: "apollo", node: <>{n.toLocaleString()} already in Apollo ({apolloByEmail.toLocaleString()} by email{byName > 0 ? `, ${byName.toLocaleString()} by name only` : ""})</> });
         if (listedRows.size > 0) facts.push({ key: "listed", node: <span title="Same email, or the same full name at the same company, as a lead on a list you built. Smart lists don't count.">{listedRows.size.toLocaleString()} already on a list{hideIds?.size ? ` (${hideIds.size.toLocaleString()} hidden)` : ""}</span> });
         if (apolloIndex && apolloIndex.size === 0) facts.push({ key: "nocheck", node: <span title="Import an Apollo sync in All leads and every upload is checked against it.">Not checked against Apollo yet</span> });
-        if (autoEnrichCompanies && pendingEnrich.length > 0) facts.push({ key: "enrich", node: <>{pendingEnrich.length.toLocaleString()} {pendingEnrich.length === 1 ? "company" : "companies"} to look up</> });
+        if (autoEnrichCompanies && pendingEnrich.length > 0) facts.push({ key: "enrich", node: <>{pendingEnrich.length.toLocaleString()} {pendingEnrich.length === 1 ? "company" : "companies"} in the whole upload to look up</> });
         const stats = [
           { label: "Rows scanned", value: lastScanStats?.rowsScanned ?? results.length, tone: "ink" },
           { label: "Strong Signal", value: batchTotals.signal, tone: "good" },
@@ -1712,7 +1717,7 @@ export default function Scanner({
               {ACTIVE_CATEGORY_KEYS.map((k) => (
                 <button
                   key={k}
-                  onClick={() => setCategoryFilter(k)}
+                  onClick={() => { setCategoryFilter(k); setM365SubView("all"); setDynamicsSubView("all"); }}
                   className={`chip-btn${categoryFilter === k ? " active" : ""}`}
                 >
                   {CATEGORY_META[k].label} ({categoryCounts[k] || 0})

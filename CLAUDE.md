@@ -8049,3 +8049,18 @@ a new platform" rule and the seat-floor demotion.
   bare lines. Real files: 5 leads Strong → Needs Review (1,377 / 129 / 77).
   `NOTE_RULES_VERSION` = `2026-11-06-bare-dynamics`; grade-fixes 22 → 26;
   dynamics-intent's 5 inbound-line cases re-pointed.
+
+### 2026-11-06: product-line chips count the whole line (scanner-platform-v29)
+
+Per Jack: "counts are off strong signal says 1810 but doesnt add up". The
+totals did add up (1,810 + 359 + 190 = 2,359 processed; + 5,568 no signal +
+526 duplicates = 8,453 read). Two things made them look wrong:
+- "⚑ Wants a partner" was on, so the tabs showed 34, not 1,810.
+- **Bug:** a View tab (Google → Microsoft, Business Central, …) stayed
+  selected after clicking back to All, and the Dynamics / M365 chips counted
+  only that tab (M365 / Azure read 4 while its download held 15). The chips
+  now count the whole line (`m365Sub`/`dynSub` "all"), and clicking one
+  resets its View tab to All, so a chip always equals the rows it opens.
+- "N companies to look up" counts every company in the whole upload (all
+  rows, not just leads with a signal); the wording now says so.
+- Suite `chip-counts-live` (8), fails on the old code.
