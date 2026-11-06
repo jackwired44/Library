@@ -37,7 +37,7 @@ const NOTE = "Service-Microsoft 365 Business Standard-2 users";
 const PHONES = ["312-555-0100", "312-555-0199", "312-555-7777", "212-555-0042", "(312) 555 0100 x9812", ""];
 scan(PHONES.map((phone) => ({ note: NOTE, phone }))).forEach((row, i) => {
   ok(`phone ${PHONES[i] || "(none)"} still reads 2 seats`,
-     !!row && row.licensing?.count === 2 && row.tier === "mention",
+     !!row && row.licensing?.count === 2 && row.tier === "dq", // 11/6: under 5 is a Bad Lead
      `count=${row?.licensing?.count} tier=${row?.tier}`);
 });
 
@@ -50,14 +50,14 @@ scan(EMAILS.map((email) => ({ note: NOTE, email, phone: "" }))).forEach((row, i)
 
 console.log("\n== real counts still extract, and still decide the tier ==");
 const REAL: [string, number, string][] = [
-  ["Service - Copilot Studio - 2 users", 2, "mention"],
+  ["Service - Copilot Studio - 2 users", 2, "dq"], // 11/6: under 5 is a Bad Lead,
   ["Service - Copilot Studio - 40 users", 40, "signal"],
   ["Service-Microsoft 365 Business Standard-50 users", 50, "signal"],
-  ["Service - M365 Copilot - 2 users", 2, "mention"],
+  ["Service - M365 Copilot - 2 users", 2, "dq"], // 11/6: under 5 is a Bad Lead,
   ["Looking at E3 licensing for 40 users", 40, "signal"],
   ["Entra ID Plan 2, 300 seats", 300, "signal"],
   ["Microsoft 365 E5 x 25", 25, "signal"],
-  ["Renewing 9 Business Premium licenses", 9, "mention"],
+  ["Renewing 9 Business Premium licenses", 9, "signal"], // 11/6: renewing licences is a purchase, Strong,
   ["Teams Phone for 12 people", 12, "signal"],
   // The case from CLAUDE.md's own notes: a number separated from its unit
   // by a product name must still read as the count, not as the SKU digits.

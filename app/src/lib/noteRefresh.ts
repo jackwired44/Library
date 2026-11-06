@@ -22,7 +22,7 @@ import { loadRawNotesMany, newestRaw, type RawNotes, type RawRowRecord } from ".
 import { scan2, emptyRuleSet, loadRuleSets, profileColumns, guessFieldMapping, type RuleSet2, type ScannerKind } from "./scanner2";
 
 /** Bump when the Main note rules change, so stored notes refresh once. */
-export const NOTE_RULES_VERSION = "2026-11-06-direct-topics-2";
+export const NOTE_RULES_VERSION = "2026-11-06-grade-fixes";
 const VERSION_KEY = "mainNoteRulesVersion";
 
 /** The most recent CSV row kept for a lead. appendRow stores rows newest

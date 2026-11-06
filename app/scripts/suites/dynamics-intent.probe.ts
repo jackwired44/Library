@@ -22,12 +22,16 @@ strong("Dynamic ERP", "Dynamics ERP", "Dynamic ERP");
 strong("customer engagement", "Dynamics CRM", "dynamics 365 customer engagement");
 strong("would like a demo of Power Automate", "Dynamics CRM", "I would like a demo of Power Automate and to understand if/how it can automate many of my RCM processes.");
 
-notStrong("'demonstrating' is not a demo", "", "Customer is actively evaluating expansion of Copilot Studio. DJ has already developed a Copilot agent that creates records in Dynamics 365, demonstrating an established foundation for agent-based automation.");
-notStrong("inbound line needs a Dynamics Product Area", "Azure", "Dynamics 365 Business Central");
+strong("'demonstrating' is not a demo (11/6: anything Dynamics is Strong)", "", "Customer is actively evaluating expansion of Copilot Studio. DJ has already developed a Copilot agent that creates records in Dynamics 365, demonstrating an established foundation for agent-based automation.");
+strong("inbound line needs a Dynamics Product Area (11/6: anything Dynamics is Strong)", "Azure", "Dynamics 365 Business Central");
 notStrong("empty note with a Dynamics code", "Dynamics ERP Online", "");
 notStrong("campaign name alone", "", "Opportunity Generated US~US~FY25~CMP~Modernize Accounting/ERP Systems with D365 Bus Central - VDS~SRAIM521867_22 US ALLIANCE PAPER");
-notStrong("a question is not an inbound line", "Dynamics CRM", "Is Dynamics CRM included with our E3?");
+strong("a question is not an inbound line (11/6: anything Dynamics is Strong)", "Dynamics CRM", "Is Dynamics CRM included with our E3?");
 notStrong("Auto-DQ still wins", "", "Not interested. We would like Dynamics 365 Business Central later maybe but please unsubscribe us.");
 
+// Per Jack (11/6): "anything to do with microsoft dynamics is a strong
+// lead". The three cases above were Needs Review under the older
+// new-platform test and are Strong now. What stays out: an empty note over a
+// Dynamics code, a campaign name, and every Auto-DQ.
 console.log(`${pass} / ${pass + fail}`);
 if (fail) process.exit(1);

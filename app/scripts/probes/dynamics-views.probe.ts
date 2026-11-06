@@ -210,14 +210,18 @@ ok("Dynamics 365 Human Resources under PA 'Dynamics CRM' is BC / ERP (back offic
 const locked = scanPA("Dynamics CRM", "f1Locked out of teams");
 ok("a login problem beside a phone number is not a Strong Dynamics lead", locked?.tier !== "signal", `${locked?.tier} ${locked?.dqReasons}`);
 
-console.log("\n== Strong Dynamics has to be about a new platform ==");
+// Per Jack (11/6): "anything to do with microsoft dynamics is a strong
+// lead" — replaces the 10-13 "has to be about a new platform" rule, so a
+// tenant already running Business Central, or a bare "need help with
+// Dynamics 365", is Strong now.
+console.log("\n== anything to do with Dynamics is Strong (11/6) ==");
 for (const [note, want] of [
   ["Customer is evaluating Dynamics 365 Business Central to replace QuickBooks.", "signal"],
   ["Service - Dynamics 365 Business Central - 20 users", "signal"],
   ["Lead ID: 7-3X Products: Dynamics 365 Business Central, budget approved this year. Customer POC: Isaac Smith", "signal"],
-  ["Also on file for the tenant: Business Premium (63), Dynamics 365 Business Central Essentials (9). Budget approved this year for a Copilot pilot.", "mention"],
-  ["Most-used applications: Outlook, Excel and Business Central. Interested in a Copilot rollout plan with a partner, budget this year.", "mention"],
-  ["2026-09-25 14:52:46 PDT : Need help with Dynamics 365, budget this year", "mention"],
+  ["Also on file for the tenant: Business Premium (63), Dynamics 365 Business Central Essentials (9). Budget approved this year for a Copilot pilot.", "signal"],
+  ["Most-used applications: Outlook, Excel and Business Central. Interested in a Copilot rollout plan with a partner, budget this year.", "signal"],
+  ["2026-09-25 14:52:46 PDT : Need help with Dynamics 365, budget this year", "signal"],
 ] as [string, string][]) {
   const r = scan([note])[0];
   ok(`${want.padEnd(7)} <- ${note.slice(0, 60)}`, r?.category === "dynamics365" && r?.tier === want, `${r?.category} ${r?.tier}`);

@@ -77,12 +77,17 @@ ok("interest in a service model is not a confirmed ask",
 // Support pattern and does qualify, which is why the block above passes.
 // Widening this would change what counts as a lead in the Main Scanner —
 // a product decision for Jack, not a bug fix. See the session notes.
-console.log("\n== partner language alone does not create a lead (known boundary) ==");
+// Per Jack (11/6): "Looking for a Microsoft partner to help us with our
+// Microsoft 365 licensing and setup, 30 users" — "yes this is strong". A
+// confirmed partner ask now creates a lead on its own, so it pins. An
+// unconfirmed phrasing (no customer ask the matcher can stand behind) still
+// creates nothing.
+console.log("\n== a confirmed partner ask creates a lead and pins ==");
 for (const n of [
   "Looking for a Microsoft partner.",
-  "Need an implementation partner for this project.",
   "Want to work with a reseller going forward.",
-]) ok(`no row, so nothing to pin: ${JSON.stringify(n.slice(0, 34))}`, why(n) === "NO ROW", String(why(n)));
+]) ok(`pins as partner: ${JSON.stringify(n.slice(0, 34))}`, why(n) === "partner", String(why(n)));
+ok("unconfirmed phrasing still makes no row", why("Need an implementation partner for this project.") === "NO ROW", String(why("Need an implementation partner for this project.")));
 ok("but the same ask with any product named does qualify and pin",
    why("Looking for a Microsoft partner for our Azure migration.") === "partner",
    String(why("Looking for a Microsoft partner for our Azure migration.")));

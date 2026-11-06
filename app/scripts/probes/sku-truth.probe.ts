@@ -65,7 +65,8 @@ const low = scan(["Renewing 3 Microsoft 365 E3 licenses next month."])[0];
 // Per Jack: "this is low anything like this is low" — a small stated count
 // demotes to Low priority now, it is not a Bad Lead. The count still has to
 // be READ correctly, which is what this file is really guarding.
-ok("a sub-threshold count demotes to Low, not Bad Leads", low?.tier === "mention", String(low?.tier));
+// 11/6, per Jack: "under 5 yes bad lead".
+ok("3 licences is a Bad Lead (under 5)", low?.tier === "dq", String(low?.tier));
 ok("  and the count itself is still read", low?.licensing?.count === 3, String(low?.licensing?.count));
 
 // ---------------------------------------------------------------------

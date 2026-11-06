@@ -1161,6 +1161,46 @@ export function newPlatformSignal(notes: unknown): boolean {
   return false;
 }
 
+/** Per Jack (11/6), looking at M365 / Azure Needs Review: "like all these
+ *  needs review look strong". An M365 / Azure lead is Strong when the notes
+ *  state a want right beside a Microsoft product — wants, needs, would
+ *  like, looking for, interested in, evaluating, implementing, rolling out,
+ *  a quote, a demo, pricing — or the inbound form line carries a count of
+ *  at least the qualify threshold ("Microsoft Defender for Identity - 60").
+ *  Same sentence-by-sentence test newPlatformSignal uses for Dynamics;
+ *  Microsoft's scorecard and campaign names never count. */
+const M365_PRODUCT_RE =
+  /\b(?:microsoft\s*365|m\s*365|office\s*365|o\s*365|azure|avd|windows\s*365|defender|intune|entra|purview|sentinel|copilot|power\s*bi|fabric|onelake|sharepoint|teams\s*(?:phone|premium|rooms|calling)|exchange\s*online|business\s*(?:basic|standard|premium)|e[1357]\b|g[135]\b|f[13]\b|ems\b|document\s*intelligence|microsoft\s*(?:licen[cs]\w*|tenant|cloud))/gi;
+const M365_WANT_RE =
+  /\b(?:wants?|wanting|would\s*like|need(?:s|ed|ing)?|looking\s*(?:at|for|into|to)|interest\w*\s*in|evaluat\w*|consider\w*|explor\w*|implement\w*|deploy\w*|roll(?:ing)?[\s-]*out|adopt\w*|set\s*up|purchas\w*|buy\w*|quote\w*|pricing|demo(?:s|ed)?|proposal|expand\w*|upgrad\w*|migrat\w*|mov(?:e|ing)\s*(?:to|off|from|onto)|replac\w*|switch\w*|build\w*|requir\w*|request\w*|plan(?:s|ning)?\s*to)\b/i;
+/** Wanting to buy licences: "want to purchase 40 E3 licenses", "need 484
+ *  licenses of copilot", "quote for Business Premium licenses", "looking
+ *  to add 20 more licenses", "license purchase". */
+const LICENSE_PURCHASE_RE =
+  /\b(?:purchas\w*|buy\w*|order\w*|acquir\w*|add(?:ing)?|need(?:s|ed)?|want\w*|would\s+like|looking\s+(?:to|for)|interest\w*\s+in|request\w*|quote\s+for|pricing\s+(?:for|on)|renew\w*|increase\w*|expand\w*|upgrad\w*)\s+(?:to\s+)?(?:\w+\s+){0,6}?licen[cs]es?\b|\blicen[cs]e\s+(?:purchase|order|quote|request|expansion|increase)\b|\bneed\s*:\s*(?:\d+\s+)?(?:\w+\s+){0,4}licen[cs]es?\b/i;
+export function m365WantSignal(notes: unknown, threshold: number): boolean {
+  const t = withoutCampaignCodes(stripScorecard(String(notes ?? ""))).replace(/\s+/g, " ").trim();
+  if (!t) return false;
+  const hasProduct = (x: string) => { M365_PRODUCT_RE.lastIndex = 0; const r = M365_PRODUCT_RE.test(x); M365_PRODUCT_RE.lastIndex = 0; return r; };
+  const n = formLineCount(t);
+  if (n != null && n >= threshold && hasProduct(t)) return true;
+  // Microsoft's inbound form: "Beverage - Azure App Service - The customer
+  // stated that they want to build a secure internal platform ...". The
+  // product is in the header and the want is in the sentence after it.
+  const head = /^[^.]{0,120}?\s[-–]\s([^-–.]{2,60})\s[-–]\s/.exec(t);
+  if (head && hasProduct(head[1]) && M365_WANT_RE.test(t.slice(head[0].length, head[0].length + 300))) return true;
+  const sentences = t.split(/(?<=[.!?;])\s+|\s+-\s+|\s*\?{2,}\s*|\s\*\s|\s•\s/);
+  for (const sen of sentences) {
+    M365_PRODUCT_RE.lastIndex = 0;
+    for (let m = M365_PRODUCT_RE.exec(sen); m; m = M365_PRODUCT_RE.exec(sen)) {
+      const near = sen.slice(Math.max(0, m.index - 90), m.index + m[0].length + 50);
+      if (M365_WANT_RE.test(near)) { M365_PRODUCT_RE.lastIndex = 0; return true; }
+    }
+  }
+  M365_PRODUCT_RE.lastIndex = 0;
+  return false;
+}
+
 function hasBareTrailingCount(afterText: string) {
   const snippet = afterText.slice(0, 80);
   const terminatorIdx = snippet.search(/[.!?\n]/);
@@ -1860,6 +1900,29 @@ export function scanRowPlatform(
       });
     }
   }
+  // Per Jack (11/6): "Looking for a Microsoft partner to help us with our
+  // Microsoft 365 licensing and setup, 30 users" — "yes this is strong".
+  // Partner language used to be a gate only, so a row asking for a partner
+  // and naming nothing in the catalogue never became a lead. A CONFIRMED
+  // ask (partnerAskMatch: customer intent, never template, negation or an
+  // incumbent) now creates an M365 / Azure lead on its own.
+  if (hits.length === 0) {
+    const askText = cleanText(commentsValue) || combined;
+    const ask = partnerAskMatch(askText);
+    if (ask) {
+      const at = Math.max(0, askText.indexOf(ask));
+      hits.push({
+        category: TENANT_SUPPORT_LABEL,
+        snippet: askText.slice(Math.max(0, at - 70), Math.min(askText.length, at + ask.length + 70)),
+        hasTrigger: true,
+        isGoogleToMicrosoft: false,
+        isGoogleWorkspaceMigration: false,
+        isPartnerSeeking: true,
+        isBusinessCentral: false,
+        isSalesCrm: false,
+      });
+    }
+  }
   if (hits.length === 0) return null;
   const categories = [...new Set(hits.map((h) => h.category))];
   const tier: "signal" | "mention" = hits.some((h) => h.hasTrigger) ? "signal" : "mention";
@@ -1942,6 +2005,16 @@ export const PERSONAL_PROSPECT_LABEL = "Personal Prospect";
 export const CRM_OPPORTUNITY_DQ_LABEL = "Existing CRM opportunity notes, not a fresh lead";
 export const SMALL_PROJECT_DQ_LABEL = "Small one-off project / free consultancy request";
 export const PURCHASE_DONE_DQ_LABEL = "Purchase already made or in progress";
+export const UNDER_FIVE_DQ_LABEL = "One-person company or under 5";
+/** The only Bad Lead reasons that fire (11/6). Per Jack: "if it is an it
+ *  service firm yes bad lead if it is a software firm yes bad lead if it is
+ *  an msp yes bad lead if it explicity says one person company or under 5
+ *  yes bad lead thats it for now". Kept as safety nets on top of his four:
+ *  not interested / unsubscribe (nobody who asked to be removed gets
+ *  called) and purchase already made (his own 10-16 call). Every other
+ *  DQ_RULES entry stays defined (older History / Library rows still carry
+ *  those labels) but no longer fires. */
+const ACTIVE_DQ_LABELS = new Set<string>();
 export const DQ_RULES: { label: string; pattern: RegExp }[] = [
   {
     // Per Jack, on "The purchase is pending because the admin assistant has
@@ -1955,14 +2028,21 @@ export const DQ_RULES: { label: string; pattern: RegExp }[] = [
       /\bpurchase\s+(?:is\s+)?(?:pending|completed|complete|done|finali[sz]ed)\b|\b(?:completed|made|finali[sz]ed)\s+the\s+purchase\b|\bclose\s+as:\s*won\b|\bproof\s+of\s+purchase\b|\bpending\s+payment\b|\bpayment\s+card\b|\balready\s+(?:purchased|bought)\b/i,
   },
   {
-    label: "Single seat/user or freelancer",
+    // Per Jack (11/6): "if it explicity says one person company or under 5
+    // yes bad lead". The explicit counts 1-4 are handled in underFiveCompany
+    // (they need a guard against a bigger headcount elsewhere in the row).
+    label: UNDER_FIVE_DQ_LABEL,
     pattern:
-      /\b(?:1|one|single)\s*(?:seat|user|license|licence)\b|\bfor\s*(?:1|one)\s*person\b|\bjust\s*(?:me|myself)\b|\bfor\s*myself\b|\bsolo\b|\bone-?man\b|\bfreelance(?:r)?\b|\bindependent\s*contractor\b|\bsole\s*proprietor(?:ship)?\b|\bself-?employed\b|\bsolopreneur\b/i,
+      /\bone[\s-]*(?:person|man|woman)\s*(?:company|business|shop|operation|firm|office|show)\b|\bfor\s*(?:1|one)\s*person\b|\bjust\s*(?:me|myself)\b|\bfor\s*myself\b|\bsolo\s*(?:practitioner|business|owner|operator|consultant|attorney|practice)\b|\bsole\s*proprietor(?:ship)?\b|\bself-?employed\b|\bsolopreneur\b|\bfreelance(?:r)?\b|\bindependent\s*contractor\b/i,
   },
   {
     label: "Not interested / explicit rejection",
     pattern:
-      /\bnot\s*interested\b|\bno\s*thanks\b|\bnot\s*(?:right\s*)?now\b|\bdecided\s*against\b|\bwent\s*with\s*(?:a\s*)?competitor\b|\bdo\s*not\s*contact\b|\bunsubscribe\b|\bremove\s*me\b|\bstop\s*contacting\b|\bnot\s*a\s*fit\b/i,
+      // 11/6: narrowed to real opt-outs. On the 9/30 and 10/30 files every
+      // "not interested" / "not a fit" hit was a seller note ("at first they
+      // were not interested, but...", "not interested in Project
+      // Operations", "if the first [partner] is not a fit").
+      /\bdecided\s*against\b|\bwent\s*with\s*(?:a\s*)?competitor\b|\bdo\s*not\s*contact\b|\bunsubscribe\b|\bremove\s*me\b|\bstop\s*contacting\b|^\s*not\s*interested\.?\s*$/i,
   },
   {
     label: "Happy with current provider / locked in",
@@ -1992,13 +2072,17 @@ export const DQ_RULES: { label: string; pattern: RegExp }[] = [
   // pipeline-management language, not a fresh lead's own expressed
   // interest. Excluded regardless of what platform/licensing language
   // happens to also be nearby (e.g. "security posture").
+  // A bare "Partner: <name>" line no longer trips it (11/6, per Jack: "fix
+  // what is in bad leads"): on the 9/30 and 10/30 exports all 99 rows this
+  // rule DQ'd tripped ONLY on that line, inside real BANT notes ("evaluating
+  // Dynamics 365 Business Central for 20 users, Budget $26,400").
   {
     label: CRM_OPPORTUNITY_DQ_LABEL,
     pattern:
-      /\bowner\s*of\s*this\s*opportunity\b|\bopportunity\s*owner\b|\badvancing\s*the\s*sales\s*cycle\b|\bexecutive\s*engagement\b|\bpartner\s*:\s*[a-z]/i,
+      /\bowner\s*of\s*this\s*opportunity\b|\bopportunity\s*owner\b|\badvancing\s*the\s*sales\s*cycle\b|\bexecutive\s*engagement\b/i,
   },
 ];
-const PLACEHOLDER_EMAIL_RE = /^(?:test|noemail|none|na|asdf|example|foo|bar|sample|placeholder|xxx+)@|@(?:test|example)\.(?:com|org|net)$/i;
+export const PLACEHOLDER_EMAIL_RE = /^(?:test|noemail|none|na|asdf|example|foo|bar|sample|placeholder|xxx+)@|@(?:test|example)\.(?:com|org|net)$/i;
 // Per Jack: "we always make emails with personals like @gmail or @aol etc
 // a bad lead" — cross-cutting Auto-DQ like every other DQ_RULES entry,
 // EXCEPT scanRowUnified below carves it out into PERSONAL_PROSPECT_LABEL
@@ -2105,6 +2189,8 @@ export const COMPETITOR_INDUSTRIES: string[] = [
   "it services and it consulting",
   "cloud computing",
   "managed services",
+  "software development",
+  "computer software & services",
 ];
 
 export function isCompetitorIndustry(industry: string | undefined | null): boolean {
@@ -2116,7 +2202,7 @@ export function isCompetitorIndustry(industry: string | undefined | null): boole
 // Narrow on purpose — see the note above. Every entry is a multi-word
 // phrase or an unambiguous acronym.
 const COMPETITOR_NAME_RE =
-  /\b(managed\s+(?:it\s+)?services?(?:\s+provider)?|msp\b|it\s+services|it\s+solutions|it\s+consulting|it\s+support|microsoft\s+partner|gold\s+partner|solution\s+provider|cyber\s*security|network\s+security|network\s+solutions|cloud\s+solutions|cloud\s+services|computer\s+services|computer\s+solutions|tech\s+solutions|technology\s+solutions|technology\s+partners?|systems?\s+integrator|value\s+added\s+reseller|\bvar\b)\b/i;
+  /\b(software|softworks|saas\b|managed\s+(?:it\s+)?services?(?:\s+provider)?|msp\b|it\s+services|it\s+solutions|it\s+consulting|it\s+support|microsoft\s+partner|gold\s+partner|solution\s+provider|cyber\s*security|network\s+security|network\s+solutions|cloud\s+solutions|cloud\s+services|computer\s+services|computer\s+solutions|tech\s+solutions|technology\s+solutions|technology\s+partners?|systems?\s+integrator|value\s+added\s+reseller|\bvar\b)\b/i;
 
 export function isCompetitorName(companyName: string | undefined | null): boolean {
   const v = String(companyName || "").trim();
@@ -2148,7 +2234,7 @@ const LEAD_IS_PARTNER_RE = new RegExp(
   // "<subject> is/are (a) [microsoft] [gold/silver/certified] partner|MSP|reseller|VAR"
   String.raw`\b(?:the\s+)?(?:customer|client|company|account|they|prospect|this\s+(?:company|account|customer))\s+(?:is|are)\s+(?:also\s+)?(?:a|an)?\s*` +
   String.raw`(?:microsoft\s+)?(?:gold\s+|silver\s+|certified\s+|solutions?\s+|cloud\s+)?` +
-  String.raw`(?:partner|reseller|msp|csp|var|managed\s+service\s+provider|it\s+(?:services\s+)?(?:company|firm|provider))\b` +
+  String.raw`(?:partner|reseller|msp|csp|var|managed\s+service\s+provider|it\s+(?:services\s+)?(?:company|firm|provider)|software\s+(?:company|firm|vendor|developer|business|house|startup)|saas\s+(?:company|provider|vendor|startup)|(?:it|tech(?:nology)?)\s+(?:services\s+)?(?:consultancy|consulting\s+firm))\b` +
   // ...or a first-person claim in a quoted customer note.
   String.raw`|\bwe\s+are\s+(?:a|an)\s+(?:microsoft\s+)?(?:gold\s+|silver\s+|certified\s+)?(?:partner|reseller|msp|csp)\b`,
   "i",
@@ -2171,7 +2257,7 @@ export function leadClaimsToBePartner(text: string | undefined | null): boolean 
  * containing "it" or "tech" says nothing, while "managedservices" does.
  */
 const COMPETITOR_DOMAIN_RE =
-  /(managedservices?|itservices|itsolutions|itconsulting|itsupport|msp\d*\.|cybersecurity|networksolutions|cloudsolutions|cloudservices|techsolutions|technologysolutions|computerservices|systemsintegrat)/i;
+  /(software|softworks|managedservices?|itservices|itsolutions|itconsulting|itsupport|msp\d*\.|cybersecurity|networksolutions|cloudsolutions|cloudservices|techsolutions|technologysolutions|computerservices|systemsintegrat)/i;
 
 /** True when the email DOMAIN reads as an IT services business. Free
  *  providers are skipped — a gmail address says nothing about an employer. */
@@ -2181,9 +2267,20 @@ export function isCompetitorDomain(email: string | undefined | null): boolean {
   return COMPETITOR_DOMAIN_RE.test(d.replace(/[.-]/g, (m) => (m === "-" ? "" : ".")));
 }
 
+/** An explicit count of 1-4 people / users / seats / licences / employees,
+ *  with no bigger headcount stated anywhere in the same row ("3 Copilot
+ *  licenses ... 300 employees" is not a small company). */
+const SMALL_COUNT_RE = /(?<![\d.,$])\b([1-4]|one|two|three|four)\s*-?\s*(?:named\s+)?(?:users?|seats?|licen[cs]es?|employees?|people|persons?|staff|person\s+(?:company|team|office)|man\s+(?:company|shop|team)|-?person)\b|\b(?:company|team|office|staff|business)\s+of\s+([1-4]|one|two|three|four)\b|\b(?:users?|seats?|licen[cs]es?|employees?)\s*[:\-–]\s*([1-4])\b(?![\d.,])|[-–]\s*([1-4])\s*(?:users?|seats?)?\s*$/i;
+const BIG_COUNT_RE = /(?<![\d.,$])\b(?:[5-9]|[1-9]\d{1,5}|five|six|seven|eight|nine|ten|twelve|fifteen|twenty|thirty|forty|fifty|hundreds?|thousands?)\+?\s*-?\s*(?:named\s+)?(?:users?|seats?|licen[cs]es?|employees?|people|persons?|staff|workers|members|devices|endpoints|locations)\b|\b(?:users?|seats?|licen[cs]es?|employees?)\s*[:\-–]\s*(?:[5-9]|[1-9]\d{1,5})\b/i;
+export function underFiveCompany(text: string): boolean {
+  const t = String(text || "").replace(/\s+/g, " ");
+  return SMALL_COUNT_RE.test(t) && !BIG_COUNT_RE.test(t);
+}
 function getDQReasons(combinedText: string, resolved: ResolvedFields): string[] {
   const reasons: string[] = [];
-  for (const rule of DQ_RULES) if (rule.pattern.test(combinedText)) reasons.push(rule.label);
+  if (!ACTIVE_DQ_LABELS.size) for (const l of [PURCHASE_DONE_DQ_LABEL, UNDER_FIVE_DQ_LABEL, "Not interested / explicit rejection"]) ACTIVE_DQ_LABELS.add(l);
+  for (const rule of DQ_RULES) if (ACTIVE_DQ_LABELS.has(rule.label) && rule.pattern.test(combinedText)) reasons.push(rule.label);
+  if (underFiveCompany(combinedText) && !reasons.includes(UNDER_FIVE_DQ_LABEL)) reasons.push(UNDER_FIVE_DQ_LABEL);
   // A sub-threshold seat count is NOT a disqualification. Per Jack, on his
   // own example ("Service - Copilot Studio - 2 users"): "this is low
   // anything like this is low, the only reason it could be worth engaging
@@ -2192,11 +2289,8 @@ function getDQReasons(combinedText: string, resolved: ResolvedFields): string[] 
   // personal address) is a Bad Lead; a small number is just small. It lands
   // at Low priority instead — visible, workable, and still out of the three
   // Strong Signal downloads, which only ever carry the top band.
-  if (!resolved.company || !String(resolved.company).trim()) reasons.push("Missing company name");
-  if (resolved.email && PLACEHOLDER_EMAIL_RE.test(String(resolved.email).trim())) reasons.push("Placeholder/invalid email");
-  const emailDomain = getEmailDomain(resolved.email);
-  if (emailDomain && isFreeEmailDomain(emailDomain)) reasons.push(PERSONAL_EMAIL_DQ_LABEL);
-  if (isCrmMetadataOnly(resolved.comments, resolved.company)) reasons.push(CRM_METADATA_ONLY_DQ_LABEL);
+  // 11/6: missing company, placeholder email, personal email and
+  // CRM-metadata-only no longer make a Bad Lead (see ACTIVE_DQ_LABELS).
   // Company-NAME signal only. The far more reliable industry signal needs
   // an enriched profile, which detection has no access to — see
   // applyCompetitorDQ, run right after a scan and again after enrichment.
@@ -2383,6 +2477,13 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
 
   const combinedForDQ = columns.map((c) => String(row[c] ?? "")).join("   ");
   let dqReasons = getDQReasons(combinedForDQ, resolved);
+  // Under 5 also catches a count the engines read with a product name in
+  // between ("Renewing 3 Microsoft 365 E3 licenses"), still guarded by any
+  // bigger headcount in the row.
+  {
+    const small = [licensing?.count].find((n) => n != null && n >= 1 && n < 5);
+    if (small != null && !BIG_COUNT_RE.test(combinedForDQ.replace(/\s+/g, " ")) && !dqReasons.includes(UNDER_FIVE_DQ_LABEL)) dqReasons.push(UNDER_FIVE_DQ_LABEL);
+  }
   // THE SEAT FLOOR IS A LICENSING RULE ONLY. IT DOES NOT APPLY TO DYNAMICS.
   //
   // Per Jack, two rulings that look contradictory and are not:
@@ -2423,7 +2524,8 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
   const googleLead = !!platform?.isGoogleWorkspaceMigration;
   // Per Jack: "those are hot leads" — any Google tag is Strong Signal.
   if (googleLead) tier = "signal";
-  if (tier === "signal" && subThreshold && !googleLead) tier = "mention";
+  // 11/6: no more seat-floor demotion — under 5 is a Bad Lead (getDQReasons),
+  // and 5 or more with a stated want is Strong (below).
   // Per Jack: "dynamics leads have to have a signal indicating it is truly
   // about a new platform". A Dynamics lead stays Strong only when the notes
   // show they are moving onto a platform — see newPlatformSignal. Without
@@ -2443,6 +2545,24 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
     const said = withoutCampaignCodes(String(resolved.comments ?? ""));
     if (newPlatformSignal(said) || dynamicsInboundLine(said, resolved.productArea)) tier = "signal";
   }
+  // Per Jack (11/6): "anything to do with microsoft dynamics is a strong
+  // lead". This replaces the 10-13 "must be about a new platform" demotion
+  // and the 11-05 intent promotion above for every row that actually names
+  // a Dynamics product — in the notes, or as a Product Area code with real
+  // notes behind it. What stays out, per his earlier calls: Dynamics seen
+  // only as Microsoft's propensity scorecard verdict, a campaign name, a
+  // "has X: yes" flag, the bare word ERP/CRM, or a Product Area code over
+  // empty notes. Every Auto-DQ still wins (below).
+  const realDynamics = dynHits.some((h) => !h.genericDynamics && (!h.fromProductArea || h.hasTrigger));
+  if (autoCategory === "dynamics365" && realDynamics) tier = "signal";
+  // Per Jack (11/6): a customer asking for a partner is Strong ("yes this
+  // is strong"). A confirmed sub-threshold licensing count still pulls it
+  // to Needs Review — "Copilot Studio - 2 users ... this is low".
+  if (platform?.isPartnerSeeking) tier = "signal";
+  if (tier === "mention" && autoCategory === "m365Tenant" &&
+      m365WantSignal(resolved.comments, 5)) tier = "signal";
+  // Per Jack (11/6): "if they want to purchase licenses yes strong lead".
+  if (tier === "mention" && LICENSE_PURCHASE_RE.test(withoutCampaignCodes(String(resolved.comments ?? combinedForDQ)))) tier = "signal";
   // A Google lead also survives the CRM-opportunity rule: on Jack's 9/30
   // file every real Google row was a Microsoft seller's opportunity note,
   // and all of them were landing in Bad Leads.
@@ -2458,6 +2578,9 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
     isPersonalProspect = true;
     dqReasons = [];
   }
+  // 11/6: a personal address no longer makes a Bad Lead, but a Strong lead
+  // on one is still tagged Personal Prospect so it reads as one.
+  { const d = getEmailDomain(resolved.email); if (tier === "signal" && dqReasons.length === 0 && d && isFreeEmailDomain(d)) isPersonalProspect = true; }
   if (dqReasons.length > 0) tier = "dq";
 
   // Per Jack: "Score main scanner leads now using all the strong signal

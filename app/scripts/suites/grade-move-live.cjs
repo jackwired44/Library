@@ -11,9 +11,9 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'grade-'));
 const F = path.join(dir, 'Book11-01-26.csv');
 fs.writeFileSync(F, csv([
   ['Strong Co', 'Sam Strong', 'CFO', 'sam@strongco.com', 'Evaluating Dynamics 365 Business Central to replace QuickBooks for 25 users this quarter, want a partner to implement.'],
-  ['Review One', 'Rae One', 'CFO', 'rae@reviewone.com', 'Dynamics 365 Business Central'],
-  ['Review Two', 'Ray Two', 'CFO', 'ray@reviewtwo.com', 'Dynamics 365 Business Central'],
-  ['Review Three', 'Rob Three', 'CFO', 'rob@reviewthree.com', 'Dynamics 365 Business Central'],
+  ['Review One', 'Rae One', 'CFO', 'rae@reviewone.com', 'They are running Microsoft 365 E3 across the business.'],
+  ['Review Two', 'Ray Two', 'CFO', 'ray@reviewtwo.com', 'They are running Microsoft 365 E3 across the business.'],
+  ['Review Three', 'Rob Three', 'CFO', 'rob@reviewthree.com', 'They are running Microsoft 365 E3 across the business.'],
 ]));
 
 let pass = 0, fail = 0;
@@ -50,9 +50,10 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('Review One now reads Strong Signal, tagged moved', /Strong Signal/.test(await signal('Review One')) && /moved/.test(await signal('Review One')), await signal('Review One'));
   // The table shows the note without its head; the full stored note is on hover.
   const note = (await page.locator('.all-leads-table tbody tr', { hasText: 'Review One' }).first().locator('td[data-col="notes"]').getAttribute('title')) || '';
-  // A Dynamics brief carries no score mark, so there is none to flip (the
-  // mark swap itself is covered in grade-move); the note text is untouched.
-  ok('its note text is untouched', /Wants Dynamics 365 Business Central\./.test(note) && !/[▲▸]/.test(note), note);
+  // 11/6: a bare Dynamics mention is Strong now ("anything to do with
+  // microsoft dynamics is a strong lead"), so the Needs Review fixture is a
+  // named M365 SKU with no ask. Its mark follows the hand grade.
+  ok('its note mark follows the move', /Microsoft 365 E3/.test(note) && /▲/.test(note) && !/▸/.test(note), note);
 
   // --- bulk, ticked rows, to Bad Lead with a reason
   for (const co of ['Review Two', 'Review Three']) await page.locator('.all-leads-table tbody tr', { hasText: co }).first().locator('input[type=checkbox]').check();
@@ -95,7 +96,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await page.keyboard.press('Escape'); await sleep(400);
   ok('back to scanner\'s grade: Needs Review, no tag', /Needs Review/.test(await signal('Review One')) && !/moved/.test(await signal('Review One')), await signal('Review One'));
   const note2 = (await page.locator('.all-leads-table tbody tr', { hasText: 'Review One' }).first().locator('td[data-col="notes"]').getAttribute('title')) || '';
-  ok('  and its note is as the scanner wrote it', note2 === note, note2);
+  { const newest = note2.split('\n')[0]; ok('  and its newest note is as the scanner wrote it', /▸/.test(newest) && !/▲/.test(newest) && /Microsoft 365 E3/.test(newest), note2); }
   ok('no page errors', errs.length === 0, errs.join(' | '));
   await b.close();
   console.log(`\n${pass}/${pass + fail} checks passed`);

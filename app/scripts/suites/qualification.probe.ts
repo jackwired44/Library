@@ -72,12 +72,12 @@ const t=(c:string)=>{const s=scanParsedFiles([{name:"t.csv",fields:HEAD_N,data:[
 const cases:[string,string,string[]][]=[
  ["plain company blurb","We manufacture industrial fasteners in Ohio.",["none"]],
  ["we ARE the partner","We are a Microsoft partner ourselves and resell licensing.",["none","mention","dq"]],
- ["CRM opportunity notes","Nicole Vargas is the owner of this opportunity and Partner: SIS LLC. Interest in Purview to support SOC 2 and improve security posture.",["dq"]],
+ ["CRM opportunity notes (11/6: no longer a Bad Lead)","Nicole Vargas is the owner of this opportunity and Partner: SIS LLC. Interest in Purview to support SOC 2 and improve security posture.",["signal"]],
  ["metadata only","F1 / Company Tenant Partner",["none"]],
  ["bare product mention","They use SharePoint and OneDrive internally.",["mention"]],
  ["bare Copilot mention","Asked about Copilot at the conference.",["mention"]],
  ["bare Azure mention","Their infrastructure runs on Azure.",["none","mention"]],
- ["bare Dynamics mention","They mentioned Dynamics 365 once.",["mention"]],
+ ["bare Dynamics mention (11/6: anything Dynamics is Strong)","They mentioned Dynamics 365 once.",["signal"]],
  ["password reset","I forgot my password and can't log in.",["dq","none"]],
  ["not interested","Not interested, please remove me.",["dq","none"]],
  ["single seat","Just me, one user license needed for Business Standard.",["dq"]],
@@ -88,7 +88,7 @@ const cases:[string,string,string[]][]=[
  // Per Jack, "this is low anything like this is low": a sub-threshold count
  // demotes to Low priority, it is not a Bad Lead. The floor itself is
  // unchanged — 10 still qualifies, 9 still does not.
- ["9 seats under new min","Microsoft 365 Business Premium for 9 users.",["mention"]],
+ ["9 seats (11/6: only under 5 is ruled out)","Microsoft 365 Business Premium for 9 users.",["mention","signal"]],
  ["10 seats at new min","Microsoft 365 Business Premium for 10 users.",["signal"]],
  ["12 seats over new min","Microsoft 365 Business Premium for 12 users.",["signal"]],
 ];
@@ -171,7 +171,7 @@ function BAND_RUN() {
 
   // Jack's own example, the reason this pass exists: "Service - Copilot
   // Studio - 2 users. this is low anything like this is low."
-  b("sub-threshold count is Low", "Service - Copilot Studio - 2 users.", "low");
+  b("2 users is a Bad Lead (11/6: under 5)", "Service - Copilot Studio - 2 users.", "dq");
   // THE SEAT FLOOR IS LICENSING-ONLY. Per Jack, on his own row — "(30) ▼
   // Sales & Distributions-Dynamics ERP-5 Users. THIS IS STRONG NOT NEEDS
   // REVIEW" — a Dynamics seat count never pulls the tier down, because an
@@ -179,14 +179,14 @@ function BAND_RUN() {
   // seat-proportional. These two are his literal examples, and they are
   // the pair that proves the rule splits on PRODUCT, not on the number.
   b("Jack's row: small Dynamics ERP is High", "Sales & Distributions-Dynamics ERP-5 Users.", "high");
-  b("small Dynamics BC is High too", "Service - Dynamics 365 Business Central - 2 users.", "high");
+  b("2-user Dynamics is a Bad Lead (11/6: under 5)", "Service - Dynamics 365 Business Central - 2 users.", "dq");
   // ...and small is LOW, never Bad. A rule saying no is Bad; a small
   // number is just small. This pair is the whole distinction.
-  b("small is not an auto-DQ", "Service - Microsoft 365 Business Standard - 3 users.", "low");
+  b("3 users is a Bad Lead (11/6: under 5)", "Service - Microsoft 365 Business Standard - 3 users.", "dq");
 
   // Medium: names a specific product, nothing ruling it out.
   b("named SKU, no count, is Medium", "They are running Microsoft 365 E3 across the business.", "medium");
-  b("named Dynamics module is Medium", "We use Dynamics 365 Business Central for finance.", "medium");
+  b("named Dynamics module is High (11/6: anything Dynamics is Strong)", "We use Dynamics 365 Business Central for finance.", "high");
 
   // Low: matched a generic category pattern only — no SKU, no module.
   b("generic tenant match only is Low", "We could use some help desk support for the office.", "low");
@@ -204,7 +204,8 @@ function BAND_RUN() {
   // OTHER ruling ("Copilot Studio - 2 users … anything like this is low")
   // working. If someone deletes the licensing half of subThreshold, this
   // row comes back as Strong Signal.
-  b("small licensing count is still Low", "Service - Microsoft 365 E3 - 2 users.", "low");
+  b("2 E3 users is a Bad Lead (11/6: under 5)", "Service - Microsoft 365 E3 - 2 users.", "dq");
+  b("5 E3 users is Strong (11/6: wants to buy licences)", "Service - Microsoft 365 E3 - 5 users.", "high");
 }
 
 const total = 28 + cases.length + ADVERSARIAL + BANDS;

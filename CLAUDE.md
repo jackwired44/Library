@@ -7988,3 +7988,53 @@ Opening lines only; the closing questions are unchanged (see below).
   "Copilot; …". Each named topic now leads even when buried mid-note
   (`direct-notes` 14 → 25). Real files: 0 grade changes, 129 notes now
   quote that sentence. `NOTE_RULES_VERSION` = `2026-11-06-direct-topics-2`.
+
+### 2026-11-06: Strong / Needs Review / Bad Leads rebuilt around Jack's rules (scanner-platform-v29)
+
+Per Jack, in one thread: "fix what is in needs review and what is in bad
+leads", "anything to do with microsoft dynamics is a strong lead", "Looking
+for a Microsoft partner to help us with our Microsoft 365 licensing and
+setup, 30 users" — "yes this is strong", "like all these needs review look
+strong", "if they want to purchase licenses yes strong lead", and "if it is
+an it service firm yes bad lead if it is a software firm yes bad lead if it
+is an msp yes bad lead if it explicity says one person company or under 5
+yes bad lead thats it for now". Supersedes the 10-13 "Dynamics must be about
+a new platform" rule and the seat-floor demotion.
+- **Strong** (`scanRowUnified`, detection.ts):
+  - Any row that names a Dynamics product (notes, or a Product Area code
+    with real notes). Not: Microsoft's scorecard verdict, a campaign name, a
+    "has X: yes" flag, the bare word ERP / CRM, or a code over empty notes.
+  - A confirmed partner ask, and it now creates a lead on its own
+    (`scanRowPlatform` adds a Tenant Support hit from `partnerAskMatch`).
+  - M365 / Azure with a stated want beside a Microsoft product
+    (`m365WantSignal`), an inbound form line with 5+ ("Defender for Identity
+    - 60"), or the inbound header form ("Healthcare - Microsoft 365 Business
+    Premium - The customer stated that they want…").
+  - Wanting to buy licences (`LICENSE_PURCHASE_RE`: purchase, buy, need N
+    licenses, quote / pricing for, renew, add, expand…).
+  - No more seat-floor demotion: 5–9 seats with a want is Strong.
+- **Bad Leads** fire only on (`ACTIVE_DQ_LABELS`): IT service firm / MSP /
+  software firm (`COMPETITOR_DQ_LABEL`; name, domain, industry and "they are
+  a software company" now include software), one-person company or under 5
+  (`UNDER_FIVE_DQ_LABEL`, `underFiveCompany`: an explicit 1–4 users / seats /
+  licences / employees or the licensing engine's count, with no bigger
+  headcount in the row; the Dynamics ranking count is NOT used, it read
+  "7-3X" in a lead ID as 3). Kept as safety nets (Jack gave no preference):
+  explicit opt-outs (unsubscribe, do not contact, remove me, stop
+  contacting, went with a competitor, decided against; a bare "not
+  interested" / "not a fit" no longer, every real hit was a seller note) and
+  purchase already made (his 10-16 call).
+- **No longer fire** (labels kept for older stored rows): personal email (a
+  Strong lead on one is still tagged Personal Prospect), CRM metadata only,
+  CRM opportunity notes (all 99 real hits were "Partner: X" inside real BANT
+  notes), happy with current provider, small project / free consultation,
+  basic login issue, wants Microsoft's own support, missing company,
+  placeholder email, personal / non-business use.
+- Real files (Book9-30, Book10-30, the strong-signal export; 1,583 rows):
+  Strong 1,045 → 1,382, Needs Review 312 → 124, Bad Leads 226 → 77.
+- `NOTE_RULES_VERSION` = `2026-11-06-grade-fixes`: stored leads re-grade on
+  next open; hand-moved grades are kept.
+- Suite `grade-fixes` (22). Re-pointed, each with a dated note, because they
+  pinned the rules Jack replaced: qualification (6), dynamics-intent (3),
+  dynamics-views (3), top-priority (partner boundary), seat-count (3, the
+  count halves unchanged), sku-truth (1), grade-move-live (fixture).
