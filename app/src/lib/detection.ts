@@ -2226,7 +2226,7 @@ export function isCompetitorIndustry(industry: string | undefined | null): boole
 // Narrow on purpose — see the note above. Every entry is a multi-word
 // phrase or an unambiguous acronym.
 const COMPETITOR_NAME_RE =
-  /\b(software|softworks|saas\b|managed\s+(?:it\s+)?services?(?:\s+provider)?|msp\b|it\s+services|it\s+solutions|it\s+consulting|it\s+support|microsoft\s+partner|gold\s+partner|solution\s+provider|cyber\s*security|network\s+security|network\s+solutions|cloud\s+solutions|cloud\s+services|computer\s+services|computer\s+solutions|tech\s+solutions|technology\s+solutions|technology\s+partners?|systems?\s+integrator|value\s+added\s+reseller|\bvar\b)\b/i;
+  /\b(software|softworks|saas\b|managed\s+(?:it\s+)?services?(?:\s+provider)?|msp\b|it\s+services|it\s+solutions|it\s+consulting|it\s+support|microsoft\s+partner|gold\s+partner|solution\s+provider|cyber\s*security|network\s+security|network\s+solutions|cloud\s+solutions|cloud\s+services|computer\s+services|computer\s+solutions|tech\s+solutions|technology\s+solutions|technology\s+partners?|systems?\s+integrator|value\s+added\s+reseller|\bvar\b|it\s*(?:&|and)\s*(?:security|cyber\w*|networks?|network\s+services|communications|cloud|telecom\w*)|data\s*cent(?:er|re)\s+(?:systems|solutions|services)|(?!(?:bio|fin|med|agri?|food|clean|edu?|health|legal|ins|prop|reg|nano|aero|auto|pharma|marine|geo|petro|green|ag)tech)\w+tech\s+(?:solutions|services|consulting))\b/i;
 
 export function isCompetitorName(companyName: string | undefined | null): boolean {
   const v = String(companyName || "").trim();
@@ -2291,20 +2291,84 @@ export function isCompetitorDomain(email: string | undefined | null): boolean {
   return COMPETITOR_DOMAIN_RE.test(d.replace(/[.-]/g, (m) => (m === "-" ? "" : ".")));
 }
 
-/** An explicit count of 1-4 people / users / seats / licences / employees,
- *  with no bigger headcount stated anywhere in the same row ("3 Copilot
- *  licenses ... 300 employees" is not a small company). */
-const SMALL_COUNT_RE = /(?<![\d.,$])\b([1-4]|one|two|three|four)\s*-?\s*(?:named\s+)?(?:users?|seats?|licen[cs]es?|employees?|people|persons?|staff|person\s+(?:company|team|office)|man\s+(?:company|shop|team)|-?person)\b|\b(?:company|team|office|staff|business)\s+of\s+([1-4]|one|two|three|four)\b|\b(?:users?|seats?|licen[cs]es?|employees?)\s*[:\-–]\s*([1-4])\b(?![\d.,])|[-–]\s*([1-4])\s*(?:users?|seats?)?\s*$/i;
+/** A company name reduced to its distinctive words: "Moser Consulting, Inc."
+ *  -> "moser consulting". */
+function companyCore(name: unknown): string {
+  return String(name || "").toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/\b(?:inc|llc|l\.l\.c|ltd|limited|corp|corporation|co|company|plc|lp|llp|pllc|pc|group|the)\b\.?/g, " ")
+    .replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+}
+/** 11/9, per Jack ("execute" on the Sep/Oct audit, Moser Consulting): the
+ *  row names the lead's OWN company as the partner of record — in the notes
+ *  ("Partner: Moser Consulting") or as the Product Area value. A company that
+ *  is its own partner is a partner, not a prospect. */
+function namesItselfAsPartner(resolved: ResolvedFields): boolean {
+  const co = companyCore(resolved.company);
+  if (co.length < 4) return false;
+  const same = (x: string) => { const p = companyCore(x); return p.length >= 4 && (p === co || (p.length >= 6 && (co.startsWith(p + " ") || p.startsWith(co + " ")))); };
+  const pa = String(resolved.productArea || "").trim();
+  if (pa && !/\b(?:microsoft|dynamics|azure|m365|o365|office|power|copilot|intune|teams|direct)\b/i.test(pa) && same(pa)) return true;
+  const re = /\bpartner(?:\s+(?:of\s+record|name|account))?\s*(?:on\s+record)?\s*[:\-]\s*([A-Za-z0-9][^.;|\n]{2,60})/gi;
+  const text = String(resolved.comments || "");
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    const cand = m[1].split(/\s{2,}|\s+(?:timeline|budget|authority|need|stage|status|owner|close)\b/i)[0];
+    if (same(cand)) return true;
+  }
+  return false;
+}
+/** 11/9 (TAT Technologies on a nexustek.com address): the contact's email is
+ *  at a DIFFERENT company whose domain reads as an IT firm — an MSP working
+ *  on a client's behalf, not the client. Narrow on purpose: the domain must
+ *  carry an IT word and share nothing with the company name. */
+const IT_DOMAIN_WORD_RE = /(?:tek|techno\w*|cyber\w*|itsolutions|itservices|itsupport|itgroup|itpartners|managedit|msp|netsolutions|networksolutions|cloudsolutions|cloudservices|systemsintegrat\w*)/i;
+function onItFirmDomain(resolved: ResolvedFields): boolean {
+  const d = getEmailDomain(resolved.email);
+  if (!d || isFreeEmailDomain(d)) return false;
+  const label = d.split(".").slice(-2, -1)[0] || "";
+  if (!IT_DOMAIN_WORD_RE.test(label)) return false;
+  const co = companyCore(resolved.company).replace(/\s+/g, "");
+  if (!co) return false;
+  const words = companyCore(resolved.company).split(" ").filter((w) => w.length >= 3);
+  // Shares any real word (or its first 4 letters) with the company: their own domain.
+  if (words.some((w) => label.includes(w) || label.includes(w.slice(0, 4)))) return false;
+  if (co.includes(label) || label.includes(co.slice(0, 5))) return false;
+  // Initials ("tat" for TAT Technologies) count as their own domain too.
+  const initials = companyCore(resolved.company).split(" ").map((w) => w[0]).join("");
+  if (initials.length >= 2 && label.startsWith(initials)) return false;
+  return true;
+}
+
+/** An explicit COMPANY SIZE of 1-4 (employees, staff, a 3-person firm,
+ *  "company of 2"), with no bigger headcount stated anywhere in the same row.
+ *  11/9, per Jack ("execute" on the Sep/Oct audit): under 5 is about how big
+ *  the company is, never how many licences they want. "Power Automate - 1
+ *  user" at MONARCH STEEL is a small ask, not a small company; that case is
+ *  capped at Needs Review in scanRowUnified (smallLicenceAsk), not a Bad Lead. */
+const SMALL_COUNT_RE = /(?<![\d.,$])\b([1-4]|one|two|three|four)\s*-?\s*(?:full[\s-]*time\s+)?(?:employees?|staff\s+members?|(?:person|man|people|employee)\s+(?:company|business|firm|shop|operation|office|practice))\b|\b(?:company|business|firm|shop|practice)\s+(?:of|with)\s+(?:only\s+|just\s+)?([1-4]|one|two|three|four)\s*(?:employees?|people|staff|persons?)?\b(?![\d.,])|\b(?:employees?|employee\s+count|headcount|company\s+size)\s*[:\-–]\s*([1-4])\b(?![\d.,])/i;
 const BIG_COUNT_RE = /(?<![\d.,$])\b(?:[5-9]|[1-9]\d{1,5}|five|six|seven|eight|nine|ten|twelve|fifteen|twenty|thirty|forty|fifty|hundreds?|thousands?)\+?\s*-?\s*(?:named\s+)?(?:users?|seats?|licen[cs]es?|employees?|people|persons?|staff|workers|members|devices|endpoints|locations)\b|\b(?:users?|seats?|licen[cs]es?|employees?)\s*[:\-–]\s*(?:[5-9]|[1-9]\d{1,5})\b/i;
-export function underFiveCompany(text: string): boolean {
+/** A licence ask of 1-4 with no bigger headcount in the row. */
+const SMALL_LICENCE_RE = /(?<![\d.,$])\b([1-4]|one|two|three|four)\s*-?\s*(?:named\s+)?(?:users?|seats?|licen[cs]es?)\b|\b(?:users?|seats?|licen[cs]es?)\s*[:\-–]\s*([1-4])\b(?![\d.,])|[-–]\s*([1-4])\s*(?:users?|seats?)?\s*$/i;
+export function underFiveCompany(text: string, employees?: string): boolean {
   const t = String(text || "").replace(/\s+/g, " ");
-  return SMALL_COUNT_RE.test(t) && !BIG_COUNT_RE.test(t);
+  if (BIG_COUNT_RE.test(t)) return false;
+  // The file's own Number of Employees column, when it states 1-4.
+  const e = String(employees ?? "").trim();
+  if (/^[1-4]$/.test(e)) return true;
+  if (/^\d+$/.test(e) && Number(e) >= 5) return false;
+  return SMALL_COUNT_RE.test(t);
+}
+function smallLicenceAsk(text: string, licCount: number | null | undefined, employees?: string): boolean {
+  const t = String(text || "").replace(/\s+/g, " ");
+  if (BIG_COUNT_RE.test(t)) return false;
+  if (/^\d+$/.test(String(employees ?? "").trim()) && Number(employees) >= 5) return false;
+  return (licCount != null && licCount >= 1 && licCount < 5) || SMALL_LICENCE_RE.test(t);
 }
 function getDQReasons(combinedText: string, resolved: ResolvedFields): string[] {
   const reasons: string[] = [];
   if (!ACTIVE_DQ_LABELS.size) for (const l of [PURCHASE_DONE_DQ_LABEL, UNDER_FIVE_DQ_LABEL, "Not interested / explicit rejection"]) ACTIVE_DQ_LABELS.add(l);
   for (const rule of DQ_RULES) if (ACTIVE_DQ_LABELS.has(rule.label) && rule.pattern.test(combinedText)) reasons.push(rule.label);
-  if (underFiveCompany(combinedText) && !reasons.includes(UNDER_FIVE_DQ_LABEL)) reasons.push(UNDER_FIVE_DQ_LABEL);
+  if (underFiveCompany(combinedText, resolved.employees) && !reasons.includes(UNDER_FIVE_DQ_LABEL)) reasons.push(UNDER_FIVE_DQ_LABEL);
   // A sub-threshold seat count is NOT a disqualification. Per Jack, on his
   // own example ("Service - Copilot Studio - 2 users"): "this is low
   // anything like this is low, the only reason it could be worth engaging
@@ -2326,7 +2390,9 @@ function getDQReasons(combinedText: string, resolved: ResolvedFields): string[] 
   // after enrichment.
   if (isCompetitorName(resolved.company as string)
       || isCompetitorDomain(resolved.email as string)
-      || leadClaimsToBePartner(combinedText)) {
+      || leadClaimsToBePartner(combinedText)
+      || namesItselfAsPartner(resolved)
+      || onItFirmDomain(resolved)) {
     reasons.push(COMPETITOR_DQ_LABEL);
   }
   return reasons;
@@ -2501,13 +2567,8 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
 
   const combinedForDQ = columns.map((c) => String(row[c] ?? "")).join("   ");
   let dqReasons = getDQReasons(combinedForDQ, resolved);
-  // Under 5 also catches a count the engines read with a product name in
-  // between ("Renewing 3 Microsoft 365 E3 licenses"), still guarded by any
-  // bigger headcount in the row.
-  {
-    const small = [licensing?.count].find((n) => n != null && n >= 1 && n < 5);
-    if (small != null && !BIG_COUNT_RE.test(combinedForDQ.replace(/\s+/g, " ")) && !dqReasons.includes(UNDER_FIVE_DQ_LABEL)) dqReasons.push(UNDER_FIVE_DQ_LABEL);
-  }
+  // 11/9: a licence count of 1-4 is no longer a Bad Lead (under 5 is company
+  // size only). It caps the row at Needs Review below (smallLicenceAsk).
   // THE SEAT FLOOR IS A LICENSING RULE ONLY. IT DOES NOT APPLY TO DYNAMICS.
   //
   // Per Jack, two rulings that look contradictory and are not:
@@ -2591,6 +2652,20 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
       m365WantSignal(resolved.comments, 5)) tier = "signal";
   // Per Jack (11/6): "if they want to purchase licenses yes strong lead".
   if (tier === "mention" && LICENSE_PURCHASE_RE.test(withoutCampaignCodes(String(resolved.comments ?? combinedForDQ)))) tier = "signal";
+  // 11/9, per Jack ("execute" on the Sep/Oct audit): a row whose note says
+  // the deal was lost or reversed ("decided to stay on QuickBooks", "the
+  // project is cancelled") is Needs Review, not Strong. Same test that makes
+  // the note read "Looked at … Reversed: …" / "Row reverses: …", so the
+  // grade and the note always agree. A Google lead keeps its Strong (his
+  // 10-16 rule: staying on Google still means they are on Google).
+  if (tier === "signal" && !googleLead && reversalClause(cleanText(resolved.comments) || combinedForDQ)) tier = "mention";
+  // 11/9: a licence ask of 1-4 ("Service - Copilot Studio - 2 users",
+  // "Power Automate - 1 user") is small, not a small company: Needs Review,
+  // never a Bad Lead. A bigger headcount anywhere in the row, or a Number of
+  // Employees of 5+, lifts the cap. Dynamics is exempt (a project, not a
+  // seat deal), and so are a Google move and a partner ask.
+  if (tier === "signal" && autoCategory !== "dynamics365" && !googleLead && !platform?.isPartnerSeeking &&
+      smallLicenceAsk(String(resolved.comments ?? ""), licensing?.count, resolved.employees)) tier = "mention";
   // A Google lead also survives the CRM-opportunity rule: on Jack's 9/30
   // file every real Google row was a Microsoft seller's opportunity note,
   // and all of them were landing in Bad Leads.
@@ -2934,7 +3009,12 @@ function nearestIn(text: string, around: string, re: RegExp): string {
  *  SAP", "...staying on CrowdStrike") whenever a "but" happened to sit
  *  earlier in the same window. */
 const SUBSTANTIVE_REVERSAL_RE =
-  /\b(declin(?:e|ed|es|ing)|cancel(?:led|ed|s|ling)?|not\s+(?:to\s+)?(?:proceed|move|moving|go|going|interested|looking(?!\s+for\s+anything\b)|pursu\w*|happening)|no\s+longer|won'?t|will\s+not|decided\s+(?:against|not)|passed\s+on|put\s+on\s+hold|on\s+hold|pushed\s+(?:back|out)|went\s+with|chose\s+\w+\s+instead|stay(?:ing)?\s+(?:on|with)|renew(?:ed|ing)\s+with|opted\s+(?:not|out)|backed\s+out|fell\s+through|dead|lost)\b/i;
+  // 11/9: tightened, because this now also moves a lead from Strong to
+  // Needs Review. On Jack's 9/30 and 10/30 files the broad form fired on
+  // "lost or deleted data", "won't be until the end of December", "you
+  // cancelled the old invites" and "will not require a Microsoft partner".
+  // Each verb now needs the deal (or the move) as its object.
+  /\b(declin(?:e|ed|es|ing)\b(?!\s+(?:in|of|by|to\s+be)\b)|cancel(?:led|ed|s|ling)?\b(?!\s+(?:the\s+)?(?:old\s+|original\s+|previous\s+)?(?:invites?|invitations?|meetings?|calls?|appointments?|sessions?))|not\s+(?:to\s+)?(?:proceed\w*|mov(?:e|ing)\s+(?:forward|ahead)|go(?:ing)?\s+(?:forward|ahead)|(?<!(?:at\s+first|initially|originally)\b[^.]{0,25})interested(?![^.]{0,30}\b(?:and\s+then|but|however|then|until|at\s+first))|pursu\w*|happening|going\s+to\s+(?:proceed|move|buy|purchase)|approved)|no\s+longer\s+(?:interested|a\s+priority|pursu\w*|moving|looking|need\w*|considering|planning)|(?:won'?t|will\s+not)\s+(?:be\s+)?(?:proceed\w*|mov\w*\s+forward|pursu\w*|purchas\w*|buy\w*|implement\w*|renew\w*|switch\w*|replac\w*)|decided\s+(?:against|not)|passed\s+on|put\s+on\s+hold|(?:is|was|are|been|currently|now)\s+on\s+hold|went\s+with|chose\s+\w+\s+instead|stay(?:ing)?\s+(?:on|with)\s+(?!top\b)|renew(?:ed|ing)\s+with|opted\s+(?:not|out)|backed\s+out|fell\s+through|(?:deal|opportunity|project)\s+(?:is\s+)?dead|(?:closed|marked\s+as|mark\s+as)\s+lost|lost\s+(?:the\s+)?(?:deal|opportunity)|status(?:\s+reason)?\s*[:\-]\s*lost)\b/i;
 function reversalClause(text: string): string {
   // Search the whole row, not just the anchor window: a verdict is often
   // written in a later sentence than the product it reverses.
@@ -4586,12 +4666,29 @@ export interface ResultRow {
   __sourceRowId?: string;
 }
 
+export function splitFullName(full: string): [string, string] {
+  const t = String(full || "").replace(/\s+/g, " ").trim();
+  if (!t) return ["", ""];
+  const comma = /^([^,]+),\s*([^,]+)$/.exec(t);
+  if (comma && !/^(?:jr|sr|ii|iii|iv|phd|md|mba|cpa|esq)\.?$/i.test(comma[2].trim())) return [comma[2].trim(), comma[1].trim()];
+  const clean = t.replace(/,\s*(?:jr|sr|ii|iii|iv|phd|md|mba|cpa|esq)\.?$/i, (m) => m.replace(",", ""));
+  const at = clean.indexOf(" ");
+  return at < 0 ? [clean, ""] : [clean.slice(0, at), clean.slice(at + 1).trim()];
+}
+
 export function buildExportRow(r: Pick<ResultRow, "row" | "category" | "notesSummary">): ExportRow {
   const f = r.row.__f;
-  const fallbackFull = !f.firstName && !f.lastName ? f.fullName || "" : "";
+  // 11/9, per Jack ("execute" on the Sep/Oct audit): when the file only has
+  // a full-name column, split it, or Apollo's {{first_name}} greets "Hi
+  // Adriana Urista-Firsich". First word is the first name, the rest the last
+  // name ("Mary Ann Lee" -> "Mary" / "Ann Lee"); "Lee, Mary" is read as
+  // last, first. A one-word name stays in First Name.
+  let first = f.firstName || "";
+  let last = f.lastName || "";
+  if (!first && !last && f.fullName) [first, last] = splitFullName(f.fullName);
   return {
-    "First Name": f.firstName || fallbackFull,
-    "Last Name": f.lastName || "",
+    "First Name": first,
+    "Last Name": last,
     Title: f.title || "",
     "Company Name": f.company || "",
     Email: f.email || "",
@@ -4712,23 +4809,56 @@ export function countUncarryableEdits(rows: ResultRow[]): number {
   ).length;
 }
 
+/** A shared inbox is not a person, so two people on info@ are never merged. */
+const ROLE_MAILBOX_RE = /^(?:info|sales|admin|administrator|contact|contactus|office|support|hello|hi|accounts?|accounting|billing|it|team|help|helpdesk|service|services|enquiries|inquiries|inquiry|mail|email|noreply|no-reply|hr|marketing|orders?|reception|frontdesk|general)$/i;
+function dupEmailKey(email: unknown): string {
+  const e = normalizeDupKey(email);
+  const at = e.indexOf("@");
+  if (at < 1 || at === e.length - 1 || /\s/.test(e)) return "";
+  if (ROLE_MAILBOX_RE.test(e.slice(0, at))) return "";
+  return e;
+}
 export function markDuplicateLeads(results: ResultRow[]): void {
-  const groups = new Map<string, ResultRow[]>();
-  results.forEach((r) => {
+  // 11/9, per Jack ("execute" on the Sep/Oct audit): the same email is the
+  // same person too. On his Sep/Oct export 46 people appeared twice because
+  // the company was written two ways ("&" / "and", "LLC"). Rows are linked
+  // when they share EITHER key — exact name + company, or the same personal
+  // email (shared inboxes like info@ never count) — and every linked set is
+  // one group. dupKey stays the name + company key: carryRowEdits keys on it.
+  const parent = results.map((_, i) => i);
+  const find = (i: number): number => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  const firstByKey = new Map<string, number>();
+  const link = (key: string, i: number) => {
+    const j = firstByKey.get(key);
+    if (j == null) { firstByKey.set(key, i); return; }
+    const a = find(i), b = find(j);
+    if (a !== b) parent[Math.max(a, b)] = Math.min(a, b);
+  };
+  const keyed: boolean[] = [];
+  results.forEach((r, i) => {
     const f = r.row.__f;
     const nameKey = normalizeDupKey(getFullName(f));
     const companyKey = normalizeDupKey(f.company);
     r.isDuplicate = false;
     r.duplicateOfId = null;
     r.dupKey = null;
-    // A row missing either half can't be keyed reliably, so it is never
-    // matched against anything — unchanged.
-    if (!nameKey || !companyKey) return;
-    const key = `${nameKey}|||${companyKey}`;
-    r.dupKey = key;
-    const g = groups.get(key);
+    keyed[i] = false;
+    if (nameKey && companyKey) {
+      r.dupKey = `${nameKey}|||${companyKey}`;
+      link(r.dupKey, i);
+      keyed[i] = true;
+    }
+    const ek = dupEmailKey(f.email);
+    if (ek) { link(`email:${ek}`, i); keyed[i] = true; }
+  });
+  const groups = new Map<number, ResultRow[]>();
+  results.forEach((r, i) => {
+    // A row with neither key can't be matched reliably — never grouped.
+    if (!keyed[i]) return;
+    const root = find(i);
+    const g = groups.get(root);
     if (g) g.push(r);
-    else groups.set(key, [r]);
+    else groups.set(root, [r]);
   });
   groups.forEach((group) => {
     let keep = group[0];

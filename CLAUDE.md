@@ -8119,3 +8119,43 @@ Book9-30 + Book10-30, 4 notes read better):
   File Storage 5,000 seats", "Windows Store for Business 1,000,000").
 - Rows with "(1 user)" of a product (MONARCH STEEL, PA Care) are Bad Leads
   under the under-5 rule even when the company is large.
+
+### 2026-11-09: the five Sep/Oct audit fixes (scanner-platform-v29)
+
+Per Jack, "execute" on the five recommendations from his Sep/Oct All Strong
+Signal export. Supersedes the 11/6 "under 5" wording above where they differ.
+- **Names split in the Main download** (`splitFullName`, `buildExportRow`):
+  a file with only a full-name column now downloads First Name = first word,
+  Last Name = the rest ("Lee, Mary" is last, first; a suffix stays with the
+  last name). Lists key on First + Last (`listNameKey`, `lib/leadLists.ts`),
+  so a row saved before the split still matches, and John Smith / John Doe
+  at one company are two rows.
+- **Lost / reversed deals are Needs Review**: the same test that writes
+  "Looked at … Reversed:" / "Row reverses:" into the note
+  (`reversalClause`) now also moves the grade. `SUBSTANTIVE_REVERSAL_RE`
+  was tightened first (each verb needs the deal or move as its object):
+  "lost or deleted data", "won't be until December", "cancelled the old
+  invites", "at first they were not interested", "declined to be made
+  billing admin" no longer count. A Google lead keeps its Strong.
+- **IT firms**: the name rule adds "IT & Security / Networks / Cloud…",
+  "Data Center Systems / Solutions / Services" and "<x>tech Solutions /
+  Services / Consulting" (not bio/fin/med/health/ag… tech). Two new
+  competitor signals: the row names the lead's OWN company as partner
+  ("Partner Name: Moser Consulting", or Product Area "Ampcus Inc"), and the
+  contact's email is at a different firm whose domain reads as IT
+  (TAT Technologies @nexustek.com; their own domain, or their initials,
+  never counts). Egen, GISI, Chameleon Integrated Services and Jack Morton
+  @rkon.com carry no such cue: move by hand or enrich for industry.
+- **The same email is the same person** (`markDuplicateLeads`): rows link
+  on exact name + company OR the same email; shared inboxes (info@, sales@,
+  admin@…) never link. `dupKey` is still the name + company key.
+- **Under 5 is company size only** (`underFiveCompany`): employees, staff,
+  "3-person company", "company of 2", or a Number of Employees column of
+  1-4. A licence ask of 1-4 ("Copilot Studio - 2 users", "1 user") is no
+  longer a Bad Lead; it caps an M365 / Azure row at Needs Review
+  (`smallLicenceAsk`) unless the row states a bigger headcount or 5+
+  employees. Dynamics, Google moves and partner asks are exempt.
+- Real files (Book9-30 + Book10-30): 727 → 718 leads (9 merged by email);
+  Strong 548 → 527, Needs Review 121 → 150, Bad Leads 58 → 41.
+- `NOTE_RULES_VERSION` = `2026-11-09-audit-rules`. Suite `audit-rules`
+  (41); `grade-fixes`' "2 users is a Bad Lead" re-pointed to Needs Review.

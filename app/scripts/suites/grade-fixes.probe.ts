@@ -27,7 +27,11 @@ ok("M365: stated want is Strong", tier("M365", "Customer wants to get and implem
 ok("M365: form line count >= 10 is Strong", tier("M365", "Services - Microsoft Defender for Identity - 60") === "signal");
 ok("M365: inbound header + want is Strong", tier("M365", "Healthcare - Microsoft 365 Business Premium - The customer stated that they want to roll it out to their office staff.") === "signal");
 ok("M365: the same header with no want stays Needs Review", tier("M365", "Healthcare - Microsoft 365 Business Premium - The customer has it today.") === "mention");
-ok("2 users is a Bad Lead (under 5)", tier("Copilot", "Service - Copilot Studio - 2 users") === "dq");
+// Re-pointed 11/9, per Jack ("execute" on the Sep/Oct audit): under 5 is
+// company size only. A 2-licence ask is small, not a small company, so it is
+// Needs Review, never a Bad Lead.
+ok("2 users is Needs Review, not a Bad Lead (licence ask, not company size)", tier("Copilot", "Service - Copilot Studio - 2 users") === "mention");
+ok("a 3-person company is a Bad Lead", tier("M365", "We are a 3 person company looking at Microsoft 365 Business Premium for everyone.") === "dq");
 ok("one-person company is a Bad Lead", tier("M365", "One-person company looking at Microsoft 365 Business Premium.") === "dq");
 ok("3 licences with 300 employees is not under 5", tier("M365", "Customer has 3 Copilot licenses today and 300 employees, wants to expand.") !== "dq");
 ok("wants to purchase licences is Strong", tier("M365", "They want to purchase 40 Microsoft 365 E3 licenses.") === "signal");

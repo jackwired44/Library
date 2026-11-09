@@ -91,10 +91,17 @@ export function setSmartListRows(lists: LeadList[], id: string, rows: ListedLead
   return lists.map((l) => (l.id === id ? { ...l, rows, ruleRefreshedAt: at } : l));
 }
 
+/** The person's full name (First + Last), lower-cased. 11/9: was First Name
+ *  alone, which collapsed John Smith and John Doe at one company into one
+ *  row; a row whose First Name holds the whole name keys the same as before. */
+export function listNameKey(row: Pick<ExportRow, "First Name" | "Last Name">): string {
+  return normalizeDupKey(`${row["First Name"] || ""} ${row["Last Name"] || ""}`);
+}
+
 /** Same key the add-to-list paths use (first name + company), so a lead is
  *  the same row whether a smart list or a hand-built list holds it. */
 export function listRowKey(row: ExportRow): string {
-  const name = normalizeDupKey(row["First Name"] || "");
+  const name = listNameKey(row);
   const company = normalizeDupKey(row["Company Name"] || "");
   return name && company ? `${name}::${company}` : `row-${normalizeDupKey(row["Email"] || "") || Math.random().toString(36).slice(2, 10)}`;
 }
@@ -313,11 +320,18 @@ export function addExportRowsToList(
 ): { lists: LeadList[]; added: number; skipped: number } {
   const list = lists.find((l) => l.id === listId);
   if (!list) return { lists, added: 0, skipped: 0 };
+  // Rows already on the list are matched by their own full name + company
+  // (as well as their stored key), so a row saved before names were split
+  // ("Adriana Urista-Firsich" in First Name) still matches the split form.
   const existingKeys = new Set(list.rows.map((r) => r.__rowKey));
+  for (const r of list.rows) {
+    const n = listNameKey(r), c = normalizeDupKey(r["Company Name"] || "");
+    if (n && c) existingKeys.add(`${n}::${c}`);
+  }
   const toAdd: ListedLeadRow[] = [];
   let skipped = 0;
   for (const { row, scanner, band, score } of rows) {
-    const name = normalizeDupKey(row["First Name"] || "");
+    const name = listNameKey(row);
     const company = normalizeDupKey(row["Company Name"] || "");
     const dedupeKey = name && company ? `${name}::${company}` : null;
     if (dedupeKey && existingKeys.has(dedupeKey)) { skipped++; continue; }
