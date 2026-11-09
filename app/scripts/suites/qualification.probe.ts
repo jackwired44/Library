@@ -171,7 +171,8 @@ function BAND_RUN() {
 
   // Jack's own example, the reason this pass exists: "Service - Copilot
   // Studio - 2 users. this is low anything like this is low."
-  b("2 users is a Bad Lead (11/6: under 5)", "Service - Copilot Studio - 2 users.", "dq");
+  // Re-pointed 11/9 ("execute" on the Sep/Oct audit): under 5 is company size only; a small licence ask is Needs Review (Low), Dynamics is exempt.
+  b("2 users is Low, not Bad (11/9: licence ask, not company size)", "Service - Copilot Studio - 2 users.", "low");
   // THE SEAT FLOOR IS LICENSING-ONLY. Per Jack, on his own row — "(30) ▼
   // Sales & Distributions-Dynamics ERP-5 Users. THIS IS STRONG NOT NEEDS
   // REVIEW" — a Dynamics seat count never pulls the tier down, because an
@@ -179,10 +180,10 @@ function BAND_RUN() {
   // seat-proportional. These two are his literal examples, and they are
   // the pair that proves the rule splits on PRODUCT, not on the number.
   b("Jack's row: small Dynamics ERP is High", "Sales & Distributions-Dynamics ERP-5 Users.", "high");
-  b("2-user Dynamics is a Bad Lead (11/6: under 5)", "Service - Dynamics 365 Business Central - 2 users.", "dq");
+  b("2-user Dynamics is High (11/9: Dynamics exempt from seat counts)", "Service - Dynamics 365 Business Central - 2 users.", "high");
   // ...and small is LOW, never Bad. A rule saying no is Bad; a small
   // number is just small. This pair is the whole distinction.
-  b("3 users is a Bad Lead (11/6: under 5)", "Service - Microsoft 365 Business Standard - 3 users.", "dq");
+  b("3 users is Low, not Bad (11/9)", "Service - Microsoft 365 Business Standard - 3 users.", "low");
 
   // Medium: names a specific product, nothing ruling it out.
   b("named SKU, no count, is Medium", "They are running Microsoft 365 E3 across the business.", "medium");
@@ -204,7 +205,7 @@ function BAND_RUN() {
   // OTHER ruling ("Copilot Studio - 2 users … anything like this is low")
   // working. If someone deletes the licensing half of subThreshold, this
   // row comes back as Strong Signal.
-  b("2 E3 users is a Bad Lead (11/6: under 5)", "Service - Microsoft 365 E3 - 2 users.", "dq");
+  b("2 E3 users is Low, not Bad (11/9)", "Service - Microsoft 365 E3 - 2 users.", "low");
   b("5 E3 users is Strong (11/6: wants to buy licences)", "Service - Microsoft 365 E3 - 5 users.", "high");
 }
 

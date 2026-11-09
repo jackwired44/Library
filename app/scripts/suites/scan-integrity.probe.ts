@@ -79,8 +79,13 @@ const NONE="We cater weddings across the tri-state area.";
 {
   const rows=[{...mk(1,RICH),"First Name":"","Last Name":""},{...mk(2,RICH),Company:""},
               {...mk(1,RICH),"First Name":"","Last Name":""}];
+  // 11/9 ("execute" on the Sep/Oct audit): the same email is the same
+  // person, so rows 1 and 3 (same address, no name) now merge. A row with
+  // neither a name + company nor an email is still never merged.
   const s=scanParsedFiles([F("nokey.csv",rows)]);
-  ok('unkeyable rows are never merged', s.duplicatesRemoved===0, `${s.duplicatesRemoved}`);
+  ok('nameless rows merge only on the same email', s.duplicatesRemoved===1, `${s.duplicatesRemoved}`);
+  const bare=rows.map((r)=>({...r,Email:""}));
+  ok('unkeyable rows (no name+company, no email) are never merged', scanParsedFiles([F("nokey2.csv",bare)]).duplicatesRemoved===0);
 }
 
 console.log(`\n${pass}/${pass+fail} passed`);
