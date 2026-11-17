@@ -170,6 +170,7 @@ const NAV_GROUPS: { group: string | null; items: NavDest[] }[] = [
     group: "Outreach",
     items: [
       { key: "engage", tab: "sequences", label: "Sequences", icon: "\u{1F4E1}" },
+      { key: "engage", tab: "cleaner", label: "Sequence Cleaner", icon: "\u{1F9F9}" },
       { key: "engage", tab: "emails", label: "Emails", icon: "\u2709\uFE0F" },
     ],
   },
