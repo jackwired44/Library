@@ -6025,6 +6025,63 @@ name and seat count attributed to the row** appears in it, while the
 scaffolding and the engine's own category labels are excluded as visibly
 ours. Verified live in a browser against the production build.
 
+## Sequence Cleaner (app/ only)
+
+Per Jack: "build a tool here to check sequences i can select them and which
+i want to compare or move tasks around," named "Sequence Cleaner." The hand
+audits run across Jack/Carly M365 and Dynamics sequences, made repeatable.
+Proposal approved before building.
+
+- **Where:** Engage, Sequence Cleaner (sidebar under Sequences).
+  `components/SequenceCleaner.tsx` plus `lib/apolloSequences.ts`. No new
+  IndexedDB store; nothing is persisted locally.
+- **Flow:** Load sequences (Apollo `emailer_campaigns_search`), tick any
+  number, Run check. That reads every active/paused member
+  (`contacts_search` by sequence), each member company's call history
+  (`phone_calls_search` by `account_id`, so a colleague's call counts), and
+  each sequence's replied messages. Then it flags every member:
+  - Meeting Booked or Qualified on any call
+  - Reached: Info Requested, Not interested or Do Not Contact, or a note
+    showing a real conversation
+  - A call at the company of 240s or more (`RULES.deepCallSeconds`)
+  - Stage Not Interested
+  - Replied
+  - "Zombie": active with a `finished_at`, the 295-row Jacks Dynamics case
+  - Same person in 2+ ticked sequences (id, email or name+company)
+  - Same company (email domain or normalized name) twice anywhere in the
+    ticked set
+  - Wrong product line: notes mention Dynamics, ERP, CRM or Power
+    Apps/Automate/Platform/Pages/Dataverse but the lead is in an
+    M365/"Main" sequence, or a Dynamics sequence member has none of that
+    wording. Keys off sequence NAME, via `sequenceKind`.
+  - Call Back Scheduled is shown as info, not a removal flag.
+- **Rules are fixed in code, not editable,** per the approved proposal.
+  The product-line regex ignores the long AI research field and the
+  product-line tag itself. Notes only, per Jack: "check every lead and
+  their notes not just product line or a tag."
+- **Writes, the first time this app writes to Apollo:** Remove, or Move.
+  Move enrolls in the target first, then removes from the source only the
+  contacts the target accepted, so nobody ends up in neither. Both actions
+  sit behind a confirm modal stating the counts per source sequence, the
+  target, and the sending mailbox. The mailbox defaults to the target
+  sequence owner's default.
+- **Honest scope:** meetings and deals come from Apollo call outcomes only.
+  Echo and HubSpot aren't connected to the Artifact, and the screen says
+  so in a gap line rather than reading as clean.
+- **Republish capability:** the Artifact's `mcp` grant for Apollo must add
+  `apollo_emailer_campaigns_search`, `apollo_contacts_search`,
+  `apollo_phone_calls_search`, `apollo_emailer_messages_search`,
+  `apollo_email_accounts_index`, `apollo_emailer_campaigns_add_contact_ids`
+  and `apollo_emailer_campaigns_remove_or_stop_contact_ids`, alongside the
+  existing three. Without them the screen reports which tool isn't
+  enabled.
+- **Verified:** `scripts/suites/sequence-cleaner.cjs`, 20/20 against a
+  mocked Apollo. It covers every flag type, that nothing is written before
+  confirm, that a move is enroll then remove with the right mailbox, and
+  that remove only removes. End-to-end tabs 29/29, audit-fixes 8/8 and
+  dispositions 12/12 still pass. The real Apollo round trip only exists
+  in the claude.ai viewer, so the first live run is Jack's.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

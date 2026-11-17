@@ -85,6 +85,7 @@ import { loadRuleOverrides, persistRuleOverrides } from "./lib/ruleOverrides";
 import { isUnlocked, setUnlocked, currentAccount, setCurrentAccount, AUTH_EMAIL, type Account } from "./lib/auth";
 import { formatCentral, PLATFORM_TZ } from "./lib/centralTime";
 import { useNow } from "./lib/useNow";
+import SequenceCleaner from "./components/SequenceCleaner";
 import {
   loadDispositionsFromDB, persistDisposition, deleteDispositionFromDB,
   createCustomDisposition, type CustomDisposition,
@@ -111,7 +112,7 @@ export interface UploadedFile {
 
 export type View =
   | "home" | "scanner" | "scanner2" | "scanner3" | "library" | "allleads"
-  | "queue" | "files" | "recycle" | "refresher" | "reps" | "campaigns" | "history" | "lists" | "docs" | "diagnostics" | "agents";
+  | "queue" | "files" | "recycle" | "refresher" | "reps" | "campaigns" | "history" | "lists" | "docs" | "diagnostics" | "agents" | "cleaner";
 
 /** The three scanners, kept in their own collapsible sidebar section.
  *  Per Jack: "build the scanners into a drop down section on the left hand
@@ -132,6 +133,9 @@ const NAV_GROUPS: { title: string; items: { key: View; label: string }[] }[] = [
   { title: "Leads", items: [
     { key: "allleads", label: "All leads" },
     { key: "reps", label: "Reps" },
+  ] },
+  { title: "Apollo", items: [
+    { key: "cleaner", label: "Sequence Cleaner" },
   ] },
   { title: "Archive", items: [
     { key: "lists", label: "Lists" },
@@ -1347,6 +1351,7 @@ export default function App() {
             fronts the whole page; these two screens open like any other. */}
         {view === "docs" && <Documentation />}
         {view === "agents" && <Agents />}
+        {view === "cleaner" && <SequenceCleaner />}
         {view === "diagnostics" && (
           <Diagnostics leads={leads} apolloIndex={apolloIndex} lists={leadLists}
                        onNavigate={(v) => { if (v === "allleads") { setLeadsStatusEntry(""); setLeadsSequenceEntry(""); setLeadsPresetEntry(""); } setView(v); }} />
