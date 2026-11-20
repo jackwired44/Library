@@ -19,6 +19,11 @@ Check:
   complete/skip tool; list any tool name in the code that is not a read.
 - Jack chose the CSV hand-off over writing to Apollo (2026-10-20). Any new
   write path is a HIGH finding.
+- One approved exception (Jack, 2026-11-20): the Sequence Scanner tab may
+  call exactly `emailer_campaigns_remove_or_stop_contact_ids`,
+  `duplicate_contacts_merge` and `contacts_update`, only through
+  `getSequenceScannerMcp()` and only behind a confirm. Any other caller of
+  that handle, or any other write tool, is still a HIGH finding.
 - Run `apollo-read-only.cjs`.
 
 ## Standing rules (every platform agent)

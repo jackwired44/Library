@@ -94,6 +94,7 @@ const LEADS = [
   await page.locator('[aria-label="Main filters"] [aria-label="Verdict"] button', { hasText: 'All' }).click(); await sleep(300);
 
   console.log('\n== Ask for leads ==');
+  if (await page.locator('details.ask-fold:not([open]) > summary').count()) await page.locator('details.ask-fold > summary').click();
   const chat = page.locator('.panel[aria-label="Ask for leads"]');
   await chat.locator('input[aria-label="Ask for leads"]').fill('pull up and create a list of all uncontacted leads around dynamics for the last 30 days');
   await chat.locator('button', { hasText: 'Find leads' }).click(); await sleep(600);

@@ -6025,7 +6025,7 @@ name and seat count attributed to the row** appears in it, while the
 scaffolding and the engine's own category labels are excluded as visibly
 ours. Verified live in a browser against the production build.
 
-## Sequence Scanner (Leads tab, read-only toward Apollo)
+## Sequence Scanner (Leads tab)
 
 Per Jack: "build a tool here to check sequences i can select them and which
 i want to compare," then "build it as a new tab under leads section
@@ -6054,19 +6054,67 @@ sequences, made repeatable with one click.
 - **Company check panel:** one row per (sequence, company) with 2+ active
   contacts, per Jack's "not more than 1 contact from a company added to
   each."
-- **No writes.** This platform's standing rule ("nothing should be pushed
-  to apollo make a rule", enforced in `apolloEnrich.ts`'s `readOnly`
-  guard) stays on. `WRITES_ALLOWED = false` hides Move/Remove; selected
-  rows export as a removal-list CSV (name, company, email, sequence, step,
-  contact id, sequence id, flags) for Claude or Jack to action in Apollo.
-  The move/remove code in `apolloSequences.ts` is kept but unreachable;
-  turning it on is Jack's call, and the guard would refuse it anyway.
+- **Writes, Sequence Scanner only (Jack, 2026-11-20):** "click a button to
+  fully remove a lead from a sequence and if the same lead or same company
+  has two leads under two different sequences i can choose between which to
+  remove and which to leave or merge them". Approved: three Apollo writes,
+  this tab only, each behind a confirm naming the contacts:
+  `emailer_campaigns_remove_or_stop_contact_ids` (mode remove),
+  `duplicate_contacts_merge`, `contacts_update` (the Notes field only).
+  `SEQUENCE_SCANNER_WRITE_TOOLS` / `getSequenceScannerMcp()` in
+  `lib/apolloEnrich.ts`; every other caller uses `getMcp()`, which still
+  refuses all writes. Enrolling (`add_contact_ids`), creating, sending and
+  task tools stay blocked even here; `moveToSequence` is unreachable.
+  The live link's grant must list those three tools.
+- **Layout:** after a run the picker folds to one "Checked: …" line;
+  tiles; tabs Flagged / Duplicates / Same company / All leads. Each row has
+  a Remove button; the bulk bar removes or exports the ticked rows. Flags
+  show the worst one, the rest behind "+N more".
+- **Duplicates** (`findDuplicates`): two DIFFERENT Apollo contacts are the
+  same person when the email matches (confirmed, any company; shared inboxes
+  never count), or a phone matches at the same company, or the first names
+  match at the same company and one has no last name (or both full names
+  match). Per Jack: "first name v full name plus phone number and email
+  email can confirm it with the highest success". Each group shows the
+  contacts side by side (name, title, email, phone, sequence + step, calls,
+  note); pick which to keep (default: full name, then more calls, a note,
+  an email), pick which note to keep when they differ (or both, joined),
+  then Merge (Apollo's merge: kept contact gains the others' sequences,
+  calls and history; the duplicates are deleted; a CRM-sync warning shows
+  when either side has a HubSpot/Salesforce id) or remove the other from its
+  sequence. "Not the same person" hides the group. The same Apollo contact
+  in two sequences gets "Keep here, remove from the rest". Only contacts
+  active in the checked sequences are compared.
+- **Same company:** every company with 2+ people across the checked
+  sequences, with "Keep only this one" / "Remove" per contact.
 - **Honest scope:** meetings and deals come from Apollo call outcomes only;
   Echo/HubSpot aren't connected to the page, and it says so on screen.
   Trellus-logged calls report 0s duration, so the 240s rule only catches
   calls logged with a real duration.
-- **Verified:** `scripts/suites/sequence-cleaner.cjs`, 20/20 against a
-  mocked Apollo, including that nothing is ever written.
+- **Verified:** `sequence-cleaner.cjs` (30, mocked Apollo: one-click
+  remove, first-name-only and same-email duplicates, merge keeps the full
+  name and writes the picked note, nothing is ever enrolled);
+  `apollo-read-only.cjs` (37: the scanner handle allows exactly the three
+  writes, the normal handle still blocks them).
+
+### 2026-11-20: All leads simplified (scanner-platform-v29)
+
+Per Jack: "all leads chart should look more similar to the main scanner
+chart" and "at a high level i just need to be able to check where the lead
+stands its product line here from which batch the email the first and last
+name under one column title is it strong signal bad lead or needs review".
+- Default columns: **Name & email** (full name, copy button, email under
+  it, a small ✓ when the email is green-lit) · Title · Company · Signal ·
+  Product line · **Batch** (newest CSV, its month, "in N files") · **Where it
+  stands** (the same four answers as the filter, as a coloured pill).
+  First name, Last name, Month, Seen in, Apollo, Meetings and Scanned note
+  are hidden once for everyone (`allLeadsColsSimple1`); Customize brings
+  any back. The email-lane pill beside the company is gone.
+- Rows are roomier and two-line like the Main Scanner (`.leads-grid`).
+- Filters are one card: search + grade, Where it stands, "Narrow to"
+  (product line, Dynamics view, contacted, scanner, file), Batch month
+  (month/quarter chips, range). Same controls and counts as before.
+- "Ask for leads" folds behind a button (`details.ask-fold`).
 
 ## Roadmap — long-term direction, not a build queue
 

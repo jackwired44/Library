@@ -131,6 +131,12 @@ const WHERE_META: Record<Where, { label: string; hint: string }> = {
   no: { label: "Not interested", hint: "Spoken with and said no, or do not contact." },
   talking: { label: "Meeting / next steps set", hint: "Meeting booked, a real conversation on record (replied, talked, info requested, call back), or a deal or meeting on file. Already handled." },
 };
+const WHERE_STYLE: Record<Where, { color: string; bg: string }> = {
+  nowhere: { color: "#5B6B70", bg: "#EEF2F3" },
+  active: { color: "#0A66C2", bg: "#EAF3FC" },
+  no: { color: "#B5443B", bg: "#FBEAE8" },
+  talking: { color: "#1D7A55", bg: "#E7F1EA" },
+};
 function whereOf(status: LeadStatus, contact: ContactState, engaged: boolean): Where {
   if (engaged || status === "meeting" || status === "reached" || contact === "meeting" || contact === "made") return "talking";
   if (status === "not-interested" || contact === "no") return "no";
@@ -267,6 +273,11 @@ const DEFAULT_HIDDEN_COLS = ["col-touches", "col-recycle", "col-uploads", "col-a
 const REMOVED_PANEL_STEPS: [string, string[]][] = [
   ["allLeadsPanelsRemoved1", ["standing", "deliverability"]],
   ["allLeadsPanelsRemoved2", ["apollo"]],
+  // Per Jack (2026-11-20): "at a high level i just need to be able to check
+  // where the lead stands its product line here from which batch the email
+  // the first and last name under one column title is it strong signal bad
+  // lead or needs review". Everything else starts hidden, once, for everyone.
+  ["allLeadsColsSimple1", ["col-first", "col-last", "col-received", "col-seen", "col-inapollo", "col-meetings", "col-notes"]],
 ];
 function loadParts(items: typeof ALL_LEADS_PARTS): Set<string> {
   let out: Set<string>;
@@ -302,6 +313,10 @@ const ALL_LEADS_PARTS = [
   { id: "deliverability", group: "Panels", label: "Email deliverability" },
   { id: "filters", group: "Panels", label: "Search & filters" },
   { id: "bulk", group: "Panels", label: "Actions bar (check, list, export)" },
+  { id: "col-contact", group: "Table columns", label: "Name & email" },
+  { id: "col-batch", group: "Table columns", label: "Batch (file)" },
+  { id: "col-stands", group: "Table columns", label: "Where it stands" },
+  { id: "col-first", group: "Table columns", label: "First name" },
   { id: "col-last", group: "Table columns", label: "Last name" },
   { id: "col-title", group: "Table columns", label: "Title" },
   { id: "col-company", group: "Table columns", label: "Company" },
@@ -1312,7 +1327,81 @@ export default function AllLeads({
              month or by quarter … months as a whole should be able to be
              viewed". The time period leads the page; the four questions
              asked most sit right under it; everything else is folded. ---- */}
-      <div className="panel" aria-label="Time period" style={{ padding: "8px 12px", marginBottom: 10 }}>
+      {/* One filter card, per Jack (2026-11-20): "much better re design this … more ui
+             friendly". Search and grade first, where it stands, then the narrowing
+             selects, then the batch month. Every control and its counts are unchanged. */}
+      <div className="panel leads-filters" aria-label="Main filters">
+        <div className="row">
+          <input className="field" placeholder="Search company, contact, email, notes, industry, file…"
+                 value={search} onChange={(e) => setSearch(e.target.value)}
+                 style={{ flex: 1, minWidth: 220, maxWidth: 420 }} />
+          <div className="seg" role="group" aria-label="Verdict">
+            <button className={`seg-btn${verdictF === "all" ? " active" : ""}`} onClick={() => setVerdictF("all")}>
+              All ({(verdictCounts.strong + verdictCounts.review + verdictCounts.bad).toLocaleString()})
+            </button>
+            {VERDICT_ORDER.map((v) => (
+              <button key={v} className={`seg-btn${verdictF === v ? " active" : ""}`} title={VERDICT_META[v].hint}
+                      onClick={() => setVerdictF(v)}>
+                {VERDICT_META[v].label} ({verdictCounts[v].toLocaleString()})
+              </button>
+            ))}
+          </div>
+          <div className="toolbar-spacer" />
+          <span style={{ fontSize: 12.5 }}><b>{filtered.length.toLocaleString()}</b> <span className="muted">of {leads.length.toLocaleString()}</span></span>
+          {chips.length > 0 && <button className="btn btn-sm btn-ghost" onClick={clearAll}>Clear all</button>}
+        </div>
+        <div className="row">
+          <span className="row-label">Where it stands</span>
+          <div className="seg" role="group" aria-label="Where it stands">
+            <button className={`seg-btn${whereF === "all" ? " active" : ""}`} onClick={() => setWhereF("all")}>
+              All ({WHERE_ORDER.reduce((n, w) => n + whereCounts[w], 0).toLocaleString()})
+            </button>
+            {WHERE_ORDER.map((w) => (
+              <button key={w} className={`seg-btn${whereF === w ? " active" : ""}`} title={WHERE_META[w].hint} onClick={() => setWhereF(w)}>
+                {WHERE_META[w].label} ({whereCounts[w].toLocaleString()})
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="row">
+          <span className="row-label">Narrow to</span>
+          <select className="field" aria-label="Product line" value={lineF} onChange={(e) => { setLineF(e.target.value); if (!/dynamics/i.test(e.target.value)) setDynF("all"); }}>
+            <option value="all">Product line: any</option>
+            {lineCounts.map(([k, n]) => <option key={k} value={k}>{k} ({n.toLocaleString()})</option>)}
+          </select>
+          {isDynLine && (
+            <select className="field" aria-label="Dynamics view" value={dynF} style={{ width: "auto" }} onChange={(e) => setDynF(e.target.value as DynamicsTab | "all")}
+                    title="The Dynamics breakdown: Business Central / ERP, Sales / CRM / Customer Service, Everything else (F&O, supply chain)">
+              <option value="all">All Dynamics 365 ({dynCounts.all.toLocaleString()})</option>
+              {DYNAMICS_TAB_ORDER.map((k) => <option key={k} value={k}>{DYNAMICS_TAB_META[k].label} ({(dynCounts[k] || 0).toLocaleString()})</option>)}
+            </select>
+          )}
+          <select className="field" aria-label="Outreach" value={contactF}
+                  onChange={(e) => setContactF(e.target.value as ContactState | "all" | "untouched")}
+                  title="Has anyone got through? From Apollo's calls and emails.">
+            <option value="all">Contacted? any</option>
+            <option value="untouched">Never touched ({(contactCounts.never + contactCounts.unknown).toLocaleString()})</option>
+            {CONTACT_ORDER.map((x) => <option key={x} value={x}>{CONTACT_META[x].label} ({contactCounts[x].toLocaleString()})</option>)}
+          </select>
+          <select className="field" aria-label="Scanner" value={sourceF}
+                  onChange={(e) => setSourceF(e.target.value as LeadSource | "all")}>
+            <option value="all">Scanner: any ({(sourceCounts.main + sourceCounts.smc + sourceCounts.csp).toLocaleString()})</option>
+            {(["main", "smc", "csp"] as LeadSource[]).map((s) => <option key={s} value={s}>{LEAD_SOURCE_META[s].label} ({sourceCounts[s].toLocaleString()})</option>)}
+          </select>
+          <select className="field" aria-label="Uploaded file" value={fileKeys.length === 1 ? fileKeys[0] : fileKeys.length ? "__many" : "all"}
+                  onChange={(e) => { if (e.target.value !== "__many") setFileKeys(e.target.value === "all" ? [] : [e.target.value]); }}
+                  title="Every CSV you have uploaded, filed under the month it is dated, newest first. Pick several from the Files tab." style={{ maxWidth: 260 }}>
+            <option value="all">Uploaded file: any ({fileOptions.length.toLocaleString()})</option>
+            {fileKeys.length > 1 && <option value="__many">{fileKeys.length} files picked</option>}
+            {fileMonths.map(([mk, files]) => (
+              <optgroup key={mk} label={mk ? shortMonthLabel(mk) : "Undated"}>
+                {files.map(([f, n, d]) => <option key={f} value={f}>{f}{d ? ` · ${isPreMaySheet(f) ? "~" : ""}${d.slice(5).replace("-", "/")}` : ""} ({n.toLocaleString()})</option>)}
+              </optgroup>
+            ))}
+          </select>
+        </div>
+        <div className="row" aria-label="Time period">
+          <span className="row-label">Batch month</span>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}
              title={`By the date each CSV states, else its upload date. Nothing goes back before ${shortMonthLabel(EARLIEST_MONTH)}: anything older is counted there. Sheet files sit in their estimated month. Click several to group them; click again to take one out.`}>
           <div className="seg" role="group" aria-label="View by">
@@ -1350,77 +1439,11 @@ export default function AllLeads({
             </div>
           )}
         </div>
-      </div>
-
-      <div className="toolbar" aria-label="Main filters" style={{ marginBottom: 10 }}>
-        <div className="toolbar-row">
-          <span style={{ fontSize: 12.5, fontWeight: 600 }}>Where it stands</span>
-          <div className="seg" role="group" aria-label="Where it stands">
-            <button className={`seg-btn${whereF === "all" ? " active" : ""}`} onClick={() => setWhereF("all")}>
-              All ({WHERE_ORDER.reduce((n, w) => n + whereCounts[w], 0).toLocaleString()})
-            </button>
-            {WHERE_ORDER.map((w) => (
-              <button key={w} className={`seg-btn${whereF === w ? " active" : ""}`} title={WHERE_META[w].hint} onClick={() => setWhereF(w)}>
-                {WHERE_META[w].label} ({whereCounts[w].toLocaleString()})
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="toolbar-row">
-          <input className="field" placeholder="Search company, contact, email, notes, industry, file…"
-                 value={search} onChange={(e) => setSearch(e.target.value)}
-                 style={{ flex: 1, minWidth: 220, maxWidth: 340 }} />
-          <div className="seg" role="group" aria-label="Verdict">
-            <button className={`seg-btn${verdictF === "all" ? " active" : ""}`} onClick={() => setVerdictF("all")}>
-              All ({(verdictCounts.strong + verdictCounts.review + verdictCounts.bad).toLocaleString()})
-            </button>
-            {VERDICT_ORDER.map((v) => (
-              <button key={v} className={`seg-btn${verdictF === v ? " active" : ""}`} title={VERDICT_META[v].hint}
-                      onClick={() => setVerdictF(v)}>
-                {VERDICT_META[v].label} ({verdictCounts[v].toLocaleString()})
-              </button>
-            ))}
-          </div>
-          <select className="field" aria-label="Product line" value={lineF} onChange={(e) => { setLineF(e.target.value); if (!/dynamics/i.test(e.target.value)) setDynF("all"); }}>
-            <option value="all">Product line: any</option>
-            {lineCounts.map(([k, n]) => <option key={k} value={k}>{k} ({n.toLocaleString()})</option>)}
-          </select>
-          {isDynLine && (
-            <select className="field" aria-label="Dynamics view" value={dynF} style={{ width: "auto" }} onChange={(e) => setDynF(e.target.value as DynamicsTab | "all")}
-                    title="The Dynamics breakdown: Business Central / ERP, Sales / CRM / Customer Service, Everything else (F&O, supply chain)">
-              <option value="all">All Dynamics 365 ({dynCounts.all.toLocaleString()})</option>
-              {DYNAMICS_TAB_ORDER.map((k) => <option key={k} value={k}>{DYNAMICS_TAB_META[k].label} ({(dynCounts[k] || 0).toLocaleString()})</option>)}
-            </select>
-          )}
-          <select className="field" aria-label="Outreach" value={contactF}
-                  onChange={(e) => setContactF(e.target.value as ContactState | "all" | "untouched")}
-                  title="Has anyone got through? From Apollo's calls and emails.">
-            <option value="all">Contacted? any</option>
-            <option value="untouched">Never touched ({(contactCounts.never + contactCounts.unknown).toLocaleString()})</option>
-            {CONTACT_ORDER.map((x) => <option key={x} value={x}>{CONTACT_META[x].label} ({contactCounts[x].toLocaleString()})</option>)}
-          </select>
-          <select className="field" aria-label="Scanner" value={sourceF}
-                  onChange={(e) => setSourceF(e.target.value as LeadSource | "all")}>
-            <option value="all">Scanner: any ({(sourceCounts.main + sourceCounts.smc + sourceCounts.csp).toLocaleString()})</option>
-            {(["main", "smc", "csp"] as LeadSource[]).map((s) => <option key={s} value={s}>{LEAD_SOURCE_META[s].label} ({sourceCounts[s].toLocaleString()})</option>)}
-          </select>
-          <select className="field" aria-label="Uploaded file" value={fileKeys.length === 1 ? fileKeys[0] : fileKeys.length ? "__many" : "all"}
-                  onChange={(e) => { if (e.target.value !== "__many") setFileKeys(e.target.value === "all" ? [] : [e.target.value]); }}
-                  title="Every CSV you have uploaded, filed under the month it is dated, newest first. Pick several from the Files tab." style={{ maxWidth: 260 }}>
-            <option value="all">Uploaded file: any ({fileOptions.length.toLocaleString()})</option>
-            {fileKeys.length > 1 && <option value="__many">{fileKeys.length} files picked</option>}
-            {fileMonths.map(([mk, files]) => (
-              <optgroup key={mk} label={mk ? shortMonthLabel(mk) : "Undated"}>
-                {files.map(([f, n, d]) => <option key={f} value={f}>{f}{d ? ` · ${isPreMaySheet(f) ? "~" : ""}${d.slice(5).replace("-", "/")}` : ""} ({n.toLocaleString()})</option>)}
-              </optgroup>
-            ))}
-          </select>
-          <div className="toolbar-spacer" />
-          <span style={{ fontSize: 12.5 }}><b>{filtered.length.toLocaleString()}</b> <span className="muted">of {leads.length.toLocaleString()}</span></span>
-          {chips.length > 0 && <button className="btn btn-sm btn-ghost" onClick={clearAll}>Clear all</button>}
         </div>
       </div>
 
+      <details className="ask-fold">
+        <summary>✨ Ask for leads <span className="muted" style={{ fontWeight: 400 }}>· describe a list in plain words</span></summary>
       <LeadChat
         industries={industryNames}
         leadsFor={leadsForRuleHere}
@@ -1436,6 +1459,7 @@ export default function AllLeads({
           await downloadCSV(/\.csv$/i.test(name) ? name : `${name}.csv`, rows, EXPORT_LABELS);
         }}
       />
+      </details>
 
       {/* Apollo state is only as fresh as the last sync, so its age is
           stated here, every time. */}
@@ -2090,18 +2114,21 @@ export default function AllLeads({
              so the toolbar and filters stay in view ---- */}
       <div className="table-card" style={{ maxHeight: "calc(100vh - 250px)", minHeight: 260, overflow: "auto" }}>
         {hiddenCols.length > 0 && <style>{hiddenCols.map((c) => `.all-leads-table [data-col="${c}"]`).join(",") + "{display:none}"}</style>}
-        <table className="data-table dense-table all-leads-table">
+        <table className="data-table dense-table all-leads-table leads-grid">
           <thead>
             <tr>
               <th className="pin pin-0" style={{ width: 30 }}>
                 <input type="checkbox" checked={allShownSelected} onChange={selectPage} aria-label="Select this page" />
               </th>
-              <th className="pin pin-1" data-col="first">First name</th>
-              <th data-col="last">Last name</th>
+              <th className="pin pin-1" data-col="contact">Name &amp; email</th>
               <th data-col="title">Title</th>
               <th data-col="company">Company</th>
               <th data-col="stored" title="Strong Signal, Needs Review or Bad Lead — from the scanner that stored it">Signal</th>
               <th data-col="line">Product line</th>
+              <th data-col="batch" title="The CSV this lead came in on (the newest one if several), and its month">Batch</th>
+              <th data-col="stands" title="Hasn't gone anywhere, in a sequence now, not interested, or meeting / next steps set">Where it stands</th>
+              <th data-col="first">First name</th>
+              <th data-col="last">Last name</th>
               <th data-col="received" title="The date the file states, or the upload date if it states none">Month</th>
               <th data-col="seen" title="Every file this person came in on, by date (same email, or same full name at the same company)">Seen in</th>
               <th data-col="inapollo" title="Where it stands in Apollo: in a sequence, ended, in Apollo with no sequence, or not in Apollo">Apollo</th>
@@ -2130,27 +2157,29 @@ export default function AllLeads({
                   <td className="pin pin-0" onClick={(e) => e.stopPropagation()}>
                     <input type="checkbox" checked={selected.has(l.key)} onChange={() => toggle(l.key)} aria-label={`Select ${l.company}`} />
                   </td>
-                  <td className="pin pin-1 strong" data-col="first" title={[l.contact, l.title, l.email, LANE_META[d.lane].hint].filter(Boolean).join(" · ")}>
-                    {splitName(l.contact).first || "—"}
-                  </td>
-                  <td data-col="last">
-                    {splitName(l.contact).last || <span className="muted">—</span>}
-                    {(l.contact || l.company) && (
-                      <button className="btn btn-sm btn-ghost" style={{ padding: "0 4px", marginLeft: 4, fontSize: 11 }}
-                              aria-label={`Copy ${l.contact || l.company}`}
-                              title="Copy name and company"
-                              onClick={async (e) => {
-                                e.stopPropagation();
-                                if (await copyText([l.contact, l.company].filter(Boolean).join(" — "))) {
-                                  setCopiedKey(l.key); setTimeout(() => setCopiedKey((k) => (k === l.key ? "" : k)), 1200);
-                                }
-                              }}>{copiedKey === l.key ? "✓" : "⧉"}</button>
-                    )}
+                  <td className="pin pin-1" data-col="contact" title={[l.contact, l.title, l.email, LANE_META[d.lane].hint].filter(Boolean).join(" · ")}>
+                    <div className="strong" style={{ display: "flex", alignItems: "center", gap: 2 }}>
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{l.contact || "—"}</span>
+                      {(l.contact || l.company) && (
+                        <button className="btn btn-sm btn-ghost" style={{ padding: "0 4px", fontSize: 11 }}
+                                aria-label={`Copy ${l.contact || l.company}`}
+                                title="Copy name and company"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  if (await copyText([l.contact, l.company].filter(Boolean).join(" — "))) {
+                                    setCopiedKey(l.key); setTimeout(() => setCopiedKey((k) => (k === l.key ? "" : k)), 1200);
+                                  }
+                                }}>{copiedKey === l.key ? "✓" : "⧉"}</button>
+                      )}
+                    </div>
+                    <div className="muted" style={{ fontSize: 11.5, overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {l.email || "No email"}
+                      {LANE_META[d.lane].green && <span data-lane={d.lane} style={{ marginLeft: 6, color: LANE_META[d.lane].color, fontWeight: 600 }} title={LANE_META[d.lane].hint}>{LANE_META[d.lane].short}</span>}
+                    </div>
                   </td>
                   <td data-col="title" title={l.title} style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.title || <span className="muted">—</span>}</td>
                   <td data-col="company" className="strong" title={l.company}>
                     {l.company || "—"}
-                    {d.lane !== "no-email" && <span className="pill" data-lane={d.lane} style={{ marginLeft: 6, fontSize: 10.5, color: LANE_META[d.lane].color, background: LANE_META[d.lane].bg }}>{LANE_META[d.lane].short}</span>}
                     {l.webVisits?.visited && (
                       <span className="pill" aria-label="Visited wiredcio.com" style={{ marginLeft: 6, fontSize: 10.5, color: "#0A66C2", background: "#EAF3FC" }}
                             title={`Their company visited ${l.webVisits.domain} (${l.webVisits.from} to ${l.webVisits.to})${l.webVisits.visits != null ? ` · ${l.webVisits.visits} visits` : ""}${l.webVisits.uniqueVisitors != null ? ` · ${l.webVisits.uniqueVisitors} people` : ""}${l.webVisits.pages?.length ? `\nPages: ${l.webVisits.pages.join(", ")}` : ""}`}>
@@ -2164,7 +2193,20 @@ export default function AllLeads({
                     <span className="pill" style={{ color: VERDICT_META[d.verdict].color, background: VERDICT_META[d.verdict].bg }}>{VERDICT_META[d.verdict].label}</span>
                     {l.gradeOverride && <span className="muted" data-moved style={{ fontSize: 11, marginLeft: 4 }}>✋ moved</span>}
                   </td>
-                  <td data-col="line">{d.line === NO_LINE ? <span className="muted">—</span> : d.line}</td>
+                  <td data-col="line">{d.line === NO_LINE ? <span className="muted">—</span> : <span className="pill" style={{ color: "var(--ink-2)", background: "var(--surface-sunken)" }}>{d.line}</span>}</td>
+                  <td data-col="batch" title={l.sourceFiles.join("\n")}>
+                    <div style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{l.sourceFiles[l.sourceFiles.length - 1] || "—"}</div>
+                    <div className="muted" style={{ fontSize: 11.5 }}>{d.month.endsWith("~") ? "~" : ""}{shortMonthLabel(viewMonthKey(d.month))}{l.sourceFiles.length > 1 ? ` · in ${l.sourceFiles.length} files` : ""}</div>
+                  </td>
+                  <td data-col="stands" title={WHERE_META[d.where].hint}>
+                    <span className="pill" data-where={d.where} style={{ color: WHERE_STYLE[d.where].color, background: WHERE_STYLE[d.where].bg }}>{WHERE_META[d.where].label}</span>
+                  </td>
+                  <td className="strong" data-col="first" title={[l.contact, l.title, l.email, LANE_META[d.lane].hint].filter(Boolean).join(" · ")}>
+                    {splitName(l.contact).first || "—"}
+                  </td>
+                  <td data-col="last">
+                    {splitName(l.contact).last || <span className="muted">—</span>}
+                  </td>
                   <td data-col="received" title={monthLabelOf(d.month)}>{d.month.endsWith("~") ? "~" : ""}{shortMonthLabel(viewMonthKey(d.month))}</td>
                   <td data-col="seen" title={seenMap.get(l.key)?.map((x) => `${x.file}${x.date ? ` (${x.date})` : ""}`).join("\n")}>
                     {seenMap.get(l.key)
