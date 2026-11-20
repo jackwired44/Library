@@ -20,6 +20,10 @@ async function copy(text: string): Promise<boolean> {
   } catch { return false; }
 }
 
+// Per Jack: "need to store by dynamics, m365 etc" — the list is grouped by
+// product area, in this order.
+const areaRank = (a: string) => { const i = (PROMPT_PRODUCT_AREAS as readonly string[]).indexOf(a); return i < 0 ? 99 : i; };
+
 /** A fresh prompt with the same wording, for testing a variation. */
 function copyOf(p: EmailPrompt): EmailPrompt {
   return newEmailPrompt({
@@ -47,7 +51,7 @@ export default function EmailPrompts() {
     return prompts
       .filter((p) => (!area || p.productArea === area) && (!seq || p.sequence === seq) && (!verdict || p.verdict === verdict))
       .filter((p) => !t || [p.title, p.subject, p.systemPrompt, p.userPrompt, p.notes, p.sequence, p.productArea].join(" ").toLowerCase().includes(t))
-      .sort((a, b) => PROMPT_VERDICT_ORDER.indexOf(a.verdict) - PROMPT_VERDICT_ORDER.indexOf(b.verdict) || (b.replyRate ?? -1) - (a.replyRate ?? -1) || b.updatedAt.localeCompare(a.updatedAt));
+      .sort((a, b) => areaRank(a.productArea) - areaRank(b.productArea) || a.sequence.localeCompare(b.sequence) || a.step.localeCompare(b.step) || PROMPT_VERDICT_ORDER.indexOf(a.verdict) - PROMPT_VERDICT_ORDER.indexOf(b.verdict) || (b.replyRate ?? -1) - (a.replyRate ?? -1) || b.updatedAt.localeCompare(a.updatedAt));
   }, [prompts, q, area, seq, verdict]);
 
   async function save(p: EmailPrompt) {
@@ -58,7 +62,7 @@ export default function EmailPrompts() {
   }
   async function remove(p: EmailPrompt) {
     if (!(await confirmAction(`Delete the prompt "${p.title}"? This can't be undone.`))) return;
-    await deleteEmailPrompt(p.id);
+    await deleteEmailPrompt(p);
     setPrompts((ps) => ps.filter((x) => x.id !== p.id));
   }
   async function doCopy(key: string, text: string) { if (await copy(text)) { setCopied(key); setTimeout(() => setCopied(""), 1200); } }
@@ -104,8 +108,15 @@ export default function EmailPrompts() {
           <table className="data-table dense-table leads-grid" aria-label="Prompts">
             <thead><tr><th>Prompt</th><th>Product area</th><th>Sequence</th><th>Verdict</th><th className="num">Sent</th><th className="num">Open</th><th className="num">Reply</th><th className="num">Meetings</th><th></th></tr></thead>
             <tbody>
-              {shown.map((p) => (
+              {shown.map((p, i) => (
                 <Fragment key={p.id}>
+                  {(i === 0 || shown[i - 1].productArea !== p.productArea) && (
+                    <tr className="prompt-group" data-area={p.productArea || "none"}>
+                      <td colSpan={9} style={{ background: "var(--surface-sunken)", fontWeight: 700, fontSize: 12, textTransform: "uppercase", letterSpacing: ".04em" }}>
+                        {p.productArea || "No product area"} <span className="muted" style={{ fontWeight: 400 }}>· {shown.filter((x) => x.productArea === p.productArea).length}</span>
+                      </td>
+                    </tr>
+                  )}
                   <tr onClick={() => setOpenId(openId === p.id ? "" : p.id)}>
                     <td className="pin-1" style={{ maxWidth: 340 }}>
                       <div className="strong" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{p.title}</div>
@@ -113,7 +124,7 @@ export default function EmailPrompts() {
                     </td>
                     <td>{p.productArea || <span className="muted">—</span>}</td>
                     <td>{p.sequence || <span className="muted">—</span>}{p.step && <div className="muted" style={{ fontSize: 11.5 }}>{p.step}</div>}</td>
-                    <td><span className={`status-pill ${PROMPT_VERDICT_META[p.verdict].cls}`}>{PROMPT_VERDICT_META[p.verdict].label}</span></td>
+                    <td><span className={`status-pill ${PROMPT_VERDICT_META[p.verdict].cls}`}>{PROMPT_VERDICT_META[p.verdict].label}</span>{p.apolloStatus === "to_be_reviewed" && <div className="muted" style={{ fontSize: 11 }}>Not approved in Apollo</div>}</td>
                     <td className="num">{show(p.sent)}</td>
                     <td className="num">{show(p.openRate, "%")}</td>
                     <td className="num">{show(p.replyRate, "%")}</td>
