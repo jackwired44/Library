@@ -324,16 +324,43 @@ export async function fetchMembers(seq: ApolloSequence, onProgress?: (n: number)
   return members;
 }
 
-// Calls for one account (company-level, so a colleague's deep call counts).
-async function fetchAccountCalls(h: Handle, accountId: string): Promise<CallRecord[]> {
-  const p = await call<{ phone_calls?: Record<string, unknown>[] }>(h, "phone_calls_search",
-    { account_id: accountId, per_page: 100, page: 1, sort_by_field: "start_time" });
-  return (p.phone_calls || []).map((c) => ({
-    id: String(c.id), contactId: String(c.contact_id || ""), accountId,
-    duration: Number(c.duration || 0), outcomeId: (c.phone_call_outcome_id as string) || null,
-    note: String(c.note_text || c.note || ""), startTime: String(c.start_time || ""),
-    caller: String(c.caller_name || ""),
-  }));
+// Calls for one contact. NOT by account: Apollo's phone_calls_search ignores
+// account_id and returns the whole team's calls (verified 2026-11-20: a made-up
+// account id returned all 39,655). contact_id is honoured; the returned calls
+// are still filtered to that contact in case it ever stops being.
+async function fetchContactCalls(h: Handle, contactId: string, accountId: string): Promise<CallRecord[]> {
+  const out: CallRecord[] = [];
+  for (let page = 1; page <= 5; page++) {
+    const p = await call<{ phone_calls?: Record<string, unknown>[]; pagination?: { total_pages?: number } }>(h, "phone_calls_search",
+      { contact_id: contactId, per_page: 100, page, sort_by_field: "start_time" });
+    for (const c of p.phone_calls || []) {
+      if (String(c.contact_id || "") !== contactId) continue;
+      out.push({
+        id: String(c.id), contactId, accountId,
+        duration: Number(c.duration || 0), outcomeId: (c.phone_call_outcome_id as string) || null,
+        note: String(c.note_text || c.note || ""), startTime: String(c.start_time || ""),
+        caller: String(c.caller_name || ""),
+      });
+    }
+    if (!p.pagination || (p.pagination.total_pages ?? 1) <= page) break;
+  }
+  return out;
+}
+
+/** Every person's own calls, grouped by company so a colleague's call counts —
+ *  for colleagues among the people checked (Apollo can't list a company's calls). */
+async function callsByCompany(h: Handle, people: { contactId: string; accountId: string }[], tick: () => void) {
+  const uniq = [...new Map(people.map((p) => [p.contactId, p])).values()];
+  const byAccount = new Map<string, CallRecord[]>();
+  const failedContacts = new Set<string>();
+  await pool(uniq, 5, async (p) => {
+    try {
+      const calls = await fetchContactCalls(h, p.contactId, p.accountId);
+      const k = p.accountId || `contact:${p.contactId}`;
+      byAccount.set(k, [...(byAccount.get(k) || []), ...calls]);
+    } catch { failedContacts.add(p.contactId); }
+  }, tick);
+  return { byAccount, failedContacts };
 }
 
 async function fetchRepliedContactIds(h: Handle, seqId: string): Promise<Set<string>> {
@@ -386,18 +413,12 @@ export async function runAudit(
     members = members.concat(await fetchMembers(s, (n) => onStatus(`Reading ${s.name}… ${n} active`)));
   }
 
-  const accounts = [...new Set(members.map((m) => m.accountId).filter(Boolean))];
   let done = 0;
-  const callsByAccount = new Map<string, CallRecord[]>();
-  const results = await pool(accounts, 5, async (a) => {
-    try { return [a, await fetchAccountCalls(h, a)] as const; }
-    catch { return [a, null] as const; }
-  }, () => onStatus(`Checking call history… ${++done}/${accounts.length} companies`));
-  let failed = 0;
-  for (const [a, calls] of results) { if (calls) callsByAccount.set(a, calls); else failed++; }
-  if (failed) gaps.push(`Call history couldn't be read for ${failed} compan${failed === 1 ? "y" : "ies"}.`);
-  const noAccount = members.filter((m) => !m.accountId).length;
-  if (noAccount) gaps.push(`${noAccount} contact(s) have no Apollo account, so company-level call checks were skipped for them.`);
+  const people = members.map((m) => ({ contactId: m.contactId, accountId: m.accountId }));
+  const total = new Set(people.map((p) => p.contactId)).size;
+  const { byAccount: callsByAccount, failedContacts } = await callsByCompany(h, people, () => onStatus(`Checking call history… ${++done}/${total} contacts`));
+  if (failedContacts.size) gaps.push(`Call history couldn't be read for ${failedContacts.size} contact${failedContacts.size === 1 ? "" : "s"}.`);
+  gaps.push("A colleague's call only counts when that colleague is in one of the checked sequences — Apollo can't list every call at a company.");
 
   const replied = new Set<string>();
   for (const s of sequences) {
@@ -423,7 +444,7 @@ export async function runAudit(
   onStatus("Applying rules…");
   const out: MemberResult[] = members.map((m) => {
     const flags: Flag[] = [];
-    const calls = callsByAccount.get(m.accountId) || [];
+    const calls = callsByAccount.get(m.accountId || `contact:${m.contactId}`) || [];
     const mine = calls.filter((c) => c.contactId === m.contactId);
     const d = (c: CallRecord) => c.startTime.slice(0, 10);
 
@@ -747,12 +768,10 @@ export async function findRecycleCandidates(
   let replied = new Set<string>();
   try { replied = await fetchRepliedContactIds(h, source.id); } catch { /* counted below as unknown */ }
 
-  const accounts = [...new Set(finished.map((r) => String(r.c.account_id || "")).filter(Boolean))];
   let done = 0;
-  const callsByAccount = new Map<string, CallRecord[] | null>();
-  await pool(accounts, 5, async (a) => {
-    try { callsByAccount.set(a, await fetchAccountCalls(h, a)); } catch { callsByAccount.set(a, null); }
-  }, () => onStatus(`Checking calls… ${++done}/${accounts.length} companies`));
+  const { byAccount: callsByAccount, failedContacts } = await callsByCompany(h,
+    finished.map((r) => ({ contactId: String(r.c.id), accountId: String(r.c.account_id || "") })),
+    () => onStatus(`Checking calls… ${++done}/${finished.length} contacts`));
 
   const keep: RecycleCandidate[] = []; const excluded: RecycleExcluded[] = [];
   const recycled = new Set(recycledIds);
@@ -760,7 +779,7 @@ export async function findRecycleCandidates(
     const base = { contactId: String(c.id), name: String(c.name || ""), company: String(c.organization_name || "") };
     const no = (reason: string) => excluded.push({ ...base, reason });
     const reason = String(st.inactive_reason || "");
-    const calls = callsByAccount.get(String(c.account_id || ""));
+    const calls = failedContacts.has(base.contactId) ? null : (callsByAccount.get(String(c.account_id || "") || `contact:${base.contactId}`) || []);
     const mine = (calls || []).filter((x) => x.contactId === base.contactId);
     if (all.some((x) => x.status === "active" || x.status === "paused")) { no("Active in another sequence"); continue; }
     if (all.some((x) => recycled.has(String(x.emailer_campaign_id)))) { no("Already in a recycled sequence"); continue; }
@@ -770,11 +789,10 @@ export async function findRecycleCandidates(
     if (c.contact_stage_id === STAGE_NOT_INTERESTED) { no("Stage: Not Interested"); continue; }
     if (Array.isArray(c.deals) && c.deals.length) { no("Has a deal"); continue; }
     if (replied.has(base.contactId)) { no("Replied"); continue; }
-    if (!c.account_id) { no("No Apollo account, calls can't be checked"); continue; }
     if (calls === null) { no("Calls couldn't be read"); continue; }
     const bad = mine.find((x) => x.outcomeId && RECYCLE_BLOCK_OUTCOMES.has(x.outcomeId));
     if (bad) { no(OUTCOME_LABEL[bad.outcomeId!] || "Reached"); continue; }
-    if ((calls || []).some((x) => x.duration >= RULES.deepCallSeconds)) { no("Call over 4 min at this company"); continue; }
+    if ((calls || []).some((x) => x.duration >= RULES.deepCallSeconds)) { no("Call over 4 min at this company (among people checked)"); continue; }
     if (mine.some((x) => !x.outcomeId && x.note && CONVERSATION_RE.test(x.note))) { no("Call note shows a conversation"); continue; }
     const readyAt = addBusinessDays(String(st.finished_at), RECYCLE_REST_BUSINESS_DAYS);
     const last = [...mine].sort((a, b) => b.startTime.localeCompare(a.startTime))[0];

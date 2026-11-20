@@ -22,6 +22,7 @@ const MOCK = () => {
     { id: 'c5', name: 'Twin Two', email: 'two@twinco.com', organization_name: 'TwinCo', account_id: 'a4', typed_custom_fields: { [NOTE]: 'Wants Business Central.' }, seq: B },
     { id: 'c6', name: 'Stage Sam', email: 'sam@stageco.com', organization_name: 'StageCo', account_id: 'a6', contact_stage_id: '66203bd7183e31042298045e', typed_custom_fields: { [NOTE]: 'Wants Intune.' }, seq: A },
     { id: 'c7', name: 'Deep Dee', email: 'dee@deepco.com', organization_name: 'DeepCo', account_id: 'a7', typed_custom_fields: { [NOTE]: 'Wants Defender.' }, seq: A },
+    { id: 'c7b', name: 'Deep Colleague', email: 'col@deepco.com', organization_name: 'DeepCo', account_id: 'a7', typed_custom_fields: { [NOTE]: 'Wants Business Central.' }, seq: B },
     { id: 'c11', name: 'Again Ann', email: 'ann@againco.com', organization_name: 'AgainCo', account_id: 'a11', typed_custom_fields: { [NOTE]: 'Wants E3.' }, seq: A, prior: [{ emailer_campaign_id: 'cccccccccccccccccccccccc', status: 'finished', finished_at: '2026-10-05T00:00:00Z', inactive_reason: 'completed_last_step' }] },
     { id: 'c12', name: 'Twin Three', email: 'three@twinco.com', organization_name: 'TwinCo', account_id: 'a4', typed_custom_fields: { [NOTE]: 'Wants E3.' }, seq: A },
     { id: 'c13', name: 'Vague Val', email: 'val@vagueco.com', organization_name: 'VagueCo', account_id: 'a13', typed_custom_fields: { [NOTE]: 'Wants E3.' }, seq: A },
@@ -41,7 +42,7 @@ const MOCK = () => {
   ];
   const calls = {
     a2: [{ id: 'k1', contact_id: 'c2', duration: 30, phone_call_outcome_id: '6a024dabd777bd000d626376', start_time: '2026-11-10T15:00:00Z', caller_name: 'Carly Parks' }],
-    a7: [{ id: 'k2', contact_id: 'cX', duration: 420, phone_call_outcome_id: null, start_time: '2026-10-01T15:00:00Z', caller_name: 'Jack Snellgrove' }],
+    a7: [{ id: 'k2', contact_id: 'c7b', duration: 420, phone_call_outcome_id: null, start_time: '2026-10-01T15:00:00Z', caller_name: 'Jack Snellgrove' }],
     a13: [{ id: 'k4', contact_id: 'c13', duration: 0, phone_call_outcome_id: '6a73be64a0f3de000c6be57f', note_text: 'Spoke briefly, asked to call back', start_time: '2026-11-18T15:00:00Z', caller_name: 'Carly Parks' }],
     a20: [{ id: 'k20', contact_id: 'r1', duration: 0, phone_call_outcome_id: '66203bd7183e31042298047d', start_time: daysAgo(18), caller_name: 'Jack Snellgrove' }],
     a22: [{ id: 'k22', contact_id: 'r3', duration: 40, phone_call_outcome_id: '66203bd7183e310422980485', start_time: daysAgo(12), caller_name: 'Jack Snellgrove' }],
@@ -64,7 +65,8 @@ const MOCK = () => {
         const seq = input.emailer_campaign_ids[0];
         return { payload: { pagination: { total_pages: 1 }, contacts: contacts.filter(c => c.seq === seq).map(c => ({ ...c, contact_campaign_statuses: st(c.seq, { ...(c.fin ? { status: 'finished', finished_at: c.fin, inactive_reason: 'completed_last_step' } : {}), ...(c.finished_at ? { finished_at: c.finished_at } : {}), ...(c.added_at ? { added_at: c.added_at } : {}) }, c.prior || []) })) } };
       }
-      if (tool.endsWith('phone_calls_search')) return { payload: { phone_calls: calls[input.account_id] || [] } };
+      // Like real Apollo: account_id is ignored (whole team comes back); contact_id filters.
+      if (tool.endsWith('phone_calls_search')) { const all = Object.values(calls).flat(); return { payload: { pagination: { total_pages: 1 }, phone_calls: input.contact_id ? all.filter((c) => c.contact_id === input.contact_id) : all } }; }
       if (tool.endsWith('emailer_messages_search')) return { payload: { pagination: { total_pages: 1 }, emailer_messages: input.emailer_campaign_id === A ? [{ contact_id: 'c10' }] : [] } };
       if (tool.endsWith('add_contact_ids')) {
         window.__writes.push(['add', input.emailer_campaign_id, input.contact_ids, input.send_email_from_email_account_id]);

@@ -6097,6 +6097,20 @@ sequences, made repeatable with one click.
   `apollo-read-only.cjs` (37: the scanner handle allows exactly the three
   writes, the normal handle still blocks them).
 
+### 2026-11-20: Apollo ignores account_id on call search — fixed
+
+Found while building the recycle lists: `phone_calls_search` ignores
+`account_id` and returns the whole team's calls (a made-up account id
+returned all 39,655). Sequence Scanner fetched calls per account, so every
+lead's history, meeting/reached flags and the 4-minute-call flag were read
+from the team's latest 100 calls, not the lead's own. Now
+`fetchContactCalls` (`lib/apolloSequences.ts`) asks per contact (honoured,
+and filtered client-side as well) and groups by company, so a colleague's
+call still counts **when that colleague is among the people checked**
+(said on screen). The suite's mock now ignores `account_id` the way Apollo
+does, so the old path would fail it. `lib/apolloLive.ts` already searched
+by contact and is unaffected.
+
 ### 2026-11-20: Sequence Scanner Recycle tab (scanner-platform-v29)
 
 Per Jack: "a button in sequence scanner so i can click refresh and push to
