@@ -6101,9 +6101,12 @@ sequences, made repeatable with one click.
 
 Per Jack: "a button in sequence scanner so i can click refresh and push to
 recycled sequences last 30 days or whatever i set the timeframe to".
-- Sequence Scanner has two modes: Check sequences / **Recycle**. Recycle
-  pairs each sequence named "…Recycled" with a source of the same owner
-  (default: that owner's M365/Main sequence, never Dynamics; changeable),
+- Sequence Scanner has two modes: Check sequences / **Recycle**. Each row
+  is "Finished in [any sequence] push to [any sequence, recycled ones
+  listed first]", per Jack: "select the recycled sequence it pushes to"
+  (e.g. finished Jacks Dynamics → Jack Main Recycled). Rows default to each
+  recycled sequence paired with its owner's M365/Main one; "+ Add a row"
+  adds more,
   a timeframe in days (default 30, saved in localStorage `recycleDays`) and
   ↻ Refresh.
 - `findRecycleCandidates` (`lib/apolloSequences.ts`): everyone who finished

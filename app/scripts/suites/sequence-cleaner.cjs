@@ -35,6 +35,7 @@ const MOCK = () => {
     { id: 'r2', name: 'Fresh Fred', email: 'fred@fredco.com', organization_name: 'FredCo', account_id: 'a21', typed_custom_fields: {}, seq: A, fin: daysAgo(1) },
     { id: 'r3', name: 'Talked Tom', email: 'tom@tomco.com', organization_name: 'TomCo', account_id: 'a22', typed_custom_fields: {}, seq: A, fin: daysAgo(10) },
     { id: 'r4', name: 'Busy Bo', email: 'bo@boco.com', organization_name: 'BoCo', account_id: 'a23', typed_custom_fields: {}, seq: A, fin: daysAgo(10), prior: [{ emailer_campaign_id: B, status: 'active' }] },
+    { id: 'r6', name: 'Dyn Dora', email: 'dora@doraco.com', organization_name: 'DoraCo', account_id: 'a25', typed_custom_fields: {}, seq: B, fin: daysAgo(12) },
     { id: 'r5', name: 'Old Olga', email: 'olga@olgaco.com', organization_name: 'OlgaCo', account_id: 'a24', typed_custom_fields: {}, seq: A, fin: daysAgo(60) },
     { id: 'c10', name: 'Reply Rae', email: 'rae@replyco.com', organization_name: 'ReplyCo', account_id: 'a10', typed_custom_fields: { [NOTE]: 'Wants Copilot.' }, seq: A },
   ];
@@ -144,7 +145,8 @@ const MOCK = () => {
   ok('same company groups across sequences', (await page.locator('[data-company-group]', { hasText: 'TwinCo' }).innerText()).includes('Twin Two'));
   // Recycle tab: refresh finds who's ready, push enrolls only them.
   await page.locator('[role=tab]', { hasText: 'Recycle' }).click(); await sleep(200);
-  ok('recycle pair defaults to the main sequence', (await page.locator('select[aria-label="Source for Jack Main Recycled"] option:checked').innerText()).includes('Jack M365'));
+  ok('recycle row defaults to the main sequence', (await page.locator('select[aria-label="Finished in"] option:checked').first().innerText()).includes('Jack M365'));
+  ok('recycle row defaults to the recycled sequence', (await page.locator('select[aria-label="Push to"] option:checked').first().innerText()).includes('Jack Main Recycled'));
   await page.fill('input[aria-label="Timeframe in days"]', '30');
   await page.locator('[data-recycle] button', { hasText: 'Refresh' }).click(); await sleep(900);
   const rp = await page.locator('[data-recycle-pair]').innerText();
@@ -160,6 +162,16 @@ const MOCK = () => {
   await page.locator('[role=dialog] button', { hasText: /^Push 1$/ }).click(); await sleep(500);
   const w3 = await page.evaluate(() => window.__writes.slice(-1)[0]);
   ok('push enrolls only the ready lead from the owner mailbox', w3 && w3[0] === 'add' && w3[1] === 'dddddddddddddddddddddddd' && w3[2].join() === 'r1' && w3[3] === 'mb1', JSON.stringify(w3));
+  // Per Jack: finished in Jacks Dynamics -> pick it -> push to Jack Main Recycled -> Refresh.
+  await page.selectOption('select[aria-label="Finished in"]', { label: 'Jacks Dynamics Sequence' });
+  await page.selectOption('select[aria-label="Push to"]', { label: 'Jack Main Recycled' });
+  await page.locator('[data-recycle] button', { hasText: 'Refresh' }).click(); await sleep(900);
+  const dp = await page.locator('[data-recycle-pair]').innerText();
+  ok('any sequence can be the source', dp.includes('Jacks Dynamics Sequence → Jack Main Recycled') && dp.includes('Dyn Dora') && !dp.includes('Ready Rita'));
+  await page.locator('[data-recycle-pair] button', { hasText: 'Push 1 to Jack Main Recycled' }).click(); await sleep(200);
+  await page.locator('[role=dialog] button', { hasText: /^Push 1$/ }).click(); await sleep(500);
+  const w4 = await page.evaluate(() => window.__writes.slice(-1)[0]);
+  ok('pushes to the recycled sequence picked', w4 && w4[0] === 'add' && w4[1] === 'dddddddddddddddddddddddd' && w4[2].join() === 'r6', JSON.stringify(w4));
   ok('no page errors', errs.length === 0, errs.join(' | '));
   console.log(`\n${pass} passed, ${fail} failed`);
   await b.close(); process.exit(fail ? 1 : 0);

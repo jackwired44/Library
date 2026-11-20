@@ -488,17 +488,22 @@ function bestKeep(g: DupGroup): string {
 // ---------------------------------------------------------------- recycle
 
 const RECYCLE_DAYS_KEY = "recycleDays";
-interface Pair { targetId: string; sourceId: string; on: boolean }
+interface Pair { id: string; targetId: string; sourceId: string; on: boolean }
 
 function RecyclePanel({ sequences, mailboxes }: { sequences: ApolloSequence[]; mailboxes: Mailbox[] }) {
   const targets = useMemo(() => sequences.filter((s) => /recycl/i.test(s.name)), [sequences]);
   const recycledIds = useMemo(() => targets.map((t) => t.id), [targets]);
   const sourcesFor = (t: ApolloSequence) => sequences.filter((s) => s.ownerId === t.ownerId && !/recycl/i.test(s.name));
-  const [pairs, setPairs] = useState<Pair[]>(() => targets.map((t) => {
+  // Per Jack: "i want to be able to select the recycled sequence it pushes to
+  // after they are finished" — both ends of every row are a choice; the
+  // defaults just pair each recycled sequence with its owner's main one.
+  const [pairs, setPairs] = useState<Pair[]>(() => targets.map((t, i) => {
     const src = sourcesFor(t);
     const pick = src.find((s) => /m365|main/i.test(s.name) && !/dynamics/i.test(s.name)) || src[0];
-    return { targetId: t.id, sourceId: pick?.id || "", on: !!pick };
+    return { id: `p${i}`, targetId: t.id, sourceId: pick?.id || "", on: !!pick };
   }));
+  const others = useMemo(() => sequences.filter((s) => !/recycl/i.test(s.name)), [sequences]);
+  const setPair = (id: string, patch: Partial<Pair>) => setPairs((ps) => ps.map((x) => x.id === id ? { ...x, ...patch } : x));
   const [days, setDays] = useState<number>(() => { try { return Number(localStorage.getItem(RECYCLE_DAYS_KEY)) || 30; } catch { return 30; } });
   const [readyOnly, setReadyOnly] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -519,19 +524,19 @@ function RecyclePanel({ sequences, mailboxes }: { sequences: ApolloSequence[]; m
     setBusy(true); setError(""); setNotice(""); setResults([]);
     const out: RecycleResult[] = [];
     try {
-      for (const p of pairs.filter((x) => x.on && x.sourceId)) {
+      for (const p of pairs.filter((x) => x.on && x.sourceId && x.targetId && x.sourceId !== x.targetId)) {
         const src = sequences.find((s) => s.id === p.sourceId)!;
         const tgt = sequences.find((s) => s.id === p.targetId)!;
         out.push(await findRecycleCandidates(src, tgt, days, recycledIds, (m) => setStatus(`${tgt.name}: ${m}`)));
       }
       setResults(out);
-      setPicked(new Set(out.flatMap((r) => r.keep.filter((k) => k.ready).map((k) => `${r.targetId}:${k.contactId}`))));
+      setPicked(new Set(out.flatMap((r) => r.keep.filter((k) => k.ready).map((k) => `${r.sourceId}>${r.targetId}:${k.contactId}`))));
     } catch (e) { setError((e as Error).message); }
     setStatus(""); setBusy(false);
   }
 
   function askPush(r: RecycleResult) {
-    const ids = r.keep.filter((k) => picked.has(`${r.targetId}:${k.contactId}`)).map((k) => k.contactId);
+    const ids = r.keep.filter((k) => picked.has(`${r.sourceId}>${r.targetId}:${k.contactId}`)).map((k) => k.contactId);
     if (!ids.length) return;
     const owner = sequences.find((s) => s.id === r.targetId)?.ownerId;
     const box = mailboxes.find((b) => b.ownerId === owner && b.isDefault) || mailboxes.find((b) => b.ownerId === owner);
@@ -547,7 +552,7 @@ function RecyclePanel({ sequences, mailboxes }: { sequences: ApolloSequence[]; m
       const why = [...new Set(Object.values(r.skipped))].map((x) => x.replace(/_/g, " ")).join(", ");
       setNotice(`Added ${r.enrolled.length} of ${confirm.ids.length} to ${name(confirm.result.targetId)}${skippedN ? `. ${skippedN} skipped by Apollo (${why})` : ""}.`);
       const done = new Set(r.enrolled);
-      setResults((rs) => rs.map((x) => x.targetId === confirm.result.targetId ? { ...x, keep: x.keep.filter((k) => !done.has(k.contactId)) } : x));
+      setResults((rs) => rs.map((x) => x.targetId === confirm.result.targetId && x.sourceId === confirm.result.sourceId ? { ...x, keep: x.keep.filter((k) => !done.has(k.contactId)) } : x));
     } catch (e) { setError((e as Error).message); }
     setConfirm(null); setBusy(false);
   }
@@ -562,20 +567,24 @@ function RecyclePanel({ sequences, mailboxes }: { sequences: ApolloSequence[]; m
           <div className="panel-sub">Finished the main sequence with only no answer, gatekeeper or voicemail; pushed {RECYCLE_REST_BUSINESS_DAYS} business days after they finished.</div>
         </div>
         <div className="panel-body" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {targets.map((t) => {
-            const p = pairs.find((x) => x.targetId === t.id)!;
-            return (
-              <div key={t.id} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                <input type="checkbox" aria-label={`Recycle into ${t.name}`} checked={p.on} onChange={(e) => setPairs((ps) => ps.map((x) => x.targetId === t.id ? { ...x, on: e.target.checked } : x))} />
-                <span className="panel-sub">From</span>
-                <select className="field" aria-label={`Source for ${t.name}`} value={p.sourceId} onChange={(e) => setPairs((ps) => ps.map((x) => x.targetId === t.id ? { ...x, sourceId: e.target.value } : x))}>
-                  <option value="">Pick a sequence…</option>
-                  {sourcesFor(t).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
-                <span className="panel-sub">into</span> <strong>{t.name}</strong>
-              </div>
-            );
-          })}
+          {pairs.map((p) => (
+            <div key={p.id} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }} data-recycle-row>
+              <input type="checkbox" aria-label="Use this row" checked={p.on} onChange={(e) => setPair(p.id, { on: e.target.checked })} />
+              <span className="panel-sub">Finished in</span>
+              <select className="field" aria-label="Finished in" value={p.sourceId} onChange={(e) => setPair(p.id, { sourceId: e.target.value })}>
+                <option value="">Pick a sequence…</option>
+                {others.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+              <span className="panel-sub">push to</span>
+              <select className="field" aria-label="Push to" value={p.targetId} onChange={(e) => setPair(p.id, { targetId: e.target.value })}>
+                <option value="">Pick a sequence…</option>
+                <optgroup label="Recycled sequences">{targets.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</optgroup>
+                <optgroup label="Other sequences">{others.filter((s) => s.id !== p.sourceId).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</optgroup>
+              </select>
+              {pairs.length > 1 && <button className="btn btn-ghost btn-sm" aria-label="Remove row" onClick={() => setPairs((ps) => ps.filter((x) => x.id !== p.id))}>✕</button>}
+            </div>
+          ))}
+          <div><button className="btn btn-ghost btn-sm" onClick={() => setPairs((ps) => [...ps, { id: `p${Date.now()}`, sourceId: "", targetId: targets[0]?.id || "", on: true }])}>+ Add a row</button></div>
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 4 }}>
             <label style={{ display: "flex", gap: 6, alignItems: "center" }}>Finished in the last
               <input className="field" type="number" min={1} max={365} aria-label="Timeframe in days" value={days} onChange={(e) => setDaysSaved(Number(e.target.value))} style={{ width: 70 }} /> days
@@ -583,7 +592,7 @@ function RecyclePanel({ sequences, mailboxes }: { sequences: ApolloSequence[]; m
             <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
               <input type="checkbox" checked={readyOnly} onChange={(e) => setReadyOnly(e.target.checked)} /> Only show leads ready now
             </label>
-            <button className="btn btn-primary btn-sm" disabled={busy || !(days > 0) || !pairs.some((x) => x.on && x.sourceId)} onClick={refresh}>↻ Refresh</button>
+            <button className="btn btn-primary btn-sm" disabled={busy || !(days > 0) || !pairs.some((x) => x.on && x.sourceId && x.targetId && x.sourceId !== x.targetId)} onClick={refresh}>↻ Refresh</button>
           </div>
         </div>
       </div>
@@ -595,12 +604,12 @@ function RecyclePanel({ sequences, mailboxes }: { sequences: ApolloSequence[]; m
       {results.map((r) => {
         const rows = r.keep.filter((k) => !readyOnly || k.ready);
         const ready = r.keep.filter((k) => k.ready).length;
-        const sel = r.keep.filter((k) => picked.has(`${r.targetId}:${k.contactId}`)).length;
+        const sel = r.keep.filter((k) => picked.has(`${r.sourceId}>${r.targetId}:${k.contactId}`)).length;
         const reasons = new Map<string, number>();
         for (const x of r.excluded) reasons.set(x.reason, (reasons.get(x.reason) || 0) + 1);
-        const allOn = rows.length > 0 && rows.every((k) => picked.has(`${r.targetId}:${k.contactId}`));
+        const allOn = rows.length > 0 && rows.every((k) => picked.has(`${r.sourceId}>${r.targetId}:${k.contactId}`));
         return (
-          <div key={r.targetId} className="panel" style={{ marginBottom: 14 }} data-recycle-pair>
+          <div key={`${r.sourceId}>${r.targetId}`} className="panel" style={{ marginBottom: 14 }} data-recycle-pair>
             <div className="panel-head">
               <div className="panel-title">{name(r.sourceId)} → {name(r.targetId)}</div>
               <button className="btn btn-primary btn-sm" disabled={busy || !sel} onClick={() => askPush(r)}>Push {sel} to {name(r.targetId)}</button>
@@ -617,13 +626,13 @@ function RecyclePanel({ sequences, mailboxes }: { sequences: ApolloSequence[]; m
               )}
               <table className="data-table">
                 <thead><tr>
-                  <th><input type="checkbox" aria-label="Select all" checked={allOn} onChange={() => setPicked((p) => { const n = new Set(p); rows.forEach((k) => { const key = `${r.targetId}:${k.contactId}`; if (allOn) n.delete(key); else n.add(key); }); return n; })} /></th>
+                  <th><input type="checkbox" aria-label="Select all" checked={allOn} onChange={() => setPicked((p) => { const n = new Set(p); rows.forEach((k) => { const key = `${r.sourceId}>${r.targetId}:${k.contactId}`; if (allOn) n.delete(key); else n.add(key); }); return n; })} /></th>
                   <th>Lead</th><th>Finished</th><th>Calls</th><th>Ready</th>
                 </tr></thead>
                 <tbody>
                   {rows.length === 0 && <tr><td colSpan={5} className="cell-empty">{readyOnly && r.keep.length ? "Nobody is ready yet. Untick “Only show leads ready now” to see who's waiting." : "Nobody to recycle in this timeframe."}</td></tr>}
                   {rows.map((k) => {
-                    const key = `${r.targetId}:${k.contactId}`;
+                    const key = `${r.sourceId}>${r.targetId}:${k.contactId}`;
                     return (
                       <tr key={key}>
                         <td><input type="checkbox" checked={picked.has(key)} onChange={() => setPicked((p) => { const n = new Set(p); if (n.has(key)) n.delete(key); else n.add(key); return n; })} /></td>
