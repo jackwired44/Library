@@ -6,10 +6,10 @@
 import { useMemo, useState } from "react";
 import { downloadBlob, toCSV } from "../lib/csv";
 import {
-  FLAG_META, DUP_REASON_META, FINISH_KIND_META, listSequences, runAudit, removeFromSequence, mergeContacts,
+  FLAG_META, DUP_REASON_META, FINISH_KIND_META, FRESH_GROUP_META, FRESH_GROUP_ORDER, freshGroupOf, listSequences, runAudit, removeFromSequence, mergeContacts,
   findDuplicates, findMultiSequence, findCompanyGroups, listMailboxes, finishReasonOf, finishInSequence, findRecycleCandidates, pushToRecycled,
   RECYCLE_REST_BUSINESS_DAYS,
-  type ApolloSequence, type Mailbox, type FinishKind, type RecycleResult, type AuditResult, type DupGroup, type FlagKind, type MemberResult,
+  type ApolloSequence, type Mailbox, type FinishKind, type RecycleResult, type AuditResult, type DupGroup, type FlagKind, type MemberResult, type FreshGroup,
 } from "../lib/apolloSequences";
 import { MAIN_SEQUENCES } from "./ApolloStatus";
 
@@ -20,7 +20,7 @@ const SEVERITY_CLASS = { remove: "danger", review: "warning", info: "info" } as 
 const SEVERITY_RANK = { remove: 0, review: 1, info: 2 } as const;
 const FLAG_ORDER: FlagKind[] = ["meeting", "reached", "deep-call", "stage", "replied", "zombie", "repeat-finished", "callback-undated", "prior-contact", "wrong-sequence", "dupe-person", "dupe-company", "callback"];
 
-type Tab = "flagged" | "duplicates" | "companies" | "all" | "finished";
+type Tab = "fresh" | "flagged" | "duplicates" | "companies" | "all" | "finished";
 type Pending =
   | { kind: "remove"; rows: MemberResult[]; title: string }
   | { kind: "finish"; rows: MemberResult[] }
@@ -41,7 +41,7 @@ export default function SequenceCleaner() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [audit, setAudit] = useState<AuditResult | null>(null);
-  const [tab, setTab] = useState<Tab>("flagged");
+  const [tab, setTab] = useState<Tab>("fresh");
   const [flagFilter, setFlagFilter] = useState<FlagKind | "">("");
   const [seqFilter, setSeqFilter] = useState("all");
   const [addedWithin, setAddedWithin] = useState(0);
@@ -86,6 +86,7 @@ export default function SequenceCleaner() {
     return c;
   }, [members]);
   const flaggedCount = members.filter((m) => m.flags.length).length;
+  const freshCount = useMemo(() => members.filter((m) => freshGroupOf(m).group === "fresh").length, [members]);
   const slipped = useMemo(() => members.map((m) => ({ m, why: finishReasonOf(m) })).filter((x) => x.why) as { m: MemberResult; why: string }[], [members]);
 
   const rows = useMemo(() => members.filter((m) => {
@@ -239,7 +240,7 @@ export default function SequenceCleaner() {
           )}
 
           <div className="seg" role="tablist" style={{ marginBottom: 12 }}>
-            {([["flagged", `Flagged (${flaggedCount})`], ["duplicates", `Duplicates (${dupGroups.length + multi.length})`], ["companies", `Same company (${companies.length})`], ["all", `Active (${members.length})`], ["finished", `Finished (${audit.finished.length})`]] as [Tab, string][]).map(([k, label]) => (
+            {([["fresh", `Fresh check (${freshCount} fresh)`], ["flagged", `Flagged (${flaggedCount})`], ["duplicates", `Duplicates (${dupGroups.length + multi.length})`], ["companies", `Same company (${companies.length})`], ["all", `Active (${members.length})`], ["finished", `Finished (${audit.finished.length})`]] as [Tab, string][]).map(([k, label]) => (
               <button key={k} role="tab" aria-selected={tab === k} className={`seg-btn${tab === k ? " active" : ""}`} onClick={() => { setTab(k); setFlagFilter(""); }}>{label}</button>
             ))}
           </div>
@@ -425,6 +426,8 @@ export default function SequenceCleaner() {
             </>
           )}
 
+          {tab === "fresh" && <FreshCheck members={members} seqName={seqName} busy={busy}
+            onRemove={(rows, title) => setPending({ kind: "remove", rows, title })} />}
           {tab === "finished" && <FinishedView rows={audit.finished} seqName={seqName} />}
 
           {tab === "companies" && (
@@ -801,6 +804,84 @@ function FinishedView({ rows, seqName }: { rows: AuditResult["finished"]; seqNam
           <button className="btn btn-sm btn-ghost" disabled={pg >= pages - 1} onClick={() => setPage(pg + 1)}>Next</button>
         </div>
       )}
+    </div>
+  );
+}
+
+// Per Jack: "scan a sequence see if leads like that not interested or have
+// clear next steps or spoken with are made aware to be removed".
+function FreshCheck({ members, seqName, busy, onRemove }: {
+  members: MemberResult[]; seqName: Map<string, string>; busy: boolean;
+  onRemove: (rows: MemberResult[], title: string) => void;
+}) {
+  const graded = useMemo(() => members.map((m) => ({ m, ...freshGroupOf(m, (id) => seqName.get(id) || "") })), [members, seqName]);
+  const [group, setGroup] = useState<FreshGroup | "">("");
+  const [ticked, setTicked] = useState<Set<string>>(new Set());
+  const count = (g: FreshGroup) => graded.filter((x) => x.group === g).length;
+  const toRemove = graded.filter((x) => FRESH_GROUP_META[x.group].remove);
+  const shown = graded
+    .filter((x) => group ? x.group === group : FRESH_GROUP_META[x.group].remove)
+    .sort((a, b) => FRESH_GROUP_ORDER.indexOf(a.group) - FRESH_GROUP_ORDER.indexOf(b.group));
+  const tickedRows = shown.filter((x) => ticked.has(rowKey(x.m))).map((x) => x.m);
+  const removable = shown.filter((x) => FRESH_GROUP_META[x.group].remove).map((x) => x.m);
+  const flip = (k: string) => setTicked((t) => { const n = new Set(t); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+
+  return (
+    <div data-fresh-check>
+      <div className="panel" style={{ padding: "10px 14px", marginBottom: 12, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", borderColor: toRemove.length ? "var(--danger)" : undefined }}>
+        <strong style={{ color: toRemove.length ? "var(--danger)" : "var(--success)" }} data-fresh-verdict>
+          {toRemove.length ? `${toRemove.length} should come out` : "Clean: no meetings, not-interested or spoken-with leads"}
+        </strong>
+        <span className="panel-sub">{count("fresh")} fresh · {count("prior")} been through a sequence before (kept)</span>
+        {toRemove.length > 0 && (
+          <button className="btn btn-danger btn-sm" style={{ marginLeft: "auto" }} disabled={busy} data-remove-all
+            onClick={() => onRemove(toRemove.map((x) => x.m), `${toRemove.length} that had a meeting, said not interested, or were spoken with`)}>
+            Remove all {toRemove.length}
+          </button>
+        )}
+      </div>
+
+      <div className="metric-row" style={{ marginBottom: 12 }}>
+        {FRESH_GROUP_ORDER.map((g) => (
+          <button key={g} type="button" className="metric" data-fresh-group={g} title={FRESH_GROUP_META[g].hint}
+            style={{ cursor: "pointer", textAlign: "left", outline: group === g ? "2px solid var(--brand)" : undefined }}
+            onClick={() => { setGroup(group === g ? "" : g); setTicked(new Set()); }}>
+            <div className="metric-label">{FRESH_GROUP_META[g].label}</div>
+            <div className="metric-value">{count(g)}</div>
+          </button>
+        ))}
+      </div>
+
+      <div className="control-strip" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
+        <span className="panel-sub">{group ? FRESH_GROUP_META[group].hint : "Showing everyone who should come out. Click a tile to see one group."}</span>
+        {tickedRows.length > 0 && (
+          <button className="btn btn-danger btn-sm" style={{ marginLeft: "auto" }} disabled={busy}
+            onClick={() => onRemove(tickedRows, `${tickedRows.length} ticked`)}>Remove {tickedRows.length} ticked</button>
+        )}
+        {!tickedRows.length && group && FRESH_GROUP_META[group].remove && removable.length > 0 && (
+          <button className="btn btn-danger btn-sm" style={{ marginLeft: "auto" }} disabled={busy}
+            onClick={() => onRemove(removable, `${removable.length} · ${FRESH_GROUP_META[group].label}`)}>Remove all {removable.length}</button>
+        )}
+      </div>
+
+      <div className="table-card">
+        <table className="data-table">
+          <thead><tr><th style={{ width: 28 }}></th><th>Lead</th><th>Sequence</th><th>Group</th><th>Why</th></tr></thead>
+          <tbody>
+            {shown.length === 0 && <tr><td colSpan={5} className="cell-empty">{group ? "Nobody in this group." : "Nobody needs to come out."}</td></tr>}
+            {shown.slice(0, 300).map(({ m, group: g, why }) => (
+              <tr key={rowKey(m)} data-fresh-row={g}>
+                <td><input type="checkbox" aria-label={`Select ${m.name}`} checked={ticked.has(rowKey(m))} onChange={() => flip(rowKey(m))} /></td>
+                <td><div style={{ fontWeight: 600 }}>{m.name}</div><div className="panel-sub">{m.company}</div></td>
+                <td>{seqName.get(m.sequenceId) || m.sequenceId}{m.stepPosition ? <div className="panel-sub">step {m.stepPosition}</div> : null}</td>
+                <td><span className={`status-pill ${FRESH_GROUP_META[g].cls}`}>{FRESH_GROUP_META[g].label}</span></td>
+                <td style={{ maxWidth: 420 }}>{why}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {shown.length > 300 && <div className="panel-sub" style={{ padding: 8 }}>Showing the first 300 of {shown.length}.</div>}
+      </div>
     </div>
   );
 }

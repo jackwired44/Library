@@ -47,6 +47,9 @@ export const OUTCOME_LABEL: Record<string, string> = {
 };
 
 export const STAGE_NOT_INTERESTED = "66203bd7183e31042298045e";
+// Read live 2026-11-20 from apollo_contact_stages_index.
+export const STAGE_MEETING_LOGGED = "6a73bd6b59c987000cc2c50c";
+export const STAGE_REVIEW_EMAIL = "6a73ee5976e5ba001c169964";
 const FIELD_PRODUCT_LINE = "68abe22a26a866001d3e1a08";
 export const FIELD_NOTE = "68abe2198cb839001d7d67c3";
 const FIELD_RESEARCH = "696fb0360a128f000d7103ed"; // long AI research blob — ignored
@@ -89,6 +92,7 @@ export interface SequenceMember {
   domain: string;
   accountId: string;
   stageId: string;
+  unsubscribed?: boolean;
   productLine: string;
   notes: string; // every short custom field joined, research blob excluded
   sequenceId: string;
@@ -284,7 +288,7 @@ export async function fetchMembers(seq: ApolloSequence, onProgress?: (n: number)
       h, "contacts_search", {
         emailer_campaign_ids: [seq.id], per_page: 100, page,
         fields: [{ contacts: ["id", "name", "first_name", "last_name", "title", "email", { phone_numbers: ["sanitized_number"] },
-          "hubspot_vid", "salesforce_id", "salesforce_contact_id", "salesforce_lead_id", "organization_name", "account_id", "contact_stage_id",
+          "hubspot_vid", "salesforce_id", "salesforce_contact_id", "salesforce_lead_id", "organization_name", "account_id", "contact_stage_id", "email_unsubscribed",
           { account: ["domain"] }, "typed_custom_fields",
           { contact_campaign_statuses: ["emailer_campaign_id", "status", "current_step_id", "finished_at", "added_at", "inactive_reason"] }] }],
       });
@@ -315,6 +319,7 @@ export async function fetchMembers(seq: ApolloSequence, onProgress?: (n: number)
         company: String(c.organization_name || ""),
         email, domain: domainOf(email) || String(acct.domain || "").toLowerCase(),
         accountId: String(c.account_id || ""), stageId: String(c.contact_stage_id || ""),
+        unsubscribed: c.email_unsubscribed === true,
         productLine: String(tf[FIELD_PRODUCT_LINE] || ""), notes,
         sequenceId: seq.id, status: String(st.status), inactiveReason: String(st.inactive_reason || ""),
         stepPosition: stepPos.get(String(st.current_step_id)) ?? null,
@@ -541,6 +546,52 @@ export async function runAudit(
   catch { gaps.push("Finished leads couldn't be sorted by how they ended."); finished = finishedRaw.map((m) => ({ ...m, kind: finishKindOf(m.inactiveReason), disposition: "", calls: 0, lastOutcome: "" })); }
 
   return { members: out, finished, companyCheck, checkedCalls: [...callsByAccount.values()].reduce((n, c) => n + c.length, 0), gaps };
+}
+
+// ---------------------------------------------------------------- fresh check
+
+// Per Jack (2026-11-20): "scan a sequence see if leads like that not
+// interested or have clear next steps or spoken with are made aware to be
+// removed". Every active lead lands in exactly one group, strongest first.
+export type FreshGroup = "meeting" | "not-interested" | "spoken" | "prior" | "fresh";
+
+export const FRESH_GROUP_META: Record<FreshGroup, { label: string; hint: string; remove: boolean; cls: string }> = {
+  meeting: { label: "Had a meeting", hint: "Meeting Booked / Qualified call, or stage Meeting Logged.", remove: true, cls: "danger" },
+  "not-interested": { label: "Not interested", hint: "Not interested or Do Not Contact call, stage Not Interested, or unsubscribed.", remove: true, cls: "danger" },
+  spoken: { label: "Spoken with / next steps set", hint: "Info Requested, Call Back Scheduled, a 4+ minute call, a conversation note, a reply, or \"talked on phone\" in an earlier sequence.", remove: true, cls: "warning" },
+  prior: { label: "Been through a sequence before", hint: "Finished another sequence (or this one) without being reached. Not reached, but not brand new.", remove: false, cls: "neutral" },
+  fresh: { label: "Fresh", hint: "Only no answer, voicemail or gatekeeper calls, or none, and no earlier sequence.", remove: false, cls: "success" },
+};
+
+export const FRESH_GROUP_ORDER: FreshGroup[] = ["meeting", "not-interested", "spoken", "prior", "fresh"];
+
+const PRIOR_SPOKE_RE = /talk|phone|repl|interest|appointment|meeting|call/i;
+const NI_EVIDENCE_RE = /^(Not interested|Do Not Contact)\b/;
+
+export function freshGroupOf(m: MemberResult, seqName?: (id: string) => string): { group: FreshGroup; why: string } {
+  const f = (k: FlagKind) => m.flags.find((x) => x.kind === k);
+  const meeting = f("meeting");
+  if (meeting) return { group: "meeting", why: meeting.evidence };
+  if (m.stageId === STAGE_MEETING_LOGGED) return { group: "meeting", why: "Contact stage is Meeting Logged" };
+
+  const ni = m.flags.find((x) => x.kind === "reached" && NI_EVIDENCE_RE.test(x.evidence));
+  if (ni) return { group: "not-interested", why: ni.evidence };
+  if (m.stageId === STAGE_NOT_INTERESTED) return { group: "not-interested", why: "Contact stage is Not Interested" };
+  if (m.unsubscribed) return { group: "not-interested", why: "Unsubscribed from email" };
+
+  const spoke = m.flags.find((x) => x.kind === "reached") || f("callback") || f("deep-call") || f("replied");
+  if (spoke) return { group: "spoken", why: spoke.kind === "callback" ? `Call Back Scheduled · ${spoke.evidence}` : spoke.evidence };
+  if (m.stageId === STAGE_REVIEW_EMAIL) return { group: "spoken", why: "Contact stage is Review + Email" };
+  const talked = m.priorFinished.find((p) => PRIOR_SPOKE_RE.test(p.reason) && !/completed|last step/i.test(p.reason));
+  if (talked) return { group: "spoken", why: `${talked.reason.replace(/_/g, " ")} in ${seqName?.(talked.sequenceId) || "an earlier sequence"}${talked.finishedAt ? ` (${talked.finishedAt.slice(0, 10)})` : ""}` };
+
+  if (m.priorFinished.length) {
+    const p = m.priorFinished[0];
+    return { group: "prior", why: `Finished ${seqName?.(p.sequenceId) || "another sequence"}${p.finishedAt ? ` ${p.finishedAt.slice(0, 10)}` : ""}${p.reason ? ` (${p.reason.replace(/_/g, " ")})` : ""}${m.priorFinished.length > 1 ? ` +${m.priorFinished.length - 1} more` : ""}` };
+  }
+  if (m.finishedAt) return { group: "prior", why: `Already ran this sequence, finished ${m.finishedAt.slice(0, 10)}, still listed active` };
+  const calls = m.history.calls;
+  return { group: "fresh", why: calls ? `${calls} call${calls === 1 ? "" : "s"}, last: ${m.history.lastOutcome || "no outcome logged"}` : "No calls yet" };
 }
 
 // ---------------------------------------------------------------- writes

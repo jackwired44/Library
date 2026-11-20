@@ -6237,6 +6237,28 @@ name under one column title is it strong signal bad lead or needs review".
   (month/quarter chips, range). Same controls and counts as before.
 - "Ask for leads" folds behind a button (`details.ask-fold`).
 
+### 2026-11-20: Sequence Scanner Fresh check (scanner-platform-v29)
+
+Per Jack: "scan a sequence see if leads like that not interested or have
+clear next steps or spoken with are made aware to be removed".
+- New first tab after a run, **Fresh check** (`FreshCheck`,
+  SequenceCleaner.tsx; `freshGroupOf` / `FRESH_GROUP_META`,
+  `lib/apolloSequences.ts`). Each active lead lands in one group, strongest
+  first: **Had a meeting** (Meeting Booked / Qualified call, stage Meeting
+  Logged) → **Not interested** (Not interested / DNC call, stage Not
+  Interested, email unsubscribed) → **Spoken with / next steps set** (Info
+  Requested, Call Back Scheduled, 4+ min call, conversation note, reply,
+  stage Review + Email, "talked on phone" / replied / interested in an
+  earlier sequence) → **Been through a sequence before** (finished another
+  one, or this one, unreached; kept) → **Fresh**.
+- The top line says how many should come out; "Remove all N", per-group
+  Remove and Remove ticked all use the existing remove confirm that names
+  everyone. Removes only from the sequence each lead is in.
+- `fetchMembers` now also reads `email_unsubscribed`.
+- Live link: Remove needs the remove tool in the page's grant (taken out
+  in Version 102 so the page would load).
+- `sequence-cleaner` 49 → 61.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool
