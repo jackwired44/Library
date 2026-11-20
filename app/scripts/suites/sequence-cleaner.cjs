@@ -24,7 +24,7 @@ const MOCK = () => {
     { id: 'c11', name: 'Again Ann', email: 'ann@againco.com', organization_name: 'AgainCo', account_id: 'a11', typed_custom_fields: { [NOTE]: 'Wants E3.' }, seq: A, prior: [{ emailer_campaign_id: 'cccccccccccccccccccccccc', status: 'finished', finished_at: '2026-10-05T00:00:00Z', inactive_reason: 'completed_last_step' }] },
     { id: 'c12', name: 'Twin Three', email: 'three@twinco.com', organization_name: 'TwinCo', account_id: 'a4', typed_custom_fields: { [NOTE]: 'Wants E3.' }, seq: A },
     { id: 'c13', name: 'Vague Val', email: 'val@vagueco.com', organization_name: 'VagueCo', account_id: 'a13', typed_custom_fields: { [NOTE]: 'Wants E3.' }, seq: A },
-    { id: 'c8', name: 'Callback Cal', email: 'cal@cbco.com', organization_name: 'CbCo', account_id: 'a8', typed_custom_fields: { [NOTE]: 'Wants E3.' }, seq: A },
+    { id: 'c8', name: 'Callback Cal', email: 'cal@cbco.com', organization_name: 'CbCo', account_id: 'a8', added_at: '2026-11-15T00:00:00Z', typed_custom_fields: { [NOTE]: 'Wants E3.' }, seq: A },
     { id: 'c9', name: 'Zombie Zed', email: 'zed@zomco.com', organization_name: 'ZomCo', account_id: 'a9', typed_custom_fields: { [NOTE]: 'Wants Business Central.' }, seq: B, finished_at: '2026-11-17T17:24:00Z' },
     { id: 'c10', name: 'Reply Rae', email: 'rae@replyco.com', organization_name: 'ReplyCo', account_id: 'a10', typed_custom_fields: { [NOTE]: 'Wants Copilot.' }, seq: A },
   ];
@@ -47,7 +47,7 @@ const MOCK = () => {
       if (tool.endsWith('email_accounts_index')) return { payload: { email_accounts: [{ id: 'mb1', email: 'jack@wiredcio.com', user_id: 'jack', owner_name: 'Jack', default: true }] } };
       if (tool.endsWith('contacts_search')) {
         const seq = input.emailer_campaign_ids[0];
-        return { payload: { pagination: { total_pages: 1 }, contacts: contacts.filter(c => c.seq === seq).map(c => ({ ...c, contact_campaign_statuses: st(c.seq, c.finished_at ? { finished_at: c.finished_at } : {}, c.prior || []) })) } };
+        return { payload: { pagination: { total_pages: 1 }, contacts: contacts.filter(c => c.seq === seq).map(c => ({ ...c, contact_campaign_statuses: st(c.seq, { ...(c.finished_at ? { finished_at: c.finished_at } : {}), ...(c.added_at ? { added_at: c.added_at } : {}) }, c.prior || []) })) } };
       }
       if (tool.endsWith('phone_calls_search')) return { payload: { phone_calls: calls[input.account_id] || [] } };
       if (tool.endsWith('emailer_messages_search')) return { payload: { pagination: { total_pages: 1 }, emailer_messages: input.emailer_campaign_id === A ? [{ contact_id: 'c10' }] : [] } };
@@ -92,6 +92,8 @@ const MOCK = () => {
   ok('company check lists 2+ in one sequence', (await page.locator('.panel', { hasText: 'Company check' }).innerText()).includes('TwinCo'));
   ok('dated callback not flagged undated', !(await row('Callback Cal').innerText()).includes('no callback date'));
   ok('undated callback flagged', (await row('Vague Val').innerText()).includes('no callback date'));
+  ok('history shows last disposition', (await row('Booked Bea').innerText()).includes('Meeting Booked') && (await row('Booked Bea').innerText()).includes('1 call'));
+  ok('called-before-sequence flagged', (await row('Callback Cal').innerText()).includes('Called before this sequence'));
   ok('reply flagged', (await row('Reply Rae').innerText()).includes('Replied'));
   ok('clean lead hidden from Flagged view', !txt.includes('Clean Carl'));
   ok('gap about Echo/HubSpot stated', (await page.locator('text=Echo and HubSpot').count()) > 0);

@@ -13,7 +13,7 @@ import {
 const WRITES_ALLOWED = false;
 
 const SEVERITY_CLASS = { remove: "danger", review: "warning", info: "info" } as const;
-const FLAG_ORDER: FlagKind[] = ["meeting", "reached", "deep-call", "stage", "replied", "zombie", "repeat-finished", "callback-undated", "wrong-sequence", "dupe-person", "dupe-company", "callback"];
+const FLAG_ORDER: FlagKind[] = ["meeting", "reached", "deep-call", "stage", "replied", "zombie", "repeat-finished", "callback-undated", "prior-contact", "wrong-sequence", "dupe-person", "dupe-company", "callback"];
 
 type Pending = { kind: "remove" } | { kind: "move"; toId: string; mailboxId: string };
 
@@ -27,6 +27,7 @@ export default function SequenceCleaner() {
   const [audit, setAudit] = useState<AuditResult | null>(null);
   const [flagFilter, setFlagFilter] = useState<FlagKind | "flagged" | "all">("flagged");
   const [seqFilter, setSeqFilter] = useState("all");
+  const [addedWithin, setAddedWithin] = useState(0); // days; 0 = any
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [moveTo, setMoveTo] = useState("");
   const [mailbox, setMailbox] = useState("");
@@ -64,10 +65,11 @@ export default function SequenceCleaner() {
 
   const rows = useMemo(() => (audit?.members || []).filter((m) => {
     if (seqFilter !== "all" && m.sequenceId !== seqFilter) return false;
+    if (addedWithin && (!m.addedAt || Date.now() - Date.parse(m.addedAt) > addedWithin * 86_400_000)) return false;
     if (flagFilter === "all") return true;
     if (flagFilter === "flagged") return m.flags.length > 0;
     return m.flags.some((f) => f.kind === flagFilter);
-  }), [audit, flagFilter, seqFilter]);
+  }), [audit, flagFilter, seqFilter, addedWithin]);
 
   const selRows = (audit?.members || []).filter((m) => selected.has(rowKey(m)));
   const selBySeq = useMemo(() => {
@@ -115,9 +117,15 @@ export default function SequenceCleaner() {
     const rows = selRows.map((m) => ({
       Name: m.name, Company: m.company, Email: m.email, Sequence: seqName.get(m.sequenceId) || m.sequenceId,
       Step: m.stepPosition ?? "", "Contact ID": m.contactId, "Sequence ID": m.sequenceId,
+      Added: m.addedAt ? m.addedAt.slice(0, 10) : "",
+      "Earlier sequences": m.priorFinished.length,
+      Calls: m.history.calls,
+      "Last call outcome": m.history.lastOutcome || (m.history.calls ? "No outcome logged" : ""),
+      "Last call": m.history.lastDate ? `${m.history.lastCaller} ${m.history.lastDate}` : "",
+      "Ever Not interested": m.history.everNotInterested ? "Yes" : "",
       Flags: m.flags.map((f) => `${FLAG_META[f.kind].label}: ${f.evidence}`).join(" | "),
     }));
-    await downloadBlob(toCSV(rows, ["Name", "Company", "Email", "Sequence", "Step", "Contact ID", "Sequence ID", "Flags"]), `sequence-cleaner-removals-${new Date().toISOString().slice(0, 10)}.csv`);
+    await downloadBlob(toCSV(rows, ["Name", "Company", "Email", "Sequence", "Step", "Contact ID", "Sequence ID", "Added", "Earlier sequences", "Calls", "Last call outcome", "Last call", "Ever Not interested", "Flags"]), `sequence-cleaner-removals-${new Date().toISOString().slice(0, 10)}.csv`);
   }
 
   const allVisibleSelected = rows.length > 0 && rows.every((m) => selected.has(rowKey(m)));
@@ -164,7 +172,13 @@ export default function SequenceCleaner() {
             {FLAG_ORDER.filter((k) => counts[k]).map((k) => (
               <button key={k} className={`chip-btn${flagFilter === k ? " active" : ""}`} onClick={() => setFlagFilter(k)}>{FLAG_META[k].label} ({counts[k]})</button>
             ))}
-            <select className="field" value={seqFilter} onChange={(e) => setSeqFilter(e.target.value)} style={{ marginLeft: "auto" }}>
+            <select className="field" aria-label="Added to sequence" value={addedWithin} onChange={(e) => setAddedWithin(Number(e.target.value))} style={{ marginLeft: "auto" }}>
+              <option value={0}>Added any time</option>
+              <option value={1}>Added in the last day</option>
+              <option value={7}>Added in the last 7 days</option>
+              <option value={30}>Added in the last 30 days</option>
+            </select>
+            <select className="field" value={seqFilter} onChange={(e) => setSeqFilter(e.target.value)}>
               <option value="all">All checked sequences</option>
               {[...picked].map((id) => <option key={id} value={id}>{seqName.get(id)}</option>)}
             </select>
@@ -222,17 +236,29 @@ export default function SequenceCleaner() {
               <thead>
                 <tr>
                   <th><input type="checkbox" checked={allVisibleSelected} onChange={() => setSelected((s) => { const n = new Set(s); rows.forEach((m) => allVisibleSelected ? n.delete(rowKey(m)) : n.add(rowKey(m))); return n; })} /></th>
-                  <th>Lead</th><th>Sequence</th><th>Step</th><th>Flags</th>
+                  <th>Lead</th><th>Sequence</th><th>Step</th><th>History</th><th>Flags</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.length === 0 && <tr><td colSpan={5} className="cell-empty">{flagFilter === "flagged" ? "Nothing flagged — every active lead passed." : "No leads match."}</td></tr>}
+                {rows.length === 0 && <tr><td colSpan={6} className="cell-empty">{flagFilter === "flagged" ? "Nothing flagged — every active lead passed." : "No leads match."}</td></tr>}
                 {rows.map((m) => (
                   <tr key={rowKey(m)}>
                     <td><input type="checkbox" checked={selected.has(rowKey(m))} onChange={() => setSelected((s) => { const n = new Set(s); const k = rowKey(m); if (n.has(k)) n.delete(k); else n.add(k); return n; })} /></td>
                     <td><div><strong>{m.name || "—"}</strong></div><div className="panel-sub">{m.company}{m.email ? ` · ${m.email}` : ""}</div></td>
                     <td>{seqName.get(m.sequenceId)}{m.status === "paused" ? " (paused)" : ""}</td>
                     <td>{m.stepPosition ?? "—"}</td>
+                    <td style={{ minWidth: 220 }}>
+                      <div className="panel-sub">Added {m.addedAt ? m.addedAt.slice(0, 10) : "—"}</div>
+                      <div className="panel-sub">{m.priorFinished.length ? `${m.priorFinished.length} earlier sequence${m.priorFinished.length === 1 ? "" : "s"}` : "No earlier sequences"}</div>
+                      <div className="panel-sub">{m.history.calls ? `${m.history.calls} call${m.history.calls === 1 ? "" : "s"}${m.history.callsBeforeAdd ? ` (${m.history.callsBeforeAdd} before this sequence)` : ""}` : "Never called"}</div>
+                      {m.history.calls > 0 && (
+                        <div title={m.history.lastNote || undefined}>
+                          <span className={`status-pill ${m.history.everNotInterested ? "danger" : m.history.lastOutcomeId ? "info" : "neutral"}`}>{m.history.lastOutcome || "No outcome logged"}</span>
+                          <span className="panel-sub" style={{ marginLeft: 6 }}>{m.history.lastCaller} · {m.history.lastDate}</span>
+                          {m.history.everNotInterested && m.history.lastOutcomeId !== "66203bd7183e310422980485" && <div className="panel-sub" style={{ color: "var(--danger)" }}>Marked Not interested earlier</div>}
+                        </div>
+                      )}
+                    </td>
                     <td>
                       {m.flags.length === 0 && <span className="status-pill success">Clean</span>}
                       {m.flags.map((f, i) => (

@@ -117,7 +117,8 @@ export type FlagKind =
   | "callback"
   | "zombie"
   | "repeat-finished"
-  | "callback-undated";
+  | "callback-undated"
+  | "prior-contact";
 
 export const FLAG_META: Record<FlagKind, { label: string; severity: "remove" | "review" | "info" }> = {
   meeting: { label: "Meeting booked / qualified", severity: "remove" },
@@ -132,6 +133,7 @@ export const FLAG_META: Record<FlagKind, { label: string; severity: "remove" | "
   zombie: { label: "Finished but shown active", severity: "remove" },
   "repeat-finished": { label: "Finished a sequence before", severity: "review" },
   "callback-undated": { label: "Call back not dated", severity: "review" },
+  "prior-contact": { label: "Called before this sequence", severity: "review" },
 };
 
 export interface Flag {
@@ -139,7 +141,23 @@ export interface Flag {
   evidence: string;
 }
 
+// Per Jack: "see if any leads get added to a sequence from a fresh batch ...
+// have they been added or contacted in the past, where the call disposition
+// landed." One summary per lead, from that contact's own calls.
+export interface LeadHistory {
+  calls: number;
+  callsBeforeAdd: number;
+  lastOutcome: string;      // label, "" when the last call had no outcome
+  lastOutcomeId: string | null;
+  lastDate: string;         // YYYY-MM-DD, "" when never called
+  lastCaller: string;
+  lastNote: string;
+  everNotInterested: boolean;
+  outcomeTally: Record<string, number>;
+}
+
 export interface MemberResult extends SequenceMember {
+  history: LeadHistory;
   flags: Flag[];
 }
 
@@ -437,7 +455,27 @@ export async function runAudit(
     if (kind === "dynamics" && !hits.length && m.notes)
       flags.push({ kind: "wrong-sequence", evidence: "No Dynamics / ERP / CRM / Power Platform wording in notes" });
 
-    return { ...m, flags };
+    const sorted = [...mine].sort((a, b) => b.startTime.localeCompare(a.startTime));
+    const last = sorted[0];
+    const tally: Record<string, number> = {};
+    for (const c of mine) { const k = c.outcomeId ? (OUTCOME_LABEL[c.outcomeId] || "Other outcome") : "No outcome logged"; tally[k] = (tally[k] || 0) + 1; }
+    const before = m.addedAt ? mine.filter((c) => c.startTime && c.startTime < m.addedAt!) : [];
+    const history: LeadHistory = {
+      calls: mine.length,
+      callsBeforeAdd: before.length,
+      lastOutcome: last?.outcomeId ? (OUTCOME_LABEL[last.outcomeId] || "Other outcome") : "",
+      lastOutcomeId: last?.outcomeId || null,
+      lastDate: last ? d(last) : "",
+      lastCaller: last?.caller || "",
+      lastNote: last?.note || "",
+      everNotInterested: mine.some((c) => c.outcomeId === OUTCOME.notInterested || c.outcomeId === OUTCOME.doNotContact),
+      outcomeTally: tally,
+    };
+    if (before.length) {
+      const b = [...before].sort((a, b2) => b2.startTime.localeCompare(a.startTime))[0];
+      flags.push({ kind: "prior-contact", evidence: `Called ${before.length}× before being added on ${m.addedAt!.slice(0, 10)}; last: ${b.outcomeId ? OUTCOME_LABEL[b.outcomeId] || "other outcome" : "no outcome logged"} by ${b.caller} on ${d(b)}` });
+    }
+    return { ...m, flags, history };
   });
 
   const perSeq = new Map<string, MemberResult[]>();
