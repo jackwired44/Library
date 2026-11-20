@@ -361,8 +361,12 @@ export default function AllLeads({
   sequenceNames = [], onSetPlan, onSetStatus, onMoveGrade, funnels = [], initialStatus, initialPreset,
   apolloIndex = null, rosterPulledAt = "", onPullApollo, onCheckLeads, onEnrichCompanies, onCheckVisits, lists = [], onAddToList,
   emailChecks = [], onImportVerifier, onSaveSmartList, noteRefresh = null, onRefreshNotes,
-  engagementCount = 0, onImportEngagements, recycleRules = DEFAULT_RECYCLE_RULES,
+  engagementCount = 0, onImportEngagements, recycleRules = DEFAULT_RECYCLE_RULES, hiddenView = false,
 }: {
+  /** Kept alive by App while another tab is showing: every hook still runs
+   *  (so the filters, sort and counts stay built) but nothing is drawn, so
+   *  no hidden copy of the page sits in the DOM. */
+  hiddenView?: boolean;
   /** Recycle rules — see lib/recycle.ts. */
   recycleRules?: RecycleRules;
   /** Deals and meetings on file — see lib/engagements.ts. */
@@ -1268,6 +1272,7 @@ export default function AllLeads({
       <option key={k} value={k}>{labelOf(k)} ({n.toLocaleString()})</option>
     ));
 
+  if (hiddenView) return null;
   if (leads.length === 0) {
     return (
       <>

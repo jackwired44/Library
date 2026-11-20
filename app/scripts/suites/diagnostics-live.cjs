@@ -20,7 +20,9 @@ fs.writeFileSync(LEADS, csv(HEAD, [
   ['ACTIVE CO','Ada Brant','IT Director','ada@active.com','312-555-0101', SIGNAL],
   ['ENDED CO','Ben Cole','CFO','ben@ended.com','312-555-0102', SIGNAL],
   ['NEW CO','Nia Rowe','CIO','nia@new.com','312-555-0103', SIGNAL],
-  ['REVIEW CO','Rae Lin','CFO','rae@review.com','312-555-0104', 'Mentioned Dynamics 365 in passing.'],
+  // 11/20: was 'Mentioned Dynamics 365 in passing.', which Jack's 11/6 rule now
+  // grades Strong. Rae's job is to be the Needs Review lead, so a help-desk mention.
+  ['REVIEW CO','Rae Lin','CFO','rae@review.com','312-555-0104', 'We could use some help desk support for the office.'],
 ]));
 
 const FAKE = () => {

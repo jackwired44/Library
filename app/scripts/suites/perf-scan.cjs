@@ -77,10 +77,16 @@ const ok = (name, cond, detail) => {
   page.on('dialog', d => d.accept());
   page.setDefaultTimeout(180000);
 
+  // 11/20: read the heap over CDP. performance.memory is coarse-bucketed in
+  // newer Chromium without --enable-precise-memory-info, so it read a flat
+  // 10 MB before and after a 100 MB scan and the Start-over check could
+  // never pass or fail for real.
+  const cdp = await page.context().newCDPSession(page);
   const gcHeap = async () => {
-    await page.evaluate(() => { for (let i = 0; i < 5; i++) if (window.gc) window.gc(); });
+    await cdp.send('HeapProfiler.collectGarbage');
     await sleep(600);
-    return Math.round((await page.evaluate(() => (performance.memory ? performance.memory.usedJSHeapSize : 0))) / 1048576);
+    await cdp.send('HeapProfiler.collectGarbage');
+    return Math.round((await cdp.send('Runtime.getHeapUsage')).usedSize / 1048576);
   };
   const scan = async () => {
     await page.setInputFiles('input[type=file]', FILE);

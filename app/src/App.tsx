@@ -143,16 +143,17 @@ const NAV_GROUPS: { title: string; items: { key: View; label: string }[] }[] = [
 
 
 /** Keeps a view mounted after its first visit and skips re-rendering it while
- *  it is hidden. Per Jack: "slow to move from any tab to all leads". All
+ *  it is hidden (it renders once on the way out, drawing nothing — see
+ *  AllLeads' hiddenView — so no hidden copy of the page stays in the DOM). Per Jack: "slow to move from any tab to all leads". All
  *  leads rebuilt its filter pass, sort and counts over every lead on every
  *  visit (~0.3 s at 40,000 leads, ~1 s the first time); kept alive, coming
- *  back is a show, not a rebuild. While hidden it is frozen (no re-render),
+ *  back reuses its built filters, sort and counts and only draws one page. While hidden it is frozen (no re-render),
  *  so a long Apollo run updating leads costs nothing on other tabs; it
  *  catches up once, on the way back in. A changed `key` on the child still
  *  remounts it, which is how a preset or a Files pick re-seeds its filters. */
 const KeepAliveGate = memo(function KeepAliveGate({ children }: { active: boolean; children: ReactNode }) {
   return <>{children}</>;
-}, (_prev, next) => !next.active);
+}, (prev, next) => !prev.active && !next.active);
 
 export default function App() {
   const [unlocked, setUnlockedState] = useState(isUnlocked());
@@ -1625,6 +1626,7 @@ export default function App() {
           <ViewErrorBoundary onHome={() => setView("home")}>
           <KeepAliveGate active={view === "allleads" || allLeadsWarm}>
           <AllLeads
+            hiddenView={view !== "allleads"}
             key={`leads-${leadsSequenceEntry}-${leadsStatusEntry}-${leadsPresetEntry}-${leadsFilesEntry.files.join("|")}-${leadsFilesEntry.verdict}-${leadsFilesEntry.line}`}
             leads={leads}
             companyProfiles={companyProfiles}

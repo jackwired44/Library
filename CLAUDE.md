@@ -8260,9 +8260,13 @@ Per Jack: "slow to move from any tab to all leads fix this". Measured at
   (`failOf`), sort and faceted counts over every lead.
 - **All leads is kept alive** (`App.tsx`): rendered outside the per-view
   boundary (with its own `ViewErrorBoundary`) inside `KeepAliveGate`, a
-  memo that does not re-render while hidden (`display: none`). Coming back
-  is a show, not a rebuild; a lead change while away is caught up once on
-  return. Its `key` still remounts it for a preset or a Files pick, so
+  memo that renders once on the way out and then not at all while hidden.
+  While hidden, `AllLeads` gets `hiddenView` and returns `null` AFTER all
+  its hooks, so its built filters, sort, counts and filter state stay in
+  memory but no hidden copy of the page sits in the DOM (a first version
+  kept the DOM under `display: none`, and six suites read the hidden copy).
+  Coming back reuses the built data and draws one page; a lead change while
+  away is caught up once on return. Its `key` still remounts it for a preset or a Files pick, so
   those still re-seed the filters. Filters and page now stay where you
   left them when you leave and come back.
 - **Pre-built at idle:** 1.5 s after the leads load, on
@@ -8274,3 +8278,14 @@ Per Jack: "slow to move from any tab to all leads fix this". Measured at
 - **Test harness:** 45 suites hard-coded
   `/opt/pw-browsers/chromium-1194`; they now use it only if it exists,
   else Playwright's own browser.
+- **Stress check at 40,000 leads** (storage, memory, overload): 44 MB of
+  IndexedDB (0.4% of quota); +7 MB heap after 30 round trips (no leak); 20
+  rapid tab switches fine; all leads intact after two reloads; no errors.
+- **Six suites that were already failing were fixed** (all test-side, no app
+  change): `dashboard-live`, `diagnostics-live`, `apollo-check-live` and
+  `scanner-downloads-save` used "Mentioned Dynamics 365 in passing" / "They
+  mentioned Dynamics 365 once" as their non-Strong lead, which Jack's 11/6
+  rule grades Strong; that row is now a help-desk mention (Needs Review).
+  `perf-scan` read `performance.memory`, which newer Chromium rounds (it read
+  a flat 10 MB before and after a 96 MB scan); it now reads the heap over
+  CDP. `csp-download` still needs Jack's real CSP export file.

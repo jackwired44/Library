@@ -16,7 +16,11 @@ const HEAD='First Name,Last Name,Title,Company,Email,Phone,Comments';
 const rows=[
  'Ada,Brant,IT Director,Northwind Freight,ada@northwindfreight.com,(312) 555-0101,"Dynamics 365 Business Central for 40 users, looking for an implementation partner"',
  'Eve,Frost,IT Manager,Frost Dental,eve@frostdental.com,(415) 555-0105,"Migrating from Google Workspace to Microsoft 365 with an MSP"',
- 'Ivy,Jones,Manager,Jones Realty,ivy@jonesrealty.com,(602) 555-0109,"They mentioned Dynamics 365 once"',
+ // 11/20: was "They mentioned Dynamics 365 once", which Jack's 11/6 rule now
+ // grades Strong ("anything to do with microsoft dynamics is a strong lead").
+ // The row's job is to be a NON-Strong lead, so it is now a generic help-desk
+ // mention, which stays Needs Review.
+ 'Ivy,Jones,Manager,Jones Realty,ivy@jonesrealty.com,(602) 555-0109,"We could use some help desk support for the office."',
 ];
 const csv=[HEAD,...rows].join('\n');
 

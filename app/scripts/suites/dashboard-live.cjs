@@ -19,7 +19,9 @@ const rows = [
   ['NORTHWIND CO', 'Ada Brant', 'IT Director', 'ada@northwind.com', '312-555-0101', STRONG],
   ['NORTHWIND CO', 'Ben Cole', 'CFO', 'ben@northwind.com', '312-555-0102', STRONG],
   ['FABRIKAM CO', 'Cy Webb', 'IT Manager', 'cy@fabrikam.com', '312-555-0103', STRONG],
-  ['CONTOSO CO', 'Di Park', 'Owner', 'di@contoso.com', '312-555-0104', 'Mentioned Dynamics 365 in passing.'],
+  // 11/20: was 'Mentioned Dynamics 365 in passing.', which Jack's 11/6 rule now
+  // grades Strong. Di's job is to be the non-Strong lead, so a help-desk mention.
+  ['CONTOSO CO', 'Di Park', 'Owner', 'di@contoso.com', '312-555-0104', 'We could use some help desk support for the office.'],
 ];
 const FILE = path.join(os.tmpdir(), 'dashboard-live-main.csv');
 fs.writeFileSync(FILE, ['Company,Full Name,Title,Email,Phone,Comments'].concat(rows.map(r => r.map(q).join(','))).join('\n'));
