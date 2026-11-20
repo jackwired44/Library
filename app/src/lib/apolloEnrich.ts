@@ -41,11 +41,26 @@ export function isApolloReadOnlyTool(tool: string): boolean {
 // may not return a different value for a frozen property ("'get' on proxy:
 // property 'callTool' is a read-only and non-configurable data property").
 // A fresh object inheriting from it can define its own callTool.
-function readOnly(mcp: ClaudeMcpNamespace): ClaudeMcpNamespace {
+// The ONE exception to the read-only rule, approved by Jack 2026-11-20 for
+// the Sequence Scanner tab only: remove a lead from a sequence, merge a
+// duplicate contact, and set the surviving contact's note. Nothing else —
+// enrolling, creating, sending, completing tasks — is ever let through, and
+// only getSequenceScannerMcp() hands out a handle that allows these three.
+export const SEQUENCE_SCANNER_WRITE_TOOLS = [
+  "emailer_campaigns_remove_or_stop_contact_ids",
+  "duplicate_contacts_merge",
+  "contacts_update",
+] as const;
+function isScannerWrite(tool: string): boolean {
+  const t = tool.toLowerCase().replace(/^apollo_/, "");
+  return (SEQUENCE_SCANNER_WRITE_TOOLS as readonly string[]).includes(t);
+}
+
+function readOnly(mcp: ClaudeMcpNamespace, allowScannerWrites = false): ClaudeMcpNamespace {
   const guarded = Object.create(mcp) as ClaudeMcpNamespace;
   Object.defineProperty(guarded, "callTool", {
     value: (server: string, tool: string, input?: unknown, options?: { cache?: false; signal?: AbortSignal }) => {
-      if (/apollo/i.test(server) && !isApolloReadOnlyTool(tool)) {
+      if (/apollo/i.test(server) && !isApolloReadOnlyTool(tool) && !(allowScannerWrites && isScannerWrite(tool))) {
         return Promise.reject({ code: "write_blocked", message: `Blocked: this platform never writes to Apollo (${tool}).` });
       }
       return mcp.callTool(server, tool, input, options);
@@ -59,6 +74,17 @@ export async function getMcp(): Promise<ClaudeMcpNamespace | null> {
     if (typeof window === "undefined" || !window.claude?.use) return null;
     const mcp = await window.claude.use("mcp");
     return mcp ? readOnly(mcp) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Sequence Scanner only: reads, plus the three writes above. */
+export async function getSequenceScannerMcp(): Promise<ClaudeMcpNamespace | null> {
+  try {
+    if (typeof window === "undefined" || !window.claude?.use) return null;
+    const mcp = await window.claude.use("mcp");
+    return mcp ? readOnly(mcp, true) : null;
   } catch {
     return null;
   }

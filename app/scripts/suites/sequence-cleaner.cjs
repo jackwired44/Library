@@ -26,6 +26,10 @@ const MOCK = () => {
     { id: 'c13', name: 'Vague Val', email: 'val@vagueco.com', organization_name: 'VagueCo', account_id: 'a13', typed_custom_fields: { [NOTE]: 'Wants E3.' }, seq: A },
     { id: 'c8', name: 'Callback Cal', email: 'cal@cbco.com', organization_name: 'CbCo', account_id: 'a8', added_at: '2026-11-15T00:00:00Z', typed_custom_fields: { [NOTE]: 'Wants E3.' }, seq: A },
     { id: 'c9', name: 'Zombie Zed', email: 'zed@zomco.com', organization_name: 'ZomCo', account_id: 'a9', typed_custom_fields: { [NOTE]: 'Wants Business Central.' }, seq: B, finished_at: '2026-11-17T17:24:00Z' },
+    { id: 'c14', name: 'Pat', first_name: 'Pat', last_name: '', email: 'pat@patco.com', organization_name: 'PatCo', account_id: 'a14', phone_numbers: [{ sanitized_number: '+15555550101' }], typed_custom_fields: { [NOTE]: 'Old note from the first import.' }, seq: A },
+    { id: 'c15', name: 'Pat Lee', first_name: 'Pat', last_name: 'Lee', email: 'plee@patco.com', organization_name: 'PatCo', account_id: 'a14', typed_custom_fields: { [NOTE]: 'Wants Business Central for 30 users.' }, seq: B },
+    { id: 'c16', name: 'Mo Diaz', first_name: 'Mo', last_name: 'Diaz', email: 'mo@moco.com', organization_name: 'MoCo', account_id: 'a16', typed_custom_fields: { [NOTE]: 'Wants E3.' }, seq: A },
+    { id: 'c17', name: 'Maurice Diaz', first_name: 'Maurice', last_name: 'Diaz', email: 'MO@moco.com', organization_name: 'MoCo LLC', account_id: 'a16', typed_custom_fields: { [NOTE]: 'Wants E3.' }, seq: B },
     { id: 'c10', name: 'Reply Rae', email: 'rae@replyco.com', organization_name: 'ReplyCo', account_id: 'a10', typed_custom_fields: { [NOTE]: 'Wants Copilot.' }, seq: A },
   ];
   const calls = {
@@ -39,7 +43,8 @@ const MOCK = () => {
   window.claude = { use: async () => ({
     listTools: async () => ({ servers: [{ server: 'Apollo.io', authStatus: 'connected', tools: [
       'apollo_emailer_campaigns_search', 'apollo_contacts_search', 'apollo_phone_calls_search', 'apollo_emailer_messages_search',
-      'apollo_email_accounts_index', 'apollo_emailer_campaigns_add_contact_ids', 'apollo_emailer_campaigns_remove_or_stop_contact_ids'].map(name => ({ name })) }] }),
+      'apollo_email_accounts_index', 'apollo_emailer_campaigns_add_contact_ids', 'apollo_emailer_campaigns_remove_or_stop_contact_ids',
+      'apollo_duplicate_contacts_merge', 'apollo_contacts_update'].map(name => ({ name })) }] }),
     callTool: async (server, tool, input) => {
       if (tool.endsWith('emailer_campaigns_search')) return { payload: { pagination: { total_pages: 1 }, emailer_campaigns: [
         { id: A, name: 'Jack M365 Sequence', user_id: 'jack', active: true, emailer_steps: [{ id: A + 's1', position: 1, type: 'call' }] },
@@ -59,6 +64,8 @@ const MOCK = () => {
         window.__writes.push(['remove', input.emailer_campaign_ids[0], input.contact_ids]);
         return { payload: { contacts: input.contact_ids.map(id => ({ id, emailer_campaign_ids: [] })) } };
       }
+      if (tool.endsWith('duplicate_contacts_merge')) { window.__writes.push(['merge', input.contacts[0].master_contact_id, input.contacts[0].duplicate_contact_ids]); return { payload: { message: 'Successfully Merged' } }; }
+      if (tool.endsWith('contacts_update')) { window.__writes.push(['update', input.id, input.typed_custom_fields]); return { payload: { contact: { id: input.id } } }; }
       throw { code: 'tool_error', message: 'unmocked ' + tool };
     },
   }) };
@@ -89,7 +96,6 @@ const MOCK = () => {
   ok('callback listed', (await row('Callback Cal').innerText()).includes('Call back scheduled'));
   ok('zombie flagged', (await row('Zombie Zed').innerText()).includes('Finished but shown active'));
   ok('prior finished counted', (await row('Again Ann').innerText()).includes('Finished 1 sequence before'));
-  ok('company check lists 2+ in one sequence', (await page.locator('.panel', { hasText: 'Company check' }).innerText()).includes('TwinCo'));
   ok('dated callback not flagged undated', !(await row('Callback Cal').innerText()).includes('no callback date'));
   ok('undated callback flagged', (await row('Vague Val').innerText()).includes('no callback date'));
   ok('history shows last disposition', (await row('Booked Bea').innerText()).includes('Meeting Booked') && (await row('Booked Bea').innerText()).includes('1 call'));
@@ -98,10 +104,35 @@ const MOCK = () => {
   ok('clean lead hidden from Flagged view', !txt.includes('Clean Carl'));
   ok('gap about Echo/HubSpot stated', (await page.locator('text=Echo and HubSpot').count()) > 0);
 
-  await row('Dyn Dana').locator('input[type=checkbox]').check();
-  ok('export offered when writes are off', await page.locator('.bulkbar button', { hasText: 'Export removal list' }).count() === 1);
-  ok('write buttons hidden under the no-writes rule', await page.locator('.bulkbar button').filter({ hasText: /^Move$/ }).count() === 0 && await page.locator('.bulkbar button', { hasText: 'Remove from their sequence' }).count() === 0);
-  ok('nothing written', (await page.evaluate(() => window.__writes.length)) === 0);
+  // One-click remove from a row, behind a confirm.
+  await row('Booked Bea').locator('button', { hasText: 'Remove' }).click(); await sleep(200);
+  ok('remove asks first', await page.locator('[role=dialog]').count() === 1 && (await page.evaluate(() => window.__writes.length)) === 0);
+  await page.locator('[role=dialog] button', { hasText: /^Remove 1$/ }).click(); await sleep(500);
+  const w1 = await page.evaluate(() => window.__writes);
+  ok('remove writes exactly one removal', w1.length === 1 && w1[0][0] === 'remove' && w1[0][2][0] === 'c2', JSON.stringify(w1));
+  ok('removed lead leaves the table', await row('Booked Bea').count() === 0);
+
+  // Duplicates: first-name-only vs full name, and same email.
+  await page.locator('[role=tab]', { hasText: 'Duplicates' }).click(); await sleep(300);
+  const pat = page.locator('[data-dup-group]', { hasText: 'PatCo' });
+  ok('first-name-only duplicate found', await pat.count() === 1 && (await pat.innerText()).includes('no last name'));
+  ok('full name kept by default', (await pat.locator('[data-dup-contact]:has(input:checked)').innerText()).includes('Pat Lee'));
+  const mo = page.locator('[data-dup-group]', { hasText: 'MoCo' });
+  ok('same email confirmed even with different names', await mo.count() === 1 && (await mo.innerText()).includes('Same email, confirmed'));
+  await pat.locator('label', { hasText: 'Old note from the first import' }).locator('input').check();
+  await pat.locator('button', { hasText: 'Merge into kept contact' }).click(); await sleep(200);
+  const dlg = await page.locator('[role=dialog]').innerText();
+  ok('merge confirm names keep, delete and ids', dlg.includes('Keep:') && dlg.includes('c15') && dlg.includes('c14') && dlg.includes("can't be undone"));
+  await page.locator('[role=dialog] button', { hasText: /^Merge$/ }).click(); await sleep(500);
+  const w2 = await page.evaluate(() => window.__writes.slice(1));
+  ok('merge keeps the full-name contact', w2[0] && w2[0][0] === 'merge' && w2[0][1] === 'c15' && w2[0][2][0] === 'c14', JSON.stringify(w2));
+  ok('picked note written to the kept contact', w2[1] && w2[1][0] === 'update' && w2[1][1] === 'c15' && Object.values(w2[1][2])[0] === 'Old note from the first import.', JSON.stringify(w2));
+  ok('merged group leaves the list', await page.locator('[data-dup-group]', { hasText: 'PatCo' }).count() === 0);
+  ok('never enrolls anyone', !(await page.evaluate(() => window.__writes)).some((w) => w[0] === 'add'));
+
+  // Same company tab.
+  await page.locator('[role=tab]', { hasText: 'Same company' }).click(); await sleep(200);
+  ok('same company groups across sequences', (await page.locator('[data-company-group]', { hasText: 'TwinCo' }).innerText()).includes('Twin Two'));
   ok('no page errors', errs.length === 0, errs.join(' | '));
   console.log(`\n${pass} passed, ${fail} failed`);
   await b.close(); process.exit(fail ? 1 : 0);

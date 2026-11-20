@@ -15,7 +15,7 @@
 // Honest scope: meetings and deals are judged from what Apollo knows (call
 // outcomes Meeting Booked / Qualified). Echo meetings and HubSpot deals are
 // not connected here; the UI says so rather than reading as "clean".
-import { getMcp, describeApolloError } from "./apolloEnrich";
+import { getSequenceScannerMcp, describeApolloError } from "./apolloEnrich";
 import type { ClaudeMcpNamespace } from "./claudeRuntime";
 
 // ---------------------------------------------------------------- ids
@@ -48,6 +48,7 @@ export const OUTCOME_LABEL: Record<string, string> = {
 
 export const STAGE_NOT_INTERESTED = "66203bd7183e31042298045e";
 const FIELD_PRODUCT_LINE = "68abe22a26a866001d3e1a08";
+export const FIELD_NOTE = "68abe2198cb839001d7d67c3";
 const FIELD_RESEARCH = "696fb0360a128f000d7103ed"; // long AI research blob — ignored
 
 // The rules, fixed for now (Jack's call: built in, not editable yet).
@@ -77,6 +78,12 @@ export interface ApolloSequence {
 export interface SequenceMember {
   contactId: string;
   name: string;
+  firstName: string;
+  lastName: string;
+  title: string;
+  phones: string[]; // digits only
+  note: string; // the Notes field on its own (what a merge chooses between)
+  crmSynced: boolean; // has a HubSpot / Salesforce id
   company: string;
   email: string;
   domain: string;
@@ -185,7 +192,7 @@ interface Handle {
 }
 
 async function apollo(): Promise<Handle> {
-  const mcp = await getMcp();
+  const mcp = await getSequenceScannerMcp();
   if (!mcp) throw new Error("Apollo isn't available in this view. Open the app from claude.ai with Apollo connected.");
   let servers;
   try {
@@ -247,6 +254,11 @@ export async function listMailboxes(): Promise<Mailbox[]> {
       ownerName: String(a.owner_name || ""), isDefault: Boolean(a.default) }));
 }
 
+export function phoneKey(raw: string): string {
+  const d = raw.replace(/\D/g, "");
+  return d.length >= 10 ? d.slice(-10) : "";
+}
+
 function domainOf(email: string): string {
   const d = (email.split("@")[1] || "").toLowerCase().trim();
   return FREE_DOMAINS.has(d) ? "" : d;
@@ -268,7 +280,8 @@ export async function fetchMembers(seq: ApolloSequence, onProgress?: (n: number)
     const p = await call<{ contacts?: Record<string, unknown>[]; pagination?: { total_pages?: number } }>(
       h, "contacts_search", {
         emailer_campaign_ids: [seq.id], per_page: 100, page,
-        fields: [{ contacts: ["id", "name", "email", "organization_name", "account_id", "contact_stage_id",
+        fields: [{ contacts: ["id", "name", "first_name", "last_name", "title", "email", { phone_numbers: ["sanitized_number"] },
+          "hubspot_vid", "salesforce_id", "salesforce_contact_id", "salesforce_lead_id", "organization_name", "account_id", "contact_stage_id",
           { account: ["domain"] }, "typed_custom_fields",
           { contact_campaign_statuses: ["emailer_campaign_id", "status", "current_step_id", "finished_at", "added_at", "inactive_reason"] }] }],
       });
@@ -288,7 +301,14 @@ export async function fetchMembers(seq: ApolloSequence, onProgress?: (n: number)
       const email = String(c.email || "");
       const acct = (c.account as { domain?: string }) || {};
       members.push({
-        contactId: String(c.id), name: String(c.name || ""), company: String(c.organization_name || ""),
+        contactId: String(c.id), name: String(c.name || ""),
+        firstName: String(c.first_name || "").trim() || String(c.name || "").trim().split(/\s+/)[0] || "",
+        lastName: String(c.last_name || "").trim(),
+        title: String(c.title || ""),
+        phones: [...new Set(((c.phone_numbers as { sanitized_number?: string }[]) || []).map((x) => phoneKey(x.sanitized_number || "")).filter(Boolean))],
+        note: typeof tf[FIELD_NOTE] === "string" ? String(tf[FIELD_NOTE]) : "",
+        crmSynced: Boolean(c.hubspot_vid || c.salesforce_id || c.salesforce_contact_id || c.salesforce_lead_id),
+        company: String(c.organization_name || ""),
         email, domain: domainOf(email) || String(acct.domain || "").toLowerCase(),
         accountId: String(c.account_id || ""), stageId: String(c.contact_stage_id || ""),
         productLine: String(tf[FIELD_PRODUCT_LINE] || ""), notes,
@@ -530,4 +550,121 @@ export async function moveToSequence(contactIds: string[], fromSeqId: string, to
   }
   const removed = moved.length ? await removeFromSequence(moved, fromSeqId) : [];
   return { moved, skipped, removed };
+}
+
+
+// ---------------------------------------------------------------- duplicates
+
+// Per Jack: "in case a last name doesnt upload so then theres two contacts of
+// the same person at the same company one with their first name the other
+// with first and last" — plus phone and email, "email can confirm it with the
+// highest success". Two DIFFERENT Apollo contacts are one person when, at the
+// same company: the email matches (confirmed), or a phone matches, or the
+// first names match and one has no last name (or the full names match).
+// Shared inboxes never count as an email match.
+export type DupReason = "email" | "phone" | "name";
+export const DUP_REASON_META: Record<DupReason, { label: string; rank: number }> = {
+  email: { label: "Same email, confirmed", rank: 0 },
+  phone: { label: "Same phone", rank: 1 },
+  name: { label: "Same name at the same company", rank: 2 },
+};
+const SHARED_INBOX_RE = /^(info|sales|admin|office|contact|hello|support|accounts?|billing|team|hr|it|help|service|marketing)@/i;
+
+export interface DupGroup {
+  key: string;
+  company: string;
+  reason: DupReason;          // strongest reason linking the group
+  reasons: string[];          // plain-English evidence
+  contacts: MemberResult[][]; // one entry per Apollo contact: every sequence membership it has
+}
+
+// One Apollo contact active in two or more of the checked sequences.
+export interface MultiSequence { contactId: string; memberships: MemberResult[] }
+
+// Same company, different people — across every checked sequence.
+export interface CompanyGroup { key: string; company: string; members: MemberResult[] }
+
+const lc = (s: string) => s.toLowerCase().trim();
+const companyKeyOf = (m: SequenceMember) => m.domain || normCompany(m.company);
+
+export function findDuplicates(members: MemberResult[]): DupGroup[] {
+  const byId = new Map<string, MemberResult[]>();
+  for (const m of members) (byId.get(m.contactId) || byId.set(m.contactId, []).get(m.contactId)!).push(m);
+  const ids = [...byId.keys()];
+  const parent = new Map(ids.map((i) => [i, i]));
+  const find = (x: string): string => { while (parent.get(x) !== x) x = parent.get(x)!; return x; };
+  const edges: { a: string; r: DupReason; ev: string }[] = [];
+  const link = (a: string, b: string, r: DupReason, ev: string) => {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) parent.set(rb, ra);
+    edges.push({ a, r, ev });
+  };
+
+  const index = (keyOf: (m: MemberResult) => string[]) => {
+    const map = new Map<string, string[]>();
+    for (const id of ids) for (const k of keyOf(byId.get(id)![0])) if (k) (map.get(k) || map.set(k, []).get(k)!).push(id);
+    return map;
+  };
+  for (const [k, group] of index((m) => [m.email && !SHARED_INBOX_RE.test(m.email) ? lc(m.email) : ""]))
+    for (const o of group.slice(1)) link(group[0], o, "email", `Same email: ${k}`);
+  for (const [k, group] of index((m) => m.phones.map((p) => `${companyKeyOf(m)}|${p}`)))
+    for (const o of group.slice(1)) link(group[0], o, "phone", `Same phone: ${k.split("|")[1]}`);
+  for (const [, group] of index((m) => companyKeyOf(m) && m.firstName ? [`${companyKeyOf(m)}|${lc(m.firstName)}`] : [])) {
+    for (let i = 0; i < group.length; i++) for (let j = i + 1; j < group.length; j++) {
+      const a = byId.get(group[i])![0], b = byId.get(group[j])![0];
+      const la = lc(a.lastName), lb = lc(b.lastName);
+      if (la && lb && la !== lb) continue;
+      const ev = !la || !lb
+        ? `"${(!la ? a : b).name}" has no last name, "${(!la ? b : a).name}" does`
+        : `Same name: ${a.name}`;
+      link(group[i], group[j], "name", ev);
+    }
+  }
+  const best = new Map<string, DupReason>();
+  const why = new Map<string, Set<string>>();
+  for (const e of edges) {
+    const root = find(e.a);
+    const prev = best.get(root);
+    if (!prev || DUP_REASON_META[e.r].rank < DUP_REASON_META[prev].rank) best.set(root, e.r);
+    (why.get(root) || why.set(root, new Set()).get(root)!).add(e.ev);
+  }
+
+  const groups = new Map<string, string[]>();
+  for (const id of ids) { const r = find(id); (groups.get(r) || groups.set(r, []).get(r)!).push(id); }
+  return [...groups.entries()].filter(([, g]) => g.length > 1).map(([root, g]) => {
+    const contacts = g.map((id) => byId.get(id)!);
+    return {
+      key: root,
+      company: contacts.map((c) => c[0].company).find(Boolean) || contacts[0][0].domain,
+      reason: best.get(root) || "name",
+      reasons: [...(why.get(root) || [])],
+      contacts,
+    };
+  }).sort((a, b) => DUP_REASON_META[a.reason].rank - DUP_REASON_META[b.reason].rank || a.company.localeCompare(b.company));
+}
+
+export function findMultiSequence(members: MemberResult[]): MultiSequence[] {
+  const byId = new Map<string, MemberResult[]>();
+  for (const m of members) (byId.get(m.contactId) || byId.set(m.contactId, []).get(m.contactId)!).push(m);
+  return [...byId.entries()].filter(([, ms]) => new Set(ms.map((m) => m.sequenceId)).size > 1)
+    .map(([contactId, memberships]) => ({ contactId, memberships }));
+}
+
+export function findCompanyGroups(members: MemberResult[]): CompanyGroup[] {
+  const by = new Map<string, MemberResult[]>();
+  for (const m of members) { const k = companyKeyOf(m); if (k) (by.get(k) || by.set(k, []).get(k)!).push(m); }
+  return [...by.entries()]
+    .filter(([, ms]) => new Set(ms.map((m) => m.contactId)).size > 1)
+    .map(([key, ms]) => ({ key, company: ms.map((m) => m.company).find(Boolean) || key, members: ms }))
+    .sort((a, b) => b.members.length - a.members.length || a.company.localeCompare(b.company));
+}
+
+/** Merge duplicates into the contact Jack chose to keep (Apollo's own merge:
+ *  the kept contact keeps its values and gains the others' sequences, calls
+ *  and history; the duplicates are deleted). Then, if Jack picked a note
+ *  other than the kept contact's own, write that note onto it. */
+export async function mergeContacts(masterId: string, duplicateIds: string[], note: string | null): Promise<void> {
+  const h = await apollo();
+  await call(h, "duplicate_contacts_merge", { contacts: [{ master_contact_id: masterId, duplicate_contact_ids: duplicateIds }] });
+  if (note !== null) await call(h, "contacts_update", { id: masterId, typed_custom_fields: { [FIELD_NOTE]: note } });
 }

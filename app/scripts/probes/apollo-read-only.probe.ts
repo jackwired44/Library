@@ -1,6 +1,6 @@
 // Per Jack: "nothing should be pushed to apollo make a rule". Every Apollo
 // call goes through getMcp(), which only lets read tools through.
-import { isApolloReadOnlyTool, getMcp } from "../../src/lib/apolloEnrich";
+import { isApolloReadOnlyTool, getMcp, getSequenceScannerMcp } from "../../src/lib/apolloEnrich";
 
 let pass = 0, fail = 0;
 const ok = (n: string, c: boolean, d = "") => { if (c) { pass++; console.log("  ok   " + n); } else { fail++; console.log(`  FAIL ${n}${d ? " — " + d : ""}`); } };
@@ -24,6 +24,20 @@ let refused: any = null;
 try { await mcp!.callTool("Apollo.io", "apollo_emailer_campaigns_add_contact_ids", {}); } catch (e) { refused = e; }
 ok("a read goes through", calls.includes("apollo_contacts_search"));
 ok("a write is refused before it leaves the page", !calls.includes("apollo_emailer_campaigns_add_contact_ids") && refused?.code === "write_blocked", JSON.stringify(refused));
+
+// Sequence Scanner exception (Jack, 2026-11-20): exactly three writes, and
+// only on the scanner's own handle.
+const sc = await getSequenceScannerMcp();
+for (const t of ["apollo_emailer_campaigns_remove_or_stop_contact_ids", "apollo_duplicate_contacts_merge", "apollo_contacts_update"]) {
+  await sc!.callTool("Apollo.io", t, {});
+  ok(`scanner handle allows ${t}`, calls.includes(t));
+}
+for (const t of ["apollo_emailer_campaigns_add_contact_ids", "apollo_contacts_create", "apollo_emailer_messages_send_now", "apollo_tasks_complete"]) {
+  let r: any = null; try { await sc!.callTool("Apollo.io", t, {}); } catch (e) { r = e; }
+  ok(`scanner handle still blocks ${t}`, r?.code === "write_blocked");
+}
+let r2: any = null; try { await mcp!.callTool("Apollo.io", "apollo_duplicate_contacts_merge", {}); } catch (e) { r2 = e; }
+ok("the normal handle still blocks the scanner writes", r2?.code === "write_blocked");
 
 console.log(`\n${pass}/${pass + fail} checks passed`);
 if (fail) process.exit(1);
