@@ -6097,6 +6097,33 @@ sequences, made repeatable with one click.
   `apollo-read-only.cjs` (37: the scanner handle allows exactly the three
   writes, the normal handle still blocks them).
 
+### 2026-11-20: Sequence Scanner Recycle tab (scanner-platform-v29)
+
+Per Jack: "a button in sequence scanner so i can click refresh and push to
+recycled sequences last 30 days or whatever i set the timeframe to".
+- Sequence Scanner has two modes: Check sequences / **Recycle**. Recycle
+  pairs each sequence named "…Recycled" with a source of the same owner
+  (default: that owner's M365/Main sequence, never Dynamics; changeable),
+  a timeframe in days (default 30, saved in localStorage `recycleDays`) and
+  ↻ Refresh.
+- `findRecycleCandidates` (`lib/apolloSequences.ts`): everyone who finished
+  the source within the timeframe, minus: active/paused in any sequence,
+  already in a recycled sequence, ended early (reply, bounce, unsubscribe,
+  interest, manual stop), unsubscribed, bad email, stage Not Interested, a
+  deal, replied, a call outcome of Meeting Booked / Qualified / Info
+  Requested / Not interested / DNC / Call Back / Wrong Number, a 4+ minute
+  call at the company, a conversation note. Left-out leads are listed with
+  their reason. Kept leads are Ready once `RECYCLE_REST_BUSINESS_DAYS` (4)
+  business days have passed since they finished (Carly Main Recycled's own
+  description), else "From <date>".
+- "Push N to <recycled>" asks first (count, sender mailbox defaulting to
+  the sequence owner's, active, real emails go out) and calls
+  `emailer_campaigns_add_contact_ids` with only "finished in another
+  sequence" waived. `emailer_campaigns_add_contact_ids` joined
+  `SEQUENCE_SCANNER_WRITE_TOOLS` (now four); every other screen still
+  refuses writes.
+- Suite `sequence-cleaner` 30 → 38.
+
 ### 2026-11-20: All leads simplified (scanner-platform-v29)
 
 Per Jack: "all leads chart should look more similar to the main scanner

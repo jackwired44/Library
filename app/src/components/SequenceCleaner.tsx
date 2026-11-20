@@ -7,8 +7,9 @@ import { useMemo, useState } from "react";
 import { downloadBlob, toCSV } from "../lib/csv";
 import {
   FLAG_META, DUP_REASON_META, listSequences, runAudit, removeFromSequence, mergeContacts,
-  findDuplicates, findMultiSequence, findCompanyGroups,
-  type ApolloSequence, type AuditResult, type DupGroup, type FlagKind, type MemberResult,
+  findDuplicates, findMultiSequence, findCompanyGroups, listMailboxes, findRecycleCandidates, pushToRecycled,
+  RECYCLE_REST_BUSINESS_DAYS,
+  type ApolloSequence, type Mailbox, type RecycleResult, type AuditResult, type DupGroup, type FlagKind, type MemberResult,
 } from "../lib/apolloSequences";
 
 const SEVERITY_CLASS = { remove: "danger", review: "warning", info: "info" } as const;
@@ -26,6 +27,8 @@ const fmtPhone = (d: string) => d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(
 
 export default function SequenceCleaner() {
   const [sequences, setSequences] = useState<ApolloSequence[] | null>(null);
+  const [mailboxes, setMailboxes] = useState<Mailbox[]>([]);
+  const [mode, setMode] = useState<"check" | "recycle">("check");
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [pickerOpen, setPickerOpen] = useState(true);
   const [status, setStatus] = useState("");
@@ -53,7 +56,8 @@ export default function SequenceCleaner() {
   async function connect() {
     setBusy(true); setError(""); setStatus("Loading sequences from Apollo…");
     try {
-      const seqs = await listSequences();
+      const [seqs, boxes] = await Promise.all([listSequences(), listMailboxes().catch(() => [] as Mailbox[])]);
+      setMailboxes(boxes);
       setSequences(seqs.sort((a, b) => Number(b.active) - Number(a.active) || a.name.localeCompare(b.name)));
       setStatus("");
     } catch (e) { setError((e as Error).message); setStatus(""); }
@@ -152,7 +156,16 @@ export default function SequenceCleaner() {
       {status && <div className="panel-sub" style={{ marginBottom: 12 }}>⏳ {status}</div>}
       {notice && <div className="panel" style={{ padding: 12, marginBottom: 12, borderColor: "var(--success)" }}>✓ {notice}</div>}
 
-      {sequences && (pickerOpen || !audit) && (
+      {sequences && (
+        <div className="seg" role="tablist" aria-label="Mode" style={{ marginBottom: 12 }}>
+          <button role="tab" aria-selected={mode === "check"} className={`seg-btn${mode === "check" ? " active" : ""}`} onClick={() => setMode("check")}>Check sequences</button>
+          <button role="tab" aria-selected={mode === "recycle"} className={`seg-btn${mode === "recycle" ? " active" : ""}`} onClick={() => setMode("recycle")}>Recycle</button>
+        </div>
+      )}
+
+      {sequences && mode === "recycle" && <RecyclePanel sequences={sequences} mailboxes={mailboxes} />}
+
+      {mode === "check" && sequences && (pickerOpen || !audit) && (
         <div className="panel" style={{ marginBottom: 16 }}>
           <div className="panel-head">
             <div className="panel-title">Sequences</div>
@@ -172,7 +185,7 @@ export default function SequenceCleaner() {
         </div>
       )}
 
-      {audit && (
+      {mode === "check" && audit && (
         <>
           {!pickerOpen && (
             <div className="panel" style={{ padding: "10px 14px", marginBottom: 12, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
@@ -469,4 +482,184 @@ function bestKeep(g: DupGroup): string {
     return (c.lastName ? 1000 : 0) + c.history.calls * 10 + (c.note ? 5 : 0) + (c.email ? 3 : 0) + Math.max(...ms.map((m) => m.stepPosition || 0));
   };
   return [...g.contacts].sort((a, b) => score(b) - score(a))[0][0].contactId;
+}
+
+
+// ---------------------------------------------------------------- recycle
+
+const RECYCLE_DAYS_KEY = "recycleDays";
+interface Pair { targetId: string; sourceId: string; on: boolean }
+
+function RecyclePanel({ sequences, mailboxes }: { sequences: ApolloSequence[]; mailboxes: Mailbox[] }) {
+  const targets = useMemo(() => sequences.filter((s) => /recycl/i.test(s.name)), [sequences]);
+  const recycledIds = useMemo(() => targets.map((t) => t.id), [targets]);
+  const sourcesFor = (t: ApolloSequence) => sequences.filter((s) => s.ownerId === t.ownerId && !/recycl/i.test(s.name));
+  const [pairs, setPairs] = useState<Pair[]>(() => targets.map((t) => {
+    const src = sourcesFor(t);
+    const pick = src.find((s) => /m365|main/i.test(s.name) && !/dynamics/i.test(s.name)) || src[0];
+    return { targetId: t.id, sourceId: pick?.id || "", on: !!pick };
+  }));
+  const [days, setDays] = useState<number>(() => { try { return Number(localStorage.getItem(RECYCLE_DAYS_KEY)) || 30; } catch { return 30; } });
+  const [readyOnly, setReadyOnly] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("");
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [results, setResults] = useState<RecycleResult[]>([]);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [confirm, setConfirm] = useState<{ result: RecycleResult; ids: string[]; mailboxId: string } | null>(null);
+  const name = (id: string) => sequences.find((s) => s.id === id)?.name || id;
+
+  function setDaysSaved(n: number) {
+    setDays(n);
+    try { if (n > 0) localStorage.setItem(RECYCLE_DAYS_KEY, String(n)); } catch { /* preference only */ }
+  }
+
+  async function refresh() {
+    setBusy(true); setError(""); setNotice(""); setResults([]);
+    const out: RecycleResult[] = [];
+    try {
+      for (const p of pairs.filter((x) => x.on && x.sourceId)) {
+        const src = sequences.find((s) => s.id === p.sourceId)!;
+        const tgt = sequences.find((s) => s.id === p.targetId)!;
+        out.push(await findRecycleCandidates(src, tgt, days, recycledIds, (m) => setStatus(`${tgt.name}: ${m}`)));
+      }
+      setResults(out);
+      setPicked(new Set(out.flatMap((r) => r.keep.filter((k) => k.ready).map((k) => `${r.targetId}:${k.contactId}`))));
+    } catch (e) { setError((e as Error).message); }
+    setStatus(""); setBusy(false);
+  }
+
+  function askPush(r: RecycleResult) {
+    const ids = r.keep.filter((k) => picked.has(`${r.targetId}:${k.contactId}`)).map((k) => k.contactId);
+    if (!ids.length) return;
+    const owner = sequences.find((s) => s.id === r.targetId)?.ownerId;
+    const box = mailboxes.find((b) => b.ownerId === owner && b.isDefault) || mailboxes.find((b) => b.ownerId === owner);
+    setConfirm({ result: r, ids, mailboxId: box?.id || "" });
+  }
+
+  async function push() {
+    if (!confirm) return;
+    setBusy(true); setError("");
+    try {
+      const r = await pushToRecycled(confirm.result.targetId, confirm.ids, confirm.mailboxId);
+      const skippedN = Object.keys(r.skipped).length;
+      const why = [...new Set(Object.values(r.skipped))].map((x) => x.replace(/_/g, " ")).join(", ");
+      setNotice(`Added ${r.enrolled.length} of ${confirm.ids.length} to ${name(confirm.result.targetId)}${skippedN ? `. ${skippedN} skipped by Apollo (${why})` : ""}.`);
+      const done = new Set(r.enrolled);
+      setResults((rs) => rs.map((x) => x.targetId === confirm.result.targetId ? { ...x, keep: x.keep.filter((k) => !done.has(k.contactId)) } : x));
+    } catch (e) { setError((e as Error).message); }
+    setConfirm(null); setBusy(false);
+  }
+
+  if (!targets.length) return <div className="panel" style={{ padding: 16 }}>No sequence with "Recycled" in its name. Create one in Apollo first.</div>;
+
+  return (
+    <div data-recycle>
+      <div className="panel" style={{ marginBottom: 12 }}>
+        <div className="panel-head">
+          <div className="panel-title">Recycle finished leads</div>
+          <div className="panel-sub">Finished the main sequence with only no answer, gatekeeper or voicemail; pushed {RECYCLE_REST_BUSINESS_DAYS} business days after they finished.</div>
+        </div>
+        <div className="panel-body" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {targets.map((t) => {
+            const p = pairs.find((x) => x.targetId === t.id)!;
+            return (
+              <div key={t.id} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <input type="checkbox" aria-label={`Recycle into ${t.name}`} checked={p.on} onChange={(e) => setPairs((ps) => ps.map((x) => x.targetId === t.id ? { ...x, on: e.target.checked } : x))} />
+                <span className="panel-sub">From</span>
+                <select className="field" aria-label={`Source for ${t.name}`} value={p.sourceId} onChange={(e) => setPairs((ps) => ps.map((x) => x.targetId === t.id ? { ...x, sourceId: e.target.value } : x))}>
+                  <option value="">Pick a sequence…</option>
+                  {sourcesFor(t).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+                <span className="panel-sub">into</span> <strong>{t.name}</strong>
+              </div>
+            );
+          })}
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 4 }}>
+            <label style={{ display: "flex", gap: 6, alignItems: "center" }}>Finished in the last
+              <input className="field" type="number" min={1} max={365} aria-label="Timeframe in days" value={days} onChange={(e) => setDaysSaved(Number(e.target.value))} style={{ width: 70 }} /> days
+            </label>
+            <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <input type="checkbox" checked={readyOnly} onChange={(e) => setReadyOnly(e.target.checked)} /> Only show leads ready now
+            </label>
+            <button className="btn btn-primary btn-sm" disabled={busy || !(days > 0) || !pairs.some((x) => x.on && x.sourceId)} onClick={refresh}>↻ Refresh</button>
+          </div>
+        </div>
+      </div>
+
+      {error && <div className="panel" style={{ borderColor: "var(--danger)", color: "var(--danger)", padding: 12, marginBottom: 12 }}>{error}</div>}
+      {status && <div className="panel-sub" style={{ marginBottom: 12 }}>⏳ {status}</div>}
+      {notice && <div className="panel" style={{ padding: 12, marginBottom: 12, borderColor: "var(--success)" }}>✓ {notice}</div>}
+
+      {results.map((r) => {
+        const rows = r.keep.filter((k) => !readyOnly || k.ready);
+        const ready = r.keep.filter((k) => k.ready).length;
+        const sel = r.keep.filter((k) => picked.has(`${r.targetId}:${k.contactId}`)).length;
+        const reasons = new Map<string, number>();
+        for (const x of r.excluded) reasons.set(x.reason, (reasons.get(x.reason) || 0) + 1);
+        const allOn = rows.length > 0 && rows.every((k) => picked.has(`${r.targetId}:${k.contactId}`));
+        return (
+          <div key={r.targetId} className="panel" style={{ marginBottom: 14 }} data-recycle-pair>
+            <div className="panel-head">
+              <div className="panel-title">{name(r.sourceId)} → {name(r.targetId)}</div>
+              <button className="btn btn-primary btn-sm" disabled={busy || !sel} onClick={() => askPush(r)}>Push {sel} to {name(r.targetId)}</button>
+            </div>
+            <div className="panel-body">
+              <div className="panel-sub" style={{ marginBottom: 8 }}>
+                {r.finished} finished in the last {days} days · <strong>{ready} ready now</strong> · {r.keep.length - ready} waiting out the rest · {r.excluded.length} left out
+              </div>
+              {r.excluded.length > 0 && (
+                <details style={{ marginBottom: 8 }}>
+                  <summary className="panel-sub" style={{ cursor: "pointer" }}>Why {r.excluded.length} were left out: {[...reasons].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} (${n})`).join(", ")}</summary>
+                  <ul style={{ maxHeight: 200, overflowY: "auto", fontSize: 13 }}>{r.excluded.map((x) => <li key={x.contactId}>{x.name} · {x.company}: {x.reason}</li>)}</ul>
+                </details>
+              )}
+              <table className="data-table">
+                <thead><tr>
+                  <th><input type="checkbox" aria-label="Select all" checked={allOn} onChange={() => setPicked((p) => { const n = new Set(p); rows.forEach((k) => { const key = `${r.targetId}:${k.contactId}`; if (allOn) n.delete(key); else n.add(key); }); return n; })} /></th>
+                  <th>Lead</th><th>Finished</th><th>Calls</th><th>Ready</th>
+                </tr></thead>
+                <tbody>
+                  {rows.length === 0 && <tr><td colSpan={5} className="cell-empty">{readyOnly && r.keep.length ? "Nobody is ready yet. Untick “Only show leads ready now” to see who's waiting." : "Nobody to recycle in this timeframe."}</td></tr>}
+                  {rows.map((k) => {
+                    const key = `${r.targetId}:${k.contactId}`;
+                    return (
+                      <tr key={key}>
+                        <td><input type="checkbox" checked={picked.has(key)} onChange={() => setPicked((p) => { const n = new Set(p); if (n.has(key)) n.delete(key); else n.add(key); return n; })} /></td>
+                        <td><strong>{k.name}</strong><div className="panel-sub">{k.company}{k.email ? ` · ${k.email}` : ""}</div></td>
+                        <td>{k.finishedAt}</td>
+                        <td className="panel-sub">{k.calls ? `${k.calls} · ${k.lastOutcome}` : "None logged"}</td>
+                        <td>{k.ready ? <span className="status-pill success">Ready</span> : <span className="status-pill neutral">From {k.readyOn}</span>}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })}
+
+      {confirm && (
+        <div role="dialog" aria-modal="true" style={{ position: "fixed", inset: 0, background: "rgba(8,30,34,0.35)", zIndex: 1000, overflowY: "auto", padding: 20 }} onClick={() => !busy && setConfirm(null)}>
+          <div className="panel" style={{ maxWidth: 540, margin: "10vh auto", padding: 20 }} onClick={(e) => e.stopPropagation()}>
+            <div className="panel-title" style={{ marginBottom: 8 }}>Push to {name(confirm.result.targetId)}</div>
+            <p><strong>{confirm.ids.length}</strong> lead{confirm.ids.length === 1 ? "" : "s"} who finished {name(confirm.result.sourceId)} in the last {days} days. They start at step 1, active, and real emails go out from the mailbox below.</p>
+            <p>Checked first: none are active in another sequence, none replied, unsubscribed, bounced or have a deal, and their calls were only no answer, gatekeeper or voicemail.</p>
+            <label style={{ display: "flex", gap: 8, alignItems: "center" }}>Send from
+              <select className="field" aria-label="Send from" value={confirm.mailboxId} onChange={(e) => setConfirm({ ...confirm, mailboxId: e.target.value })}>
+                <option value="">Pick a mailbox…</option>
+                {mailboxes.map((b) => <option key={b.id} value={b.id}>{b.email}{b.ownerName ? ` (${b.ownerName})` : ""}</option>)}
+              </select>
+            </label>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
+              <button className="btn btn-secondary" disabled={busy} onClick={() => setConfirm(null)}>Cancel</button>
+              <button className="btn btn-primary" disabled={busy || !confirm.mailboxId} onClick={push}>{busy ? "Adding…" : `Push ${confirm.ids.length}`}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }

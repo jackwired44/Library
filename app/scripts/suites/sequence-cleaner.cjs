@@ -10,7 +10,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  PASS', n)) : (fail++,
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 const MOCK = () => {
-  const A = 'aaaaaaaaaaaaaaaaaaaaaaaa', B = 'bbbbbbbbbbbbbbbbbbbbbbbb';
+  const A = 'aaaaaaaaaaaaaaaaaaaaaaaa', B = 'bbbbbbbbbbbbbbbbbbbbbbbb', R = 'dddddddddddddddddddddddd';
+  const daysAgo = n => new Date(Date.now() - n * 86400000).toISOString();
   const st = (seq, extra = {}, prior = []) => [{ emailer_campaign_id: seq, status: 'active', current_step_id: seq + 's1', ...extra }, ...prior];
   const PL = '68abe22a26a866001d3e1a08', NOTE = '68abe2198cb839001d7d67c3';
   const contacts = [
@@ -30,12 +31,19 @@ const MOCK = () => {
     { id: 'c15', name: 'Pat Lee', first_name: 'Pat', last_name: 'Lee', email: 'plee@patco.com', organization_name: 'PatCo', account_id: 'a14', typed_custom_fields: { [NOTE]: 'Wants Business Central for 30 users.' }, seq: B },
     { id: 'c16', name: 'Mo Diaz', first_name: 'Mo', last_name: 'Diaz', email: 'mo@moco.com', organization_name: 'MoCo', account_id: 'a16', typed_custom_fields: { [NOTE]: 'Wants E3.' }, seq: A },
     { id: 'c17', name: 'Maurice Diaz', first_name: 'Maurice', last_name: 'Diaz', email: 'MO@moco.com', organization_name: 'MoCo LLC', account_id: 'a16', typed_custom_fields: { [NOTE]: 'Wants E3.' }, seq: B },
+    { id: 'r1', name: 'Ready Rita', email: 'rita@ritaco.com', organization_name: 'RitaCo', account_id: 'a20', typed_custom_fields: {}, seq: A, fin: daysAgo(15) },
+    { id: 'r2', name: 'Fresh Fred', email: 'fred@fredco.com', organization_name: 'FredCo', account_id: 'a21', typed_custom_fields: {}, seq: A, fin: daysAgo(1) },
+    { id: 'r3', name: 'Talked Tom', email: 'tom@tomco.com', organization_name: 'TomCo', account_id: 'a22', typed_custom_fields: {}, seq: A, fin: daysAgo(10) },
+    { id: 'r4', name: 'Busy Bo', email: 'bo@boco.com', organization_name: 'BoCo', account_id: 'a23', typed_custom_fields: {}, seq: A, fin: daysAgo(10), prior: [{ emailer_campaign_id: B, status: 'active' }] },
+    { id: 'r5', name: 'Old Olga', email: 'olga@olgaco.com', organization_name: 'OlgaCo', account_id: 'a24', typed_custom_fields: {}, seq: A, fin: daysAgo(60) },
     { id: 'c10', name: 'Reply Rae', email: 'rae@replyco.com', organization_name: 'ReplyCo', account_id: 'a10', typed_custom_fields: { [NOTE]: 'Wants Copilot.' }, seq: A },
   ];
   const calls = {
     a2: [{ id: 'k1', contact_id: 'c2', duration: 30, phone_call_outcome_id: '6a024dabd777bd000d626376', start_time: '2026-11-10T15:00:00Z', caller_name: 'Carly Parks' }],
     a7: [{ id: 'k2', contact_id: 'cX', duration: 420, phone_call_outcome_id: null, start_time: '2026-10-01T15:00:00Z', caller_name: 'Jack Snellgrove' }],
     a13: [{ id: 'k4', contact_id: 'c13', duration: 0, phone_call_outcome_id: '6a73be64a0f3de000c6be57f', note_text: 'Spoke briefly, asked to call back', start_time: '2026-11-18T15:00:00Z', caller_name: 'Carly Parks' }],
+    a20: [{ id: 'k20', contact_id: 'r1', duration: 0, phone_call_outcome_id: '66203bd7183e31042298047d', start_time: daysAgo(18), caller_name: 'Jack Snellgrove' }],
+    a22: [{ id: 'k22', contact_id: 'r3', duration: 40, phone_call_outcome_id: '66203bd7183e310422980485', start_time: daysAgo(12), caller_name: 'Jack Snellgrove' }],
     a8: [{ id: 'k3', contact_id: 'c8', duration: 0, phone_call_outcome_id: '6a73be64a0f3de000c6be57f', note_text: 'Call back Friday at 2pm', start_time: '2026-11-13T15:00:00Z', caller_name: 'Jack Snellgrove' }],
   };
   window.__writes = [];
@@ -48,11 +56,12 @@ const MOCK = () => {
     callTool: async (server, tool, input) => {
       if (tool.endsWith('emailer_campaigns_search')) return { payload: { pagination: { total_pages: 1 }, emailer_campaigns: [
         { id: A, name: 'Jack M365 Sequence', user_id: 'jack', active: true, emailer_steps: [{ id: A + 's1', position: 1, type: 'call' }] },
-        { id: B, name: 'Jacks Dynamics Sequence', user_id: 'jack', active: false, emailer_steps: [{ id: B + 's1', position: 1, type: 'call' }] }] } };
+        { id: B, name: 'Jacks Dynamics Sequence', user_id: 'jack', active: false, emailer_steps: [{ id: B + 's1', position: 1, type: 'call' }] },
+        { id: R, name: 'Jack Main Recycled', user_id: 'jack', active: true, emailer_steps: [{ id: R + 's1', position: 1, type: 'call' }] }] } };
       if (tool.endsWith('email_accounts_index')) return { payload: { email_accounts: [{ id: 'mb1', email: 'jack@wiredcio.com', user_id: 'jack', owner_name: 'Jack', default: true }] } };
       if (tool.endsWith('contacts_search')) {
         const seq = input.emailer_campaign_ids[0];
-        return { payload: { pagination: { total_pages: 1 }, contacts: contacts.filter(c => c.seq === seq).map(c => ({ ...c, contact_campaign_statuses: st(c.seq, { ...(c.finished_at ? { finished_at: c.finished_at } : {}), ...(c.added_at ? { added_at: c.added_at } : {}) }, c.prior || []) })) } };
+        return { payload: { pagination: { total_pages: 1 }, contacts: contacts.filter(c => c.seq === seq).map(c => ({ ...c, contact_campaign_statuses: st(c.seq, { ...(c.fin ? { status: 'finished', finished_at: c.fin, inactive_reason: 'completed_last_step' } : {}), ...(c.finished_at ? { finished_at: c.finished_at } : {}), ...(c.added_at ? { added_at: c.added_at } : {}) }, c.prior || []) })) } };
       }
       if (tool.endsWith('phone_calls_search')) return { payload: { phone_calls: calls[input.account_id] || [] } };
       if (tool.endsWith('emailer_messages_search')) return { payload: { pagination: { total_pages: 1 }, emailer_messages: input.emailer_campaign_id === A ? [{ contact_id: 'c10' }] : [] } };
@@ -133,6 +142,24 @@ const MOCK = () => {
   // Same company tab.
   await page.locator('[role=tab]', { hasText: 'Same company' }).click(); await sleep(200);
   ok('same company groups across sequences', (await page.locator('[data-company-group]', { hasText: 'TwinCo' }).innerText()).includes('Twin Two'));
+  // Recycle tab: refresh finds who's ready, push enrolls only them.
+  await page.locator('[role=tab]', { hasText: 'Recycle' }).click(); await sleep(200);
+  ok('recycle pair defaults to the main sequence', (await page.locator('select[aria-label="Source for Jack Main Recycled"] option:checked').innerText()).includes('Jack M365'));
+  await page.fill('input[aria-label="Timeframe in days"]', '30');
+  await page.locator('[data-recycle] button', { hasText: 'Refresh' }).click(); await sleep(900);
+  const rp = await page.locator('[data-recycle-pair]').innerText();
+  ok('ready lead listed', rp.includes('Ready Rita'));
+  ok('lead still resting is hidden by default', !rp.includes('Fresh Fred'));
+  ok('outside the timeframe is not counted', !rp.includes('Old Olga'));
+  ok('reached and busy leads left out with reasons', rp.includes('Not interested') && rp.includes('Active in another sequence'));
+  await page.locator('[data-recycle] label', { hasText: 'Only show leads ready now' }).locator('input').uncheck(); await sleep(150);
+  ok('untick shows who is waiting and when', (await page.locator('[data-recycle-pair]').innerText()).includes('Fresh Fred'));
+  const before = await page.evaluate(() => window.__writes.length);
+  await page.locator('[data-recycle-pair] button', { hasText: 'Push 1 to Jack Main Recycled' }).click(); await sleep(200);
+  ok('push asks first', (await page.locator('[role=dialog]').innerText()).includes('real emails go out') && (await page.evaluate(() => window.__writes.length)) === before);
+  await page.locator('[role=dialog] button', { hasText: /^Push 1$/ }).click(); await sleep(500);
+  const w3 = await page.evaluate(() => window.__writes.slice(-1)[0]);
+  ok('push enrolls only the ready lead from the owner mailbox', w3 && w3[0] === 'add' && w3[1] === 'dddddddddddddddddddddddd' && w3[2].join() === 'r1' && w3[3] === 'mb1', JSON.stringify(w3));
   ok('no page errors', errs.length === 0, errs.join(' | '));
   console.log(`\n${pass} passed, ${fail} failed`);
   await b.close(); process.exit(fail ? 1 : 0);

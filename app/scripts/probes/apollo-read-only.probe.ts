@@ -25,14 +25,14 @@ try { await mcp!.callTool("Apollo.io", "apollo_emailer_campaigns_add_contact_ids
 ok("a read goes through", calls.includes("apollo_contacts_search"));
 ok("a write is refused before it leaves the page", !calls.includes("apollo_emailer_campaigns_add_contact_ids") && refused?.code === "write_blocked", JSON.stringify(refused));
 
-// Sequence Scanner exception (Jack, 2026-11-20): exactly three writes, and
+// Sequence Scanner exception (Jack, 2026-11-20): exactly four writes, and
 // only on the scanner's own handle.
 const sc = await getSequenceScannerMcp();
-for (const t of ["apollo_emailer_campaigns_remove_or_stop_contact_ids", "apollo_duplicate_contacts_merge", "apollo_contacts_update"]) {
+for (const t of ["apollo_emailer_campaigns_remove_or_stop_contact_ids", "apollo_duplicate_contacts_merge", "apollo_contacts_update", "apollo_emailer_campaigns_add_contact_ids"]) {
   await sc!.callTool("Apollo.io", t, {});
   ok(`scanner handle allows ${t}`, calls.includes(t));
 }
-for (const t of ["apollo_emailer_campaigns_add_contact_ids", "apollo_contacts_create", "apollo_emailer_messages_send_now", "apollo_tasks_complete"]) {
+for (const t of ["apollo_contacts_create", "apollo_emailer_messages_send_now", "apollo_tasks_complete"]) {
   let r: any = null; try { await sc!.callTool("Apollo.io", t, {}); } catch (e) { r = e; }
   ok(`scanner handle still blocks ${t}`, r?.code === "write_blocked");
 }

@@ -43,13 +43,16 @@ export function isApolloReadOnlyTool(tool: string): boolean {
 // A fresh object inheriting from it can define its own callTool.
 // The ONE exception to the read-only rule, approved by Jack 2026-11-20 for
 // the Sequence Scanner tab only: remove a lead from a sequence, merge a
-// duplicate contact, and set the surviving contact's note. Nothing else —
-// enrolling, creating, sending, completing tasks — is ever let through, and
+// duplicate contact, set the surviving contact's note, and enroll leads in a
+// recycled sequence. Nothing else — creating, sending, completing tasks — is
+// ever let through, and
 // only getSequenceScannerMcp() hands out a handle that allows these three.
 export const SEQUENCE_SCANNER_WRITE_TOOLS = [
   "emailer_campaigns_remove_or_stop_contact_ids",
   "duplicate_contacts_merge",
   "contacts_update",
+  // Added 2026-11-20 for the Recycle tab (Jack: "push to recycled sequences").
+  "emailer_campaigns_add_contact_ids",
 ] as const;
 function isScannerWrite(tool: string): boolean {
   const t = tool.toLowerCase().replace(/^apollo_/, "");

@@ -668,3 +668,145 @@ export async function mergeContacts(masterId: string, duplicateIds: string[], no
   await call(h, "duplicate_contacts_merge", { contacts: [{ master_contact_id: masterId, duplicate_contact_ids: duplicateIds }] });
   if (note !== null) await call(h, "contacts_update", { id: masterId, typed_custom_fields: { [FIELD_NOTE]: note } });
 }
+
+
+// ---------------------------------------------------------------- recycle
+
+// Per Jack: "a button in sequence scanner so i can click refresh and push to
+// recycled sequences last 30 days or whatever i set the timeframe to". The
+// rule is Carly Main Recycled's own description: leads that finished the main
+// sequence with only no answer / gatekeeper / voicemail, pushed four business
+// days after their tasks finished.
+export const RECYCLE_REST_BUSINESS_DAYS = 4;
+const RECYCLE_BLOCK_OUTCOMES = new Set<string>([
+  OUTCOME.meetingBooked, OUTCOME.qualified, OUTCOME.infoRequested, OUTCOME.notInterested,
+  OUTCOME.doNotContact, OUTCOME.callBack, OUTCOME.wrongNumber,
+]);
+// An early end (reply, bounce, unsubscribe, interest, a manual stop) is not a
+// recycle; finishing the last step is.
+const EARLY_END_RE = /repl|bounce|unsub|opt|interest|meeting|manual|stop|remov|ooo|out_of_office|spam|invalid/i;
+
+export function addBusinessDays(iso: string, n: number): Date {
+  const d = new Date(iso);
+  let left = n;
+  while (left > 0) {
+    d.setUTCDate(d.getUTCDate() + 1);
+    const wd = d.getUTCDay();
+    if (wd !== 0 && wd !== 6) left--;
+  }
+  return d;
+}
+
+export interface RecycleCandidate {
+  contactId: string;
+  name: string;
+  company: string;
+  email: string;
+  finishedAt: string;
+  readyOn: string;   // YYYY-MM-DD
+  ready: boolean;
+  calls: number;
+  lastOutcome: string;
+}
+export interface RecycleExcluded { contactId: string; name: string; company: string; reason: string }
+export interface RecycleResult {
+  sourceId: string;
+  targetId: string;
+  finished: number;
+  keep: RecycleCandidate[];
+  excluded: RecycleExcluded[];
+}
+
+/** Everyone who finished `source` in the last `days` days and belongs in
+ *  `target`. Read-only; nothing is enrolled here. */
+export async function findRecycleCandidates(
+  source: ApolloSequence, target: ApolloSequence, days: number,
+  recycledIds: string[], onStatus: (m: string) => void,
+): Promise<RecycleResult> {
+  const h = await apollo();
+  const since = Date.now() - days * 86_400_000;
+  const now = Date.now();
+  type Raw = { c: Record<string, unknown>; st: Record<string, unknown>; all: Record<string, unknown>[] };
+  const finished: Raw[] = [];
+  for (let page = 1; page <= 100; page++) {
+    onStatus(`Reading ${source.name}… page ${page}`);
+    const p = await call<{ contacts?: Record<string, unknown>[]; pagination?: { total_pages?: number } }>(h, "contacts_search", {
+      emailer_campaign_ids: [source.id], per_page: 100, page,
+      fields: [{ contacts: ["id", "name", "email", "email_status", "email_unsubscribed", "organization_name", "account_id", "contact_stage_id", "deals",
+        { contact_campaign_statuses: ["emailer_campaign_id", "status", "finished_at", "inactive_reason"] }] }],
+    });
+    for (const c of p.contacts || []) {
+      const all = (c.contact_campaign_statuses as Record<string, unknown>[]) || [];
+      const st = all.find((x) => x.emailer_campaign_id === source.id);
+      const f = st?.finished_at ? Date.parse(String(st.finished_at)) : NaN;
+      if (st && st.status === "finished" && f >= since) finished.push({ c, st, all });
+    }
+    if (!p.pagination || (p.pagination.total_pages ?? 1) <= page) break;
+  }
+
+  let replied = new Set<string>();
+  try { replied = await fetchRepliedContactIds(h, source.id); } catch { /* counted below as unknown */ }
+
+  const accounts = [...new Set(finished.map((r) => String(r.c.account_id || "")).filter(Boolean))];
+  let done = 0;
+  const callsByAccount = new Map<string, CallRecord[] | null>();
+  await pool(accounts, 5, async (a) => {
+    try { callsByAccount.set(a, await fetchAccountCalls(h, a)); } catch { callsByAccount.set(a, null); }
+  }, () => onStatus(`Checking calls… ${++done}/${accounts.length} companies`));
+
+  const keep: RecycleCandidate[] = []; const excluded: RecycleExcluded[] = [];
+  const recycled = new Set(recycledIds);
+  for (const { c, st, all } of finished) {
+    const base = { contactId: String(c.id), name: String(c.name || ""), company: String(c.organization_name || "") };
+    const no = (reason: string) => excluded.push({ ...base, reason });
+    const reason = String(st.inactive_reason || "");
+    const calls = callsByAccount.get(String(c.account_id || ""));
+    const mine = (calls || []).filter((x) => x.contactId === base.contactId);
+    if (all.some((x) => x.status === "active" || x.status === "paused")) { no("Active in another sequence"); continue; }
+    if (all.some((x) => recycled.has(String(x.emailer_campaign_id)))) { no("Already in a recycled sequence"); continue; }
+    if (EARLY_END_RE.test(reason)) { no(`Ended early: ${reason.replace(/_/g, " ")}`); continue; }
+    if (c.email_unsubscribed) { no("Unsubscribed"); continue; }
+    if (/invalid|bounce/i.test(String(c.email_status || ""))) { no("Bad email"); continue; }
+    if (c.contact_stage_id === STAGE_NOT_INTERESTED) { no("Stage: Not Interested"); continue; }
+    if (Array.isArray(c.deals) && c.deals.length) { no("Has a deal"); continue; }
+    if (replied.has(base.contactId)) { no("Replied"); continue; }
+    if (!c.account_id) { no("No Apollo account, calls can't be checked"); continue; }
+    if (calls === null) { no("Calls couldn't be read"); continue; }
+    const bad = mine.find((x) => x.outcomeId && RECYCLE_BLOCK_OUTCOMES.has(x.outcomeId));
+    if (bad) { no(OUTCOME_LABEL[bad.outcomeId!] || "Reached"); continue; }
+    if ((calls || []).some((x) => x.duration >= RULES.deepCallSeconds)) { no("Call over 4 min at this company"); continue; }
+    if (mine.some((x) => !x.outcomeId && x.note && CONVERSATION_RE.test(x.note))) { no("Call note shows a conversation"); continue; }
+    const readyAt = addBusinessDays(String(st.finished_at), RECYCLE_REST_BUSINESS_DAYS);
+    const last = [...mine].sort((a, b) => b.startTime.localeCompare(a.startTime))[0];
+    keep.push({
+      ...base, email: String(c.email || ""), finishedAt: String(st.finished_at).slice(0, 10),
+      readyOn: readyAt.toISOString().slice(0, 10), ready: readyAt.getTime() <= now,
+      calls: mine.length, lastOutcome: last ? (last.outcomeId ? OUTCOME_LABEL[last.outcomeId] || "Other" : "No outcome logged") : "",
+    });
+  }
+  keep.sort((a, b) => a.finishedAt.localeCompare(b.finishedAt));
+  return { sourceId: source.id, targetId: target.id, finished: finished.length, keep, excluded };
+}
+
+export interface PushResult { enrolled: string[]; skipped: Record<string, string> }
+
+/** Enroll recycled leads. They finished the main sequence, so that check is
+ *  waived; every other Apollo guard (active elsewhere, unverified email, same
+ *  company already in the sequence) stays on. */
+export async function pushToRecycled(targetId: string, contactIds: string[], mailboxId: string): Promise<PushResult> {
+  const h = await apollo();
+  const enrolled: string[] = []; const skipped: Record<string, string> = {};
+  for (let i = 0; i < contactIds.length; i += 50) {
+    const batch = contactIds.slice(i, i + 50);
+    const p = await call<{ contacts?: { id: string; contact_campaign_statuses?: { emailer_campaign_id: string }[] }[]; skipped_contact_ids?: Record<string, string> }>(h,
+      "emailer_campaigns_add_contact_ids", {
+        id: targetId, emailer_campaign_id: targetId, contact_ids: batch,
+        send_email_from_email_account_id: mailboxId, status: "active",
+        sequence_finished_in_other_campaigns: true,
+      });
+    Object.assign(skipped, p.skipped_contact_ids || {});
+    for (const c of p.contacts || [])
+      if (!skipped[c.id] && (c.contact_campaign_statuses || []).some((s) => s.emailer_campaign_id === targetId)) enrolled.push(c.id);
+  }
+  return { enrolled, skipped };
+}
