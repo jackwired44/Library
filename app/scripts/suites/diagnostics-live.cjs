@@ -70,6 +70,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   const main = async () => (await page.locator('main').innerText()).replace(/\s+/g, ' ');
   const rowOf = async co => (await page.locator('.data-table tbody tr', { hasText: co }).first().innerText()).replace(/\s+/g, ' ');
 
+  await page.addInitScript(() => { try { localStorage.setItem('apolloAutoSync', 'off'); } catch { /* */ } });
   await page.goto(BASE); await sleep(700);
   await page.fill('input[aria-label="Email"]', 'jack@wiredcio.com');
   await page.fill('input[type=password]', 'changeme');

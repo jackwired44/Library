@@ -96,6 +96,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   const main = async () => (await page.locator('main').innerText()).replace(/\s+/g, ' ');
   const cell = async (co, col, nth = 0) => (await page.locator('.data-table tbody tr', { hasText: co }).nth(nth).locator(`td[data-col="${col}"]`).innerText()).replace(/\s+/g, ' ');
 
+  await page.addInitScript(() => { try { localStorage.setItem('apolloAutoSync', 'off'); } catch { /* */ } });
   await page.goto(BASE); await sleep(700);
   await page.fill('input[aria-label="Email"]', 'jack@wiredcio.com');
   await page.fill('input[type=password]', 'changeme');

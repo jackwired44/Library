@@ -88,6 +88,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
     await sleep(500);
   };
 
+  await page.addInitScript(() => { try { localStorage.setItem('apolloAutoSync', 'off'); } catch { /* */ } });
   await page.goto(BASE); await sleep(700);
   await page.fill('input[aria-label="Email"]', 'jack@wiredcio.com');
   await page.fill('input[type=password]', 'changeme');

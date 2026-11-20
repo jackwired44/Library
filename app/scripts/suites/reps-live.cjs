@@ -71,6 +71,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   const main = async () => (await page.locator('main').innerText()).replace(/\s+/g, ' ');
   const row = async (name) => (await page.locator('table[aria-label="Reps summary"] tbody tr', { hasText: name }).first().innerText()).replace(/\s+/g, ' ');
 
+  await page.addInitScript(() => { try { localStorage.setItem('apolloAutoSync', 'off'); } catch { /* */ } });
   await page.goto(BASE); await sleep(700);
   await page.fill('input[aria-label="Email"]', 'jack@wiredcio.com');
   await page.fill('input[type=password]', 'changeme');
@@ -106,7 +107,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   const seqT = (await page.locator('table[aria-label="By sequence"]').innerText()).replace(/\s+/g, ' ');
   ok('by sequence: Carly Main Sequence 2 leads, 1 active, 1 reached, 1 meeting', /Carly Main Sequence — 0 0 2 1 1 1/.test(seqT), seqT);
   ok('  her contact-owner lead shows its sequence too', /Wired CIO Email — 0 0 1 /.test(seqT), seqT);
-  ok("  every sequence named for Carly is listed, even with no leads", /Carly Main Sequence Recycled — 0 0 0 0 0 0/.test(seqT), seqT);
+  ok("  every sequence named for Carly is listed, even with no leads", /Carly Main Recycled — 0 0 0 0 0 0/.test(seqT) && /Carly M365 Sequence — 0 0 0 0 0 0/.test(seqT), seqT);
   ok("  Jack's sequences are not on Carly's page", !/Jack Main/.test(seqT), seqT);
   ok('  the main sequence order leads (Recycled first)', seqT.indexOf('Carly Main Sequence Recycled') < seqT.indexOf('Carly Main Sequence —'), seqT);
   await page.locator('table[aria-label="By sequence"] tbody tr', { hasText: 'Wired CIO Email' }).click(); await sleep(300);
@@ -129,7 +130,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   t = await main();
   ok("Jack's page", /Where Jack's leads went/.test(t) && /J DONE/.test(t) && !/C ACTIVE/.test((await page.locator(`table[aria-label="Jack's leads"]`).innerText())));
   const jSeq = (await page.locator('table[aria-label="By sequence"]').innerText()).replace(/\s+/g, ' ');
-  ok("Jack's sequences: Main and Main Backup, no Carly", /Jack Main Sequence — 0 0 1 /.test(jSeq) && /Jack Main Backup Sequence — 0 0 0/.test(jSeq) && !/Carly/.test(jSeq), jSeq);
+  ok("Jack's sequences: Main and Main Recycled, no Carly", /Jack Main Sequence — 0 0 1 /.test(jSeq) && /Jack Main Recycled — 0 0 0/.test(jSeq) && !/Carly/.test(jSeq), jSeq);
   await page.reload(); await sleep(1500); await nav('Reps');
   ok('remembers the last rep', /Where Jack's leads went/.test(await main()));
   const writes = (await page.evaluate(() => window.__calls)).filter(c => !/_search$/.test(c.tool));

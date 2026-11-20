@@ -197,6 +197,11 @@ export function cutoffFor(months: number, now = new Date()): string {
  */
 export async function pullTeamUploads(opts: {
   months?: number;
+  /** Incremental sync: read newest-UPDATED first and stop at this moment.
+   *  A call, a sequence step or a status change bumps a contact's
+   *  updated_at, so this reads only what changed — 100 contacts per Apollo
+   *  call, which is the way round the 400-lookups-an-hour cap. */
+  sinceUpdated?: string;
   onEntries: (entries: ApolloRosterEntry[]) => Promise<void> | void;
   onProgress: (p: PullProgress) => void;
   signal?: AbortSignal;
@@ -216,7 +221,7 @@ export async function pullTeamUploads(opts: {
     let res;
     try {
       res = await h.mcp.callTool(h.server, h.contactsTool,
-        { page, per_page: 100, sort_by_field: "contact_created_at", sort_ascending: false },
+        { page, per_page: 100, sort_by_field: opts.sinceUpdated ? "contact_updated_at" : "contact_created_at", sort_ascending: false },
         { cache: false, signal: opts.signal });
     } catch (err) {
       if (opts.signal?.aborted) return p;
@@ -229,7 +234,10 @@ export async function pullTeamUploads(opts: {
     let pastCutoff = false;
     for (const c of list) {
       const created = str(c.created_at).slice(0, 10);
-      if (created && created < cutoff) { pastCutoff = true; break; }
+      if (opts.sinceUpdated) {
+        const upd = str(c.updated_at);
+        if (upd && upd < opts.sinceUpdated) { pastCutoff = true; break; }
+      } else if (created && created < cutoff) { pastCutoff = true; break; }
       p.scanned++;
       if (created) p.reachedDate = created;
       if (!isTeamUpload(c)) continue;

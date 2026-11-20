@@ -6,18 +6,24 @@
 import { useMemo, useState } from "react";
 import { downloadBlob, toCSV } from "../lib/csv";
 import {
-  FLAG_META, DUP_REASON_META, listSequences, runAudit, removeFromSequence, mergeContacts,
-  findDuplicates, findMultiSequence, findCompanyGroups,
-  type ApolloSequence, type AuditResult, type DupGroup, type FlagKind, type MemberResult,
+  FLAG_META, DUP_REASON_META, FINISH_KIND_META, listSequences, runAudit, removeFromSequence, mergeContacts,
+  findDuplicates, findMultiSequence, findCompanyGroups, listMailboxes, finishReasonOf, finishInSequence, findRecycleCandidates, pushToRecycled,
+  RECYCLE_REST_BUSINESS_DAYS,
+  type ApolloSequence, type Mailbox, type FinishKind, type RecycleResult, type AuditResult, type DupGroup, type FlagKind, type MemberResult,
 } from "../lib/apolloSequences";
+import { MAIN_SEQUENCES } from "./ApolloStatus";
+
+const WORKING = new Set<string>(MAIN_SEQUENCES.map((n) => n.toLowerCase()));
+const isWorking = (s: ApolloSequence) => WORKING.has(s.name.trim().toLowerCase());
 
 const SEVERITY_CLASS = { remove: "danger", review: "warning", info: "info" } as const;
 const SEVERITY_RANK = { remove: 0, review: 1, info: 2 } as const;
 const FLAG_ORDER: FlagKind[] = ["meeting", "reached", "deep-call", "stage", "replied", "zombie", "repeat-finished", "callback-undated", "prior-contact", "wrong-sequence", "dupe-person", "dupe-company", "callback"];
 
-type Tab = "flagged" | "duplicates" | "companies" | "all";
+type Tab = "flagged" | "duplicates" | "companies" | "all" | "finished";
 type Pending =
   | { kind: "remove"; rows: MemberResult[]; title: string }
+  | { kind: "finish"; rows: MemberResult[] }
   | { kind: "merge"; group: DupGroup; keepId: string; dropIds: string[]; note: string | null };
 
 const rowKey = (m: MemberResult) => `${m.sequenceId}:${m.contactId}`;
@@ -26,6 +32,9 @@ const fmtPhone = (d: string) => d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(
 
 export default function SequenceCleaner() {
   const [sequences, setSequences] = useState<ApolloSequence[] | null>(null);
+  const [mailboxes, setMailboxes] = useState<Mailbox[]>([]);
+  const [mode, setMode] = useState<"check" | "recycle">("check");
+  const [showAll, setShowAll] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [pickerOpen, setPickerOpen] = useState(true);
   const [status, setStatus] = useState("");
@@ -53,8 +62,10 @@ export default function SequenceCleaner() {
   async function connect() {
     setBusy(true); setError(""); setStatus("Loading sequences from Apollo…");
     try {
-      const seqs = await listSequences();
-      setSequences(seqs.sort((a, b) => Number(b.active) - Number(a.active) || a.name.localeCompare(b.name)));
+      const [seqs, boxes] = await Promise.all([listSequences(), listMailboxes().catch(() => [] as Mailbox[])]);
+      setMailboxes(boxes);
+      const rank = new Map(MAIN_SEQUENCES.map((n, i) => [n.toLowerCase(), i]));
+      setSequences(seqs.sort((a, b) => (rank.get(a.name.toLowerCase()) ?? 99) - (rank.get(b.name.toLowerCase()) ?? 99) || a.name.localeCompare(b.name)));
       setStatus("");
     } catch (e) { setError((e as Error).message); setStatus(""); }
     setBusy(false);
@@ -75,6 +86,7 @@ export default function SequenceCleaner() {
     return c;
   }, [members]);
   const flaggedCount = members.filter((m) => m.flags.length).length;
+  const slipped = useMemo(() => members.map((m) => ({ m, why: finishReasonOf(m) })).filter((x) => x.why) as { m: MemberResult; why: string }[], [members]);
 
   const rows = useMemo(() => members.filter((m) => {
     if (seqFilter !== "all" && m.sequenceId !== seqFilter) return false;
@@ -94,7 +106,23 @@ export default function SequenceCleaner() {
     if (!pending) return;
     setBusy(true); setError("");
     try {
-      if (pending.kind === "remove") {
+      if (pending.kind === "finish") {
+        const done = new Set<string>(); const msgs: string[] = [];
+        const groups = new Map<string, MemberResult[]>();
+        for (const m of pending.rows) {
+          const k = `${m.sequenceId}|${finishReasonOf(m) || "Finished from Sequence Scanner"}`;
+          (groups.get(k) || groups.set(k, []).get(k)!).push(m);
+        }
+        for (const [k, ms] of groups) {
+          const [seq, why] = k.split("|");
+          setStatus(`Finishing ${ms.length} in ${seqName.get(seq)} (${why})…`);
+          const ids = await finishInSequence(ms.map((m) => m.contactId), seq, why);
+          ids.forEach((id) => done.add(`${seq}:${id}`));
+          msgs.push(`${ids.length} in ${seqName.get(seq)} (${why})`);
+        }
+        dropRows(done);
+        setNotice(`Finished ${done.size}: ${msgs.join("; ")}.`);
+      } else if (pending.kind === "remove") {
         const bySeq = new Map<string, MemberResult[]>();
         for (const m of pending.rows) (bySeq.get(m.sequenceId) || bySeq.set(m.sequenceId, []).get(m.sequenceId)!).push(m);
         const done = new Set<string>(); const msgs: string[] = [];
@@ -152,16 +180,26 @@ export default function SequenceCleaner() {
       {status && <div className="panel-sub" style={{ marginBottom: 12 }}>⏳ {status}</div>}
       {notice && <div className="panel" style={{ padding: 12, marginBottom: 12, borderColor: "var(--success)" }}>✓ {notice}</div>}
 
-      {sequences && (pickerOpen || !audit) && (
+      {sequences && (
+        <div className="seg" role="tablist" aria-label="Mode" style={{ marginBottom: 12 }}>
+          <button role="tab" aria-selected={mode === "check"} className={`seg-btn${mode === "check" ? " active" : ""}`} onClick={() => setMode("check")}>Check sequences</button>
+          <button role="tab" aria-selected={mode === "recycle"} className={`seg-btn${mode === "recycle" ? " active" : ""}`} onClick={() => setMode("recycle")}>Recycle</button>
+        </div>
+      )}
+
+      {sequences && mode === "recycle" && <RecyclePanel sequences={sequences.some(isWorking) ? sequences.filter(isWorking) : sequences} mailboxes={mailboxes} />}
+
+      {mode === "check" && sequences && (pickerOpen || !audit) && (
         <div className="panel" style={{ marginBottom: 16 }}>
           <div className="panel-head">
             <div className="panel-title">Sequences</div>
+            <button className="btn btn-ghost btn-sm" onClick={() => setShowAll((v) => !v)}>{showAll ? "Only Jack's and Carly's six" : `Show all ${sequences.length}`}</button>
             <button className="btn btn-primary btn-sm" disabled={busy || !picked.size} onClick={run}>
               Run check{picked.size ? ` (${picked.size})` : ""}
             </button>
           </div>
           <div className="panel-body" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 8 }}>
-            {sequences.map((s) => (
+            {sequences.filter((s) => showAll || isWorking(s) || picked.has(s.id)).map((s) => (
               <label key={s.id} style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer" }}>
                 <input type="checkbox" checked={picked.has(s.id)} onChange={() => setPicked((p) => { const n = new Set(p); if (n.has(s.id)) n.delete(s.id); else n.add(s.id); return n; })} />
                 <span>{s.name}</span>
@@ -172,7 +210,7 @@ export default function SequenceCleaner() {
         </div>
       )}
 
-      {audit && (
+      {mode === "check" && audit && (
         <>
           {!pickerOpen && (
             <div className="panel" style={{ padding: "10px 14px", marginBottom: 12, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
@@ -192,8 +230,16 @@ export default function SequenceCleaner() {
             <div className="metric"><div className="metric-label">Calls checked</div><div className="metric-value">{audit.checkedCalls.toLocaleString()}</div></div>
           </div>
 
+          {slipped.length > 0 && (
+            <div className="panel" data-slipped style={{ marginBottom: 12, borderColor: "var(--danger)", padding: "10px 14px", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+              <strong style={{ color: "var(--danger)" }}>{slipped.length} slipped through</strong>
+              <span className="panel-sub">Still active, but their calls already landed {[...new Set(slipped.map((x) => x.why))].map((w) => `${w} (${slipped.filter((x) => x.why === w).length})`).join(", ")}.</span>
+              <button className="btn btn-danger btn-sm" style={{ marginLeft: "auto" }} disabled={busy} onClick={() => setPending({ kind: "finish", rows: slipped.map((x) => x.m) })}>Finish all {slipped.length} in their sequences</button>
+            </div>
+          )}
+
           <div className="seg" role="tablist" style={{ marginBottom: 12 }}>
-            {([["flagged", `Flagged (${flaggedCount})`], ["duplicates", `Duplicates (${dupGroups.length + multi.length})`], ["companies", `Same company (${companies.length})`], ["all", `All leads (${members.length})`]] as [Tab, string][]).map(([k, label]) => (
+            {([["flagged", `Flagged (${flaggedCount})`], ["duplicates", `Duplicates (${dupGroups.length + multi.length})`], ["companies", `Same company (${companies.length})`], ["all", `Active (${members.length})`], ["finished", `Finished (${audit.finished.length})`]] as [Tab, string][]).map(([k, label]) => (
               <button key={k} role="tab" aria-selected={tab === k} className={`seg-btn${tab === k ? " active" : ""}`} onClick={() => { setTab(k); setFlagFilter(""); }}>{label}</button>
             ))}
           </div>
@@ -379,6 +425,8 @@ export default function SequenceCleaner() {
             </>
           )}
 
+          {tab === "finished" && <FinishedView rows={audit.finished} seqName={seqName} />}
+
           {tab === "companies" && (
             <>
               <div className="panel-sub" style={{ marginBottom: 10 }}>Companies with more than one person active across the checked sequences. Keep the contact you want to work and remove the others.</div>
@@ -420,7 +468,15 @@ export default function SequenceCleaner() {
       {pending && (
         <div role="dialog" aria-modal="true" style={{ position: "fixed", inset: 0, background: "rgba(8,30,34,0.35)", zIndex: 1000, overflowY: "auto", padding: 20 }} onClick={() => !busy && setPending(null)}>
           <div className="panel" style={{ maxWidth: 560, margin: "10vh auto", padding: 20 }} onClick={(e) => e.stopPropagation()}>
-            {pending.kind === "remove" ? (
+            {pending.kind === "finish" ? (
+              <>
+                <div className="panel-title" style={{ marginBottom: 8 }}>Finish {pending.rows.length} in their sequences</div>
+                <p>Each one stops in its sequence in Apollo, so no more steps or emails go out. Apollo keeps the reason (the call outcome) on the record. They stay in Apollo.</p>
+                <ul style={{ maxHeight: 260, overflowY: "auto" }}>
+                  {pending.rows.map((m) => <li key={rowKey(m)}><strong>{m.name}</strong> ({m.company}) · {seqName.get(m.sequenceId)} · {finishReasonOf(m)}</li>)}
+                </ul>
+              </>
+            ) : pending.kind === "remove" ? (
               <>
                 <div className="panel-title" style={{ marginBottom: 8 }}>{pending.title}</div>
                 <p>This removes them from the sequence in Apollo. It can't be undone; you'd have to add them back. The contacts themselves stay in Apollo.</p>
@@ -450,8 +506,8 @@ export default function SequenceCleaner() {
             )}
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button className="btn btn-secondary" disabled={busy} onClick={() => setPending(null)}>Cancel</button>
-              <button className={`btn ${pending.kind === "remove" ? "btn-danger" : "btn-primary"}`} disabled={busy} onClick={confirm}>
-                {busy ? "Working…" : pending.kind === "remove" ? `Remove ${pending.rows.length}` : "Merge"}
+              <button className={`btn ${pending.kind === "merge" ? "btn-primary" : "btn-danger"}`} disabled={busy} onClick={confirm}>
+                {busy ? "Working…" : pending.kind === "finish" ? `Finish ${pending.rows.length}` : pending.kind === "remove" ? `Remove ${pending.rows.length}` : "Merge"}
               </button>
             </div>
           </div>
@@ -469,4 +525,282 @@ function bestKeep(g: DupGroup): string {
     return (c.lastName ? 1000 : 0) + c.history.calls * 10 + (c.note ? 5 : 0) + (c.email ? 3 : 0) + Math.max(...ms.map((m) => m.stepPosition || 0));
   };
   return [...g.contacts].sort((a, b) => score(b) - score(a))[0][0].contactId;
+}
+
+
+// ---------------------------------------------------------------- recycle
+
+const RECYCLE_DAYS_KEY = "recycleDays";
+interface Pair { id: string; targetId: string; sourceId: string; on: boolean }
+
+function RecyclePanel({ sequences, mailboxes }: { sequences: ApolloSequence[]; mailboxes: Mailbox[] }) {
+  const targets = useMemo(() => sequences.filter((s) => /recycl/i.test(s.name)), [sequences]);
+  const recycledIds = useMemo(() => targets.map((t) => t.id), [targets]);
+  const sourcesFor = (t: ApolloSequence) => sequences.filter((s) => s.ownerId === t.ownerId && !/recycl/i.test(s.name));
+  // Per Jack: "i want to be able to select the recycled sequence it pushes to
+  // after they are finished" — both ends of every row are a choice; the
+  // defaults just pair each recycled sequence with its owner's main one.
+  const [pairs, setPairs] = useState<Pair[]>(() => targets.map((t, i) => {
+    const src = sourcesFor(t);
+    const pick = src.find((s) => /m365|main/i.test(s.name) && !/dynamics/i.test(s.name)) || src[0];
+    return { id: `p${i}`, targetId: t.id, sourceId: pick?.id || "", on: !!pick };
+  }));
+  const others = useMemo(() => sequences.filter((s) => !/recycl/i.test(s.name)), [sequences]);
+  const setPair = (id: string, patch: Partial<Pair>) => setPairs((ps) => ps.map((x) => x.id === id ? { ...x, ...patch } : x));
+  const [days, setDays] = useState<number>(() => { try { return Number(localStorage.getItem(RECYCLE_DAYS_KEY)) || 30; } catch { return 30; } });
+  const [readyOnly, setReadyOnly] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("");
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [results, setResults] = useState<RecycleResult[]>([]);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [confirm, setConfirm] = useState<{ result: RecycleResult; ids: string[]; mailboxId: string } | null>(null);
+  const name = (id: string) => sequences.find((s) => s.id === id)?.name || id;
+
+  function setDaysSaved(n: number) {
+    setDays(n);
+    try { if (n > 0) localStorage.setItem(RECYCLE_DAYS_KEY, String(n)); } catch { /* preference only */ }
+  }
+
+  async function refresh() {
+    setBusy(true); setError(""); setNotice(""); setResults([]);
+    const out: RecycleResult[] = [];
+    try {
+      for (const p of pairs.filter((x) => x.on && x.sourceId && x.targetId && x.sourceId !== x.targetId)) {
+        const src = sequences.find((s) => s.id === p.sourceId)!;
+        const tgt = sequences.find((s) => s.id === p.targetId)!;
+        out.push(await findRecycleCandidates(src, tgt, days, recycledIds, (m) => setStatus(`${tgt.name}: ${m}`)));
+      }
+      setResults(out);
+      setPicked(new Set(out.flatMap((r) => r.keep.filter((k) => k.ready).map((k) => `${r.sourceId}>${r.targetId}:${k.contactId}`))));
+    } catch (e) { setError((e as Error).message); }
+    setStatus(""); setBusy(false);
+  }
+
+  function askPush(r: RecycleResult) {
+    const ids = r.keep.filter((k) => picked.has(`${r.sourceId}>${r.targetId}:${k.contactId}`)).map((k) => k.contactId);
+    if (!ids.length) return;
+    const owner = sequences.find((s) => s.id === r.targetId)?.ownerId;
+    const box = mailboxes.find((b) => b.ownerId === owner && b.isDefault) || mailboxes.find((b) => b.ownerId === owner);
+    setConfirm({ result: r, ids, mailboxId: box?.id || "" });
+  }
+
+  async function push() {
+    if (!confirm) return;
+    setBusy(true); setError("");
+    try {
+      const r = await pushToRecycled(confirm.result.targetId, confirm.ids, confirm.mailboxId);
+      const skippedN = Object.keys(r.skipped).length;
+      const why = [...new Set(Object.values(r.skipped))].map((x) => x.replace(/_/g, " ")).join(", ");
+      setNotice(`Added ${r.enrolled.length} of ${confirm.ids.length} to ${name(confirm.result.targetId)}${skippedN ? `. ${skippedN} skipped by Apollo (${why})` : ""}.`);
+      const done = new Set(r.enrolled);
+      setResults((rs) => rs.map((x) => x.targetId === confirm.result.targetId && x.sourceId === confirm.result.sourceId ? { ...x, keep: x.keep.filter((k) => !done.has(k.contactId)) } : x));
+    } catch (e) { setError((e as Error).message); }
+    setConfirm(null); setBusy(false);
+  }
+
+  if (!targets.length) return <div className="panel" style={{ padding: 16 }}>No sequence with "Recycled" in its name. Create one in Apollo first.</div>;
+
+  return (
+    <div data-recycle>
+      <div className="panel" style={{ marginBottom: 12 }}>
+        <div className="panel-head">
+          <div className="panel-title">Recycle finished leads</div>
+          <div className="panel-sub">Finished the main sequence with only no answer, gatekeeper or voicemail; pushed {RECYCLE_REST_BUSINESS_DAYS} business days after they finished.</div>
+        </div>
+        <div className="panel-body" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {pairs.map((p) => (
+            <div key={p.id} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }} data-recycle-row>
+              <input type="checkbox" aria-label="Use this row" checked={p.on} onChange={(e) => setPair(p.id, { on: e.target.checked })} />
+              <span className="panel-sub">Finished in</span>
+              <select className="field" aria-label="Finished in" value={p.sourceId} onChange={(e) => setPair(p.id, { sourceId: e.target.value })}>
+                <option value="">Pick a sequence…</option>
+                {others.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+              <span className="panel-sub">push to</span>
+              <select className="field" aria-label="Push to" value={p.targetId} onChange={(e) => setPair(p.id, { targetId: e.target.value })}>
+                <option value="">Pick a sequence…</option>
+                <optgroup label="Recycled sequences">{targets.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</optgroup>
+                <optgroup label="Other sequences">{others.filter((s) => s.id !== p.sourceId).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</optgroup>
+              </select>
+              {pairs.length > 1 && <button className="btn btn-ghost btn-sm" aria-label="Remove row" onClick={() => setPairs((ps) => ps.filter((x) => x.id !== p.id))}>✕</button>}
+            </div>
+          ))}
+          <div><button className="btn btn-ghost btn-sm" onClick={() => setPairs((ps) => [...ps, { id: `p${Date.now()}`, sourceId: "", targetId: targets[0]?.id || "", on: true }])}>+ Add a row</button></div>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 4 }}>
+            <label style={{ display: "flex", gap: 6, alignItems: "center" }}>Finished in the last
+              <input className="field" type="number" min={1} max={365} aria-label="Timeframe in days" value={days} onChange={(e) => setDaysSaved(Number(e.target.value))} style={{ width: 70 }} /> days
+            </label>
+            <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <input type="checkbox" checked={readyOnly} onChange={(e) => setReadyOnly(e.target.checked)} /> Only show leads ready now
+            </label>
+            <button className="btn btn-primary btn-sm" disabled={busy || !(days > 0) || !pairs.some((x) => x.on && x.sourceId && x.targetId && x.sourceId !== x.targetId)} onClick={refresh}>↻ Refresh</button>
+          </div>
+        </div>
+      </div>
+
+      {error && <div className="panel" style={{ borderColor: "var(--danger)", color: "var(--danger)", padding: 12, marginBottom: 12 }}>{error}</div>}
+      {status && <div className="panel-sub" style={{ marginBottom: 12 }}>⏳ {status}</div>}
+      {notice && <div className="panel" style={{ padding: 12, marginBottom: 12, borderColor: "var(--success)" }}>✓ {notice}</div>}
+
+      {results.map((r) => {
+        const rows = r.keep.filter((k) => !readyOnly || k.ready);
+        const ready = r.keep.filter((k) => k.ready).length;
+        const sel = r.keep.filter((k) => picked.has(`${r.sourceId}>${r.targetId}:${k.contactId}`)).length;
+        const reasons = new Map<string, number>();
+        for (const x of r.excluded) reasons.set(x.reason, (reasons.get(x.reason) || 0) + 1);
+        const allOn = rows.length > 0 && rows.every((k) => picked.has(`${r.sourceId}>${r.targetId}:${k.contactId}`));
+        return (
+          <div key={`${r.sourceId}>${r.targetId}`} className="panel" style={{ marginBottom: 14 }} data-recycle-pair>
+            <div className="panel-head">
+              <div className="panel-title">{name(r.sourceId)} → {name(r.targetId)}</div>
+              <button className="btn btn-primary btn-sm" disabled={busy || !sel} onClick={() => askPush(r)}>Push {sel} to {name(r.targetId)}</button>
+            </div>
+            <div className="panel-body">
+              <div className="panel-sub" style={{ marginBottom: 8 }}>
+                {r.finished} finished in the last {days} days · <strong>{ready} ready now</strong> · {r.keep.length - ready} waiting out the rest · {r.excluded.length} left out
+              </div>
+              {r.excluded.length > 0 && (
+                <details style={{ marginBottom: 8 }}>
+                  <summary className="panel-sub" style={{ cursor: "pointer" }}>Why {r.excluded.length} were left out: {[...reasons].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} (${n})`).join(", ")}</summary>
+                  <ul style={{ maxHeight: 200, overflowY: "auto", fontSize: 13 }}>{r.excluded.map((x) => <li key={x.contactId}>{x.name} · {x.company}: {x.reason}</li>)}</ul>
+                </details>
+              )}
+              <table className="data-table">
+                <thead><tr>
+                  <th><input type="checkbox" aria-label="Select all" checked={allOn} onChange={() => setPicked((p) => { const n = new Set(p); rows.forEach((k) => { const key = `${r.sourceId}>${r.targetId}:${k.contactId}`; if (allOn) n.delete(key); else n.add(key); }); return n; })} /></th>
+                  <th>Lead</th><th>Finished</th><th>Calls</th><th>Ready</th>
+                </tr></thead>
+                <tbody>
+                  {rows.length === 0 && <tr><td colSpan={5} className="cell-empty">{readyOnly && r.keep.length ? "Nobody is ready yet. Untick “Only show leads ready now” to see who's waiting." : "Nobody to recycle in this timeframe."}</td></tr>}
+                  {rows.map((k) => {
+                    const key = `${r.sourceId}>${r.targetId}:${k.contactId}`;
+                    return (
+                      <tr key={key}>
+                        <td><input type="checkbox" checked={picked.has(key)} onChange={() => setPicked((p) => { const n = new Set(p); if (n.has(key)) n.delete(key); else n.add(key); return n; })} /></td>
+                        <td><strong>{k.name}</strong><div className="panel-sub">{k.company}{k.email ? ` · ${k.email}` : ""}</div></td>
+                        <td>{k.finishedAt}</td>
+                        <td className="panel-sub">{k.calls ? `${k.calls} · ${k.lastOutcome}` : "None logged"}</td>
+                        <td>{k.ready ? <span className="status-pill success">Ready</span> : <span className="status-pill neutral">From {k.readyOn}</span>}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })}
+
+      {confirm && (
+        <div role="dialog" aria-modal="true" style={{ position: "fixed", inset: 0, background: "rgba(8,30,34,0.35)", zIndex: 1000, overflowY: "auto", padding: 20 }} onClick={() => !busy && setConfirm(null)}>
+          <div className="panel" style={{ maxWidth: 540, margin: "10vh auto", padding: 20 }} onClick={(e) => e.stopPropagation()}>
+            <div className="panel-title" style={{ marginBottom: 8 }}>Push to {name(confirm.result.targetId)}</div>
+            <p><strong>{confirm.ids.length}</strong> lead{confirm.ids.length === 1 ? "" : "s"} who finished {name(confirm.result.sourceId)} in the last {days} days. They start at step 1, active, and real emails go out from the mailbox below.</p>
+            <p>Checked first: none are active in another sequence, none replied, unsubscribed, bounced or have a deal, and their calls were only no answer, gatekeeper or voicemail.</p>
+            <label style={{ display: "flex", gap: 8, alignItems: "center" }}>Send from
+              <select className="field" aria-label="Send from" value={confirm.mailboxId} onChange={(e) => setConfirm({ ...confirm, mailboxId: e.target.value })}>
+                <option value="">Pick a mailbox…</option>
+                {mailboxes.map((b) => <option key={b.id} value={b.id}>{b.email}{b.ownerName ? ` (${b.ownerName})` : ""}</option>)}
+              </select>
+            </label>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
+              <button className="btn btn-secondary" disabled={busy} onClick={() => setConfirm(null)}>Cancel</button>
+              <button className="btn btn-primary" disabled={busy || !confirm.mailboxId} onClick={push}>{busy ? "Adding…" : `Push ${confirm.ids.length}`}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ---------------------------------------------------------------- finished
+
+const FINISH_ORDER: FinishKind[] = ["disposition", "all-steps", "other"];
+
+function FinishedView({ rows, seqName }: { rows: AuditResult["finished"]; seqName: Map<string, string> }) {
+  const [kind, setKind] = useState<FinishKind | "">("");
+  const [disp, setDisp] = useState("");
+  const [q, setQ] = useState("");
+  const [page, setPage] = useState(0);
+  const PAGE = 50;
+  const dispositions = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of rows) if (r.kind === "disposition") m.set(r.disposition || "Outcome not logged", (m.get(r.disposition || "Outcome not logged") || 0) + 1);
+    return [...m].sort((a, b) => b[1] - a[1]);
+  }, [rows]);
+  const shown = useMemo(() => rows.filter((r) =>
+    (!kind || r.kind === kind) &&
+    (!disp || (r.disposition || "Outcome not logged") === disp) &&
+    (!q.trim() || `${r.name} ${r.company} ${r.email}`.toLowerCase().includes(q.trim().toLowerCase()))), [rows, kind, disp, q]);
+  const pages = Math.max(1, Math.ceil(shown.length / PAGE));
+  const pg = Math.min(page, pages - 1);
+
+  async function exportCsv() {
+    await downloadBlob(toCSV(shown.map((r) => ({
+      Name: r.name, Company: r.company, Email: r.email, Sequence: seqName.get(r.sequenceId) || r.sequenceId,
+      Finished: r.finishedAt ? r.finishedAt.slice(0, 10) : "", "How it finished": FINISH_KIND_META[r.kind].label,
+      Disposition: r.disposition, "Apollo reason": r.inactiveReason.replace(/_/g, " "), Calls: r.calls, "Last outcome": r.lastOutcome,
+    })), ["Name", "Company", "Email", "Sequence", "Finished", "How it finished", "Disposition", "Apollo reason", "Calls", "Last outcome"]), `finished-leads-${new Date().toISOString().slice(0, 10)}.csv`);
+  }
+
+  return (
+    <div data-finished>
+      <div className="metric-row" style={{ marginBottom: 12 }}>
+        {FINISH_ORDER.map((k) => (
+          <button key={k} className={`metric${kind === k ? " is-active" : ""}`} style={{ textAlign: "left", cursor: "pointer", background: kind === k ? "var(--surface-sunken)" : undefined }} title={FINISH_KIND_META[k].hint}
+            onClick={() => { setKind(kind === k ? "" : k); setDisp(""); setPage(0); }}>
+            <div className="metric-label">{FINISH_KIND_META[k].label}</div>
+            <div className="metric-value">{rows.filter((r) => r.kind === k).length}</div>
+          </button>
+        ))}
+      </div>
+      <div className="control-strip" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
+        <input className="field" placeholder="Search name, company, email…" value={q} onChange={(e) => { setQ(e.target.value); setPage(0); }} style={{ minWidth: 220 }} />
+        <select className="field" aria-label="How it finished" value={kind} onChange={(e) => { setKind(e.target.value as FinishKind | ""); setDisp(""); setPage(0); }}>
+          <option value="">Every way it finished</option>
+          {FINISH_ORDER.map((k) => <option key={k} value={k}>{FINISH_KIND_META[k].label}</option>)}
+        </select>
+        {(kind === "" || kind === "disposition") && dispositions.length > 0 && (
+          <select className="field" aria-label="Disposition" value={disp} onChange={(e) => { setDisp(e.target.value); if (e.target.value) setKind("disposition"); setPage(0); }}>
+            <option value="">Any disposition</option>
+            {dispositions.map(([d, n]) => <option key={d} value={d}>{d} ({n})</option>)}
+          </select>
+        )}
+        <span className="panel-sub" style={{ marginLeft: "auto" }}>{shown.length} shown</span>
+        <button className="btn btn-secondary btn-sm" onClick={exportCsv}>⬇ Export (CSV)</button>
+      </div>
+      <div className="table-card">
+        <table className="data-table" aria-label="Finished leads">
+          <thead><tr><th>Lead</th><th>Sequence</th><th>Finished</th><th>How it finished</th><th>Calls</th></tr></thead>
+          <tbody>
+            {shown.length === 0 && <tr><td colSpan={5} className="cell-empty">No finished leads match.</td></tr>}
+            {shown.slice(pg * PAGE, pg * PAGE + PAGE).map((r) => (
+              <tr key={`${r.sequenceId}:${r.contactId}`}>
+                <td><strong>{r.name || "—"}</strong><div className="panel-sub">{r.company}{r.email ? ` · ${r.email}` : ""}</div></td>
+                <td>{seqName.get(r.sequenceId)}<div className="panel-sub">step {r.stepPosition ?? "—"}</div></td>
+                <td>{r.finishedAt ? r.finishedAt.slice(0, 10) : "—"}</td>
+                <td>
+                  <span className={`status-pill ${FINISH_KIND_META[r.kind].cls}`}>{FINISH_KIND_META[r.kind].label}</span>
+                  {r.kind === "disposition" && <div style={{ marginTop: 4 }}><strong>{r.disposition || "Outcome not logged"}</strong></div>}
+                  {r.inactiveReason && <div className="panel-sub">Apollo: {r.inactiveReason.replace(/_/g, " ")}</div>}
+                </td>
+                <td className="panel-sub">{r.calls ? `${r.calls} · last ${r.lastOutcome || "no outcome"}` : r.kind === "disposition" ? "None logged" : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {pages > 1 && (
+        <div className="pager" style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8 }}>
+          <button className="btn btn-sm btn-ghost" disabled={pg === 0} onClick={() => setPage(pg - 1)}>Prev</button>
+          <span className="panel-sub">Page {pg + 1} of {pages}</span>
+          <button className="btn btn-sm btn-ghost" disabled={pg >= pages - 1} onClick={() => setPage(pg + 1)}>Next</button>
+        </div>
+      )}
+    </div>
+  );
 }

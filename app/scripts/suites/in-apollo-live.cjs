@@ -69,7 +69,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   const seqOpts = (await page.locator('select[aria-label="Sequence"]').innerText()).replace(/\s+/g, ' ');
   // Per Jack: the six main sequences lead, in his order, even at 0.
   ok('the sequence dropdown counts the live sequence', /Jack Main Sequence \(1\)/.test(seqOpts), seqOpts.slice(0, 300));
-  const order = ['Carly Main Sequence Recycled (', 'Carly Main Sequence (', 'Jack Main Sequence (', 'Jack Main Backup Sequence (', 'Wired CIO Email (Custom September Leads) (', 'CSP Renewal Campaign ('].map((x) => seqOpts.indexOf(x));
+  // Re-pointed 2026-11-20: Jack set the six working sequences.
+  const order = ['Jack M365 Sequence (', 'Carly M365 Sequence (', 'Jacks Dynamics Sequence (', 'Carly Dynamics Sequence (', 'Jack Main Recycled (', 'Carly Main Recycled ('].map((x) => seqOpts.indexOf(x));
   ok('  the six main sequences show in Jack\'s order', order.every((i, k) => i >= 0 && (k === 0 || i > order[k - 1])), JSON.stringify(order));
   await page.selectOption('select[aria-label="Apollo standing"]', 'active'); await sleep(400);
   let r = await rows();

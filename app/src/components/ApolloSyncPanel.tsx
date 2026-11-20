@@ -27,7 +27,21 @@ export function leadsDueForApollo(leads: StoredLead[], now = Date.now(), include
     .sort((a, b) => rank(a) - rank(b) || (b.lastSeenAt || "").localeCompare(a.lastSeenAt || ""));
 }
 
-export default function ApolloSyncPanel({ leads, apolloIndex = null, progress, error, onRun, onStop, onOpenLeads }: {
+export interface LiveSyncProps {
+  mode: "off" | "15m" | "1h" | "24h";
+  setMode: (m: "off" | "15m" | "1h" | "24h") => void;
+  lastAt: string;
+  run: { running: boolean; read: number; updated: number; error: string } | null;
+  onSyncNow: () => void;
+}
+const ago = (iso: string) => {
+  if (!iso) return "never";
+  const m = Math.round((Date.now() - Date.parse(iso)) / 60_000);
+  return m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`;
+};
+
+export default function ApolloSyncPanel({ leads, apolloIndex = null, progress, error, onRun, onStop, onOpenLeads, liveSync }: {
+  liveSync?: LiveSyncProps;
   leads: StoredLead[];
   apolloIndex?: RosterIndex | null;
   progress: CheckProgress | null;
@@ -59,6 +73,21 @@ export default function ApolloSyncPanel({ leads, apolloIndex = null, progress, e
         <span className="muted" style={{ fontSize: 12 }}>Read-only lookup, no credits. Results save on each lead.</span>
       </div>
       <div className="panel-body">
+        {liveSync && (
+          <div aria-label="Live sync" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 12, fontSize: 13 }}>
+            <span className={`status-pill ${liveSync.run?.running ? "info" : liveSync.mode === "off" ? "neutral" : "success"}`}>{liveSync.run?.running ? "Syncing…" : liveSync.mode === "off" ? "Live sync off" : "Live"}</span>
+            <select className="field" aria-label="Live sync interval" value={liveSync.mode} onChange={(e) => liveSync.setMode(e.target.value as LiveSyncProps["mode"])}>
+              <option value="15m">Sync every 15 minutes</option>
+              <option value="1h">Sync every hour</option>
+              <option value="24h">Sync every 24 hours</option>
+              <option value="off">Off</option>
+            </select>
+            <span className="muted">Last synced {ago(liveSync.lastAt)}{liveSync.run && !liveSync.run.running && !liveSync.run.error ? ` · read ${fmt(liveSync.run.read)} contacts, updated ${fmt(liveSync.run.updated)} leads` : ""}{liveSync.run?.running ? ` · ${fmt(liveSync.run.read)} read so far` : ""}</span>
+            <button className="btn btn-secondary btn-sm" disabled={!!liveSync.run?.running} onClick={liveSync.onSyncNow}>↻ Sync now</button>
+            {liveSync.run?.error && <span style={{ color: "#B5443B" }}>Sync stopped: {liveSync.run.error}</span>}
+            <span className="muted" style={{ flexBasis: "100%", fontSize: 12 }}>Reads only what changed in Apollo since the last sync, 100 contacts per call, so it isn't held to the 400-lookups-an-hour limit. Runs while this page is open.</span>
+          </div>
+        )}
         <div className="metric-row" style={{ marginBottom: 12 }}>
           <div className="metric" title="Leads whose Apollo standing is known: checked live, or matched from Apollo uploads or a sync."><div className="metric-label">Known in Apollo terms</div><div className="metric-value">{fmt(stats.known)}<span className="muted" style={{ fontSize: 13 }}> / {fmt(leads.length)}</span></div></div>
           <div className="metric"><div className="metric-label">In Apollo</div><div className="metric-value">{fmt(stats.inApollo)}</div></div>

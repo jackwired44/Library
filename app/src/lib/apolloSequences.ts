@@ -92,7 +92,8 @@ export interface SequenceMember {
   productLine: string;
   notes: string; // every short custom field joined, research blob excluded
   sequenceId: string;
-  status: string; // active | paused
+  status: string; // active | paused | finished
+  inactiveReason: string; // Apollo's own reason a finished lead ended
   stepPosition: number | null;
   finishedAt: string | null;
   addedAt: string | null;
@@ -176,6 +177,8 @@ export interface CompanyCheckRow {
 
 export interface AuditResult {
   members: MemberResult[];
+  // Every lead that finished one of the checked sequences, sorted by how.
+  finished: FinishedResult[];
   // Per Jack: "check across each sequence ... not more than 1 contact from a
   // company added to each" — one row per (sequence, company) with 2+ people.
   companyCheck: CompanyCheckRow[];
@@ -272,7 +275,7 @@ export function normCompany(s: string): string {
     .replace(/\s+/g, " ").trim();
 }
 
-export async function fetchMembers(seq: ApolloSequence, onProgress?: (n: number) => void): Promise<SequenceMember[]> {
+export async function fetchMembers(seq: ApolloSequence, onProgress?: (n: number) => void, finishedOut?: SequenceMember[]): Promise<SequenceMember[]> {
   const h = await apollo();
   const stepPos = new Map(seq.steps.map((s) => [s.id, s.position]));
   const members: SequenceMember[] = [];
@@ -291,7 +294,8 @@ export async function fetchMembers(seq: ApolloSequence, onProgress?: (n: number)
       const priorFinished = allSt
         .filter((s) => s.emailer_campaign_id !== seq.id && s.status === "finished")
         .map((s) => ({ sequenceId: String(s.emailer_campaign_id), finishedAt: (s.finished_at as string) || null, reason: String(s.inactive_reason || "") }));
-      if (!st || (st.status !== "active" && st.status !== "paused")) continue;
+      const isFinished = st?.status === "finished";
+      if (!st || (st.status !== "active" && st.status !== "paused" && !(isFinished && finishedOut))) continue;
       const tf = (c.typed_custom_fields as Record<string, unknown>) || {};
       const notes = Object.entries(tf)
         .filter(([k]) => k !== FIELD_RESEARCH && k !== FIELD_PRODUCT_LINE)
@@ -300,7 +304,7 @@ export async function fetchMembers(seq: ApolloSequence, onProgress?: (n: number)
         .join(" | ");
       const email = String(c.email || "");
       const acct = (c.account as { domain?: string }) || {};
-      members.push({
+      (isFinished ? finishedOut! : members).push({
         contactId: String(c.id), name: String(c.name || ""),
         firstName: String(c.first_name || "").trim() || String(c.name || "").trim().split(/\s+/)[0] || "",
         lastName: String(c.last_name || "").trim(),
@@ -312,7 +316,7 @@ export async function fetchMembers(seq: ApolloSequence, onProgress?: (n: number)
         email, domain: domainOf(email) || String(acct.domain || "").toLowerCase(),
         accountId: String(c.account_id || ""), stageId: String(c.contact_stage_id || ""),
         productLine: String(tf[FIELD_PRODUCT_LINE] || ""), notes,
-        sequenceId: seq.id, status: String(st.status),
+        sequenceId: seq.id, status: String(st.status), inactiveReason: String(st.inactive_reason || ""),
         stepPosition: stepPos.get(String(st.current_step_id)) ?? null,
         finishedAt: (st.finished_at as string) || null, addedAt: (st.added_at as string) || null,
         priorFinished,
@@ -324,16 +328,43 @@ export async function fetchMembers(seq: ApolloSequence, onProgress?: (n: number)
   return members;
 }
 
-// Calls for one account (company-level, so a colleague's deep call counts).
-async function fetchAccountCalls(h: Handle, accountId: string): Promise<CallRecord[]> {
-  const p = await call<{ phone_calls?: Record<string, unknown>[] }>(h, "phone_calls_search",
-    { account_id: accountId, per_page: 100, page: 1, sort_by_field: "start_time" });
-  return (p.phone_calls || []).map((c) => ({
-    id: String(c.id), contactId: String(c.contact_id || ""), accountId,
-    duration: Number(c.duration || 0), outcomeId: (c.phone_call_outcome_id as string) || null,
-    note: String(c.note_text || c.note || ""), startTime: String(c.start_time || ""),
-    caller: String(c.caller_name || ""),
-  }));
+// Calls for one contact. NOT by account: Apollo's phone_calls_search ignores
+// account_id and returns the whole team's calls (verified 2026-11-20: a made-up
+// account id returned all 39,655). contact_id is honoured; the returned calls
+// are still filtered to that contact in case it ever stops being.
+async function fetchContactCalls(h: Handle, contactId: string, accountId: string): Promise<CallRecord[]> {
+  const out: CallRecord[] = [];
+  for (let page = 1; page <= 5; page++) {
+    const p = await call<{ phone_calls?: Record<string, unknown>[]; pagination?: { total_pages?: number } }>(h, "phone_calls_search",
+      { contact_id: contactId, per_page: 100, page, sort_by_field: "start_time" });
+    for (const c of p.phone_calls || []) {
+      if (String(c.contact_id || "") !== contactId) continue;
+      out.push({
+        id: String(c.id), contactId, accountId,
+        duration: Number(c.duration || 0), outcomeId: (c.phone_call_outcome_id as string) || null,
+        note: String(c.note_text || c.note || ""), startTime: String(c.start_time || ""),
+        caller: String(c.caller_name || ""),
+      });
+    }
+    if (!p.pagination || (p.pagination.total_pages ?? 1) <= page) break;
+  }
+  return out;
+}
+
+/** Every person's own calls, grouped by company so a colleague's call counts —
+ *  for colleagues among the people checked (Apollo can't list a company's calls). */
+async function callsByCompany(h: Handle, people: { contactId: string; accountId: string }[], tick: () => void) {
+  const uniq = [...new Map(people.map((p) => [p.contactId, p])).values()];
+  const byAccount = new Map<string, CallRecord[]>();
+  const failedContacts = new Set<string>();
+  await pool(uniq, 5, async (p) => {
+    try {
+      const calls = await fetchContactCalls(h, p.contactId, p.accountId);
+      const k = p.accountId || `contact:${p.contactId}`;
+      byAccount.set(k, [...(byAccount.get(k) || []), ...calls]);
+    } catch { failedContacts.add(p.contactId); }
+  }, tick);
+  return { byAccount, failedContacts };
 }
 
 async function fetchRepliedContactIds(h: Handle, seqId: string): Promise<Set<string>> {
@@ -381,23 +412,18 @@ export async function runAudit(
   const h = await apollo();
   const gaps = ["Meetings and deals are judged from Apollo call outcomes only — Echo and HubSpot aren't connected to this page."];
   let members: SequenceMember[] = [];
+  const finishedRaw: SequenceMember[] = [];
   for (const s of sequences) {
     onStatus(`Reading ${s.name}…`);
-    members = members.concat(await fetchMembers(s, (n) => onStatus(`Reading ${s.name}… ${n} active`)));
+    members = members.concat(await fetchMembers(s, (n) => onStatus(`Reading ${s.name}… ${n} active`), finishedRaw));
   }
 
-  const accounts = [...new Set(members.map((m) => m.accountId).filter(Boolean))];
   let done = 0;
-  const callsByAccount = new Map<string, CallRecord[]>();
-  const results = await pool(accounts, 5, async (a) => {
-    try { return [a, await fetchAccountCalls(h, a)] as const; }
-    catch { return [a, null] as const; }
-  }, () => onStatus(`Checking call history… ${++done}/${accounts.length} companies`));
-  let failed = 0;
-  for (const [a, calls] of results) { if (calls) callsByAccount.set(a, calls); else failed++; }
-  if (failed) gaps.push(`Call history couldn't be read for ${failed} compan${failed === 1 ? "y" : "ies"}.`);
-  const noAccount = members.filter((m) => !m.accountId).length;
-  if (noAccount) gaps.push(`${noAccount} contact(s) have no Apollo account, so company-level call checks were skipped for them.`);
+  const people = members.map((m) => ({ contactId: m.contactId, accountId: m.accountId }));
+  const total = new Set(people.map((p) => p.contactId)).size;
+  const { byAccount: callsByAccount, failedContacts } = await callsByCompany(h, people, () => onStatus(`Checking call history… ${++done}/${total} contacts`));
+  if (failedContacts.size) gaps.push(`Call history couldn't be read for ${failedContacts.size} contact${failedContacts.size === 1 ? "" : "s"}.`);
+  gaps.push("A colleague's call only counts when that colleague is in one of the checked sequences — Apollo can't list every call at a company.");
 
   const replied = new Set<string>();
   for (const s of sequences) {
@@ -423,7 +449,7 @@ export async function runAudit(
   onStatus("Applying rules…");
   const out: MemberResult[] = members.map((m) => {
     const flags: Flag[] = [];
-    const calls = callsByAccount.get(m.accountId) || [];
+    const calls = callsByAccount.get(m.accountId || `contact:${m.contactId}`) || [];
     const mine = calls.filter((c) => c.contactId === m.contactId);
     const d = (c: CallRecord) => c.startTime.slice(0, 10);
 
@@ -510,7 +536,11 @@ export async function runAudit(
     contacts: g.map((m) => ({ name: m.name, email: m.email, step: m.stepPosition })),
   })).sort((a, b) => b.contacts.length - a.contacts.length);
 
-  return { members: out, companyCheck, checkedCalls: [...callsByAccount.values()].reduce((n, c) => n + c.length, 0), gaps };
+  let finished: FinishedResult[] = [];
+  try { finished = await classifyFinished(finishedRaw, onStatus); }
+  catch { gaps.push("Finished leads couldn't be sorted by how they ended."); finished = finishedRaw.map((m) => ({ ...m, kind: finishKindOf(m.inactiveReason), disposition: "", calls: 0, lastOutcome: "" })); }
+
+  return { members: out, finished, companyCheck, checkedCalls: [...callsByAccount.values()].reduce((n, c) => n + c.length, 0), gaps };
 }
 
 // ---------------------------------------------------------------- writes
@@ -667,4 +697,235 @@ export async function mergeContacts(masterId: string, duplicateIds: string[], no
   const h = await apollo();
   await call(h, "duplicate_contacts_merge", { contacts: [{ master_contact_id: masterId, duplicate_contact_ids: duplicateIds }] });
   if (note !== null) await call(h, "contacts_update", { id: masterId, typed_custom_fields: { [FIELD_NOTE]: note } });
+}
+
+
+// ---------------------------------------------------------------- recycle
+
+// Per Jack: "a button in sequence scanner so i can click refresh and push to
+// recycled sequences last 30 days or whatever i set the timeframe to". The
+// rule is Carly Main Recycled's own description: leads that finished the main
+// sequence with only no answer / gatekeeper / voicemail, pushed four business
+// days after their tasks finished.
+export const RECYCLE_REST_BUSINESS_DAYS = 4;
+const RECYCLE_BLOCK_OUTCOMES = new Set<string>([
+  OUTCOME.meetingBooked, OUTCOME.qualified, OUTCOME.infoRequested, OUTCOME.notInterested,
+  OUTCOME.doNotContact, OUTCOME.callBack, OUTCOME.wrongNumber,
+]);
+// An early end (reply, bounce, unsubscribe, interest, a manual stop) is not a
+// recycle; finishing the last step is.
+const EARLY_END_RE = /repl|bounce|unsub|opt|interest|meeting|manual|stop|remov|ooo|out_of_office|spam|invalid/i;
+
+export function addBusinessDays(iso: string, n: number): Date {
+  const d = new Date(iso);
+  let left = n;
+  while (left > 0) {
+    d.setUTCDate(d.getUTCDate() + 1);
+    const wd = d.getUTCDay();
+    if (wd !== 0 && wd !== 6) left--;
+  }
+  return d;
+}
+
+export interface RecycleCandidate {
+  contactId: string;
+  name: string;
+  company: string;
+  email: string;
+  finishedAt: string;
+  readyOn: string;   // YYYY-MM-DD
+  ready: boolean;
+  calls: number;
+  lastOutcome: string;
+}
+export interface RecycleExcluded { contactId: string; name: string; company: string; reason: string }
+export interface RecycleResult {
+  sourceId: string;
+  targetId: string;
+  finished: number;
+  keep: RecycleCandidate[];
+  excluded: RecycleExcluded[];
+}
+
+/** Everyone who finished `source` in the last `days` days and belongs in
+ *  `target`. Read-only; nothing is enrolled here. */
+export async function findRecycleCandidates(
+  source: ApolloSequence, target: ApolloSequence, days: number,
+  recycledIds: string[], onStatus: (m: string) => void,
+): Promise<RecycleResult> {
+  const h = await apollo();
+  const since = Date.now() - days * 86_400_000;
+  const now = Date.now();
+  type Raw = { c: Record<string, unknown>; st: Record<string, unknown>; all: Record<string, unknown>[] };
+  const finished: Raw[] = [];
+  for (let page = 1; page <= 100; page++) {
+    onStatus(`Reading ${source.name}… page ${page}`);
+    const p = await call<{ contacts?: Record<string, unknown>[]; pagination?: { total_pages?: number } }>(h, "contacts_search", {
+      emailer_campaign_ids: [source.id], per_page: 100, page,
+      fields: [{ contacts: ["id", "name", "email", "email_status", "email_unsubscribed", "organization_name", "account_id", "contact_stage_id", "deals",
+        { contact_campaign_statuses: ["emailer_campaign_id", "status", "finished_at", "inactive_reason"] }] }],
+    });
+    for (const c of p.contacts || []) {
+      const all = (c.contact_campaign_statuses as Record<string, unknown>[]) || [];
+      const st = all.find((x) => x.emailer_campaign_id === source.id);
+      const f = st?.finished_at ? Date.parse(String(st.finished_at)) : NaN;
+      if (st && st.status === "finished" && f >= since) finished.push({ c, st, all });
+    }
+    if (!p.pagination || (p.pagination.total_pages ?? 1) <= page) break;
+  }
+
+  let replied = new Set<string>();
+  try { replied = await fetchRepliedContactIds(h, source.id); } catch { /* counted below as unknown */ }
+
+  let done = 0;
+  const { byAccount: callsByAccount, failedContacts } = await callsByCompany(h,
+    finished.map((r) => ({ contactId: String(r.c.id), accountId: String(r.c.account_id || "") })),
+    () => onStatus(`Checking calls… ${++done}/${finished.length} contacts`));
+
+  const keep: RecycleCandidate[] = []; const excluded: RecycleExcluded[] = [];
+  const recycled = new Set(recycledIds);
+  for (const { c, st, all } of finished) {
+    const base = { contactId: String(c.id), name: String(c.name || ""), company: String(c.organization_name || "") };
+    const no = (reason: string) => excluded.push({ ...base, reason });
+    const reason = String(st.inactive_reason || "");
+    const calls = failedContacts.has(base.contactId) ? null : (callsByAccount.get(String(c.account_id || "") || `contact:${base.contactId}`) || []);
+    const mine = (calls || []).filter((x) => x.contactId === base.contactId);
+    if (all.some((x) => x.status === "active" || x.status === "paused")) { no("Active in another sequence"); continue; }
+    if (all.some((x) => recycled.has(String(x.emailer_campaign_id)))) { no("Already in a recycled sequence"); continue; }
+    if (EARLY_END_RE.test(reason)) { no(`Ended early: ${reason.replace(/_/g, " ")}`); continue; }
+    if (c.email_unsubscribed) { no("Unsubscribed"); continue; }
+    if (/invalid|bounce/i.test(String(c.email_status || ""))) { no("Bad email"); continue; }
+    if (c.contact_stage_id === STAGE_NOT_INTERESTED) { no("Stage: Not Interested"); continue; }
+    if (Array.isArray(c.deals) && c.deals.length) { no("Has a deal"); continue; }
+    if (replied.has(base.contactId)) { no("Replied"); continue; }
+    if (calls === null) { no("Calls couldn't be read"); continue; }
+    const bad = mine.find((x) => x.outcomeId && RECYCLE_BLOCK_OUTCOMES.has(x.outcomeId));
+    if (bad) { no(OUTCOME_LABEL[bad.outcomeId!] || "Reached"); continue; }
+    if ((calls || []).some((x) => x.duration >= RULES.deepCallSeconds)) { no("Call over 4 min at this company (among people checked)"); continue; }
+    if (mine.some((x) => !x.outcomeId && x.note && CONVERSATION_RE.test(x.note))) { no("Call note shows a conversation"); continue; }
+    const readyAt = addBusinessDays(String(st.finished_at), RECYCLE_REST_BUSINESS_DAYS);
+    const last = [...mine].sort((a, b) => b.startTime.localeCompare(a.startTime))[0];
+    keep.push({
+      ...base, email: String(c.email || ""), finishedAt: String(st.finished_at).slice(0, 10),
+      readyOn: readyAt.toISOString().slice(0, 10), ready: readyAt.getTime() <= now,
+      calls: mine.length, lastOutcome: last ? (last.outcomeId ? OUTCOME_LABEL[last.outcomeId] || "Other" : "No outcome logged") : "",
+    });
+  }
+  keep.sort((a, b) => a.finishedAt.localeCompare(b.finishedAt));
+  return { sourceId: source.id, targetId: target.id, finished: finished.length, keep, excluded };
+}
+
+export interface PushResult { enrolled: string[]; skipped: Record<string, string> }
+
+/** Enroll recycled leads. They finished the main sequence, so that check is
+ *  waived; every other Apollo guard (active elsewhere, unverified email, same
+ *  company already in the sequence) stays on. */
+export async function pushToRecycled(targetId: string, contactIds: string[], mailboxId: string): Promise<PushResult> {
+  const h = await apollo();
+  const enrolled: string[] = []; const skipped: Record<string, string> = {};
+  for (let i = 0; i < contactIds.length; i += 50) {
+    const batch = contactIds.slice(i, i + 50);
+    const p = await call<{ contacts?: { id: string; contact_campaign_statuses?: { emailer_campaign_id: string }[] }[]; skipped_contact_ids?: Record<string, string> }>(h,
+      "emailer_campaigns_add_contact_ids", {
+        id: targetId, emailer_campaign_id: targetId, contact_ids: batch,
+        send_email_from_email_account_id: mailboxId, status: "active",
+        sequence_finished_in_other_campaigns: true,
+      });
+    Object.assign(skipped, p.skipped_contact_ids || {});
+    for (const c of p.contacts || [])
+      if (!skipped[c.id] && (c.contact_campaign_statuses || []).some((s) => s.emailer_campaign_id === targetId)) enrolled.push(c.id);
+  }
+  return { enrolled, skipped };
+}
+
+
+// ---------------------------------------------------------------- slipped through
+
+// Per Jack: "catch any tasks or contacts that slipped through and are not
+// interested pending review meeting booked or call back rescheduled [or info
+// requested] and
+// finishes that contact or task in the sequence". An active lead whose own
+// calls already landed one of these should not keep getting steps.
+export const FINISH_OUTCOMES: Record<string, string> = {
+  [OUTCOME.meetingBooked]: "Meeting Booked",
+  [OUTCOME.qualified]: "Qualified, Pending Review",
+  [OUTCOME.notInterested]: "Not interested",
+  [OUTCOME.doNotContact]: "Do Not Contact",
+  [OUTCOME.callBack]: "Call Back Scheduled",
+  // Per Jack (2026-11-20): "info requested should also end the sequence
+  // because we will reach out that way".
+  [OUTCOME.infoRequested]: "Info Requested",
+};
+export const FINISH_LABELS = new Set(Object.values(FINISH_OUTCOMES));
+
+/** The outcome that means this active lead should be finished, or null. The
+ *  strongest wins: a meeting over a call back. */
+export function finishReasonOf(m: MemberResult): string | null {
+  const order = ["Meeting Booked", "Qualified, Pending Review", "Do Not Contact", "Not interested", "Info Requested", "Call Back Scheduled"];
+  const got = Object.keys(m.history.outcomeTally).filter((k) => FINISH_LABELS.has(k.trim()));
+  if (m.stageId === STAGE_NOT_INTERESTED) got.push("Not interested");
+  for (const o of order) if (got.some((g) => g.trim() === o)) return o;
+  return null;
+}
+
+/** Finish (stop) leads in a sequence, keeping why on Apollo's record. */
+export async function finishInSequence(contactIds: string[], seqId: string, reason: string): Promise<string[]> {
+  const h = await apollo();
+  const done: string[] = [];
+  for (let i = 0; i < contactIds.length; i += 50) {
+    const batch = contactIds.slice(i, i + 50);
+    const p = await call<{ contacts?: { id: string }[] }>(h,
+      "emailer_campaigns_remove_or_stop_contact_ids", { contact_ids: batch, emailer_campaign_ids: [seqId], mode: "stop", stop_reason: reason });
+    const back = (p.contacts || []).map((c) => c.id);
+    done.push(...(back.length ? back : batch));
+  }
+  return done;
+}
+
+
+// ---------------------------------------------------------------- finished
+
+// Per Jack: "distinguish between active leads in sequences and finished.
+// finished means a disposition pushed it through to the end like pending
+// review or meeting booked or not interested so its finished or went through
+// all steps". Apollo's own inactive_reason says HOW it ended; for a lead a
+// call outcome ended, the lead's calls name which outcome.
+export type FinishKind = "disposition" | "all-steps" | "other";
+export const FINISH_KIND_META: Record<FinishKind, { label: string; cls: string; hint: string }> = {
+  disposition: { label: "Finished by disposition", cls: "info", hint: "A call outcome (meeting booked, pending review, not interested, call back…) or a conversation ended it." },
+  "all-steps": { label: "Went through all steps", cls: "neutral", hint: "Every step ran and nobody was reached." },
+  other: { label: "Ended another way", cls: "warning", hint: "Replied, unsubscribed, bounced, or stopped by hand." },
+};
+const DISPOSITION_END_RE = /talk|phone|call|appointment|meeting|interest|qualif|review|outcome|disposition|booked|dnc|do not contact/i;
+const ALL_STEPS_RE = /completed?_?last_?step|last step|all steps|finished/i;
+const DISPOSITION_ORDER_LABELS = ["Meeting Booked", "Qualified, Pending Review", "Not interested", "Do Not Contact", "Call Back Scheduled", "Info Requested"];
+
+export interface FinishedResult extends SequenceMember {
+  kind: FinishKind;
+  disposition: string; // the call outcome that ended it, when known
+  calls: number;
+  lastOutcome: string;
+}
+
+export function finishKindOf(reason: string): FinishKind {
+  const r = reason.trim();
+  if (!r || ALL_STEPS_RE.test(r)) return "all-steps";
+  if (DISPOSITION_END_RE.test(r)) return "disposition";
+  return "other";
+}
+
+export async function classifyFinished(finished: SequenceMember[], onStatus: (m: string) => void): Promise<FinishedResult[]> {
+  const h = await apollo();
+  const needCalls = finished.filter((m) => finishKindOf(m.inactiveReason) === "disposition");
+  let done = 0;
+  const { byAccount } = await callsByCompany(h, needCalls.map((m) => ({ contactId: m.contactId, accountId: m.accountId })),
+    () => onStatus(`Naming dispositions… ${++done}/${new Set(needCalls.map((m) => m.contactId)).size}`));
+  return finished.map((m) => {
+    const kind = finishKindOf(m.inactiveReason);
+    const mine = (byAccount.get(m.accountId || `contact:${m.contactId}`) || []).filter((c) => c.contactId === m.contactId)
+      .sort((a, b) => b.startTime.localeCompare(a.startTime));
+    const labels = mine.map((c) => (c.outcomeId ? OUTCOME_LABEL[c.outcomeId] || "" : "")).filter(Boolean);
+    const disposition = kind === "disposition" ? DISPOSITION_ORDER_LABELS.find((l) => labels.includes(l)) || "" : "";
+    return { ...m, kind, disposition, calls: mine.length, lastOutcome: labels[0] || "" };
+  }).sort((a, b) => (b.finishedAt || "").localeCompare(a.finishedAt || ""));
 }
