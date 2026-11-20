@@ -87,6 +87,7 @@ import { formatCentral, PLATFORM_TZ } from "./lib/centralTime";
 import { useNow } from "./lib/useNow";
 import SequenceCleaner from "./components/SequenceCleaner";
 import EmailPrompts from "./components/EmailPrompts";
+import ApolloRules from "./components/ApolloRules";
 import {
   loadDispositionsFromDB, persistDisposition, deleteDispositionFromDB,
   createCustomDisposition, type CustomDisposition,
@@ -113,7 +114,7 @@ export interface UploadedFile {
 
 export type View =
   | "home" | "scanner" | "scanner2" | "scanner3" | "library" | "allleads"
-  | "queue" | "files" | "recycle" | "refresher" | "reps" | "campaigns" | "history" | "lists" | "docs" | "diagnostics" | "agents" | "cleaner" | "prompts";
+  | "queue" | "files" | "recycle" | "refresher" | "reps" | "campaigns" | "history" | "lists" | "docs" | "diagnostics" | "agents" | "cleaner" | "prompts" | "rules";
 
 /** The three scanners, kept in their own collapsible sidebar section.
  *  Per Jack: "build the scanners into a drop down section on the left hand
@@ -140,6 +141,7 @@ const NAV_GROUPS: { title: string; items: { key: View; label: string }[] }[] = [
     { key: "lists", label: "Lists" },
     { key: "history", label: "History" },
     { key: "prompts", label: "Prompts" },
+    { key: "rules", label: "Apollo rules" },
   ] },
 ];
 
@@ -1429,6 +1431,7 @@ export default function App() {
         {view === "agents" && <Agents />}
         {view === "cleaner" && <SequenceCleaner />}
         {view === "prompts" && <EmailPrompts />}
+        {view === "rules" && <ApolloRules />}
         {view === "diagnostics" && (
           <Diagnostics leads={leads} apolloIndex={apolloIndex} lists={leadLists}
                        onNavigate={(v) => { if (v === "allleads") { setLeadsStatusEntry(""); setLeadsSequenceEntry(""); setLeadsPresetEntry(""); } setView(v); }} />
@@ -1781,6 +1784,7 @@ const NAV_ICON_PATHS: Record<string, string> = {
   diagnostics: "M3 12h4l2.5-6 5 12 2.5-6h4",
   agents: "M12 3l2.5 5 5.5.8-4 3.9.9 5.5L12 15.6 7.1 18.2l.9-5.5-4-3.9 5.5-.8z",
   cheatsheet: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm-2.5-11.5a2.5 2.5 0 1 1 3.4 2.3c-.6.3-.9.8-.9 1.4v.3M12 17h.01",
+  rules: "M9 5H5v14h14v-4M9 5l3-2 3 2v6H9V5Zm3 3h.01M12 14h5",
   prompts: "M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4V6Zm4 3h8M8 12h5",
   notes: "M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8l-5-5Zm0 0v5h5M8.5 13h7M8.5 17h5",
   settings: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7.4-3a7.4 7.4 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7.5 7.5 0 0 0-2-1.2L14.5 3h-5l-.4 2.6a7.5 7.5 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6a7.4 7.4 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7.5 7.5 0 0 0 2 1.2l.4 2.6h5l.4-2.6a7.5 7.5 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2Z",

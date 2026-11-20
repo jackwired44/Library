@@ -6,10 +6,10 @@
 import { useMemo, useState } from "react";
 import { downloadBlob, toCSV } from "../lib/csv";
 import {
-  FLAG_META, DUP_REASON_META, listSequences, runAudit, removeFromSequence, mergeContacts,
+  FLAG_META, DUP_REASON_META, FINISH_KIND_META, listSequences, runAudit, removeFromSequence, mergeContacts,
   findDuplicates, findMultiSequence, findCompanyGroups, listMailboxes, finishReasonOf, finishInSequence, findRecycleCandidates, pushToRecycled,
   RECYCLE_REST_BUSINESS_DAYS,
-  type ApolloSequence, type Mailbox, type RecycleResult, type AuditResult, type DupGroup, type FlagKind, type MemberResult,
+  type ApolloSequence, type Mailbox, type FinishKind, type RecycleResult, type AuditResult, type DupGroup, type FlagKind, type MemberResult,
 } from "../lib/apolloSequences";
 import { MAIN_SEQUENCES } from "./ApolloStatus";
 
@@ -20,7 +20,7 @@ const SEVERITY_CLASS = { remove: "danger", review: "warning", info: "info" } as 
 const SEVERITY_RANK = { remove: 0, review: 1, info: 2 } as const;
 const FLAG_ORDER: FlagKind[] = ["meeting", "reached", "deep-call", "stage", "replied", "zombie", "repeat-finished", "callback-undated", "prior-contact", "wrong-sequence", "dupe-person", "dupe-company", "callback"];
 
-type Tab = "flagged" | "duplicates" | "companies" | "all";
+type Tab = "flagged" | "duplicates" | "companies" | "all" | "finished";
 type Pending =
   | { kind: "remove"; rows: MemberResult[]; title: string }
   | { kind: "finish"; rows: MemberResult[] }
@@ -239,7 +239,7 @@ export default function SequenceCleaner() {
           )}
 
           <div className="seg" role="tablist" style={{ marginBottom: 12 }}>
-            {([["flagged", `Flagged (${flaggedCount})`], ["duplicates", `Duplicates (${dupGroups.length + multi.length})`], ["companies", `Same company (${companies.length})`], ["all", `All leads (${members.length})`]] as [Tab, string][]).map(([k, label]) => (
+            {([["flagged", `Flagged (${flaggedCount})`], ["duplicates", `Duplicates (${dupGroups.length + multi.length})`], ["companies", `Same company (${companies.length})`], ["all", `Active (${members.length})`], ["finished", `Finished (${audit.finished.length})`]] as [Tab, string][]).map(([k, label]) => (
               <button key={k} role="tab" aria-selected={tab === k} className={`seg-btn${tab === k ? " active" : ""}`} onClick={() => { setTab(k); setFlagFilter(""); }}>{label}</button>
             ))}
           </div>
@@ -424,6 +424,8 @@ export default function SequenceCleaner() {
               ))}
             </>
           )}
+
+          {tab === "finished" && <FinishedView rows={audit.finished} seqName={seqName} />}
 
           {tab === "companies" && (
             <>
@@ -708,6 +710,95 @@ function RecyclePanel({ sequences, mailboxes }: { sequences: ApolloSequence[]; m
               <button className="btn btn-primary" disabled={busy || !confirm.mailboxId} onClick={push}>{busy ? "Adding…" : `Push ${confirm.ids.length}`}</button>
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ---------------------------------------------------------------- finished
+
+const FINISH_ORDER: FinishKind[] = ["disposition", "all-steps", "other"];
+
+function FinishedView({ rows, seqName }: { rows: AuditResult["finished"]; seqName: Map<string, string> }) {
+  const [kind, setKind] = useState<FinishKind | "">("");
+  const [disp, setDisp] = useState("");
+  const [q, setQ] = useState("");
+  const [page, setPage] = useState(0);
+  const PAGE = 50;
+  const dispositions = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of rows) if (r.kind === "disposition") m.set(r.disposition || "Outcome not logged", (m.get(r.disposition || "Outcome not logged") || 0) + 1);
+    return [...m].sort((a, b) => b[1] - a[1]);
+  }, [rows]);
+  const shown = useMemo(() => rows.filter((r) =>
+    (!kind || r.kind === kind) &&
+    (!disp || (r.disposition || "Outcome not logged") === disp) &&
+    (!q.trim() || `${r.name} ${r.company} ${r.email}`.toLowerCase().includes(q.trim().toLowerCase()))), [rows, kind, disp, q]);
+  const pages = Math.max(1, Math.ceil(shown.length / PAGE));
+  const pg = Math.min(page, pages - 1);
+
+  async function exportCsv() {
+    await downloadBlob(toCSV(shown.map((r) => ({
+      Name: r.name, Company: r.company, Email: r.email, Sequence: seqName.get(r.sequenceId) || r.sequenceId,
+      Finished: r.finishedAt ? r.finishedAt.slice(0, 10) : "", "How it finished": FINISH_KIND_META[r.kind].label,
+      Disposition: r.disposition, "Apollo reason": r.inactiveReason.replace(/_/g, " "), Calls: r.calls, "Last outcome": r.lastOutcome,
+    })), ["Name", "Company", "Email", "Sequence", "Finished", "How it finished", "Disposition", "Apollo reason", "Calls", "Last outcome"]), `finished-leads-${new Date().toISOString().slice(0, 10)}.csv`);
+  }
+
+  return (
+    <div data-finished>
+      <div className="metric-row" style={{ marginBottom: 12 }}>
+        {FINISH_ORDER.map((k) => (
+          <button key={k} className={`metric${kind === k ? " is-active" : ""}`} style={{ textAlign: "left", cursor: "pointer", background: kind === k ? "var(--surface-sunken)" : undefined }} title={FINISH_KIND_META[k].hint}
+            onClick={() => { setKind(kind === k ? "" : k); setDisp(""); setPage(0); }}>
+            <div className="metric-label">{FINISH_KIND_META[k].label}</div>
+            <div className="metric-value">{rows.filter((r) => r.kind === k).length}</div>
+          </button>
+        ))}
+      </div>
+      <div className="control-strip" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
+        <input className="field" placeholder="Search name, company, email…" value={q} onChange={(e) => { setQ(e.target.value); setPage(0); }} style={{ minWidth: 220 }} />
+        <select className="field" aria-label="How it finished" value={kind} onChange={(e) => { setKind(e.target.value as FinishKind | ""); setDisp(""); setPage(0); }}>
+          <option value="">Every way it finished</option>
+          {FINISH_ORDER.map((k) => <option key={k} value={k}>{FINISH_KIND_META[k].label}</option>)}
+        </select>
+        {(kind === "" || kind === "disposition") && dispositions.length > 0 && (
+          <select className="field" aria-label="Disposition" value={disp} onChange={(e) => { setDisp(e.target.value); if (e.target.value) setKind("disposition"); setPage(0); }}>
+            <option value="">Any disposition</option>
+            {dispositions.map(([d, n]) => <option key={d} value={d}>{d} ({n})</option>)}
+          </select>
+        )}
+        <span className="panel-sub" style={{ marginLeft: "auto" }}>{shown.length} shown</span>
+        <button className="btn btn-secondary btn-sm" onClick={exportCsv}>⬇ Export (CSV)</button>
+      </div>
+      <div className="table-card">
+        <table className="data-table" aria-label="Finished leads">
+          <thead><tr><th>Lead</th><th>Sequence</th><th>Finished</th><th>How it finished</th><th>Calls</th></tr></thead>
+          <tbody>
+            {shown.length === 0 && <tr><td colSpan={5} className="cell-empty">No finished leads match.</td></tr>}
+            {shown.slice(pg * PAGE, pg * PAGE + PAGE).map((r) => (
+              <tr key={`${r.sequenceId}:${r.contactId}`}>
+                <td><strong>{r.name || "—"}</strong><div className="panel-sub">{r.company}{r.email ? ` · ${r.email}` : ""}</div></td>
+                <td>{seqName.get(r.sequenceId)}<div className="panel-sub">step {r.stepPosition ?? "—"}</div></td>
+                <td>{r.finishedAt ? r.finishedAt.slice(0, 10) : "—"}</td>
+                <td>
+                  <span className={`status-pill ${FINISH_KIND_META[r.kind].cls}`}>{FINISH_KIND_META[r.kind].label}</span>
+                  {r.kind === "disposition" && <div style={{ marginTop: 4 }}><strong>{r.disposition || "Outcome not logged"}</strong></div>}
+                  {r.inactiveReason && <div className="panel-sub">Apollo: {r.inactiveReason.replace(/_/g, " ")}</div>}
+                </td>
+                <td className="panel-sub">{r.calls ? `${r.calls} · last ${r.lastOutcome || "no outcome"}` : r.kind === "disposition" ? "None logged" : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {pages > 1 && (
+        <div className="pager" style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8 }}>
+          <button className="btn btn-sm btn-ghost" disabled={pg === 0} onClick={() => setPage(pg - 1)}>Prev</button>
+          <span className="panel-sub">Page {pg + 1} of {pages}</span>
+          <button className="btn btn-sm btn-ghost" disabled={pg >= pages - 1} onClick={() => setPage(pg + 1)}>Next</button>
         </div>
       )}
     </div>

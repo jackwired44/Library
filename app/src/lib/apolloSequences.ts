@@ -92,7 +92,8 @@ export interface SequenceMember {
   productLine: string;
   notes: string; // every short custom field joined, research blob excluded
   sequenceId: string;
-  status: string; // active | paused
+  status: string; // active | paused | finished
+  inactiveReason: string; // Apollo's own reason a finished lead ended
   stepPosition: number | null;
   finishedAt: string | null;
   addedAt: string | null;
@@ -176,6 +177,8 @@ export interface CompanyCheckRow {
 
 export interface AuditResult {
   members: MemberResult[];
+  // Every lead that finished one of the checked sequences, sorted by how.
+  finished: FinishedResult[];
   // Per Jack: "check across each sequence ... not more than 1 contact from a
   // company added to each" — one row per (sequence, company) with 2+ people.
   companyCheck: CompanyCheckRow[];
@@ -272,7 +275,7 @@ export function normCompany(s: string): string {
     .replace(/\s+/g, " ").trim();
 }
 
-export async function fetchMembers(seq: ApolloSequence, onProgress?: (n: number) => void): Promise<SequenceMember[]> {
+export async function fetchMembers(seq: ApolloSequence, onProgress?: (n: number) => void, finishedOut?: SequenceMember[]): Promise<SequenceMember[]> {
   const h = await apollo();
   const stepPos = new Map(seq.steps.map((s) => [s.id, s.position]));
   const members: SequenceMember[] = [];
@@ -291,7 +294,8 @@ export async function fetchMembers(seq: ApolloSequence, onProgress?: (n: number)
       const priorFinished = allSt
         .filter((s) => s.emailer_campaign_id !== seq.id && s.status === "finished")
         .map((s) => ({ sequenceId: String(s.emailer_campaign_id), finishedAt: (s.finished_at as string) || null, reason: String(s.inactive_reason || "") }));
-      if (!st || (st.status !== "active" && st.status !== "paused")) continue;
+      const isFinished = st?.status === "finished";
+      if (!st || (st.status !== "active" && st.status !== "paused" && !(isFinished && finishedOut))) continue;
       const tf = (c.typed_custom_fields as Record<string, unknown>) || {};
       const notes = Object.entries(tf)
         .filter(([k]) => k !== FIELD_RESEARCH && k !== FIELD_PRODUCT_LINE)
@@ -300,7 +304,7 @@ export async function fetchMembers(seq: ApolloSequence, onProgress?: (n: number)
         .join(" | ");
       const email = String(c.email || "");
       const acct = (c.account as { domain?: string }) || {};
-      members.push({
+      (isFinished ? finishedOut! : members).push({
         contactId: String(c.id), name: String(c.name || ""),
         firstName: String(c.first_name || "").trim() || String(c.name || "").trim().split(/\s+/)[0] || "",
         lastName: String(c.last_name || "").trim(),
@@ -312,7 +316,7 @@ export async function fetchMembers(seq: ApolloSequence, onProgress?: (n: number)
         email, domain: domainOf(email) || String(acct.domain || "").toLowerCase(),
         accountId: String(c.account_id || ""), stageId: String(c.contact_stage_id || ""),
         productLine: String(tf[FIELD_PRODUCT_LINE] || ""), notes,
-        sequenceId: seq.id, status: String(st.status),
+        sequenceId: seq.id, status: String(st.status), inactiveReason: String(st.inactive_reason || ""),
         stepPosition: stepPos.get(String(st.current_step_id)) ?? null,
         finishedAt: (st.finished_at as string) || null, addedAt: (st.added_at as string) || null,
         priorFinished,
@@ -408,9 +412,10 @@ export async function runAudit(
   const h = await apollo();
   const gaps = ["Meetings and deals are judged from Apollo call outcomes only — Echo and HubSpot aren't connected to this page."];
   let members: SequenceMember[] = [];
+  const finishedRaw: SequenceMember[] = [];
   for (const s of sequences) {
     onStatus(`Reading ${s.name}…`);
-    members = members.concat(await fetchMembers(s, (n) => onStatus(`Reading ${s.name}… ${n} active`)));
+    members = members.concat(await fetchMembers(s, (n) => onStatus(`Reading ${s.name}… ${n} active`), finishedRaw));
   }
 
   let done = 0;
@@ -531,7 +536,11 @@ export async function runAudit(
     contacts: g.map((m) => ({ name: m.name, email: m.email, step: m.stepPosition })),
   })).sort((a, b) => b.contacts.length - a.contacts.length);
 
-  return { members: out, companyCheck, checkedCalls: [...callsByAccount.values()].reduce((n, c) => n + c.length, 0), gaps };
+  let finished: FinishedResult[] = [];
+  try { finished = await classifyFinished(finishedRaw, onStatus); }
+  catch { gaps.push("Finished leads couldn't be sorted by how they ended."); finished = finishedRaw.map((m) => ({ ...m, kind: finishKindOf(m.inactiveReason), disposition: "", calls: 0, lastOutcome: "" })); }
+
+  return { members: out, finished, companyCheck, checkedCalls: [...callsByAccount.values()].reduce((n, c) => n + c.length, 0), gaps };
 }
 
 // ---------------------------------------------------------------- writes
@@ -833,7 +842,8 @@ export async function pushToRecycled(targetId: string, contactIds: string[], mai
 // ---------------------------------------------------------------- slipped through
 
 // Per Jack: "catch any tasks or contacts that slipped through and are not
-// interested pending review meeting booked or call back rescheduled and
+// interested pending review meeting booked or call back rescheduled [or info
+// requested] and
 // finishes that contact or task in the sequence". An active lead whose own
 // calls already landed one of these should not keep getting steps.
 export const FINISH_OUTCOMES: Record<string, string> = {
@@ -842,13 +852,16 @@ export const FINISH_OUTCOMES: Record<string, string> = {
   [OUTCOME.notInterested]: "Not interested",
   [OUTCOME.doNotContact]: "Do Not Contact",
   [OUTCOME.callBack]: "Call Back Scheduled",
+  // Per Jack (2026-11-20): "info requested should also end the sequence
+  // because we will reach out that way".
+  [OUTCOME.infoRequested]: "Info Requested",
 };
-const FINISH_LABELS = new Set(Object.values(FINISH_OUTCOMES));
+export const FINISH_LABELS = new Set(Object.values(FINISH_OUTCOMES));
 
 /** The outcome that means this active lead should be finished, or null. The
  *  strongest wins: a meeting over a call back. */
 export function finishReasonOf(m: MemberResult): string | null {
-  const order = ["Meeting Booked", "Qualified, Pending Review", "Do Not Contact", "Not interested", "Call Back Scheduled"];
+  const order = ["Meeting Booked", "Qualified, Pending Review", "Do Not Contact", "Not interested", "Info Requested", "Call Back Scheduled"];
   const got = Object.keys(m.history.outcomeTally).filter((k) => FINISH_LABELS.has(k.trim()));
   if (m.stageId === STAGE_NOT_INTERESTED) got.push("Not interested");
   for (const o of order) if (got.some((g) => g.trim() === o)) return o;
@@ -867,4 +880,52 @@ export async function finishInSequence(contactIds: string[], seqId: string, reas
     done.push(...(back.length ? back : batch));
   }
   return done;
+}
+
+
+// ---------------------------------------------------------------- finished
+
+// Per Jack: "distinguish between active leads in sequences and finished.
+// finished means a disposition pushed it through to the end like pending
+// review or meeting booked or not interested so its finished or went through
+// all steps". Apollo's own inactive_reason says HOW it ended; for a lead a
+// call outcome ended, the lead's calls name which outcome.
+export type FinishKind = "disposition" | "all-steps" | "other";
+export const FINISH_KIND_META: Record<FinishKind, { label: string; cls: string; hint: string }> = {
+  disposition: { label: "Finished by disposition", cls: "info", hint: "A call outcome (meeting booked, pending review, not interested, call back…) or a conversation ended it." },
+  "all-steps": { label: "Went through all steps", cls: "neutral", hint: "Every step ran and nobody was reached." },
+  other: { label: "Ended another way", cls: "warning", hint: "Replied, unsubscribed, bounced, or stopped by hand." },
+};
+const DISPOSITION_END_RE = /talk|phone|call|appointment|meeting|interest|qualif|review|outcome|disposition|booked|dnc|do not contact/i;
+const ALL_STEPS_RE = /completed?_?last_?step|last step|all steps|finished/i;
+const DISPOSITION_ORDER_LABELS = ["Meeting Booked", "Qualified, Pending Review", "Not interested", "Do Not Contact", "Call Back Scheduled", "Info Requested"];
+
+export interface FinishedResult extends SequenceMember {
+  kind: FinishKind;
+  disposition: string; // the call outcome that ended it, when known
+  calls: number;
+  lastOutcome: string;
+}
+
+export function finishKindOf(reason: string): FinishKind {
+  const r = reason.trim();
+  if (!r || ALL_STEPS_RE.test(r)) return "all-steps";
+  if (DISPOSITION_END_RE.test(r)) return "disposition";
+  return "other";
+}
+
+export async function classifyFinished(finished: SequenceMember[], onStatus: (m: string) => void): Promise<FinishedResult[]> {
+  const h = await apollo();
+  const needCalls = finished.filter((m) => finishKindOf(m.inactiveReason) === "disposition");
+  let done = 0;
+  const { byAccount } = await callsByCompany(h, needCalls.map((m) => ({ contactId: m.contactId, accountId: m.accountId })),
+    () => onStatus(`Naming dispositions… ${++done}/${new Set(needCalls.map((m) => m.contactId)).size}`));
+  return finished.map((m) => {
+    const kind = finishKindOf(m.inactiveReason);
+    const mine = (byAccount.get(m.accountId || `contact:${m.contactId}`) || []).filter((c) => c.contactId === m.contactId)
+      .sort((a, b) => b.startTime.localeCompare(a.startTime));
+    const labels = mine.map((c) => (c.outcomeId ? OUTCOME_LABEL[c.outcomeId] || "" : "")).filter(Boolean);
+    const disposition = kind === "disposition" ? DISPOSITION_ORDER_LABELS.find((l) => labels.includes(l)) || "" : "";
+    return { ...m, kind, disposition, calls: mine.length, lastOutcome: labels[0] || "" };
+  }).sort((a, b) => (b.finishedAt || "").localeCompare(a.finishedAt || ""));
 }

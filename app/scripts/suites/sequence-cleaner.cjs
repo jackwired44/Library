@@ -37,6 +37,7 @@ const MOCK = () => {
     { id: 'r3', name: 'Talked Tom', email: 'tom@tomco.com', organization_name: 'TomCo', account_id: 'a22', typed_custom_fields: {}, seq: A, fin: daysAgo(10) },
     { id: 'r4', name: 'Busy Bo', email: 'bo@boco.com', organization_name: 'BoCo', account_id: 'a23', typed_custom_fields: {}, seq: A, fin: daysAgo(10), prior: [{ emailer_campaign_id: B, status: 'active' }] },
     { id: 'r6', name: 'Dyn Dora', email: 'dora@doraco.com', organization_name: 'DoraCo', account_id: 'a25', typed_custom_fields: {}, seq: B, fin: daysAgo(12) },
+    { id: 'r7', name: 'Fin Meg', email: 'meg@megco.com', organization_name: 'MegCo', account_id: 'a27', typed_custom_fields: {}, seq: A, fin: daysAgo(3), reason: 'talked on phone' },
     { id: 'r5', name: 'Old Olga', email: 'olga@olgaco.com', organization_name: 'OlgaCo', account_id: 'a24', typed_custom_fields: {}, seq: A, fin: daysAgo(60) },
     { id: 'c10', name: 'Reply Rae', email: 'rae@replyco.com', organization_name: 'ReplyCo', account_id: 'a10', typed_custom_fields: { [NOTE]: 'Wants Copilot.' }, seq: A },
   ];
@@ -46,6 +47,8 @@ const MOCK = () => {
     a13: [{ id: 'k4', contact_id: 'c13', duration: 0, phone_call_outcome_id: '6a73be64a0f3de000c6be57f', note_text: 'Spoke briefly, asked to call back', start_time: '2026-11-18T15:00:00Z', caller_name: 'Carly Parks' }],
     a20: [{ id: 'k20', contact_id: 'r1', duration: 0, phone_call_outcome_id: '66203bd7183e31042298047d', start_time: daysAgo(18), caller_name: 'Jack Snellgrove' }],
     a22: [{ id: 'k22', contact_id: 'r3', duration: 40, phone_call_outcome_id: '66203bd7183e310422980485', start_time: daysAgo(12), caller_name: 'Jack Snellgrove' }],
+    a27: [{ id: 'k27', contact_id: 'r7', duration: 0, phone_call_outcome_id: '6a024dabd777bd000d626376', start_time: daysAgo(4), caller_name: 'Jack Snellgrove' }],
+    a14: [{ id: 'k14', contact_id: 'c15', duration: 0, phone_call_outcome_id: '6a0f3f736d2f76001c1d81e9', start_time: daysAgo(2), caller_name: 'Jack Snellgrove' }],
     a8: [{ id: 'k3', contact_id: 'c8', duration: 0, phone_call_outcome_id: '6a73be64a0f3de000c6be57f', note_text: 'Call back Friday at 2pm', start_time: '2026-11-13T15:00:00Z', caller_name: 'Jack Snellgrove' }],
   };
   window.__writes = [];
@@ -63,7 +66,7 @@ const MOCK = () => {
       if (tool.endsWith('email_accounts_index')) return { payload: { email_accounts: [{ id: 'mb1', email: 'jack@wiredcio.com', user_id: 'jack', owner_name: 'Jack', default: true }] } };
       if (tool.endsWith('contacts_search')) {
         const seq = input.emailer_campaign_ids[0];
-        return { payload: { pagination: { total_pages: 1 }, contacts: contacts.filter(c => c.seq === seq).map(c => ({ ...c, contact_campaign_statuses: st(c.seq, { ...(c.fin ? { status: 'finished', finished_at: c.fin, inactive_reason: 'completed_last_step' } : {}), ...(c.finished_at ? { finished_at: c.finished_at } : {}), ...(c.added_at ? { added_at: c.added_at } : {}) }, c.prior || []) })) } };
+        return { payload: { pagination: { total_pages: 1 }, contacts: contacts.filter(c => c.seq === seq).map(c => ({ ...c, contact_campaign_statuses: st(c.seq, { ...(c.fin ? { status: 'finished', finished_at: c.fin, inactive_reason: c.reason || 'completed_last_step' } : {}), ...(c.finished_at ? { finished_at: c.finished_at } : {}), ...(c.added_at ? { added_at: c.added_at } : {}) }, c.prior || []) })) } };
       }
       // Like real Apollo: account_id is ignored (whole team comes back); contact_id filters.
       if (tool.endsWith('phone_calls_search')) { const all = Object.values(calls).flat(); return { payload: { pagination: { total_pages: 1 }, phone_calls: input.contact_id ? all.filter((c) => c.contact_id === input.contact_id) : all } }; }
@@ -179,14 +182,24 @@ const MOCK = () => {
   // pending review, not interested or call back get finished (stopped).
   await page.locator('[role=tab]', { hasText: 'Check sequences' }).click(); await sleep(300);
   const sl = await page.locator('[data-slipped]').innerText();
-  ok('slipped-through banner counts them', /3 slipped through/.test(sl) && sl.includes('Call Back Scheduled (2)') && sl.includes('Not interested (1)'), sl);
+  ok('slipped-through banner counts them, info requested included', /4 slipped through/.test(sl) && sl.includes('Call Back Scheduled (2)') && sl.includes('Not interested (1)') && sl.includes('Info Requested (1)'), sl);
   const n0 = await page.evaluate(() => window.__writes.length);
-  await page.locator('[data-slipped] button', { hasText: 'Finish all 3' }).click(); await sleep(200);
+  await page.locator('[data-slipped] button', { hasText: 'Finish all 4' }).click(); await sleep(200);
   ok('finish asks first and names the reason', (await page.locator('[role=dialog]').innerText()).includes('Call Back Scheduled') && (await page.evaluate(() => window.__writes.length)) === n0);
-  await page.locator('[role=dialog] button', { hasText: /^Finish 3$/ }).click(); await sleep(500);
+  await page.locator('[role=dialog] button', { hasText: /^Finish 4$/ }).click(); await sleep(500);
   const fw = await page.evaluate((n) => window.__writes.slice(n), n0);
-  ok('finish stops them with the outcome as the reason', fw.length === 2 && fw.every((w) => w[0] === 'remove' && w[3] === 'stop') && fw.some((w) => w[4] === 'Call Back Scheduled' && w[2].length === 2) && fw.some((w) => w[4] === 'Not interested' && w[2].join() === 'c6'), JSON.stringify(fw));
+  ok('finish stops them with the outcome as the reason', fw.length === 3 && fw.some((w) => w[4] === 'Info Requested' && w[2].join() === 'c15') && fw.every((w) => w[0] === 'remove' && w[3] === 'stop') && fw.some((w) => w[4] === 'Call Back Scheduled' && w[2].length === 2) && fw.some((w) => w[4] === 'Not interested' && w[2].join() === 'c6'), JSON.stringify(fw));
   ok('banner clears after finishing', await page.locator('[data-slipped]').count() === 0);
+  // Finished tab: how each finished lead ended.
+  await page.locator('[role=tab]', { hasText: 'Finished' }).click(); await sleep(200);
+  const fin = await page.locator('[data-finished]').innerText();
+  ok('finished tab sorts by how they ended', fin.includes('Finished by disposition') && fin.includes('Went through all steps'), fin.slice(0, 300));
+  const meg = await page.locator('table[aria-label="Finished leads"] tbody tr', { hasText: 'Fin Meg' }).innerText();
+  ok('a disposition finish names the outcome', meg.includes('Finished by disposition') && meg.includes('Meeting Booked'), meg);
+  const rita = await page.locator('table[aria-label="Finished leads"] tbody tr', { hasText: 'Ready Rita' }).innerText();
+  ok('an all-steps finish reads so', rita.includes('Went through all steps'), rita);
+  await page.selectOption('select[aria-label="How it finished"]', 'disposition'); await sleep(150);
+  ok('filter by how it finished', !(await page.locator('table[aria-label="Finished leads"]').innerText()).includes('Ready Rita'));
   ok('no page errors', errs.length === 0, errs.join(' | '));
   console.log(`\n${pass} passed, ${fail} failed`);
   await b.close(); process.exit(fail ? 1 : 0);

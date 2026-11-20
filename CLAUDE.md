@@ -6148,6 +6148,32 @@ sequences, made repeatable with one click.
   `emailer_campaigns_remove_or_stop_contact_ids` in **stop** mode with the
   outcome as `stop_reason`, so Apollo keeps why. `sequence-cleaner` 45.
 
+### 2026-11-20: Finished vs active, info requested ends, Apollo rules page
+
+- **Sequence Scanner → Finished tab.** Per Jack: "distinguish between active
+  leads in sequences and finished … a disposition pushed it through to the
+  end like pending review or meeting booked or not interested … or went
+  through all steps". `fetchMembers` now also returns finished members (same
+  pages, no extra reads); `classifyFinished` sorts them by Apollo's
+  `inactive_reason` (`finishKindOf`): **Finished by disposition** (talked on
+  phone, appointment, interested…), with the outcome named from that lead's
+  own calls; **Went through all steps** (completed last step); **Ended
+  another way** (replied, unsubscribed, bounced, manual). Tiles filter,
+  plus a disposition dropdown and CSV. "All leads" tab renamed "Active".
+- **Info Requested ends the sequence.** Per Jack: "we will reach out that
+  way". Added to `FINISH_OUTCOMES`, so it is in the slipped-through sweep.
+- **Archive → Apollo rules** (`components/ApolloRules.tsx`,
+  `lib/apolloRules.ts`). Per Jack: "the rules of dispositions that are in
+  apollo and the triggers and everything stored here". A snapshot read on
+  2026-11-20: every call disposition (id, reached / not, calls logged, what
+  Apollo was seen doing, what the Vault does), the six sequences' steps and
+  automation settings (finish on reply / interested, OOO pause, reply wait,
+  same-company delay, excluded account stages, daily cap), contact stages,
+  and the Vault's own rules. Apollo's per-disposition automations aren't
+  readable through the connector, so "In Apollo" is observed behaviour and
+  says so. Re-read and regenerate when the setup changes. Suite
+  `apollo-rules-live` (6); `sequence-cleaner` 49.
+
 ### 2026-11-20: Apollo ignores account_id on call search — fixed
 
 Found while building the recycle lists: `phone_calls_search` ignores
