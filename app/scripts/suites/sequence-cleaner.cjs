@@ -23,6 +23,7 @@ const MOCK = () => {
     { id: 'c7', name: 'Deep Dee', email: 'dee@deepco.com', organization_name: 'DeepCo', account_id: 'a7', typed_custom_fields: { [NOTE]: 'Wants Defender.' }, seq: A },
     { id: 'c11', name: 'Again Ann', email: 'ann@againco.com', organization_name: 'AgainCo', account_id: 'a11', typed_custom_fields: { [NOTE]: 'Wants E3.' }, seq: A, prior: [{ emailer_campaign_id: 'cccccccccccccccccccccccc', status: 'finished', finished_at: '2026-10-05T00:00:00Z', inactive_reason: 'completed_last_step' }] },
     { id: 'c12', name: 'Twin Three', email: 'three@twinco.com', organization_name: 'TwinCo', account_id: 'a4', typed_custom_fields: { [NOTE]: 'Wants E3.' }, seq: A },
+    { id: 'c13', name: 'Vague Val', email: 'val@vagueco.com', organization_name: 'VagueCo', account_id: 'a13', typed_custom_fields: { [NOTE]: 'Wants E3.' }, seq: A },
     { id: 'c8', name: 'Callback Cal', email: 'cal@cbco.com', organization_name: 'CbCo', account_id: 'a8', typed_custom_fields: { [NOTE]: 'Wants E3.' }, seq: A },
     { id: 'c9', name: 'Zombie Zed', email: 'zed@zomco.com', organization_name: 'ZomCo', account_id: 'a9', typed_custom_fields: { [NOTE]: 'Wants Business Central.' }, seq: B, finished_at: '2026-11-17T17:24:00Z' },
     { id: 'c10', name: 'Reply Rae', email: 'rae@replyco.com', organization_name: 'ReplyCo', account_id: 'a10', typed_custom_fields: { [NOTE]: 'Wants Copilot.' }, seq: A },
@@ -30,7 +31,8 @@ const MOCK = () => {
   const calls = {
     a2: [{ id: 'k1', contact_id: 'c2', duration: 30, phone_call_outcome_id: '6a024dabd777bd000d626376', start_time: '2026-11-10T15:00:00Z', caller_name: 'Carly Parks' }],
     a7: [{ id: 'k2', contact_id: 'cX', duration: 420, phone_call_outcome_id: null, start_time: '2026-10-01T15:00:00Z', caller_name: 'Jack Snellgrove' }],
-    a8: [{ id: 'k3', contact_id: 'c8', duration: 0, phone_call_outcome_id: '6a73be64a0f3de000c6be57f', note_text: 'Call back Friday', start_time: '2026-11-13T15:00:00Z', caller_name: 'Jack Snellgrove' }],
+    a13: [{ id: 'k4', contact_id: 'c13', duration: 0, phone_call_outcome_id: '6a73be64a0f3de000c6be57f', note_text: 'Spoke briefly, asked to call back', start_time: '2026-11-18T15:00:00Z', caller_name: 'Carly Parks' }],
+    a8: [{ id: 'k3', contact_id: 'c8', duration: 0, phone_call_outcome_id: '6a73be64a0f3de000c6be57f', note_text: 'Call back Friday at 2pm', start_time: '2026-11-13T15:00:00Z', caller_name: 'Jack Snellgrove' }],
   };
   window.__writes = [];
   const enrolled = c => [c.seq];
@@ -70,8 +72,8 @@ const MOCK = () => {
   await page.goto(BASE);
   await page.fill('input[aria-label="Email"]', 'jack@wiredcio.com'); await page.fill('input[type=password]', 'changeme');
   await page.click('button:has-text("Unlock")'); await sleep(900);
-  await page.locator('aside button:has-text("Sequence Cleaner")').first().click(); await sleep(400);
-  ok('cleaner screen opens', await page.locator('h2:has-text("Sequence Cleaner")').count() === 1);
+  await page.locator('aside button:has-text("Sequence Scanner")').first().click(); await sleep(400);
+  ok('cleaner screen opens', await page.locator('h2:has-text("Sequence Scanner")').count() === 1);
   await page.click('button:has-text("Load sequences")'); await sleep(500);
   ok('sequences listed', await page.locator('label:has-text("Jack M365 Sequence")').count() === 1 && await page.locator('label:has-text("Jacks Dynamics Sequence")').count() === 1);
   await page.locator('label:has-text("Jack M365 Sequence") input').check();
@@ -88,27 +90,16 @@ const MOCK = () => {
   ok('zombie flagged', (await row('Zombie Zed').innerText()).includes('Finished but shown active'));
   ok('prior finished counted', (await row('Again Ann').innerText()).includes('Finished 1 sequence before'));
   ok('company check lists 2+ in one sequence', (await page.locator('.panel', { hasText: 'Company check' }).innerText()).includes('TwinCo'));
+  ok('dated callback not flagged undated', !(await row('Callback Cal').innerText()).includes('no callback date'));
+  ok('undated callback flagged', (await row('Vague Val').innerText()).includes('no callback date'));
   ok('reply flagged', (await row('Reply Rae').innerText()).includes('Replied'));
   ok('clean lead hidden from Flagged view', !txt.includes('Clean Carl'));
   ok('gap about Echo/HubSpot stated', (await page.locator('text=Echo and HubSpot').count()) > 0);
 
   await row('Dyn Dana').locator('input[type=checkbox]').check();
-  await page.locator('.bulkbar select').first().selectOption({ label: 'Jacks Dynamics Sequence (off)' }); await sleep(100);
-  ok('mailbox defaults to target owner', await page.locator('.bulkbar select').nth(1).inputValue() === 'mb1');
-  await page.locator('.bulkbar button').filter({ hasText: /^Move$/ }).click(); await sleep(200);
-  ok('confirm screen shows', (await page.locator('text=This changes live sequences in Apollo').count()) === 1);
-  ok('nothing written before confirm', (await page.evaluate(() => window.__writes.length)) === 0);
-  await page.locator('[role=dialog] button').filter({ hasText: /^Move 1$/ }).click({ timeout: 8000 }).catch(e => console.log('CLICKERR', String(e).slice(0,600))); await sleep(600);
-  console.log('PANELS', (await page.locator('main').innerText()).slice(0,700).replace(/\n/g,' | ')); const w = await page.evaluate(() => window.__writes);
-  ok('move enrolls then removes', w.length === 2 && w[0][0] === 'add' && w[0][1] === 'bbbbbbbbbbbbbbbbbbbbbbbb' && w[0][3] === 'mb1' && w[1][0] === 'remove' && w[1][1] === 'aaaaaaaaaaaaaaaaaaaaaaaa', JSON.stringify(w));
-  ok('moved row leaves the list', await row('Dyn Dana').count() === 0);
-  ok('result notice shown', (await page.locator('text=Moved 1 of 1').count()) === 1);
-
-  await row('Stage Sam').locator('input[type=checkbox]').check();
-  await page.click('button:has-text("Remove from their sequence")'); await sleep(200);
-  await page.locator('button').filter({ hasText: /^Remove 1$/ }).click(); await sleep(500);
-  const w2 = await page.evaluate(() => window.__writes);
-  ok('remove only removes', w2.length === 3 && w2[2][0] === 'remove' && w2[2][2][0] === 'c6');
+  ok('export offered when writes are off', await page.locator('.bulkbar button', { hasText: 'Export removal list' }).count() === 1);
+  ok('write buttons hidden under the no-writes rule', await page.locator('.bulkbar button').filter({ hasText: /^Move$/ }).count() === 0 && await page.locator('.bulkbar button', { hasText: 'Remove from their sequence' }).count() === 0);
+  ok('nothing written', (await page.evaluate(() => window.__writes.length)) === 0);
   ok('no page errors', errs.length === 0, errs.join(' | '));
   console.log(`\n${pass} passed, ${fail} failed`);
   await b.close(); process.exit(fail ? 1 : 0);

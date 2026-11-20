@@ -133,9 +133,7 @@ const NAV_GROUPS: { title: string; items: { key: View; label: string }[] }[] = [
   { title: "Leads", items: [
     { key: "allleads", label: "All leads" },
     { key: "reps", label: "Reps" },
-  ] },
-  { title: "Apollo", items: [
-    { key: "cleaner", label: "Sequence Cleaner" },
+    { key: "cleaner", label: "Sequence Scanner" },
   ] },
   { title: "Archive", items: [
     { key: "lists", label: "Lists" },

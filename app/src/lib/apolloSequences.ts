@@ -116,7 +116,8 @@ export type FlagKind =
   | "wrong-sequence"
   | "callback"
   | "zombie"
-  | "repeat-finished";
+  | "repeat-finished"
+  | "callback-undated";
 
 export const FLAG_META: Record<FlagKind, { label: string; severity: "remove" | "review" | "info" }> = {
   meeting: { label: "Meeting booked / qualified", severity: "remove" },
@@ -130,6 +131,7 @@ export const FLAG_META: Record<FlagKind, { label: string; severity: "remove" | "
   callback: { label: "Call back scheduled", severity: "info" },
   zombie: { label: "Finished but shown active", severity: "remove" },
   "repeat-finished": { label: "Finished a sequence before", severity: "review" },
+  "callback-undated": { label: "Call back not dated", severity: "review" },
 };
 
 export interface Flag {
@@ -318,6 +320,11 @@ async function pool<T, R>(items: T[], n: number, fn: (t: T) => Promise<R>, tick?
 
 // ---------------------------------------------------------------- the check
 
+// Per Jack: a Call Back Scheduled must be "properly dated and noted". The
+// note has to say WHEN: a weekday, a month/day, a numeric date, a relative
+// day, or a clock time. Anything else gets flagged for a fix in Apollo.
+const CALLBACK_WHEN_RE = /\b(mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)(day)?\b|\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{1,2}\b|\b\d{1,2}\/\d{1,2}(\/\d{2,4})?\b|\b(tomorrow|next week|next month|end of (the )?(week|month)|in \d+ (days?|weeks?|months?)|q[1-4])\b|\b\d{1,2}(:\d{2})?\s?(am|pm)\b/i;
+
 const CONVERSATION_RE = /\b(spoke (with|to)|talked (with|to)|reached (?!voicemail)|discussed|said (they|she|he)|expressed interest|confirmed)\b/i;
 
 export function sequenceKind(name: string): "dynamics" | "m365" | null {
@@ -388,8 +395,11 @@ export async function runAudit(
         flags.push({ kind: "meeting", evidence: `${label} · ${c.caller} · ${d(c)}` });
       else if (c.outcomeId === OUTCOME.infoRequested || c.outcomeId === OUTCOME.notInterested || c.outcomeId === OUTCOME.doNotContact)
         flags.push({ kind: "reached", evidence: `${label} · ${c.caller} · ${d(c)}` });
-      else if (c.outcomeId === OUTCOME.callBack)
+      else if (c.outcomeId === OUTCOME.callBack) {
         flags.push({ kind: "callback", evidence: `${c.caller} · ${d(c)}${c.note ? " · " + c.note.slice(0, 120) : ""}` });
+        if (!c.note.trim()) flags.push({ kind: "callback-undated", evidence: `Call Back Scheduled ${d(c)} by ${c.caller} with no note — no callback date` });
+        else if (!CALLBACK_WHEN_RE.test(c.note)) flags.push({ kind: "callback-undated", evidence: `Note has no callback date or time: "${c.note.slice(0, 100)}"` });
+      }
       else if (!c.outcomeId && c.note && CONVERSATION_RE.test(c.note))
         flags.push({ kind: "reached", evidence: `Note: "${c.note.slice(0, 120)}" · ${c.caller} · ${d(c)}` });
     }

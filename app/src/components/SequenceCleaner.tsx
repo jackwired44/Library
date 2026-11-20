@@ -1,14 +1,19 @@
-// Sequence Cleaner — pick Apollo sequences, run the rules across their
+// Sequence Scanner (Leads tab) — pick Apollo sequences, run the rules across their
 // active contacts, then move or remove flagged leads behind a confirm.
 // Rules and Apollo plumbing live in lib/apolloSequences.ts.
 import { useMemo, useState } from "react";
+import { downloadBlob, toCSV } from "../lib/csv";
 import {
   FLAG_META, listSequences, listMailboxes, runAudit, moveToSequence, removeFromSequence,
   type ApolloSequence, type AuditResult, type FlagKind, type Mailbox, type MemberResult,
 } from "../lib/apolloSequences";
 
+// The live platform refuses every Apollo write (Jack's standing rule). When
+// that guard is on, Move/Remove are replaced by a removal-list export.
+const WRITES_ALLOWED = false;
+
 const SEVERITY_CLASS = { remove: "danger", review: "warning", info: "info" } as const;
-const FLAG_ORDER: FlagKind[] = ["meeting", "reached", "deep-call", "stage", "replied", "zombie", "repeat-finished", "wrong-sequence", "dupe-person", "dupe-company", "callback"];
+const FLAG_ORDER: FlagKind[] = ["meeting", "reached", "deep-call", "stage", "replied", "zombie", "repeat-finished", "callback-undated", "wrong-sequence", "dupe-person", "dupe-company", "callback"];
 
 type Pending = { kind: "remove" } | { kind: "move"; toId: string; mailboxId: string };
 
@@ -106,13 +111,22 @@ export default function SequenceCleaner() {
     setStatus(""); setPending(null); setBusy(false);
   }
 
+  async function exportSelected() {
+    const rows = selRows.map((m) => ({
+      Name: m.name, Company: m.company, Email: m.email, Sequence: seqName.get(m.sequenceId) || m.sequenceId,
+      Step: m.stepPosition ?? "", "Contact ID": m.contactId, "Sequence ID": m.sequenceId,
+      Flags: m.flags.map((f) => `${FLAG_META[f.kind].label}: ${f.evidence}`).join(" | "),
+    }));
+    await downloadBlob(toCSV(rows, ["Name", "Company", "Email", "Sequence", "Step", "Contact ID", "Sequence ID", "Flags"]), `sequence-cleaner-removals-${new Date().toISOString().slice(0, 10)}.csv`);
+  }
+
   const allVisibleSelected = rows.length > 0 && rows.every((m) => selected.has(rowKey(m)));
 
   return (
     <div>
       <div className="page-head">
         <div>
-          <h2 className="page-title">Sequence Cleaner</h2>
+          <h2 className="page-title">Sequence Scanner</h2>
           <div className="page-sub">Pick sequences, check every active lead against the rules, then move or remove the ones that shouldn't be there.</div>
         </div>
         {!sequences && <button className="btn btn-primary" disabled={busy} onClick={connect}>Load sequences</button>}
@@ -183,6 +197,9 @@ export default function SequenceCleaner() {
           {selected.size > 0 && (
             <div className="bulkbar" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
               <strong>{selected.size} selected</strong>
+              <button className="btn btn-secondary btn-sm" onClick={exportSelected}>Export removal list (CSV)</button>
+              {!WRITES_ALLOWED && <span className="panel-sub">Apollo writes are off on this platform. Send the list to Claude or remove them in Apollo.</span>}
+              {WRITES_ALLOWED && <>
               <button className="btn btn-danger btn-sm" disabled={busy} onClick={() => setPending({ kind: "remove" })}>Remove from their sequence</button>
               <span>or move to</span>
               <select className="field" value={moveTo} onChange={(e) => pickTarget(e.target.value)}>
@@ -196,6 +213,7 @@ export default function SequenceCleaner() {
                 </select>
               )}
               <button className="btn btn-primary btn-sm" disabled={busy || !moveTo || !mailbox} onClick={() => setPending({ kind: "move", toId: moveTo, mailboxId: mailbox })}>Move</button>
+              </>}
             </div>
           )}
 
