@@ -73,7 +73,7 @@ const MOCK = () => {
         return { payload: { skipped_contact_ids: {}, contacts: input.contact_ids.map(id => ({ id, contact_campaign_statuses: [{ emailer_campaign_id: input.emailer_campaign_id }] })) } };
       }
       if (tool.endsWith('remove_or_stop_contact_ids')) {
-        window.__writes.push(['remove', input.emailer_campaign_ids[0], input.contact_ids]);
+        window.__writes.push(['remove', input.emailer_campaign_ids[0], input.contact_ids, input.mode, input.stop_reason]);
         return { payload: { contacts: input.contact_ids.map(id => ({ id, emailer_campaign_ids: [] })) } };
       }
       if (tool.endsWith('duplicate_contacts_merge')) { window.__writes.push(['merge', input.contacts[0].master_contact_id, input.contacts[0].duplicate_contact_ids]); return { payload: { message: 'Successfully Merged' } }; }
@@ -88,6 +88,7 @@ const MOCK = () => {
   const page = await (await b.newContext({ viewport: { width: 1500, height: 950 } })).newPage();
   const errs = []; page.on('pageerror', e => errs.push(String(e)));
   await page.addInitScript(MOCK);
+  await page.addInitScript(() => { try { localStorage.setItem('apolloAutoSync', 'off'); } catch { /* */ } });
   await page.goto(BASE);
   await page.fill('input[aria-label="Email"]', 'jack@wiredcio.com'); await page.fill('input[type=password]', 'changeme');
   await page.click('button:has-text("Unlock")'); await sleep(900);
@@ -174,6 +175,18 @@ const MOCK = () => {
   await page.locator('[role=dialog] button', { hasText: /^Push 1$/ }).click(); await sleep(500);
   const w4 = await page.evaluate(() => window.__writes.slice(-1)[0]);
   ok('pushes to the recycled sequence picked', w4 && w4[0] === 'add' && w4[1] === 'dddddddddddddddddddddddd' && w4[2].join() === 'r6', JSON.stringify(w4));
+  // Slipped through: active leads whose calls already landed a meeting,
+  // pending review, not interested or call back get finished (stopped).
+  await page.locator('[role=tab]', { hasText: 'Check sequences' }).click(); await sleep(300);
+  const sl = await page.locator('[data-slipped]').innerText();
+  ok('slipped-through banner counts them', /3 slipped through/.test(sl) && sl.includes('Call Back Scheduled (2)') && sl.includes('Not interested (1)'), sl);
+  const n0 = await page.evaluate(() => window.__writes.length);
+  await page.locator('[data-slipped] button', { hasText: 'Finish all 3' }).click(); await sleep(200);
+  ok('finish asks first and names the reason', (await page.locator('[role=dialog]').innerText()).includes('Call Back Scheduled') && (await page.evaluate(() => window.__writes.length)) === n0);
+  await page.locator('[role=dialog] button', { hasText: /^Finish 3$/ }).click(); await sleep(500);
+  const fw = await page.evaluate((n) => window.__writes.slice(n), n0);
+  ok('finish stops them with the outcome as the reason', fw.length === 2 && fw.every((w) => w[0] === 'remove' && w[3] === 'stop') && fw.some((w) => w[4] === 'Call Back Scheduled' && w[2].length === 2) && fw.some((w) => w[4] === 'Not interested' && w[2].join() === 'c6'), JSON.stringify(fw));
+  ok('banner clears after finishing', await page.locator('[data-slipped]').count() === 0);
   ok('no page errors', errs.length === 0, errs.join(' | '));
   console.log(`\n${pass} passed, ${fail} failed`);
   await b.close(); process.exit(fail ? 1 : 0);

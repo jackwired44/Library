@@ -60,13 +60,15 @@ const PAGE = 100;
 // jack main and jack backup then the wired cio custom leads email and csp
 // renewal". The order IS the rule: these six lead every sequence list on
 // this page, in this order, and everything else follows by count.
+// Per Jack (2026-11-20): "current 6 sequences jack has three carly has three
+// thats it going forward". Exact Apollo names.
 export const MAIN_SEQUENCES = [
-  "Carly Main Sequence Recycled",
-  "Carly Main Sequence",
-  "Jack Main Sequence",
-  "Jack Main Backup Sequence",
-  "Wired CIO Email (Custom September Leads)",
-  "CSP Renewal Campaign",
+  "Jack M365 Sequence",
+  "Carly M365 Sequence",
+  "Jacks Dynamics Sequence",
+  "Carly Dynamics Sequence",
+  "Jack Main Recycled",
+  "Carly Main Recycled",
 ] as const;
 const MAIN_KEY = "__main";
 const norm = (n: string) => n.trim().toLowerCase().replace(/\s+/g, " ");

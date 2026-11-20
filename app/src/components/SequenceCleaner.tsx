@@ -7,10 +7,14 @@ import { useMemo, useState } from "react";
 import { downloadBlob, toCSV } from "../lib/csv";
 import {
   FLAG_META, DUP_REASON_META, listSequences, runAudit, removeFromSequence, mergeContacts,
-  findDuplicates, findMultiSequence, findCompanyGroups, listMailboxes, findRecycleCandidates, pushToRecycled,
+  findDuplicates, findMultiSequence, findCompanyGroups, listMailboxes, finishReasonOf, finishInSequence, findRecycleCandidates, pushToRecycled,
   RECYCLE_REST_BUSINESS_DAYS,
   type ApolloSequence, type Mailbox, type RecycleResult, type AuditResult, type DupGroup, type FlagKind, type MemberResult,
 } from "../lib/apolloSequences";
+import { MAIN_SEQUENCES } from "./ApolloStatus";
+
+const WORKING = new Set<string>(MAIN_SEQUENCES.map((n) => n.toLowerCase()));
+const isWorking = (s: ApolloSequence) => WORKING.has(s.name.trim().toLowerCase());
 
 const SEVERITY_CLASS = { remove: "danger", review: "warning", info: "info" } as const;
 const SEVERITY_RANK = { remove: 0, review: 1, info: 2 } as const;
@@ -19,6 +23,7 @@ const FLAG_ORDER: FlagKind[] = ["meeting", "reached", "deep-call", "stage", "rep
 type Tab = "flagged" | "duplicates" | "companies" | "all";
 type Pending =
   | { kind: "remove"; rows: MemberResult[]; title: string }
+  | { kind: "finish"; rows: MemberResult[] }
   | { kind: "merge"; group: DupGroup; keepId: string; dropIds: string[]; note: string | null };
 
 const rowKey = (m: MemberResult) => `${m.sequenceId}:${m.contactId}`;
@@ -29,6 +34,7 @@ export default function SequenceCleaner() {
   const [sequences, setSequences] = useState<ApolloSequence[] | null>(null);
   const [mailboxes, setMailboxes] = useState<Mailbox[]>([]);
   const [mode, setMode] = useState<"check" | "recycle">("check");
+  const [showAll, setShowAll] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [pickerOpen, setPickerOpen] = useState(true);
   const [status, setStatus] = useState("");
@@ -58,7 +64,8 @@ export default function SequenceCleaner() {
     try {
       const [seqs, boxes] = await Promise.all([listSequences(), listMailboxes().catch(() => [] as Mailbox[])]);
       setMailboxes(boxes);
-      setSequences(seqs.sort((a, b) => Number(b.active) - Number(a.active) || a.name.localeCompare(b.name)));
+      const rank = new Map(MAIN_SEQUENCES.map((n, i) => [n.toLowerCase(), i]));
+      setSequences(seqs.sort((a, b) => (rank.get(a.name.toLowerCase()) ?? 99) - (rank.get(b.name.toLowerCase()) ?? 99) || a.name.localeCompare(b.name)));
       setStatus("");
     } catch (e) { setError((e as Error).message); setStatus(""); }
     setBusy(false);
@@ -79,6 +86,7 @@ export default function SequenceCleaner() {
     return c;
   }, [members]);
   const flaggedCount = members.filter((m) => m.flags.length).length;
+  const slipped = useMemo(() => members.map((m) => ({ m, why: finishReasonOf(m) })).filter((x) => x.why) as { m: MemberResult; why: string }[], [members]);
 
   const rows = useMemo(() => members.filter((m) => {
     if (seqFilter !== "all" && m.sequenceId !== seqFilter) return false;
@@ -98,7 +106,23 @@ export default function SequenceCleaner() {
     if (!pending) return;
     setBusy(true); setError("");
     try {
-      if (pending.kind === "remove") {
+      if (pending.kind === "finish") {
+        const done = new Set<string>(); const msgs: string[] = [];
+        const groups = new Map<string, MemberResult[]>();
+        for (const m of pending.rows) {
+          const k = `${m.sequenceId}|${finishReasonOf(m) || "Finished from Sequence Scanner"}`;
+          (groups.get(k) || groups.set(k, []).get(k)!).push(m);
+        }
+        for (const [k, ms] of groups) {
+          const [seq, why] = k.split("|");
+          setStatus(`Finishing ${ms.length} in ${seqName.get(seq)} (${why})…`);
+          const ids = await finishInSequence(ms.map((m) => m.contactId), seq, why);
+          ids.forEach((id) => done.add(`${seq}:${id}`));
+          msgs.push(`${ids.length} in ${seqName.get(seq)} (${why})`);
+        }
+        dropRows(done);
+        setNotice(`Finished ${done.size}: ${msgs.join("; ")}.`);
+      } else if (pending.kind === "remove") {
         const bySeq = new Map<string, MemberResult[]>();
         for (const m of pending.rows) (bySeq.get(m.sequenceId) || bySeq.set(m.sequenceId, []).get(m.sequenceId)!).push(m);
         const done = new Set<string>(); const msgs: string[] = [];
@@ -163,18 +187,19 @@ export default function SequenceCleaner() {
         </div>
       )}
 
-      {sequences && mode === "recycle" && <RecyclePanel sequences={sequences} mailboxes={mailboxes} />}
+      {sequences && mode === "recycle" && <RecyclePanel sequences={sequences.some(isWorking) ? sequences.filter(isWorking) : sequences} mailboxes={mailboxes} />}
 
       {mode === "check" && sequences && (pickerOpen || !audit) && (
         <div className="panel" style={{ marginBottom: 16 }}>
           <div className="panel-head">
             <div className="panel-title">Sequences</div>
+            <button className="btn btn-ghost btn-sm" onClick={() => setShowAll((v) => !v)}>{showAll ? "Only Jack's and Carly's six" : `Show all ${sequences.length}`}</button>
             <button className="btn btn-primary btn-sm" disabled={busy || !picked.size} onClick={run}>
               Run check{picked.size ? ` (${picked.size})` : ""}
             </button>
           </div>
           <div className="panel-body" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 8 }}>
-            {sequences.map((s) => (
+            {sequences.filter((s) => showAll || isWorking(s) || picked.has(s.id)).map((s) => (
               <label key={s.id} style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer" }}>
                 <input type="checkbox" checked={picked.has(s.id)} onChange={() => setPicked((p) => { const n = new Set(p); if (n.has(s.id)) n.delete(s.id); else n.add(s.id); return n; })} />
                 <span>{s.name}</span>
@@ -204,6 +229,14 @@ export default function SequenceCleaner() {
             <div className="metric"><div className="metric-label">Companies with 2+</div><div className="metric-value">{companies.length}</div></div>
             <div className="metric"><div className="metric-label">Calls checked</div><div className="metric-value">{audit.checkedCalls.toLocaleString()}</div></div>
           </div>
+
+          {slipped.length > 0 && (
+            <div className="panel" data-slipped style={{ marginBottom: 12, borderColor: "var(--danger)", padding: "10px 14px", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+              <strong style={{ color: "var(--danger)" }}>{slipped.length} slipped through</strong>
+              <span className="panel-sub">Still active, but their calls already landed {[...new Set(slipped.map((x) => x.why))].map((w) => `${w} (${slipped.filter((x) => x.why === w).length})`).join(", ")}.</span>
+              <button className="btn btn-danger btn-sm" style={{ marginLeft: "auto" }} disabled={busy} onClick={() => setPending({ kind: "finish", rows: slipped.map((x) => x.m) })}>Finish all {slipped.length} in their sequences</button>
+            </div>
+          )}
 
           <div className="seg" role="tablist" style={{ marginBottom: 12 }}>
             {([["flagged", `Flagged (${flaggedCount})`], ["duplicates", `Duplicates (${dupGroups.length + multi.length})`], ["companies", `Same company (${companies.length})`], ["all", `All leads (${members.length})`]] as [Tab, string][]).map(([k, label]) => (
@@ -433,7 +466,15 @@ export default function SequenceCleaner() {
       {pending && (
         <div role="dialog" aria-modal="true" style={{ position: "fixed", inset: 0, background: "rgba(8,30,34,0.35)", zIndex: 1000, overflowY: "auto", padding: 20 }} onClick={() => !busy && setPending(null)}>
           <div className="panel" style={{ maxWidth: 560, margin: "10vh auto", padding: 20 }} onClick={(e) => e.stopPropagation()}>
-            {pending.kind === "remove" ? (
+            {pending.kind === "finish" ? (
+              <>
+                <div className="panel-title" style={{ marginBottom: 8 }}>Finish {pending.rows.length} in their sequences</div>
+                <p>Each one stops in its sequence in Apollo, so no more steps or emails go out. Apollo keeps the reason (the call outcome) on the record. They stay in Apollo.</p>
+                <ul style={{ maxHeight: 260, overflowY: "auto" }}>
+                  {pending.rows.map((m) => <li key={rowKey(m)}><strong>{m.name}</strong> ({m.company}) · {seqName.get(m.sequenceId)} · {finishReasonOf(m)}</li>)}
+                </ul>
+              </>
+            ) : pending.kind === "remove" ? (
               <>
                 <div className="panel-title" style={{ marginBottom: 8 }}>{pending.title}</div>
                 <p>This removes them from the sequence in Apollo. It can't be undone; you'd have to add them back. The contacts themselves stay in Apollo.</p>
@@ -463,8 +504,8 @@ export default function SequenceCleaner() {
             )}
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button className="btn btn-secondary" disabled={busy} onClick={() => setPending(null)}>Cancel</button>
-              <button className={`btn ${pending.kind === "remove" ? "btn-danger" : "btn-primary"}`} disabled={busy} onClick={confirm}>
-                {busy ? "Working…" : pending.kind === "remove" ? `Remove ${pending.rows.length}` : "Merge"}
+              <button className={`btn ${pending.kind === "merge" ? "btn-primary" : "btn-danger"}`} disabled={busy} onClick={confirm}>
+                {busy ? "Working…" : pending.kind === "finish" ? `Finish ${pending.rows.length}` : pending.kind === "remove" ? `Remove ${pending.rows.length}` : "Merge"}
               </button>
             </div>
           </div>

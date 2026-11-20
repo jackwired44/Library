@@ -828,3 +828,43 @@ export async function pushToRecycled(targetId: string, contactIds: string[], mai
   }
   return { enrolled, skipped };
 }
+
+
+// ---------------------------------------------------------------- slipped through
+
+// Per Jack: "catch any tasks or contacts that slipped through and are not
+// interested pending review meeting booked or call back rescheduled and
+// finishes that contact or task in the sequence". An active lead whose own
+// calls already landed one of these should not keep getting steps.
+export const FINISH_OUTCOMES: Record<string, string> = {
+  [OUTCOME.meetingBooked]: "Meeting Booked",
+  [OUTCOME.qualified]: "Qualified, Pending Review",
+  [OUTCOME.notInterested]: "Not interested",
+  [OUTCOME.doNotContact]: "Do Not Contact",
+  [OUTCOME.callBack]: "Call Back Scheduled",
+};
+const FINISH_LABELS = new Set(Object.values(FINISH_OUTCOMES));
+
+/** The outcome that means this active lead should be finished, or null. The
+ *  strongest wins: a meeting over a call back. */
+export function finishReasonOf(m: MemberResult): string | null {
+  const order = ["Meeting Booked", "Qualified, Pending Review", "Do Not Contact", "Not interested", "Call Back Scheduled"];
+  const got = Object.keys(m.history.outcomeTally).filter((k) => FINISH_LABELS.has(k.trim()));
+  if (m.stageId === STAGE_NOT_INTERESTED) got.push("Not interested");
+  for (const o of order) if (got.some((g) => g.trim() === o)) return o;
+  return null;
+}
+
+/** Finish (stop) leads in a sequence, keeping why on Apollo's record. */
+export async function finishInSequence(contactIds: string[], seqId: string, reason: string): Promise<string[]> {
+  const h = await apollo();
+  const done: string[] = [];
+  for (let i = 0; i < contactIds.length; i += 50) {
+    const batch = contactIds.slice(i, i + 50);
+    const p = await call<{ contacts?: { id: string }[] }>(h,
+      "emailer_campaigns_remove_or_stop_contact_ids", { contact_ids: batch, emailer_campaign_ids: [seqId], mode: "stop", stop_reason: reason });
+    const back = (p.contacts || []).map((c) => c.id);
+    done.push(...(back.length ? back : batch));
+  }
+  return done;
+}

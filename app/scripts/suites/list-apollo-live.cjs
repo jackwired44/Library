@@ -61,6 +61,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   const card = () => page.locator('[aria-label="List Call list"]');
   const rowOf = async co => (await card().locator('tbody tr', { hasText: co }).first().innerText()).replace(/\s+/g, ' ');
 
+  await page.addInitScript(() => { try { localStorage.setItem('apolloAutoSync', 'off'); } catch { /* */ } });
   await page.goto(BASE); await sleep(700);
   await page.fill('input[aria-label="Email"]', 'jack@wiredcio.com');
   await page.fill('input[type=password]', 'changeme');

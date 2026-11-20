@@ -6097,6 +6097,45 @@ sequences, made repeatable with one click.
   `apollo-read-only.cjs` (37: the scanner handle allows exactly the three
   writes, the normal handle still blocks them).
 
+### 2026-11-20: live Apollo sync, the six sequences, Prompts tab, finish what slipped through
+
+- **Live sync (Home, "Where every lead stands in Apollo").** Per Jack:
+  "running this live … every 24 hours" and "work around the 400 limit".
+  `runLiveSync` (`App.tsx`) calls `pullTeamUploads({sinceUpdated})`:
+  contacts newest-UPDATED first, 100 per call, stopping at the last sync, so
+  it reads only what changed (first run: the last `DEFAULT_PULL_MONTHS`).
+  Each contact read also refreshes the stored lead with the same email
+  (`applyRosterToLeads`: its sequences replace an older `lead.apollo`), so an
+  old per-lead check can't outrank newer data. Interval: 15 min / 1 h / 24 h
+  (default) / off, localStorage `apolloAutoSync`; last run
+  `apolloLastSyncAt`. Runs on open when due, then checks once a minute while
+  the page is open. Stops retrying after an error until "Sync now". Not
+  second-by-second: Apollo has no push. Suites with a mocked Apollo set
+  `apolloAutoSync` off.
+- **The six sequences.** Per Jack: "jack has three carly has three thats it
+  going forward": `MAIN_SEQUENCES` = Jack M365, Carly M365, Jacks Dynamics,
+  Carly Dynamics, Jack Main Recycled, Carly Main Recycled (exact Apollo
+  names). Sequence Scanner lists only these (a "Show all" toggle shows the
+  rest, e.g. "IT Directors Indiana", which Jack asked to drop); Recycle uses
+  only these; Reps, All leads and the list compare rank by them.
+- **Archive → Prompts** (`components/EmailPrompts.tsx`, `lib/emailPrompts.ts`,
+  store `emailPrompts`, `DB_VERSION` 24→25, in the backup). Per Jack: save
+  email prompts, "see what works better what doesnt", with subject, system
+  and user prompt, "attach to which product area or sequence". Fields: name,
+  product area, sequence (the six, or typed), step, subject, system prompt,
+  user prompt, verdict (Works / Testing / Doesn't work / Retired), sent,
+  open %, reply %, meetings (typed in; blank = unknown), notes. Filters by
+  area, sequence, verdict; Copy makes a new Testing variant. Suite
+  `prompts-live` (9).
+- **Sequence Scanner: finish what slipped through.** Per Jack: catch active
+  leads that are "not interested pending review meeting booked or call back
+  rescheduled and finishes that contact". `finishReasonOf`: the lead's own
+  calls landed Meeting Booked, Qualified/Pending Review, Not interested, Do
+  Not Contact or Call Back Scheduled (or stage Not Interested). A red banner
+  counts them; "Finish all N" (confirm) calls
+  `emailer_campaigns_remove_or_stop_contact_ids` in **stop** mode with the
+  outcome as `stop_reason`, so Apollo keeps why. `sequence-cleaner` 45.
+
 ### 2026-11-20: Apollo ignores account_id on call search — fixed
 
 Found while building the recycle lists: `phone_calls_search` ignores

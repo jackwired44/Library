@@ -86,6 +86,7 @@ import { isUnlocked, setUnlocked, currentAccount, setCurrentAccount, AUTH_EMAIL,
 import { formatCentral, PLATFORM_TZ } from "./lib/centralTime";
 import { useNow } from "./lib/useNow";
 import SequenceCleaner from "./components/SequenceCleaner";
+import EmailPrompts from "./components/EmailPrompts";
 import {
   loadDispositionsFromDB, persistDisposition, deleteDispositionFromDB,
   createCustomDisposition, type CustomDisposition,
@@ -96,7 +97,7 @@ import {
 } from "./lib/companyProfiles";
 import { enrichCompaniesViaApollo, MAX_COMPANY_BATCH, type CompanyEnrichOutcome } from "./lib/apolloEnrich";
 import { checkWebVisits, orgIdsOf, applyWebVisits, type VisitProgress } from "./lib/webVisits";
-import { pullTeamUploads, checkLeadsInApollo, applyCheckResults, searchApolloSequences, type PullProgress, type CheckProgress } from "./lib/apolloLive";
+import { pullTeamUploads, DEFAULT_PULL_MONTHS, checkLeadsInApollo, applyCheckResults, searchApolloSequences, type PullProgress, type CheckProgress } from "./lib/apolloLive";
 import type { SaveReport } from "./lib/saveReport";
 import Recycle from "./components/Recycle";
 import Reps from "./components/Reps";
@@ -112,7 +113,7 @@ export interface UploadedFile {
 
 export type View =
   | "home" | "scanner" | "scanner2" | "scanner3" | "library" | "allleads"
-  | "queue" | "files" | "recycle" | "refresher" | "reps" | "campaigns" | "history" | "lists" | "docs" | "diagnostics" | "agents" | "cleaner";
+  | "queue" | "files" | "recycle" | "refresher" | "reps" | "campaigns" | "history" | "lists" | "docs" | "diagnostics" | "agents" | "cleaner" | "prompts";
 
 /** The three scanners, kept in their own collapsible sidebar section.
  *  Per Jack: "build the scanners into a drop down section on the left hand
@@ -138,6 +139,7 @@ const NAV_GROUPS: { title: string; items: { key: View; label: string }[] }[] = [
   { title: "Archive", items: [
     { key: "lists", label: "Lists" },
     { key: "history", label: "History" },
+    { key: "prompts", label: "Prompts" },
   ] },
 ];
 
@@ -325,6 +327,82 @@ export default function App() {
       },
     });
   }
+  // ---- Live sync. Per Jack: "make sure we are running this live … every 24
+  // hours to fresh" and "work around the 400 limit api call per hour". The
+  // per-lead check costs one Apollo call per lead (400 an hour). The sync
+  // reads Apollo's contacts newest-UPDATED first, 100 per call, and stops at
+  // the last sync, so it only reads what changed — a few calls a day. Each
+  // contact it reads also refreshes the matching stored lead (same email),
+  // so Home, All leads and Reps never show an older check over newer data.
+  type SyncMode = "off" | "15m" | "1h" | "24h";
+  const SYNC_MS: Record<SyncMode, number> = { off: 0, "15m": 15 * 60_000, "1h": 3_600_000, "24h": 86_400_000 };
+  const [syncMode, setSyncModeState] = useState<SyncMode>(() => { try { return (localStorage.getItem("apolloAutoSync") as SyncMode) || "24h"; } catch { return "24h"; } });
+  const setSyncMode = (m: SyncMode) => { setSyncModeState(m); try { localStorage.setItem("apolloAutoSync", m); } catch { /* preference only */ } };
+  const [lastSyncAt, setLastSyncAt] = useState<string>(() => { try { return localStorage.getItem("apolloLastSyncAt") || ""; } catch { return ""; } });
+  const [syncRun, setSyncRun] = useState<{ running: boolean; read: number; updated: number; error: string } | null>(null);
+  const syncBusy = useRef(false);
+  const syncBlocked = useRef(false);
+  function applyRosterToLeads(entries: ApolloRosterEntry[], at: string) {
+    const byEmail = new Map<string, ApolloRosterEntry>();
+    for (const e of entries) for (const em of [e.email, ...(e.emails || [])]) if (em) byEmail.set(em.toLowerCase(), e);
+    const changed: StoredLead[] = [];
+    const next = leadsRef.current.map((l) => {
+      const e = l.email ? byEmail.get(l.email.toLowerCase()) : undefined;
+      if (!e || !e.seqStates?.length) return l;
+      if (l.apollo && l.apollo.syncedAt >= at) return l;
+      const base = l.apollo ?? { syncedAt: at, sequences: [], callCount: 0, outcomes: {}, lastOutcome: "", lastCallAt: "" };
+      const u: StoredLead = { ...l, apollo: { ...base, syncedAt: at, sequences: e.seqStates }, apolloCheckedAt: at };
+      changed.push(u);
+      return u;
+    });
+    if (changed.length) {
+      const by = new Map(changed.map((l) => [l.key, l]));
+      leadsRef.current = next;
+      setLeads((prev) => prev.map((l) => by.get(l.key) ?? l));
+      saveLeads(changed).catch(() => {});
+    }
+    return changed.length;
+  }
+  async function runLiveSync() {
+    if (syncBusy.current) return;
+    syncBusy.current = true;
+    const started = new Date().toISOString();
+    setSyncRun({ running: true, read: 0, updated: 0, error: "" });
+    let updated = 0;
+    try {
+      const p = await pullTeamUploads({
+        months: DEFAULT_PULL_MONTHS,
+        ...(lastSyncAt ? { sinceUpdated: lastSyncAt } : {}),
+        onProgress: (pp) => setSyncRun((r) => (r ? { ...r, read: pp.scanned } : r)),
+        onEntries: async (entries) => {
+          setApolloRoster((prev) => mergeRoster(prev, entries));
+          await saveApolloRoster(entries);
+          updated += applyRosterToLeads(entries, started);
+          setSyncRun((r) => (r ? { ...r, updated } : r));
+        },
+      });
+      setLastSyncAt(started);
+      try { localStorage.setItem("apolloLastSyncAt", started); } catch { /* ignore */ }
+      setSyncRun({ running: false, read: p.scanned, updated, error: "" });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setSyncRun({ running: false, read: 0, updated, error: msg });
+      // Apollo isn't reachable from this view (opened outside claude.ai, or
+      // not connected): stop retrying every minute until asked again.
+      syncBlocked.current = true; // retried by Sync now, or the next time the page opens
+    } finally { syncBusy.current = false; }
+  }
+  // Runs on open when the last sync is older than the chosen interval, then
+  // re-checks once a minute while the page is open.
+  useEffect(() => {
+    if (syncMode === "off" || !leads.length) return;
+    const due = () => !syncBlocked.current && (!lastSyncAt || Date.now() - Date.parse(lastSyncAt) >= SYNC_MS[syncMode]);
+    if (due()) void runLiveSync();
+    const t = setInterval(() => { if (due()) void runLiveSync(); }, 60_000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncMode, lastSyncAt, leads.length > 0]);
+
   /** Look every given lead up in Apollo, one free read-only search each,
    *  and write where they stand onto the lead. Saved in batches as they
    *  land, so Stop keeps what was read. */
@@ -1350,6 +1428,7 @@ export default function App() {
         {view === "docs" && <Documentation />}
         {view === "agents" && <Agents />}
         {view === "cleaner" && <SequenceCleaner />}
+        {view === "prompts" && <EmailPrompts />}
         {view === "diagnostics" && (
           <Diagnostics leads={leads} apolloIndex={apolloIndex} lists={leadLists}
                        onNavigate={(v) => { if (v === "allleads") { setLeadsStatusEntry(""); setLeadsSequenceEntry(""); setLeadsPresetEntry(""); } setView(v); }} />
@@ -1368,6 +1447,7 @@ export default function App() {
             onOpenPreset={(pr) => { setLeadsPresetEntry(pr); setLeadsStatusEntry(""); setLeadsSequenceEntry(""); setView("allleads"); }}
             topPanel={
               <ApolloSyncPanel
+                liveSync={{ mode: syncMode, setMode: setSyncMode, lastAt: lastSyncAt, run: syncRun, onSyncNow: () => { syncBlocked.current = false; void runLiveSync(); } }}
                 leads={leads}
                 apolloIndex={apolloIndex}
                 progress={homeCheck}
@@ -1701,6 +1781,7 @@ const NAV_ICON_PATHS: Record<string, string> = {
   diagnostics: "M3 12h4l2.5-6 5 12 2.5-6h4",
   agents: "M12 3l2.5 5 5.5.8-4 3.9.9 5.5L12 15.6 7.1 18.2l.9-5.5-4-3.9 5.5-.8z",
   cheatsheet: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm-2.5-11.5a2.5 2.5 0 1 1 3.4 2.3c-.6.3-.9.8-.9 1.4v.3M12 17h.01",
+  prompts: "M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4V6Zm4 3h8M8 12h5",
   notes: "M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8l-5-5Zm0 0v5h5M8.5 13h7M8.5 17h5",
   settings: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7.4-3a7.4 7.4 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7.5 7.5 0 0 0-2-1.2L14.5 3h-5l-.4 2.6a7.5 7.5 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6a7.4 7.4 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7.5 7.5 0 0 0 2 1.2l.4 2.6h5l.4-2.6a7.5 7.5 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2Z",
   signout: "M15 4h3a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-3M10 16l-4-4 4-4M6 12h10",
