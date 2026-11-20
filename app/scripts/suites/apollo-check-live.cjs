@@ -8,7 +8,7 @@
 // connector so no real account is touched; the response shapes are the
 // ones rehearsed live (contacts_search, emailer_campaigns_search).
 const BASE = process.env.BASE || 'http://localhost:4173';
-const EXE = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+const EXE = (require('fs').existsSync('/opt/pw-browsers/chromium-1194/chrome-linux/chrome') ? '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' : undefined);
 const { chromium } = require('playwright');
 const os = require('os'); const fs = require('fs'); const path = require('path');
 const sleep = ms => new Promise(r => setTimeout(r, ms));

@@ -5,7 +5,7 @@
 // sits alongside the two product-line files, and filing a batch into any
 // existing Lead Library folder or a new one named on the spot.
 const BASE = process.env.BASE || 'http://localhost:4173';
-const EXE = process.env.PW_CHROMIUM || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+const EXE = process.env.PW_CHROMIUM || (require('fs').existsSync('/opt/pw-browsers/chromium-1194/chrome-linux/chrome') ? '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' : undefined);
 const { chromium } = require('playwright');
 const P=BASE; let pass=0,fail=0;
 const ok=(n,c,d='')=>{c?(pass++,console.log('  PASS',n)):(fail++,console.log('  FAIL',n,d));};

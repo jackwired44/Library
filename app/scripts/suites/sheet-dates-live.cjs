@@ -5,7 +5,7 @@
 // filtering purposes". Each sheet files under an estimated month, marked
 // "(est.)", never under the month it happened to be uploaded.
 const BASE = process.env.BASE || 'http://localhost:4173';
-const EXE = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+const EXE = (require('fs').existsSync('/opt/pw-browsers/chromium-1194/chrome-linux/chrome') ? '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' : undefined);
 const { chromium } = require('playwright');
 const os = require('os'); const fs = require('fs'); const path = require('path');
 const sleep = ms => new Promise(r => setTimeout(r, ms));

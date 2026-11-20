@@ -8250,3 +8250,27 @@ Signal export. Supersedes the 11/6 "under 5" wording above where they differ.
   Strong 548 → 527, Needs Review 121 → 150, Bad Leads 58 → 41.
 - `NOTE_RULES_VERSION` = `2026-11-09-audit-rules`. Suite `audit-rules`
   (41); `grade-fixes`' "2 users is a Bad Lead" re-pointed to Needs Review.
+
+### 2026-11-20: All leads opens in ~0.1 s (scanner-platform-v29)
+
+Per Jack: "slow to move from any tab to all leads fix this". Measured at
+40,000 leads: ~0.9-1.1 s the first time, ~0.3 s every time after.
+- **Cause:** every page sits inside `ViewErrorBoundary key={view}`, so each
+  tab change threw All leads away and rebuilt its filter pass
+  (`failOf`), sort and faceted counts over every lead.
+- **All leads is kept alive** (`App.tsx`): rendered outside the per-view
+  boundary (with its own `ViewErrorBoundary`) inside `KeepAliveGate`, a
+  memo that does not re-render while hidden (`display: none`). Coming back
+  is a show, not a rebuild; a lead change while away is caught up once on
+  return. Its `key` still remounts it for a preset or a Files pick, so
+  those still re-seed the filters. Filters and page now stay where you
+  left them when you leave and come back.
+- **Pre-built at idle:** 1.5 s after the leads load, on
+  `requestIdleCallback`, it is rendered once hidden (`allLeadsWarm`), so
+  the first click is fast too.
+- Sort comparators on ISO dates use a plain string compare (`cmpStr`)
+  instead of `localeCompare`.
+- Measured after: every switch into All leads ~0.1 s, first included.
+- **Test harness:** 45 suites hard-coded
+  `/opt/pw-browsers/chromium-1194`; they now use it only if it exists,
+  else Playwright's own browser.

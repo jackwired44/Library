@@ -3,7 +3,7 @@
 // come out of an IIFE fragment, which is exactly where a row silently ends up
 // one cell short and every value after it shows under the wrong heading.
 const BASE = process.env.BASE || 'http://localhost:4173';
-const EXE = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+const EXE = (require('fs').existsSync('/opt/pw-browsers/chromium-1194/chrome-linux/chrome') ? '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' : undefined);
 const { chromium } = require('playwright');
 const samples = require('../fixtures/smc-samples.json');
 const sleep = ms => new Promise(r => setTimeout(r, ms));

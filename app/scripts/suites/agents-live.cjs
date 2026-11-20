@@ -1,7 +1,7 @@
 // The Agents tab. Per Jack: "make a tab at the bottom left so i can view
 // them and there work approve stuff and pause".
 const BASE = process.env.BASE || 'http://localhost:4173';
-const EXE = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+const EXE = (require('fs').existsSync('/opt/pw-browsers/chromium-1194/chrome-linux/chrome') ? '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' : undefined);
 const { chromium } = require('playwright');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let pass = 0, fail = 0;

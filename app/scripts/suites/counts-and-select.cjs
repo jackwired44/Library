@@ -8,7 +8,7 @@
 //  2. Mass selection — a header checkbox that takes the whole page, a
 //     settable page size, and an explicit "select all N matching".
 const BASE = process.env.BASE || 'http://localhost:4173';
-const EXE = process.env.PW_CHROMIUM || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+const EXE = process.env.PW_CHROMIUM || (require('fs').existsSync('/opt/pw-browsers/chromium-1194/chrome-linux/chrome') ? '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' : undefined);
 const { chromium } = require('playwright');
 const P=BASE; let pass=0,fail=0;
 const ok=(n,c,d='')=>{c?(pass++,console.log('  PASS',n)):(fail++,console.log('  FAIL',n,d));};

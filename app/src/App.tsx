@@ -15,7 +15,7 @@
 // App.tsx rather than rewritten, so behaviour cannot drift — the only
 // edit was removing the two finishTerminalEnrollments() calls, which
 // belonged to sequences that do not exist here.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Scanner from "./components/Scanner";
 import LibraryView from "./components/Library";
 import HistoryView from "./components/History";
@@ -141,9 +141,29 @@ const NAV_GROUPS: { title: string; items: { key: View; label: string }[] }[] = [
   ] },
 ];
 
+
+/** Keeps a view mounted after its first visit and skips re-rendering it while
+ *  it is hidden. Per Jack: "slow to move from any tab to all leads". All
+ *  leads rebuilt its filter pass, sort and counts over every lead on every
+ *  visit (~0.3 s at 40,000 leads, ~1 s the first time); kept alive, coming
+ *  back is a show, not a rebuild. While hidden it is frozen (no re-render),
+ *  so a long Apollo run updating leads costs nothing on other tabs; it
+ *  catches up once, on the way back in. A changed `key` on the child still
+ *  remounts it, which is how a preset or a Files pick re-seeds its filters. */
+const KeepAliveGate = memo(function KeepAliveGate({ children }: { active: boolean; children: ReactNode }) {
+  return <>{children}</>;
+}, (_prev, next) => !next.active);
+
 export default function App() {
   const [unlocked, setUnlockedState] = useState(isUnlocked());
   const [view, setView] = useState<View>("home");
+  // See KeepAliveGate: All leads stays mounted once opened.
+  const [allLeadsVisited, setAllLeadsVisited] = useState(false);
+  useEffect(() => { if (view === "allleads") setAllLeadsVisited(true); }, [view]);
+  // Build All leads once in the background after startup, while the app is
+  // idle, so even the FIRST click into it is a show rather than a ~1 s build
+  // at 40,000 leads. One render with the gate open, then frozen again.
+  const [allLeadsWarm, setAllLeadsWarm] = useState(false);
   const [showDiscardNames, setShowDiscardNames] = useState(false);
   // Everyone the Apollo syncs have named — what a new upload is checked
   // against. Per Jack: "see if any of those have been added in apollo
@@ -418,6 +438,19 @@ export default function App() {
   const [dispositions, setDispositions] = useState<CustomDisposition[]>([]);
   const [ruleOverrides, setRuleOverrides] = useState<RuleOverrides>(DEFAULT_RULE_OVERRIDES);
   const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    if (loading || allLeadsVisited || leads.length === 0) return;
+    let cancelled = false;
+    const w = window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number };
+    const go = () => { if (!cancelled) { setAllLeadsVisited(true); setAllLeadsWarm(true); } };
+    const t = window.setTimeout(() => (w.requestIdleCallback ? w.requestIdleCallback(go, { timeout: 5000 }) : go()), 1500);
+    return () => { cancelled = true; window.clearTimeout(t); };
+  }, [loading, allLeadsVisited, leads.length]);
+  useEffect(() => {
+    if (!allLeadsWarm) return;
+    const t = window.setTimeout(() => setAllLeadsWarm(false), 0);
+    return () => window.clearTimeout(t);
+  }, [allLeadsWarm]);
   const [error, setError] = useState<string | null>(null);
   const [notesPanelTab, setNotesPanelTab] = useState<"notes" | "cheatsheet" | "dispositions" | null>(null);
 
@@ -1433,40 +1466,6 @@ export default function App() {
                    onCheck={(t, label) => { setUploadCheckLabel(label); void runHomeCheck(t); }}
                    checkBusy={!!homeCheck && !homeCheck.finished} />
         )}
-        {view === "allleads" && (
-          <AllLeads
-            key={`leads-${leadsSequenceEntry}-${leadsStatusEntry}-${leadsPresetEntry}-${leadsFilesEntry.files.join("|")}-${leadsFilesEntry.verdict}-${leadsFilesEntry.line}`}
-            leads={leads}
-            companyProfiles={companyProfiles}
-            onEnrichCompanies={enrichCompaniesForLeads}
-            onCheckVisits={checkVisitsForLeads}
-            onApplySync={applySyncFiles}
-            apolloIndex={apolloIndex}
-            rosterPulledAt={rosterPulledAt}
-            onPullApollo={pullApollo}
-            onCheckLeads={checkLeadsLive}
-            initialSequence={leadsSequenceEntry}
-            initialFiles={leadsFilesEntry.files}
-            initialVerdict={leadsFilesEntry.verdict}
-            initialLine={leadsFilesEntry.line}
-            initialStatus={leadsStatusEntry || undefined}
-            initialPreset={leadsPresetEntry || undefined}
-            sequenceNames={knownSequences}
-            onSetStatus={setLeadStatus}
-            onMoveGrade={moveLeadGrades}
-            funnels={funnels}
-            lists={leadLists}
-            onAddToList={addExportRowsToLists}
-            onSaveSmartList={saveSmartList}
-            emailChecks={emailChecks}
-            onImportVerifier={importVerifierFiles}
-            engagementCount={engagements.length}
-            onImportEngagements={importEngagementFiles}
-            recycleRules={recycleRules}
-            noteRefresh={noteRefresh}
-            onRefreshNotes={() => void runNoteRefresh()}
-          />
-        )}
         {view === "campaigns" && (
           <Campaigns
             leads={leads}
@@ -1619,6 +1618,48 @@ export default function App() {
           />
         )}
         </ViewErrorBoundary>
+        {/* Outside the per-view boundary (keyed on the view, so it remounts
+            everything on each tab change): All leads stays alive here. */}
+        {allLeadsVisited && (
+          <div style={{ display: view === "allleads" ? undefined : "none" }}>
+          <ViewErrorBoundary onHome={() => setView("home")}>
+          <KeepAliveGate active={view === "allleads" || allLeadsWarm}>
+          <AllLeads
+            key={`leads-${leadsSequenceEntry}-${leadsStatusEntry}-${leadsPresetEntry}-${leadsFilesEntry.files.join("|")}-${leadsFilesEntry.verdict}-${leadsFilesEntry.line}`}
+            leads={leads}
+            companyProfiles={companyProfiles}
+            onEnrichCompanies={enrichCompaniesForLeads}
+            onCheckVisits={checkVisitsForLeads}
+            onApplySync={applySyncFiles}
+            apolloIndex={apolloIndex}
+            rosterPulledAt={rosterPulledAt}
+            onPullApollo={pullApollo}
+            onCheckLeads={checkLeadsLive}
+            initialSequence={leadsSequenceEntry}
+            initialFiles={leadsFilesEntry.files}
+            initialVerdict={leadsFilesEntry.verdict}
+            initialLine={leadsFilesEntry.line}
+            initialStatus={leadsStatusEntry || undefined}
+            initialPreset={leadsPresetEntry || undefined}
+            sequenceNames={knownSequences}
+            onSetStatus={setLeadStatus}
+            onMoveGrade={moveLeadGrades}
+            funnels={funnels}
+            lists={leadLists}
+            onAddToList={addExportRowsToLists}
+            onSaveSmartList={saveSmartList}
+            emailChecks={emailChecks}
+            onImportVerifier={importVerifierFiles}
+            engagementCount={engagements.length}
+            onImportEngagements={importEngagementFiles}
+            recycleRules={recycleRules}
+            noteRefresh={noteRefresh}
+            onRefreshNotes={() => void runNoteRefresh()}
+          />
+          </KeepAliveGate>
+          </ViewErrorBoundary>
+          </div>
+        )}
       </main>
 
       {notesPanelTab && (

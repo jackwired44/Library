@@ -352,6 +352,10 @@ let seenCache: { from: unknown; map: Map<string, SeenFile[]> } | null = null;
 
 /* --------------------------------------------------------------- component */
 
+/** ISO dates and timestamps compare correctly as plain strings, and a plain
+ *  compare is many times faster than localeCompare over 40,000 leads. */
+function cmpStr(a: string, b: string): number { return a < b ? -1 : a > b ? 1 : 0; }
+
 export default function AllLeads({
   leads, companyProfiles = [], onApplySync, initialSequence = "", initialFiles, initialVerdict, initialLine,
   sequenceNames = [], onSetPlan, onSetStatus, onMoveGrade, funnels = [], initialStatus, initialPreset,
@@ -714,7 +718,7 @@ export default function AllLeads({
     return leads.filter((l) => ruleMatches(rule, l, ruleFacts.get(l.key)!, undefined, rawIndex?.get(l.key) ?? ""))
       .sort((a, b) => {
         const fa = ruleFacts.get(a.key)!, fb = ruleFacts.get(b.key)!;
-        return rank[fa.verdict] - rank[fb.verdict] || (b.score ?? -1) - (a.score ?? -1) || fb.arrivalDate.localeCompare(fa.arrivalDate);
+        return rank[fa.verdict] - rank[fb.verdict] || (b.score ?? -1) - (a.score ?? -1) || cmpStr(fb.arrivalDate, fa.arrivalDate);
       });
   }, [ruleFacts, leads, rawIndex]);
   const industryNames = useMemo(() => {
@@ -832,19 +836,19 @@ export default function AllLeads({
     const out = leads.filter((l) => passes(l));
     const d = (l: StoredLead) => derived.get(l.key)!;
     const cmp: Record<SortKey, (a: StoredLead, b: StoredLead) => number> = {
-      received: (a, b) => d(b).arrival.date.localeCompare(d(a).arrival.date) || b.lastSeenAt.localeCompare(a.lastSeenAt),
-      last: (a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt),
-      first: (a, b) => b.firstSeenAt.localeCompare(a.firstSeenAt),
+      received: (a, b) => cmpStr(d(b).arrival.date, d(a).arrival.date) || cmpStr(b.lastSeenAt, a.lastSeenAt),
+      last: (a, b) => cmpStr(b.lastSeenAt, a.lastSeenAt),
+      first: (a, b) => cmpStr(b.firstSeenAt, a.firstSeenAt),
       company: (a, b) => (a.company || "￿").localeCompare(b.company || "￿"),
-      files: (a, b) => d(b).files - d(a).files || b.lastSeenAt.localeCompare(a.lastSeenAt),
+      files: (a, b) => d(b).files - d(a).files || cmpStr(b.lastSeenAt, a.lastSeenAt),
       // A lead with no score sinks rather than being read as 0.
       score: (a, b) => (b.score ?? -1) - (a.score ?? -1),
       calls: (a, b) => d(b).calls - d(a).calls,
       // Leads with no upcoming date sink below every dated one.
-      nextdate: (a, b) => (d(a).nextDate?.iso ?? "\uffff").localeCompare(d(b).nextDate?.iso ?? "\uffff"),
+      nextdate: (a, b) => cmpStr(d(a).nextDate?.iso ?? "\uffff", d(b).nextDate?.iso ?? "\uffff"),
       // Undated leads sink, never read as the oldest date.
-      added: (a, b) => (d(b).addedAt || "").localeCompare(d(a).addedAt || ""),
-      taskdone: (a, b) => (d(b).taskDoneAt || "").localeCompare(d(a).taskDoneAt || ""),
+      added: (a, b) => cmpStr(d(b).addedAt || "", d(a).addedAt || ""),
+      taskdone: (a, b) => cmpStr(d(b).taskDoneAt || "", d(a).taskDoneAt || ""),
     };
     return out.sort(cmp[sort]);
   // eslint-disable-next-line react-hooks/exhaustive-deps

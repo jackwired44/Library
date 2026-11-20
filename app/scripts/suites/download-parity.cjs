@@ -2,7 +2,7 @@
 // Main Scanner's, column for column. Nothing here touches the Main Scanner
 // — it is the reference, downloaded live and compared against.
 const BASE = process.env.BASE || 'http://localhost:4173';
-const EXE = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+const EXE = (require('fs').existsSync('/opt/pw-browsers/chromium-1194/chrome-linux/chrome') ? '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' : undefined);
 const { chromium } = require('playwright');
 const fs = require('fs');
 const os = require('os');
