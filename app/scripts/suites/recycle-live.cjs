@@ -159,14 +159,14 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('nothing written to Apollo', writes.length === 0, JSON.stringify(writes));
 
   console.log('\n== rules ==');
-  await page.locator('button', { hasText: 'Rules' }).click(); await sleep(200);
+  await page.getByRole('button', { name: '⚙ Rules', exact: true }).click(); await sleep(200);
   await page.fill('input[aria-label="Rest after last attempt"]', '5');
   await page.locator('input[aria-label="Rest after last attempt"]').press('Enter'); await sleep(400);
   ok('a 5-day rest moves REST CO to Ready', /^3 Ready/.test(await tile('Ready to recycle')), await tile('Ready to recycle'));
   await page.reload(); await sleep(1500);
   await nav('All leads', 'Recycle');
   ok('rules survive a reload', /5 days after its Apollo sequence ended/.test(await main()));
-  await page.locator('button', { hasText: 'Rules' }).click(); await sleep(200);
+  await page.getByRole('button', { name: '⚙ Rules', exact: true }).click(); await sleep(200);
   await page.fill('input[aria-label="Rest after last attempt"]', '0');
   await page.locator('input[aria-label="Rest after last attempt"]').press('Enter'); await sleep(300);
   ok('a 0 is ignored, not saved', /5 days after its Apollo sequence ended/.test(await main()));
