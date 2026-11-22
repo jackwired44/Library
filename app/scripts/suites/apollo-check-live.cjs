@@ -172,33 +172,20 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await page.locator('label', { hasText: "Re-check this week's" }).locator('input').check(); await sleep(200);
   t2 = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
   ok('select the page + re-check covers all 4', /Check 4 in Apollo \(selected\)/.test(t2), t2.match(/Check \d+ in Apollo[^·]{0,12}/)?.[0]);
-  console.log('\n== Home panel ==');
+  console.log('\n== Home ==');
+  // 11/22: per Jack ("redo the hompage bunch is unecesarry"), Home keeps only
+  // the four work-queue tiles; the Apollo panel, its check buttons and the
+  // Customize button left Home. Re-pointed: the "In a sequence now" tile must
+  // read the checked active lead, and agree with All leads' Apollo standing.
   await page.locator('.side-nav-btn', { hasText: 'Home' }).first().click(); await sleep(700);
-  let home = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
-  ok('Home shows where leads stand in Apollo', /Where every lead stands in Apollo/.test(home) && /Active in a sequence/i.test(home), home.slice(0, 400));
-  ok('Home offers next-100, next-400 and check-all', await page.locator('button', { hasText: /^Check next \d+$/ }).count() === 2 && await page.locator('button', { hasText: /^Check all \d+ due$/ }).count() === 1);
-  // Per Jack: "numericals to match". Home's Apollo panel and All leads'
-  // standing tiles are one function, so they must read the same.
-  const homeApollo = (await page.locator('[aria-label="Apollo status"]').innerText()).replace(/\s+/g, ' ');
-  const homeActive = Number((homeApollo.match(/Active in a sequence (\d+)/i) || [])[1]);
-  const homeUnchecked = Number((homeApollo.match(/Not checked yet (\d+)/i) || [])[1]);
+  const home = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
+  const homeActive = Number((home.match(/In a sequence now (\d+)/i) || [])[1]);
+  ok('Home shows the checked active lead in "In a sequence now"', homeActive === 1, home.slice(0, 400));
+  ok('Home no longer carries the Apollo panel', !/Where every lead stands in Apollo/.test(home));
   await nav('All leads');
   const standing = (await page.locator('[aria-label="Apollo standing"]').innerText()).replace(/\s+/g, ' ');
-  ok('  Home and All leads agree on active', Number((standing.match(/(\d+) Active in a sequence/) || [])[1]) === homeActive, `${homeApollo} || ${standing}`);
-  ok('  and on not checked yet', Number((standing.match(/(\d+) Not checked yet/) || [])[1]) === homeUnchecked, `${homeApollo} || ${standing}`);
-  await page.locator('.side-nav-btn', { hasText: 'Home' }).first().click(); await sleep(700);
-  ok('a checked active lead feeds "Where every lead stands"', /In sequence 1\b/.test(home), (home.match(/Where every lead stands.{0,300}/) || [''])[0]);
-  console.log('\n== customize Home ==');
-  await page.locator('button', { hasText: 'Customize' }).click(); await sleep(200);
-  await page.locator('[aria-label="Customize home"] label', { hasText: 'Top industries' }).locator('input').uncheck(); await sleep(200);
-  await page.keyboard.press('Escape'); await page.mouse.click(5, 5); await sleep(200);
-  ok('hiding a chart removes it', !/Top industries/.test(await main()));
-  await page.reload(); await sleep(1200);
-  ok('the choice survives a reload', !/Top industries/.test(await main()) && /Where every lead stands/.test(await main()));
-  await page.locator('button', { hasText: 'Customize' }).click(); await sleep(200);
-  await page.locator('button', { hasText: 'Show everything' }).click(); await sleep(200);
-  ok('Show everything brings it back', /Top industries/.test(await main()));
-  await page.mouse.click(5, 5); await sleep(200);
+  const allActive = Number((standing.match(/(\d+) Active in a sequence/) || standing.match(/Active in a sequence \((\d+)\)/) || [])[1]);
+  ok('  Home and All leads agree on active', allActive === homeActive, `${home.slice(0, 200)} || ${standing}`);
   await nav('All leads'); await sleep(500);
   const scannerOpts = await page.locator('select[aria-label="Scanner"] option').allInnerTexts();
   ok('Scanner filter shows a count per scanner', scannerOpts.some(o => /Main Scanner \(4\)/.test(o)), JSON.stringify(scannerOpts));

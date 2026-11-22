@@ -32,7 +32,7 @@ import { engagementOf, engagementLabel, isCustomer, ENGAGEMENT_SOURCE_META, type
 import type { ParsedFile } from "../lib/detection";
 import { MAX_COMPANY_BATCH } from "../lib/apolloEnrich";
 import { orgIdsOf, TRACKED_DOMAIN, type VisitProgress } from "../lib/webVisits";
-import { partnerStanceOf, dynamicsTabOfText, DYNAMICS_TAB_META, DYNAMICS_TAB_ORDER, type DynamicsTab } from "../lib/detection";
+import { partnerStanceOf, dynamicsTabOfText, DYNAMICS_TAB_META, DYNAMICS_TAB_ORDER, type DynamicsTab, CATEGORY_META, PRIORITY_META, type Priority } from "../lib/detection";
 import { downloadCampaignCSV } from "../lib/campaignExport";
 import { MIN_EMPLOYEES } from "../lib/leadQualify";
 import {
@@ -261,7 +261,7 @@ const DEFAULT_HIDDEN_COLS = ["col-touches", "col-recycle", "col-uploads", "col-a
 // deliverability ("remove"); the Apollo standing tab keeps the same tiles.
 // v2: the Apollo panel (pull, lookup list, import sync, deals & meetings)
 // ("remove this"); Lists' "Update from Apollo" still pulls.
-const REMOVED_PANEL_STEPS: [string, string[]][] = [
+const REMOVED_PANEL_STEPS: [string, string[], string[]?][] = [
   ["allLeadsPanelsRemoved1", ["standing", "deliverability"]],
   ["allLeadsPanelsRemoved2", ["apollo"]],
   // Per Jack (2026-11-20): "at a high level i just need to be able to check
@@ -269,6 +269,14 @@ const REMOVED_PANEL_STEPS: [string, string[]][] = [
   // the first and last name under one column title is it strong signal bad
   // lead or needs review". Everything else starts hidden, once, for everyone.
   ["allLeadsColsSimple1", ["col-first", "col-last", "col-received", "col-seen", "col-inapollo", "col-meetings", "col-notes"]],
+  // Per Jack (2026-11-22): "redo all leads layout … similar cell and row
+  // format columns to main scanner". Company · Contact · Notes · Signal ·
+  // Priority · Product line · Apollo, like the scanner; title, email and the
+  // batch file ride inside those cells. Everything else stays in Customize.
+  ["allLeadsScannerLayout1",
+    ["col-title", "col-batch", "col-first", "col-last", "col-received", "col-seen", "col-inapollo", "col-meetings",
+     "col-touches", "col-recycle", "col-uploads", "col-atco", "col-outreach", "col-disposition", "col-sequence"],
+    ["col-company", "col-contact", "col-notes", "col-stored", "col-priority", "col-line", "col-stands"]],
 ];
 function loadParts(items: typeof ALL_LEADS_PARTS): Set<string> {
   let out: Set<string>;
@@ -279,14 +287,15 @@ function loadParts(items: typeof ALL_LEADS_PARTS): Set<string> {
       out = new Set([...panels, ...DEFAULT_HIDDEN_COLS]);
     }
   } catch { out = new Set(DEFAULT_HIDDEN_COLS); }
-  for (const [key, ids] of REMOVED_PANEL_STEPS) {
+  for (const [key, ids, show = []] of REMOVED_PANEL_STEPS) {
     try {
       if (localStorage.getItem(key) === null) {
         for (const id of ids) out.add(id);
+        for (const id of show) out.delete(id);
         localStorage.setItem(key, "1");
         localStorage.setItem(PARTS_KEY, JSON.stringify([...out]));
       }
-    } catch { for (const id of ids) out.add(id); }
+    } catch { for (const id of ids) out.add(id); for (const id of show) out.delete(id); }
   }
   return out;
 }
@@ -295,6 +304,18 @@ function splitName(full: string): { first: string; last: string } {
   const parts = String(full || "").trim().split(/\s+/).filter(Boolean);
   return { first: parts[0] || "", last: parts.slice(1).join(" ") };
 }
+/** The priority band a stored note carries in its head mark (▲ ▸ ▼ ✕), the
+ *  same band the Main Scanner shows; else read off the grade. */
+function bandOf(l: { notes: string; tier: string }): Priority {
+  const top = String(l.notes || "").split("\n")[0].replace(/^\d{4}-\d{2}-\d{2} · /, "").trim();
+  const m = /^(?:\(\d{1,3}\)\s*)?([▲▸▼✕])/.exec(top);
+  if (m) return m[1] === "▲" ? "high" : m[1] === "▸" ? "medium" : m[1] === "✕" ? "dq" : "low";
+  const t = String(l.tier || "").toLowerCase();
+  return /strong|high|signal/.test(t) ? "high" : /bad|dq|excluded/.test(t) ? "dq" : /medium/.test(t) ? "medium" : "low";
+}
+/** Product-line colours from the scanner's own CATEGORY_META, by label. */
+const LINE_STYLE: Record<string, { color: string; bg: string }> = Object.fromEntries(
+  Object.values(CATEGORY_META).map((m) => [m.label, { color: m.color, bg: m.bg }]));
 const FILTERS_OPEN_KEY = "allLeadsFiltersOpen";
 /** What Customize can show or hide on All leads. Column ids are "col-" +
  *  the table's data-col. Company and the checkbox always show. */
@@ -304,9 +325,10 @@ const ALL_LEADS_PARTS = [
   { id: "deliverability", group: "Panels", label: "Email deliverability" },
   { id: "filters", group: "Panels", label: "Search & filters" },
   { id: "bulk", group: "Panels", label: "Actions bar (check, list, export)" },
-  { id: "col-contact", group: "Table columns", label: "Name & email" },
+  { id: "col-contact", group: "Table columns", label: "Contact (name, title, email)" },
+  { id: "col-priority", group: "Table columns", label: "Priority (score)" },
   { id: "col-batch", group: "Table columns", label: "Batch (file)" },
-  { id: "col-stands", group: "Table columns", label: "Where it stands" },
+  { id: "col-stands", group: "Table columns", label: "Apollo (where it stands)" },
   { id: "col-first", group: "Table columns", label: "First name" },
   { id: "col-last", group: "Table columns", label: "Last name" },
   { id: "col-title", group: "Table columns", label: "Title" },
@@ -315,7 +337,7 @@ const ALL_LEADS_PARTS = [
   { id: "col-line", group: "Table columns", label: "Product line" },
   { id: "col-received", group: "Table columns", label: "Month" },
   { id: "col-seen", group: "Table columns", label: "Seen in (files)" },
-  { id: "col-inapollo", group: "Table columns", label: "Apollo (where it stands)" },
+  { id: "col-inapollo", group: "Table columns", label: "In Apollo (match)" },
   { id: "col-touches", group: "Table columns", label: "Touchpoints" },
   { id: "col-recycle", group: "Table columns", label: "Recycle" },
   { id: "col-uploads", group: "Table columns", label: "Uploads" },
@@ -2165,13 +2187,15 @@ export default function AllLeads({
               <th className="pin pin-0" style={{ width: 30 }}>
                 <input type="checkbox" checked={allShownSelected} onChange={selectPage} aria-label="Select this page" />
               </th>
-              <th className="pin pin-1" data-col="contact">Name &amp; email</th>
-              <th data-col="title">Title</th>
-              <th data-col="company">Company</th>
+              <th className="pin pin-1" data-col="company">Company</th>
+              <th data-col="contact">Contact</th>
+              <th data-col="notes" title="The note the scanner wrote">Notes</th>
               <th data-col="stored" title="Strong Signal, Needs Review or Bad Lead — from the scanner that stored it">Signal</th>
+              <th data-col="priority" title="The scanner's score and priority band">Priority</th>
               <th data-col="line">Product line</th>
+              <th data-col="stands" title="Where it stands, the Apollo sequence and the last call outcome">Apollo</th>
+              <th data-col="title">Title</th>
               <th data-col="batch" title="The CSV this lead came in on (the newest one if several), and its month">Batch</th>
-              <th data-col="stands" title="Hasn't gone anywhere, in a sequence now, not interested, or meeting / next steps set">Where it stands</th>
               <th data-col="first">First name</th>
               <th data-col="last">Last name</th>
               <th data-col="received" title="The date the file states, or the upload date if it states none">Month</th>
@@ -2181,7 +2205,6 @@ export default function AllLeads({
               <th data-col="recycle" title="When an unanswered or not-interested lead comes back for a new sequence — see the Recycle tab">Recycle</th>
               <th data-col="uploads" className="num" title="How many different CSV files this lead was in">Uploads</th>
               <th data-col="meetings" title="A deal or sales meeting on file in HubSpot, Notion or Echo. These are Account manager only: not to be reached out to again.">Meetings</th>
-              <th data-col="notes" title="The note the scanner wrote">Scanned note</th>
               <th data-col="atco" title="Every lead we hold at this company">At company</th>
               <th data-col="outreach" title="Has anyone got through? From the Apollo sync.">Outreach</th>
               <th data-col="disposition" title="The latest call disposition in Apollo">Disposition</th>
@@ -2202,39 +2225,69 @@ export default function AllLeads({
                   <td className="pin pin-0" onClick={(e) => e.stopPropagation()}>
                     <input type="checkbox" checked={selected.has(l.key)} onChange={() => toggle(l.key)} aria-label={`Select ${l.company}`} />
                   </td>
-                  <td className="pin pin-1" data-col="contact" title={[l.contact, l.title, l.email, LANE_META[d.lane].hint].filter(Boolean).join(" · ")}>
-                    <div className="strong" style={{ display: "flex", alignItems: "center", gap: 2 }}>
-                      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{l.contact || "—"}</span>
-                      <CopyName name={l.contact} />
+                  <td className="pin pin-1" data-col="company" title={l.company}>
+                    <div className="strong">{l.company || "—"}</div>
+                    {l.webVisits?.visited && (
+                      <span className="pill" aria-label="Visited wiredcio.com" style={{ marginTop: 3, fontSize: 10.5, color: "#0A66C2", background: "#EAF3FC" }}
+                            title={`Their company visited ${l.webVisits.domain} (${l.webVisits.from} to ${l.webVisits.to})${l.webVisits.visits != null ? ` · ${l.webVisits.visits} visits` : ""}${l.webVisits.uniqueVisitors != null ? ` · ${l.webVisits.uniqueVisitors} people` : ""}${l.webVisits.pages?.length ? `\nPages: ${l.webVisits.pages.join(", ")}` : ""}`}>
+                        🌐 Visited us
+                      </span>
+                    )}
+                    <div className="muted" style={{ fontSize: 11.5, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis" }} title={l.sourceFiles.join("\n")}>
+                      {l.sourceFiles[l.sourceFiles.length - 1] || "—"} · {d.month.endsWith("~") ? "~" : ""}{shortMonthLabel(viewMonthKey(d.month))}
                     </div>
+                  </td>
+                  <td data-col="contact" title={[l.contact, l.title, l.email, LANE_META[d.lane].hint].filter(Boolean).join(" · ")} style={{ minWidth: 150 }}>
+                    <div style={{ whiteSpace: "nowrap" }}>
+                      {l.contact || "—"}<CopyName name={l.contact} />
+                      {seenMap.get(l.key) && <span className="pill" data-seen-before style={{ marginLeft: 4, fontSize: 10.5, color: "#5B4A9A", background: "#EFEBFA" }}
+                        title={seenMap.get(l.key)!.map((x) => `${x.file}${x.date ? ` (${x.date})` : ""}`).join("\n")}>↺ {seenLabel(seenMap.get(l.key)!)}</span>}
+                    </div>
+                    {l.title && <div className="muted" style={{ fontSize: 11.5, overflow: "hidden", textOverflow: "ellipsis" }}>{l.title}</div>}
                     <div className="muted" style={{ fontSize: 11.5, overflow: "hidden", textOverflow: "ellipsis" }}>
                       {l.email || "No email"}
                       {LANE_META[d.lane].green && <span data-lane={d.lane} style={{ marginLeft: 6, color: LANE_META[d.lane].color, fontWeight: 600 }} title={LANE_META[d.lane].hint}>{LANE_META[d.lane].short}</span>}
                     </div>
                   </td>
-                  <td data-col="title" title={l.title} style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.title || <span className="muted">—</span>}</td>
-                  <td data-col="company" className="strong" title={l.company}>
-                    {l.company || "—"}
-                    {l.webVisits?.visited && (
-                      <span className="pill" aria-label="Visited wiredcio.com" style={{ marginLeft: 6, fontSize: 10.5, color: "#0A66C2", background: "#EAF3FC" }}
-                            title={`Their company visited ${l.webVisits.domain} (${l.webVisits.from} to ${l.webVisits.to})${l.webVisits.visits != null ? ` · ${l.webVisits.visits} visits` : ""}${l.webVisits.uniqueVisitors != null ? ` · ${l.webVisits.uniqueVisitors} people` : ""}${l.webVisits.pages?.length ? `\nPages: ${l.webVisits.pages.join(", ")}` : ""}`}>
-                        🌐 Visited us
-                      </span>
-                    )}
+                  <td data-col="notes" className="note-cell" title={l.notes} style={{ minWidth: 320, maxWidth: 620 }}>
+                    <span className="clamp-5">{newestNote(l.notes) || "—"}</span>
+                    {d.segs > 1 && <div className="muted" style={{ fontSize: 11.5 }}>+{d.segs - 1} earlier note{d.segs > 2 ? "s" : ""}</div>}
                   </td>
                   <td data-col="stored" title={l.gradeOverride
                     ? `Moved by hand ${l.gradeOverride.at.slice(0, 10)}${l.gradeOverride.reason ? ` — ${l.gradeOverride.reason}` : ""}\nScanner's grade: ${gradeOfTier(l.gradeOverride.was)}`
                     : `${VERDICT_META[d.verdict].hint}\nScanner's word: ${l.tier || "—"}`}>
-                    <span className="pill" style={{ color: VERDICT_META[d.verdict].color, background: VERDICT_META[d.verdict].bg }}>{VERDICT_META[d.verdict].label}</span>
-                    {l.gradeOverride && <span className="muted" data-moved style={{ fontSize: 11, marginLeft: 4 }}>✋ moved</span>}
+                    <span className="tier-pill" style={{ color: VERDICT_META[d.verdict].color, background: VERDICT_META[d.verdict].bg }}>{VERDICT_META[d.verdict].label}</span>
+                    {l.gradeOverride && <div className="muted" data-moved style={{ fontSize: 11, marginTop: 3 }}>✋ moved</div>}
                   </td>
-                  <td data-col="line">{d.line === NO_LINE ? <span className="muted">—</span> : <span className="pill" style={{ color: "var(--ink-2)", background: "var(--surface-sunken)" }}>{d.line}</span>}</td>
+                  <td data-col="priority" style={{ whiteSpace: "nowrap" }}>
+                    {(() => { const b = bandOf(l); return <>
+                      <div aria-label="Score" style={{ fontWeight: 700, fontSize: 15, lineHeight: 1.1, fontVariantNumeric: "tabular-nums", color: PRIORITY_META[b].color }}>{l.score ?? "—"}</div>
+                      <div title={PRIORITY_META[b].hint} className="band-chip" style={{ color: PRIORITY_META[b].color, background: PRIORITY_META[b].bg }}>{PRIORITY_META[b].short}</div>
+                    </>; })()}
+                  </td>
+                  <td data-col="line">
+                    {d.line === NO_LINE ? <span className="muted">—</span> : <>
+                      <span className="line-badge" style={LINE_STYLE[d.line] || { color: "var(--ink-2)", background: "var(--surface-sunken)" }}>{d.line}</span>
+                      {d.dyn && <div style={{ fontSize: 10.5, marginTop: 4, color: (LINE_STYLE[d.line] || {}).color }}>{DYNAMICS_TAB_META[d.dyn].label}</div>}
+                    </>}
+                  </td>
+                  <td data-col="stands" title={WHERE_META[d.where].hint} style={{ minWidth: 170 }}>
+                    <span className="pill" data-where={d.where} style={{ color: WHERE_STYLE[d.where].color, background: WHERE_STYLE[d.where].bg }}>{WHERE_META[d.where].label}</span>
+                    {d.engaged && <div style={{ fontSize: 11, marginTop: 3, color: "#7A1F1F" }}>{isCustomer(d.engaged) ? "Customer · AM only" : "Account manager only"}</div>}
+                    {seq
+                      ? <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>{seq.name} · {seq.status}{seq.step != null ? ` · step ${seq.step}${total ? `/${total}` : ""}` : ""}</div>
+                      : !a && d.inApollo?.sequences.length ? <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>{d.inApollo.sequences[0]}</div> : null}
+                    {a?.lastOutcome && <div style={{ fontSize: 11.5, marginTop: 2 }}>📞 {a.lastOutcome}{a.lastCallAt ? <span className="muted"> · {a.lastCallAt.slice(0, 10)}</span> : null}</div>}
+                    {onCheckLeads && (
+                      <button className="btn btn-sm btn-ghost" style={{ padding: "1px 6px", fontSize: 11, marginTop: 3 }} disabled={checking}
+                              title={l.apolloCheckedAt ? `Last checked ${l.apolloCheckedAt.slice(0, 10)} — check again now` : "Check this lead in Apollo now (read-only)"}
+                              onClick={(e) => { e.stopPropagation(); void runCheck([l]); }}>⟳ {l.apolloCheckedAt ? `checked ${l.apolloCheckedAt.slice(5, 10)}` : "Check"}</button>
+                    )}
+                  </td>
+                  <td data-col="title" title={l.title} style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.title || <span className="muted">—</span>}</td>
                   <td data-col="batch" title={l.sourceFiles.join("\n")}>
                     <div style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{l.sourceFiles[l.sourceFiles.length - 1] || "—"}</div>
                     <div className="muted" style={{ fontSize: 11.5 }}>{d.month.endsWith("~") ? "~" : ""}{shortMonthLabel(viewMonthKey(d.month))}{l.sourceFiles.length > 1 ? ` · in ${l.sourceFiles.length} files` : ""}</div>
-                  </td>
-                  <td data-col="stands" title={WHERE_META[d.where].hint}>
-                    <span className="pill" data-where={d.where} style={{ color: WHERE_STYLE[d.where].color, background: WHERE_STYLE[d.where].bg }}>{WHERE_META[d.where].label}</span>
                   </td>
                   <td className="strong" data-col="first" title={[l.contact, l.title, l.email, LANE_META[d.lane].hint].filter(Boolean).join(" · ")}>
                     {splitName(l.contact).first || "—"}
@@ -2282,13 +2335,6 @@ export default function AllLeads({
                       </>
                     ) : <span className="muted">—</span>}
                   </td>
-                  <td data-col="notes" className="note-cell" title={l.notes}>
-                    {/* Per Jack: "want to be able to see notes better and bigger".
-                        Wraps to three lines like the scanner's matched snippet;
-                        the whole note is on hover and in the lead record. */}
-                    <div className="note-clamp">{newestNote(l.notes) || "—"}</div>
-                    {d.segs > 1 && <div className="muted" style={{ fontSize: 11.5 }}>+{d.segs - 1} earlier note{d.segs > 2 ? "s" : ""}</div>}
-                  </td>
                   <td data-col="atco" title={co ? co.names.join("\n") : undefined}>
                     {!co || co.contacts < 2 ? <span className="muted">1</span>
                       : <>{co.contacts}<span className="muted"> · {co.worked} worked</span></>}
@@ -2317,7 +2363,7 @@ export default function AllLeads({
               );
             })}
             {shown.length === 0 && (
-              <tr><td colSpan={14} style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}>
+              <tr><td colSpan={24} style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}>
                 No leads match these filters. <button className="btn btn-sm btn-ghost" onClick={clearAll}>Clear all</button>
               </td></tr>
             )}

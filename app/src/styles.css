@@ -2679,3 +2679,32 @@ details.panel.fold[open] > summary.fold-head::before { content: "▾"; }
 /* ⧉ copy-name button beside a contact (Scanner, All leads) */
 .copy-name { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 12px; line-height: 1; padding: 2px 4px; margin-left: 2px; border-radius: 4px; vertical-align: baseline; }
 .copy-name:hover { color: var(--accent); background: var(--surface-sunken); }
+
+/* All leads table in the Main Scanner's row format (2026-11-22, per Jack:
+   "similar cell and row format columns to main scanner"). Same header band,
+   10px x 11px cells, top-aligned, wrapping, the same tier pill, score + band
+   chip and product-line badge. Sticky first columns and row click stay. */
+.leads-grid.dense-table.all-leads-table { font-size: 13px; }
+.leads-grid.dense-table.all-leads-table thead th {
+  background: var(--surface-sunken); padding: 9px 11px;
+}
+.leads-grid.dense-table.all-leads-table tbody td {
+  padding: 10px 11px; white-space: normal; vertical-align: top; max-width: 260px;
+  border-bottom: 1px solid var(--border);
+}
+.leads-grid.dense-table.all-leads-table .pin-1 { min-width: 150px; max-width: 220px; }
+.leads-grid.dense-table.all-leads-table tbody td.note-cell {
+  min-width: 320px; max-width: 620px; color: var(--muted); font-size: 12.5px; line-height: 1.45;
+  padding-top: 10px; padding-bottom: 10px;
+}
+.all-leads-table .tier-pill {
+  display: inline-block; border-radius: 20px; padding: 4px 10px; font-weight: 700; font-size: 11.5px; white-space: nowrap;
+}
+.all-leads-table .band-chip {
+  display: inline-block; margin-top: 4px; padding: 1px 6px; border-radius: 999px;
+  font-size: 10px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase;
+}
+.all-leads-table .line-badge {
+  display: inline-block; font-weight: 600; font-size: 12.5px; border: 1px solid var(--border);
+  border-radius: 7px; padding: 5px 9px; white-space: nowrap;
+}
