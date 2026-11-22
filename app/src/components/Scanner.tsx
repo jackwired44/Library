@@ -90,7 +90,7 @@ interface Facets {
   tier: Tier | "all";
   category: CategoryKey | "all";
   m365Sub: "all" | M365SubView;
-  dynSub: "all" | "businessCentral" | "salesCrm" | "other";
+  dynSub: "all" | "businessCentral" | "salesCrm" | "powerPlatform" | "other";
   dupOnly: boolean;
   prioOnly: boolean;
   /** Only leads whose notes state they want a partner (ScanResult.wantsPartner). */
@@ -120,7 +120,8 @@ function applyFacets(rows: ResultRow[], f: Facets): ResultRow[] {
     list = list.filter((r) => {
       if (f.dynSub === "businessCentral") return r.isBusinessCentral;
       if (f.dynSub === "salesCrm") return r.isSalesCrm;
-      return !r.isBusinessCentral && !r.isSalesCrm;
+      if (f.dynSub === "powerPlatform") return !!r.isPowerPlatform;
+      return !r.isBusinessCentral && !r.isSalesCrm && !r.isPowerPlatform;
     });
   }
   if (f.dupOnly) list = list.filter((r) => r.isDuplicate);
@@ -278,7 +279,7 @@ export default function Scanner({
   // Per-bucket download file name — editable, defaults to the standard
   // wired-cio-<bucket>-leads.csv name until Jack renames it. Reset on
   // "Start over" via `reset()` below, same as every other per-batch choice.
-  const [bucketFileNames, setBucketFileNames] = useState<Record<BucketKey, string>>({ m365Tenant: "", dynamics: "", dataPlatform: "" });
+  const [bucketFileNames, setBucketFileNames] = useState<Record<BucketKey, string>>({ m365Tenant: "", dynamics: "", powerPlatform: "", dataPlatform: "" });
   // Save-to-Lead-Library moved from a pre-upload checkbox to a post-scan
   // action — per Jack: "i want to be able to store strong signals in
   // files after theyre scan... put it after so i can store after
@@ -428,7 +429,7 @@ export default function Scanner({
   // category, bucket, or export — every tab still files/downloads as
   // Dynamics 365. A lead can match both (e.g. "ERP and CRM" together) and
   // show up under both specific tabs; "Everything else" means neither.
-  const [dynamicsSubView, setDynamicsSubView] = useState<"all" | "businessCentral" | "salesCrm" | "other">("all");
+  const [dynamicsSubView, setDynamicsSubView] = useState<"all" | "businessCentral" | "salesCrm" | "powerPlatform" | "other">("all");
   // Pull a file already sitting in the Lead Library back into Scanner for a
   // rescan/closer look, without leaving this screen first — per Jack's
   // explicit ask. Reuses the exact same load path Library.tsx's own "Load
@@ -566,7 +567,7 @@ export default function Scanner({
 
   function reset() {
     onReset();
-    setBucketFileNames({ m365Tenant: "", dynamics: "", dataPlatform: "" });
+    setBucketFileNames({ m365Tenant: "", dynamics: "", powerPlatform: "", dataPlatform: "" });
     setLastScanStats(null);
     setScannedAt(null);
     setError(null);
@@ -846,7 +847,6 @@ export default function Scanner({
       category,
       m365Sub: {
         all: n({ category: "m365Tenant", m365Sub: "all" }),
-        google: n({ category: "m365Tenant", m365Sub: "google" }),
         migration: n({ category: "m365Tenant", m365Sub: "migration" }),
         other: n({ category: "m365Tenant", m365Sub: "other" }),
       },
@@ -854,6 +854,7 @@ export default function Scanner({
         all: n({ category: "dynamics365", dynSub: "all" }),
         businessCentral: n({ category: "dynamics365", dynSub: "businessCentral" }),
         salesCrm: n({ category: "dynamics365", dynSub: "salesCrm" }),
+        powerPlatform: n({ category: "dynamics365", dynSub: "powerPlatform" }),
         other: n({ category: "dynamics365", dynSub: "other" }),
       },
       duplicates: n({ dupOnly: true }),
@@ -1812,6 +1813,7 @@ export default function Scanner({
                     ["all", `All Dynamics 365 (${dynamicsSubViewCounts.all})`],
                     ["businessCentral", `Business Central / ERP (${dynamicsSubViewCounts.businessCentral})`],
                     ["salesCrm", `Sales / CRM / Customer Service (${dynamicsSubViewCounts.salesCrm})`],
+                    ["powerPlatform", `Power Platform (${dynamicsSubViewCounts.powerPlatform})`],
                     ["other", `Everything else (${dynamicsSubViewCounts.other})`],
                   ] as const
                 ).map(([key, label]) => (

@@ -25,9 +25,10 @@ import { apolloHitFor, type ApolloHit, type RosterIndex } from "./apolloRoster";
 import { employeeCountOf, normalizeCompanyKey, profileForCompany, type CompanyProfile } from "./companyProfiles";
 import { engagementOf } from "./engagements";
 
-export type ProductKey = "dynamics" | "m365" | "none";
+export type ProductKey = "dynamics" | "power" | "m365" | "none";
 export const PRODUCT_LABEL: Record<ProductKey, string> = {
   dynamics: "Dynamics 365",
+  power: "Power Platform",
   m365: "M365 / Azure",
   none: "No product line",
 };
@@ -86,7 +87,8 @@ export interface RuleFacts {
 }
 
 export const productOf = (line: string): ProductKey =>
-  /dynamics|d365|business central/i.test(line) ? "dynamics"
+  /power platform/i.test(line) ? "power"
+    : /dynamics|d365|business central/i.test(line) ? "dynamics"
     : /m365|azure|microsoft 365|office 365|o365|licens/i.test(line) ? "m365"
     : "none";
 
@@ -295,6 +297,7 @@ export function parseRuleText(text: string, ctx: RuleContext): SmartRule {
 
   const product: ProductKey[] = [];
   if (/\b(dynamics|d365|business central|bc|crm|erp|f&o)\b/.test(t)) product.push("dynamics");
+  if (/\b(power\s*apps|powerapps|power\s*automate|power\s*pages|power\s*platform|dataverse)\b/.test(t)) product.push("power");
   if (/\b(m365|microsoft 365|office 365|o365|azure|licens\w*|copilot|tenant)\b/.test(t)) product.push("m365");
   if (product.length) r.product = product;
 
@@ -419,7 +422,7 @@ export function ruleFromJson(v: unknown, ctx: RuleContext): SmartRule | null {
   const r: SmartRule = {};
   const strs = (x: unknown) => (Array.isArray(x) ? x.filter((s): s is string => typeof s === "string" && !!s.trim()).map((s) => s.trim()) : []);
   const pos = (x: unknown) => (typeof x === "number" && Number.isFinite(x) && x > 0 ? Math.round(x) : undefined);
-  const prod = strs(o.product).filter((p): p is ProductKey => p === "dynamics" || p === "m365" || p === "none");
+  const prod = strs(o.product).filter((p): p is ProductKey => p === "dynamics" || p === "power" || p === "m365" || p === "none");
   if (prod.length) r.product = prod;
   const g = strs(o.grades).filter((x): x is Verdict => x === "strong" || x === "review" || x === "bad");
   if (g.length) r.grades = g;
@@ -460,7 +463,7 @@ export function rulePrompt(request: string, ctx: RuleContext): string {
     `Today is ${today}. Reply with ONLY one JSON object, no prose, no code fence.`,
     "",
     "Allowed keys (omit any key the request does not ask for):",
-    '- product: array of "dynamics" | "m365" | "none". Dynamics 365, Business Central, CRM, ERP are "dynamics". Microsoft 365, Office 365, Azure, licensing, Copilot are "m365".',
+    '- product: array of "dynamics" | "power" | "m365" | "none". Dynamics 365, Business Central, CRM, ERP are "dynamics". Power Apps, Power Automate, Power Pages, Power Platform, Dataverse are "power". Microsoft 365, Office 365, Azure, licensing, Copilot are "m365".',
     '- grades: array of "strong" (Strong Signal / high priority) | "review" (Needs Review) | "bad" (Bad Lead).',
     '- contact: "never" = never contacted at all (uncontacted, untouched, fresh). "stale" = not contacted in N days; then also set staleDays.',
     "- staleDays: number.",

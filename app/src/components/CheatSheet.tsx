@@ -131,7 +131,7 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
           <ul style={{ margin: "0 0 6px", paddingLeft: 20, display: "flex", flexDirection: "column", gap: 5 }}>
             <li><strong>Azure Document Intelligence</strong> mentions — M365 / Azure.</li>
             <li><strong>Full custom app build on Azure</strong> — M365 / Azure.</li>
-            <li><strong>Google → Microsoft migration</strong> language — M365 / Azure (also lands in the "Google → Microsoft" view tab, see below).</li>
+            <li><strong>Google → Microsoft migration</strong> language — M365 / Azure (also lands in the "Migrations &amp; Document Intelligence" view tab, see below).</li>
             <li><strong>MSP / CSP / full partner-engagement</strong> language — including plain "partner engagement" or "full engagement" phrasing, not just "bring in a partner" — M365 / Azure.</li>
             <li><strong>Security design / architecture / hardening</strong> language — M365 / Azure (this one also creates the category match on its own, same footing as "IT support"/"help desk").</li>
           </ul>
@@ -245,11 +245,11 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
         <Section show={pane === "views"} title="View tabs" blurb="Sub-filters inside a category. These change what you see, never what a lead files as — the download files are unaffected.">
           <p style={{ marginBottom: 10 }}>
             Once a category filter is active in Scanner or a Lead Library file, a "View:" row of tabs slices it further —
-            purely for browsing/filtering. It never changes what's downloaded, filed, or which of the two categories a lead
+            purely for browsing/filtering. It never changes what's downloaded, filed, or which product line a lead
             counts toward.
           </p>
           <CategoryDetail k="dynamics365">
-            <strong>Four tabs, always: All Dynamics 365 · Business Central / ERP · Sales / CRM / Customer Service · Everything else.</strong>
+            <strong>Five tabs: All Dynamics 365 · Business Central / ERP · Sales / CRM / Customer Service · Power Platform · Everything else.</strong>
             Every Dynamics lead lands in exactly one, checked in this order:
             <br />
             <strong>Everything else, always, for anything F&amp;O</strong> — Finance and Operations in any wording (F&amp;O,
@@ -260,9 +260,13 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
             <br />
             <strong>Everything else</strong> — supply chain / Supply Chain Management, when Business Central isn't named.
             <br />
+            <strong>Power Platform</strong> — Power Apps, Power Automate, Power Pages, Power Platform or Dataverse, on a
+            note that also says Dynamics. (When the note never says Dynamics, the lead is its own Power Platform product
+            line instead, with its own download file.)
+            <br />
             <strong>Business Central / ERP</strong> — otherwise, the note says "ERP" anywhere (a partner named
-            "ERP Transformation" counts), or names Project Operations, Human Resources, Commerce, Dynamics GP / NAV / AX / SL
-            or Power Platform, or describes an accounting or project-management need with no customer-facing app named.
+            "ERP Transformation" counts), or names Project Operations, Human Resources, Commerce, Dynamics GP / NAV / AX / SL,
+            or describes an accounting or project-management need with no customer-facing app named.
             <br />
             <strong>Sales / CRM / Customer Service</strong> — every other Dynamics lead: Dynamics 365 Sales, CRM, Customer
             Service, Field Service, Customer Insights, Customer Engagement, Marketing, and a bare "Dynamics 365" with no module
@@ -275,20 +279,15 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
             team" is not a Dynamics lead.
           </CategoryDetail>
           <CategoryDetail k="m365Tenant">
-            <strong>Four tabs, always: All M365/Azure · Google → Microsoft · Migrations · Everything else.</strong>
+            <strong>Three tabs: All M365/Azure · Migrations &amp; Document Intelligence · Everything else.</strong>
             <br />
-            <strong>Google → Microsoft</strong> — any company on Google: moving off Google Workspace / G Suite / Gmail to
-            Microsoft, interested in leaving it, or simply running on it today. Each is a Strong Signal lead, pinned to
-            the top of the results table and of every download. Not counted: a move the other way, one already made,
-            "found us on Google," Google Ads / Analytics / Cloud, or an @gmail.com address.
+            <strong>Migrations &amp; Document Intelligence</strong> — Google → Microsoft (any company on Google: moving
+            off Google Workspace / G Suite / Gmail, interested in leaving it, or running on it today; still pinned to the
+            top with the ★ Google badge), every other migration (legacy, re-platforming, on-prem to Azure), and Azure
+            Document Intelligence.
             <br />
-            <strong>Migrations</strong> — every other migration: Migration/Modernization-category hits (which already
-            require partner-engagement language to count at all, so they are already Strong Signal) and Azure hits
-            qualified specifically via on-prem-to-cloud migration language. Azure billing/CSP hits and security-design
-            hits do NOT land here even though they are Strong Signal — they stay in Everything else.
-            <br />
-            <strong>Everything else</strong> — every other M365/Azure hit: Azure billing/CSP, Document Intelligence, app
-            builds, security design/hardening, tenant support, and plain licensing.
+            <strong>Everything else</strong> — every other M365/Azure hit: Azure billing/CSP, app builds, security
+            design/hardening, tenant support, and plain licensing.
           </CategoryDetail>
         </Section>
 

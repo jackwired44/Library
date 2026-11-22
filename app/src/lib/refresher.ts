@@ -133,7 +133,7 @@ function generators(): Generator[] {
       test: () => true,
     },
   ];
-  for (const p of ["dynamics", "m365"] as const) {
+  for (const p of ["dynamics", "power", "m365"] as const) {
     list.push(
       {
         id: `fresh-${p}`, title: `Fresh ${PRODUCT_LABEL[p]}`, product: p,
@@ -298,7 +298,7 @@ export function defaultSequenceFor(s: Pick<RefreshSuggestion, "id" | "product">,
   if (lastPicked && sequences.includes(lastPicked)) return lastPicked;
   const find = (re: RegExp) => sequences.find((n) => re.test(n));
   if (s.id === "recycle") return find(/recycled|backup/i) ?? find(/jack main/i) ?? sequences[0] ?? "";
-  if (s.product === "dynamics") return find(/dynamics/i) ?? find(/jack main sequence/i) ?? sequences[0] ?? "";
+  if (s.product === "dynamics" || s.product === "power") return find(/dynamics/i) ?? find(/jack main sequence/i) ?? sequences[0] ?? "";
   return find(/jack main sequence/i) ?? sequences[0] ?? "";
 }
 

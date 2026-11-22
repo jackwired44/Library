@@ -82,6 +82,10 @@ export type StoredRow = ExportRow & {
   __isPartnerSeeking?: boolean;
   __isBusinessCentral?: boolean;
   __isSalesCrm?: boolean;
+  // 2026-11-22: Dynamics Power Platform tab, and Azure Document Intelligence
+  // for the merged M365 / Azure tab. Optional: older rows read as false.
+  __isPowerPlatform?: boolean;
+  __isDocumentIntelligence?: boolean;
   // Personal Prospect carve-out (see detection.ts's PERSONAL_PROSPECT_LABEL/
   // scanRowUnified) — a personal-email lead whose own content already
   // cleared Strong Signal, filed into its normal category same as any
@@ -322,6 +326,8 @@ export function fileSignalRowsIntoGroup(
       __isPartnerSeeking: r.isPartnerSeeking,
       __isBusinessCentral: r.isBusinessCentral,
       __isSalesCrm: r.isSalesCrm,
+      __isPowerPlatform: r.isPowerPlatform,
+      __isDocumentIntelligence: r.isDocumentIntelligence,
       __isPersonalProspect: r.isPersonalProspect,
       __disposition: r.disposition,
       __dispositionNote: r.dispositionNote,
@@ -509,6 +515,7 @@ export function storedM365SubView(r: StoredRow): M365SubView {
   return m365SubViewOf({
     isGoogleWorkspaceMigration: r.__isGoogleWorkspaceMigration,
     isGoogleToMicrosoft: r.__isGoogleToMicrosoft,
+    isDocumentIntelligence: r.__isDocumentIntelligence,
   });
 }
 

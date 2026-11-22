@@ -6259,6 +6259,44 @@ clear next steps or spoken with are made aware to be removed".
   in Version 102 so the page would load).
 - `sequence-cleaner` 49 → 61.
 
+### 2026-11-22: Power Platform product line; Dynamics 5th tab; M365 tabs merged (scanner-platform-v29)
+
+Per Jack: "make power apps its own category pull it away from dynamics
+unless it says dynamics in the note store it under dynamics but a new
+category so i can keep it seperated", then (via questions) whole Power
+Platform, a 3rd product line, and "better filter azure document
+intelligence and migrations so merge those three as one".
+- **Power Platform product line** (`CategoryKey`/`BucketKey`
+  `powerPlatform`, label "Power Platform", own chip, download file,
+  Library file and All leads product line). Wording: `POWER_PLATFORM_RE`
+  (Power Apps, Power Automate, Power Pages, Power Platform, Dataverse,
+  Common Data Service; Power BI stays M365 / Azure). A row that would be
+  Dynamics 365 moves to Power Platform when its note names that wording
+  and never says Dynamics (`DYNAMICS_NAMED_RE`: Dynamics, D365, Business
+  Central, F&O, Navision, Great Plains, Axapta). The match and every
+  grading rule are still the Dynamics ones (`dynLike` in `scanRowUnified`),
+  so grades are unchanged; the note keeps the Dynamics brief shape.
+  Smart rules / Ask for leads gained product `power`; the Refresher builds
+  Fresh / Backlog / Re-engage Power Platform lists; routing sends Power
+  Platform leads with Dynamics (as before).
+- **Dynamics 365 has five view tabs**: All, Business Central / ERP,
+  Sales / CRM / Customer Service, **Power Platform**, Everything else
+  (`DynamicsTab` "power"; `isPowerPlatform` on ScanResult / ResultRow,
+  `__isPowerPlatform` on StoredRow, `dynamicsView: "power"` on
+  StoredLead). Order in `dynamicsTabOfText`: F&O → other; BC named → bc;
+  supply chain → other; Power Platform → power; ERP / back office → bc;
+  rest → sales. Power words left `DYNAMICS_BACK_OFFICE_RE`. Same tabs in
+  the Scanner, Lead Library files and the All leads Dynamics filter.
+- **M365 / Azure has three view tabs**: All, **Migrations & Document
+  Intelligence** (Google → Microsoft + other migrations + Azure Document
+  Intelligence, `isDocumentIntelligence` / `__isDocumentIntelligence`),
+  Everything else. `M365SubView` is now `"migration" | "other"`. The
+  ★ Google top-priority pin is unchanged.
+- `NOTE_RULES_VERSION` = `2026-11-22-power-platform`, so stored Main
+  leads with a saved CSV row re-file on next open (hand-moved grades kept).
+  Library rows filed before this read as not Power Platform / not Document
+  Intelligence until re-scanned.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool
