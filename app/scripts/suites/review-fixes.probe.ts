@@ -3,7 +3,7 @@
 import { newestRow, unscannedFix } from "../../src/lib/noteRefresh";
 import { leadInputsFromNoSignal } from "../../src/lib/leadFiling";
 import { parseRuleText, ruleParts, ruleMatches, factsForLead, isEmptyRule } from "../../src/lib/smartRules";
-import { combineNotes, type StoredLead } from "../../src/lib/leadStore";
+import { combineNotes, dropSameDayNoSignal, noteWithPrevious, previousNoteForScan, previousNoteLine, type StoredLead } from "../../src/lib/leadStore";
 import { recycleOf, DEFAULT_RECYCLE_RULES } from "../../src/lib/recycle";
 import { buildRosterIndex, apolloHitFor } from "../../src/lib/apolloRoster";
 import { contactStateOf, withStatusOverride } from "../../src/lib/leadStatus";
@@ -100,6 +100,25 @@ const fixedNoRaw = unscannedFix(nsNoRaw, undefined);
 ok("a no-signal lead with no saved raw note still gets a scanned line", /^2026-08-01 \u00b7 \u25BC No Dynamics/.test(fixedNoRaw.notes), fixedNoRaw.notes);
 const shortNs = { ...base, tier: "No signal", notes: "Need a quote", apollo: undefined } as StoredLead;
 ok("a short raw note (under 20 chars) is scanned too", /^\u25BC /.test(unscannedFix(shortNs, undefined).notes), unscannedFix(shortNs, undefined).notes);
+
+// 11/22: "state previous note on lead".
+{
+  const real = "(40) \u25B2 Wants Dynamics 365 (12 users).";
+  const ns = "\u25BC No Dynamics, M365, Azure or licensing signal.";
+  const a = combineNotes(combineNotes("", real, "2026-11-22T10:00:00Z"), ns, "2026-11-22T10:00:00Z");
+  ok("a same-day no-signal line never stacks on a real note", a === "2026-11-22 \u00b7 " + real, a);
+  const b = combineNotes(combineNotes("", ns, "2026-11-22T10:00:00Z"), real, "2026-11-22T10:00:00Z");
+  ok("a real note replaces a same-day no-signal line", b === "2026-11-22 \u00b7 " + real, b);
+  ok("an old stacked no-signal line is cleaned", dropSameDayNoSignal(`2026-11-22 \u00b7 ${ns}\n2026-11-22 \u00b7 ${real}`) === `2026-11-22 \u00b7 ${real}`);
+  const two = combineNotes(combineNotes("", "(30) \u25B8 Wants Microsoft 365 E3 for 40 users. Ask how they manage licensing today.", "2026-10-19T10:00:00Z"), real, "2026-11-22T10:00:00Z");
+  const exp = noteWithPrevious(two);
+  ok("the export note states the previous note with its date and grade", exp === `${real} Previous note (10/19, Needs Review): Wants Microsoft 365 E3 for 40 users.`, exp);
+  ok("a lead with one note gets no previous line", noteWithPrevious(`2026-11-22 \u00b7 ${real}`) === real);
+  ok("the scanner skips a stored note that says the same thing", previousNoteForScan(`2026-11-22 \u00b7 ${real}`, real) === "");
+  ok("the scanner states the newest stored note that differs", previousNoteForScan(two, "(55) \u25B2 Wants Copilot for 30 users.") === "Previous note (11/22, Strong Signal): Wants Dynamics 365 (12 users).", previousNoteForScan(two, "(55) \u25B2 Wants Copilot for 30 users."));
+  const longPrev = previousNoteLine({ date: "2026-11-08", text: "(30) \u25B2 " + "word ".repeat(60) + "end\u2026" });
+  ok("a long previous note is cut once, never with a double ellipsis", !/\u2026\u2026/.test(longPrev) && longPrev.length < 180, longPrev);
+}
 
 // 7b. The generated "Ask" tail is still found after an ellipsis or a mark.
 const ell = combineNotes("(50) \u25B2 Wants dashboards, track performance, analyze\u2026 Ask how they manage licensing today.", "(60) \u25B2 Newer.", "2026-10-29");

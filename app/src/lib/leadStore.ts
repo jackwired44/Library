@@ -368,14 +368,22 @@ export function combineNotes(prevCombined: string, incoming: string, when: strin
   // this was written" when in fact we do.
   if (!prev) return `${when.slice(0, 10)} · ${fresh}`;
 
-  const segs = noteSegments(prev);
+  const day = when.slice(0, 10);
+  // Per Jack (11/22): the same person twice in one upload, once with a real
+  // ask and once with nothing, stacked the "no signal" line ON TOP of the
+  // real note. Two lines from the same day are one sitting, not history: a
+  // no-signal line never joins a real one from that day, and a real note
+  // replaces a same-day no-signal line.
+  const freshNs = isNoSignalLine(fresh);
+  if (freshNs && noteSegments(prev).some((s) => s.date === day && !isNoSignalLine(s.text))) return prev;
+  const segs = noteSegments(prev).filter((s) => freshNs || !(s.date === day && isNoSignalLine(s.text)));
   const freshBody = noteBody(fresh);
   // Already hold it, or hold something that contains it.
   if (segs.some((s) => { const b = noteBody(s.text); return b === freshBody || b.includes(freshBody); })) {
-    return prev;
+    if (segs.length === noteSegments(prev).length) return prev;
+    return segs.map((s) => (s.date ? `${s.date} · ${s.text}` : s.text)).join(NOTE_SEP);
   }
 
-  const day = when.slice(0, 10);
   // The newest keeps its ask; everything older loses the scaffolding, and
   // an older segment that becomes empty once stripped is dropped.
   const older = segs
@@ -397,6 +405,71 @@ export function combineNotes(prevCombined: string, incoming: string, when: strin
  *  marker. The full combined text goes on hover / in the detail view. */
 export function newestNote(combined: string): string {
   return noteSegments(combined)[0]?.text || "";
+}
+
+/** The scanned line a row with no signal gets (Main, and Custom/CSP). */
+const NO_SIGNAL_LINE_RE = /^\s*(?:\(\d{1,3}\)\s*)?\u25BC\s*(?:No Dynamics, M365, Azure or licensing signal|Nothing in the note qualified)/;
+export function isNoSignalLine(text: string): boolean {
+  return NO_SIGNAL_LINE_RE.test(String(text || ""));
+}
+
+/** Drop a same-day no-signal line that sits beside a real note from that
+ *  day (stacked before combineNotes knew better). */
+export function dropSameDayNoSignal(combined: string): string {
+  const segs = noteSegments(combined);
+  const realDays = new Set(segs.filter((s) => s.date && !isNoSignalLine(s.text)).map((s) => s.date));
+  const kept = segs.filter((s) => !(s.date && isNoSignalLine(s.text) && realDays.has(s.date)));
+  if (kept.length === segs.length) return combined;
+  return kept.map((s) => (s.date ? `${s.date} · ${s.text}` : s.text)).join(NOTE_SEP);
+}
+
+const MARK_GRADE: Record<string, string> = { "\u25B2": "Strong Signal", "\u25B8": "Needs Review", "\u25BC": "Needs Review", "\u2715": "Bad Lead" };
+const PREV_NOTE_MAX = 130;
+
+/**
+ * Per Jack (11/22): "state previous note on lead". One line, read from the
+ * earlier scanned note — never the raw note — so a rep, and Apollo after an
+ * import that overwrites (or keeps) the contact's note, sees where the lead
+ * stood before: "Previous note (10/19, Needs Review): Wants Microsoft 365
+ * E3 for 40 users."
+ */
+export function previousNoteLine(seg: { date: string; text: string } | undefined): string {
+  if (!seg) return "";
+  const raw = String(seg.text || "").trim();
+  const mark = raw.match(/^(?:\(\d{1,3}\)\s*)?([\u25B2\u25B8\u25BC\u2715])/);
+  let body = stripAsk(raw.replace(/^(?:\(\d{1,3}\)\s*)?[\u25B2\u25B8\u25BC\u2715\u2605\u2691\u25C6]?\s*/, ""))
+    .replace(/\s*Previous note \([^)]*\):.*$/s, "")
+    .replace(/\s+/g, " ").trim();
+  if (isNoSignalLine(raw)) body = "no Dynamics, M365, Azure or licensing signal.";
+  if (!body) return "";
+  const clipped = /\u2026\s*$/.test(body);
+  body = body.replace(/[\s\u2026.]+$/, "");
+  if (body.length <= PREV_NOTE_MAX) body = `${body}${clipped ? "\u2026" : "."}`;
+  else {
+    const cut = body.slice(0, PREV_NOTE_MAX);
+    body = `${cut.slice(0, Math.max(cut.lastIndexOf(" "), 60)).replace(/[,;:\s-]+$/, "")}\u2026`;
+  }
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(seg.date) ? `${Number(seg.date.slice(5, 7))}/${Number(seg.date.slice(8, 10))}` : "";
+  const grade = mark ? MARK_GRADE[mark[1]] : "";
+  const head = [d, grade].filter(Boolean).join(", ");
+  return `Previous note${head ? ` (${head})` : ""}: ${body}`;
+}
+
+/** The note a download or table shows for a stored lead: the newest note,
+ *  then one line stating the note before it (when there is one). */
+export function noteWithPrevious(combined: string): string {
+  const segs = noteSegments(combined);
+  const newest = segs[0]?.text || "";
+  const prev = previousNoteLine(segs[1]);
+  return prev ? `${newest} ${prev}`.trim() : newest;
+}
+
+/** For a fresh scan of someone already stored: the line stating their
+ *  stored note, skipping a stored note that says the same as this scan. */
+export function previousNoteForScan(storedCombined: string, currentNote: string): string {
+  const cur = noteBody(currentNote);
+  const seg = noteSegments(storedCombined).find((s) => noteBody(s.text) !== cur && !(cur && noteBody(s.text).includes(cur)));
+  return previousNoteLine(seg);
 }
 
 /**

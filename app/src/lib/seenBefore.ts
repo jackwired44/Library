@@ -16,6 +16,9 @@ export interface SeenIndex {
   byName: Map<string, Set<string>>;
   /** File -> the date it is filed under (YYYY-MM-DD), same as Files. */
   dates: Map<string, string>;
+  /** Email / name+company -> the stored lead, for its previous note. */
+  leadByEmail: Map<string, StoredLead>;
+  leadByName: Map<string, StoredLead>;
 }
 
 export interface SeenFile { file: string; date: string }
@@ -41,11 +44,15 @@ export function buildSeenIndex(leads: StoredLead[]): SeenIndex {
     if (!s) { s = new Set(); m.set(k, s); }
     for (const f of files) s.add(f);
   };
+  const leadByEmail = new Map<string, StoredLead>();
+  const leadByName = new Map<string, StoredLead>();
   for (const l of leads) {
     add(byEmail, emailKey(l.email), l.sourceFiles);
     add(byName, seenNameKey(l.contact, l.company), l.sourceFiles);
+    const ek = emailKey(l.email); if (ek && !leadByEmail.has(ek)) leadByEmail.set(ek, l);
+    const nk = seenNameKey(l.contact, l.company); if (nk && !leadByName.has(nk)) leadByName.set(nk, l);
   }
-  return { byEmail, byName, dates: fileDates(leads) };
+  return { byEmail, byName, dates: fileDates(leads), leadByEmail, leadByName };
 }
 
 /** Every file this person has come in on, oldest first, leaving out
@@ -71,4 +78,10 @@ export function seenLabel(files: SeenFile[]): string {
     if (!parts.includes(p)) parts.push(p);
   }
   return parts.join(", ");
+}
+
+/** The stored lead for this person (same email, else full name at the same
+ *  company), or undefined. */
+export function storedLeadFor(idx: SeenIndex, p: { email?: unknown; contact?: unknown; company?: unknown }): StoredLead | undefined {
+  return idx.leadByEmail.get(emailKey(p.email)) ?? idx.leadByName.get(seenNameKey(p.contact, p.company));
 }

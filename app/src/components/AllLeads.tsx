@@ -21,7 +21,7 @@ import LeadChat from "./LeadChat";
 import { factsForLead, ruleMatches, ruleParts, quarterOf, quarterLabel, productOf, describeRule, type RuleFacts, type SmartRule } from "../lib/smartRules";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  LEAD_SOURCE_META, newestNote, noteSegments, outcomeSummary,
+  LEAD_SOURCE_META, newestNote, noteSegments, previousNoteLine, outcomeSummary,
   type LeadSource, type StoredLead, HAND_GRADES, gradeOfTier, type HandGrade,
 } from "../lib/leadStore";
 import { SYNC_STALE_DAYS, syncAgeDays, leadsToSync } from "../lib/apolloSync";
@@ -2332,7 +2332,7 @@ export default function AllLeads({
                   </td>
                   <td data-col="notes" className="note-cell" title={l.notes} style={{ minWidth: 320, maxWidth: 620 }}>
                     <span className="clamp-5">{newestNote(l.notes) || "—"}</span>
-                    {d.segs > 1 && <div className="muted" style={{ fontSize: 11.5 }}>+{d.segs - 1} earlier note{d.segs > 2 ? "s" : ""}</div>}
+                    {d.segs > 1 && <div className="muted" data-prev-note style={{ fontSize: 11.5 }}>{previousNoteLine(noteSegments(l.notes)[1])}{d.segs > 2 ? ` · +${d.segs - 2} older` : ""}</div>}
                   </td>
                   <td data-col="stored" title={l.gradeOverride
                     ? `Moved by hand ${l.gradeOverride.at.slice(0, 10)}${l.gradeOverride.reason ? ` — ${l.gradeOverride.reason}` : ""}\nScanner's grade: ${gradeOfTier(l.gradeOverride.was)}`

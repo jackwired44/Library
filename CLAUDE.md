@@ -8625,3 +8625,40 @@ Microsoft 365 Business Premium and Microsoft Teams Phone Standard- 30.").
 - Note only: grade totals on Book11-8 + Book11-17 unchanged (899 / 2,669 /
   88). `NOTE_RULES_VERSION` = `2026-11-22-form-lines-scanned`.
 - snippet-truth 117 → 120, review-fixes 35 → 37.
+
+### 2026-11-22: the previous note travels with the lead (scanner-platform-v29)
+
+Per Jack: "I need to figure out the best way to stack notes for the same
+contact … the scanned note for that contact adds a very high level sentence
+about the previous data on the lead", then "state previous note on lead",
+because an Apollo import "either updates the note for the contact or leaves
+the orginal note" — so the history has to be IN the note text or it is lost
+either way.
+- **One line, at the end of the scanned note**: `Previous note (10/19,
+  Needs Review): Wants Microsoft 365 E3 for 40 users.` Read from the earlier
+  SCANNED note (never the raw note, which stays behind the PIN), its date
+  and its grade mark, cut to `PREV_NOTE_MAX` (130 chars) at a word.
+  `previousNoteLine` / `noteWithPrevious` / `previousNoteForScan`
+  (`lib/leadStore.ts`).
+- Where it shows: the Main Scanner's Notes cell (as a second line) for a
+  row whose person is already stored from an earlier file, that scanner's
+  three downloads and its Add to list, All leads' Notes cell, and every
+  stored-lead export (campaign lists, Apollo standing, Recycle, Reps). The
+  Scanner reads the stored lead through `storedLeadFor` (`lib/seenBefore.ts`,
+  new), the same email / full-name+company match the ↺ Seen tag uses.
+- **Bug fixed: a same-day no-signal line buried the real note.** The same
+  person twice in one upload, once with an ask and once with nothing,
+  stacked `▼ No Dynamics, M365, Azure or licensing signal.` ON TOP. On
+  Book11-8 + Book11-17, 105 leads carried 2+ notes and **79 of them
+  disagreed with themselves**. `combineNotes` now treats two lines from the
+  same day as one sitting: a no-signal line never joins a real one, and a
+  real note replaces a same-day no-signal line. `dropSameDayNoSignal` cleans
+  leads already stored that way, from `unscannedFix`. After: 105 → 24
+  multi-note leads, **0 mixed**.
+- Measured on a two-save run of those files: 59 of 1,015 rows on the second
+  file carry a Previous note line; 93 stored leads hold 2+ notes; longest
+  export note 463 chars.
+- Grades, counts and which leads download are unchanged — note text only.
+  `NOTE_RULES_VERSION` = `2026-11-22-previous-note`.
+- `review-fixes` 37 → 45; `all-leads`' "+1 earlier note" locator re-pointed
+  to the line that replaced it (same behaviour, stated explicitly).

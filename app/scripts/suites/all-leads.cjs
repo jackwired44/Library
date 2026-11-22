@@ -196,7 +196,9 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await search2.fill('MAIN ALPHA'); await sleep(700);
   const cell = await page.locator('.data-table tbody tr').first().innerText();
   ok('the row still shows ONE lead, not two', /\b1 of 5\b/.test(await allLeadsText()), (await allLeadsText()).slice(0, 160));
-  ok('  and flags that earlier notes are held behind it', /earlier/.test(cell), cell.replace(/\s+/g, ' ').slice(0, 300));
+  // 11/22, per Jack "state previous note on lead": the cell used to read
+  // "+1 earlier note"; it now states that note, which is strictly more.
+  ok('  and states the previous note behind it', /Previous note \(\d+\/\d+[^)]*\):/.test(cell), cell.replace(/\s+/g, ' ').slice(0, 300));
   // The full timeline lives in the cell's title attribute.
   const full = await page.locator('.data-table tbody tr td[data-col="notes"]').first().getAttribute('title');
   // The stored note is the scanner's rendered brief, not the raw comment,

@@ -15,14 +15,14 @@
 // rewritten. Custom and CSP leads get the Main-format note too, keeping
 // their own grade (see refreshMainNotes).
 import { scanParsedFiles, stripSnippetPrefix, noSignalNote, looksScanned, DEFAULT_RULE_OVERRIDES, type RuleOverrides } from "./detection";
-import { NOTE_SEP, NO_SIGNAL_TIER, noteSegments, keepHandGrade, gradeOfTier, type StoredLead } from "./leadStore";
+import { NOTE_SEP, NO_SIGNAL_TIER, noteSegments, dropSameDayNoSignal, keepHandGrade, gradeOfTier, type StoredLead } from "./leadStore";
 import { leadInputsFromResults } from "./leadFiling";
 import type { ResultRow } from "./detection";
 import { loadRawNotesMany, newestRaw, type RawNotes, type RawRowRecord } from "./rawNotes";
 import { scan2, emptyRuleSet, loadRuleSets, profileColumns, guessFieldMapping, type RuleSet2, type ScannerKind } from "./scanner2";
 
 /** Bump when the Main note rules change, so stored notes refresh once. */
-export const NOTE_RULES_VERSION = "2026-11-22-form-lines-scanned";
+export const NOTE_RULES_VERSION = "2026-11-22-previous-note";
 const VERSION_KEY = "mainNoteRulesVersion";
 
 /** The most recent CSV row kept for a lead. appendRow stores rows newest
@@ -241,7 +241,11 @@ export function isRawCopy(text: string, raw: RawNotes | undefined): boolean {
  * is left alone: there is nothing to prove its note is raw.
  */
 const NOTHING_QUALIFIED = "Nothing in the note qualified on this scanner.";
-export function unscannedFix(l: StoredLead, raw: RawNotes | undefined): StoredLead {
+export function unscannedFix(orig: StoredLead, raw: RawNotes | undefined): StoredLead {
+  // 11/22: a no-signal line stacked beside a real note from the same day is
+  // one sitting, not history (see combineNotes). Clean it first.
+  const cleaned = dropSameDayNoSignal(orig.notes || "");
+  const l = cleaned === (orig.notes || "") ? orig : { ...orig, notes: cleaned };
   const segs = noteSegments(l.notes);
   // A Main no-signal lead never had a scanned note before 10/29: any line
   // on it without a mark is the raw CSV note stored as-is. That holds even

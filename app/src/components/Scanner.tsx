@@ -59,7 +59,8 @@ import { applyCompetitorDQ, type CompanyProfile } from "../lib/companyProfiles";
 import { MAX_COMPANY_BATCH } from "../lib/apolloEnrich";
 import type { UploadedFile } from "../App";
 import type { StoredLead } from "../lib/leadStore";
-import { buildSeenIndex, seenFilesFor, seenLabel, type SeenFile } from "../lib/seenBefore";
+import { buildSeenIndex, seenFilesFor, seenLabel, storedLeadFor, type SeenFile } from "../lib/seenBefore";
+import { previousNoteForScan } from "../lib/leadStore";
 import { confirmAction } from "../lib/confirmBox";
 import { checkLeadsInApollo, APOLLO_LOOKUPS_PER_HOUR, type CheckProgress } from "../lib/apolloLive";
 import type { ApolloLeadState } from "../lib/leadStore";
@@ -786,6 +787,23 @@ export default function Scanner({
     return m;
   }, [results, seenIndex, uploadedFiles]);
   const seenIds = useMemo(() => new Set(seenRows.keys()), [seenRows]);
+  // Per Jack (11/22): "state previous note on lead". A row whose person is
+  // already stored from an earlier file carries one line stating that
+  // stored note, on screen and in every download / list it goes to.
+  const prevNotes = useMemo(() => {
+    const m = new Map<string, string>();
+    if (!results || !seenRows.size) return m;
+    for (const r of results) {
+      if (!seenRows.has(r.id)) continue;
+      const f = r.row.__f;
+      const lead = storedLeadFor(seenIndex, { email: f.email, contact: getFullName(f), company: f.company });
+      const line = lead ? previousNoteForScan(lead.notes || "", r.notesSummary || "") : "";
+      if (line) m.set(r.id, line);
+    }
+    return m;
+  }, [results, seenRows, seenIndex]);
+  const withPrevNote = (r: ResultRow): ResultRow =>
+    prevNotes.has(r.id) ? { ...r, notesSummary: `${r.notesSummary || ""} ${prevNotes.get(r.id)}`.trim() } : r;
   const [seenMode, setSeenMode] = useState<"all" | "only" | "hide">("all");
 
   const facets: Facets = {
@@ -1026,7 +1044,7 @@ export default function Scanner({
     if (!isNew && !listPickerValue) return;
     const rows = selected.size ? results.filter((r) => selected.has(r.id)) : filtered;
     if (!rows.length) return;
-    const result = onAddSelectedToList(rows, isNew ? { newName: newListName } : { existingId: listPickerValue });
+    const result = onAddSelectedToList(rows.map(withPrevNote), isNew ? { newName: newListName } : { existingId: listPickerValue });
     if (!result) return;
     const skipped = rows.length - result.added;
     setListNotice(`Added ${result.added} lead${result.added === 1 ? "" : "s"} to the list${skipped > 0 ? ` (${skipped} already there)` : ""}.`);
@@ -1048,7 +1066,7 @@ export default function Scanner({
    */
   function bucketRowsFor(bucketKey: BucketKey) {
     const scoped = results ? applyFacets(results, { ...facets, tier: "all", category: "all", seenMode: "all", excludeIds: hideInApollo ? apolloIds : undefined }) : [];
-    return exportRowsForBucket(scoped, bucketKey);
+    return exportRowsForBucket(scoped.map(withPrevNote), bucketKey);
   }
   function defaultBucketFileName(bucketKey: BucketKey) {
     return `wired-cio-${BUCKET_META[bucketKey].slug}-leads.csv`;
@@ -1965,6 +1983,9 @@ export default function Scanner({
                     </td>
                     <td style={{ padding: "10px 11px", color: "var(--muted)", fontSize: 12.5, minWidth: 320, maxWidth: 620 }}>
                       <span className="clamp-5" title={r.notesSummary}>{r.notesSummary}</span>
+                      {prevNotes.has(r.id) && (
+                        <div data-prev-note className="muted" style={{ fontSize: 12, marginTop: 4 }}>{prevNotes.get(r.id)}</div>
+                      )}
                     </td>
                     <td style={{ padding: "10px 11px" }}>
                       <button onClick={() => toggleTier(r.id)} style={{ border: "none", borderRadius: 20, padding: "4px 10px", fontWeight: 700, fontSize: 11.5, whiteSpace: "nowrap", color: tierColor, background: tierBg }}>{tierLabel}</button>

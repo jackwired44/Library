@@ -17,7 +17,7 @@ import { useMemo, useRef, useState } from "react";
 import { toCSV, downloadBlob } from "../lib/csv";
 import { stripSnippetPrefix, type ExportRow } from "../lib/detection";
 import type { LeadList } from "../lib/leadLists";
-import type { StoredLead } from "../lib/leadStore";
+import { noteWithPrevious, type StoredLead } from "../lib/leadStore";
 import { apolloHitFor, type RosterIndex } from "../lib/apolloRoster";
 import { engagementOf } from "../lib/engagements";
 import { DEFAULT_PULL_MONTHS, type PullProgress, type CheckProgress } from "../lib/apolloLive";
@@ -109,7 +109,7 @@ function exportRow(r: Row): Record<string, string> {
     "Apollo Reason": join((s) => s.reason || ""),
     "Checked On": (r.lead.apolloCheckedAt || "").slice(0, 10),
     "Matched By": r.how,
-    Notes: r.lead.notes,
+    Notes: noteWithPrevious(r.lead.notes || ""),
   };
 }
 
@@ -119,7 +119,7 @@ function listRowFor(r: Row): ExportRow {
   const [first, ...rest] = (r.lead.contact || "").trim().split(/\s+/);
   const live = [...r.seqs].sort(bySeqOrder)[0];
   const where = `Apollo: ${STATUS_META[r.status].short}${live ? ` (${live.name})` : ""}`;
-  const note = stripSnippetPrefix(r.lead.notes || "");
+  const note = stripSnippetPrefix(noteWithPrevious(r.lead.notes || ""));
   return {
     "First Name": first || "", "Last Name": rest.join(" "), Title: r.lead.title, "Company Name": r.lead.company,
     Email: r.lead.email, "Work Direct Phone": r.lead.phone, "Mobile Phone": r.lead.mobilePhone,

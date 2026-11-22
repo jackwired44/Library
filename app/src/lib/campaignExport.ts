@@ -19,7 +19,7 @@
 // file written here and a file exported from Apollo line up.
 import { toCSV, downloadBlob } from "./csv";
 import { employeeCountOf, normalizeCompanyKey, profileForCompany, type CompanyProfile } from "./companyProfiles";
-import { newestNote, type StoredLead } from "./leadStore";
+import { noteWithPrevious, type StoredLead } from "./leadStore";
 
 export const CAMPAIGN_COLUMNS = [
   "First Name", "Last Name", "Title", "Company", "Email",
@@ -76,7 +76,7 @@ export function campaignRow(
     // characters across several uploads, and an Apollo contact note that
     // long is unreadable in their UI — the whole history stays here, where
     // it is actually browsable.
-    "Notes": newestNote(lead.notes) || "",
+    "Notes": noteWithPrevious(lead.notes || "") || "",
   };
 }
 

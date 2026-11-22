@@ -11,7 +11,7 @@ import { useMemo, useState } from "react";
 import { toCSV, downloadBlob } from "../lib/csv";
 import { stripSnippetPrefix, type ExportRow } from "../lib/detection";
 import type { LeadList } from "../lib/leadLists";
-import type { StoredLead } from "../lib/leadStore";
+import { noteWithPrevious, type StoredLead } from "../lib/leadStore";
 import { VERDICT_META, VERDICT_ORDER, verdictOf, type Verdict } from "../lib/leadStatus";
 import { engagementOf } from "../lib/engagements";
 import { leadsDueForApollo } from "./ApolloSyncPanel";
@@ -44,14 +44,14 @@ function exportRow(l: StoredLead, r: RecycleInfo): Record<string, string> {
     "Previous Sequences": (l.apollo?.sequences || []).map((s) => s.name).join(" | "),
     "Recycle On": r.recycleOn,
     "Stored As": l.tier,
-    Notes: stripSnippetPrefix(l.notes || ""),
+    Notes: stripSnippetPrefix(noteWithPrevious(l.notes || "")),
   };
 }
 
 function listRow(l: StoredLead, r: RecycleInfo): ExportRow {
   const { first, last } = splitName(l.contact);
   const where = `Recycle: ${RECYCLE_META[r.stage].label}${r.unanswered ? `, ${r.unanswered} unanswered` : ""}`;
-  const note = stripSnippetPrefix(l.notes || "");
+  const note = stripSnippetPrefix(noteWithPrevious(l.notes || ""));
   return {
     "First Name": first, "Last Name": last, Title: l.title, "Company Name": l.company,
     Email: l.email, "Work Direct Phone": l.phone, "Mobile Phone": l.mobilePhone,

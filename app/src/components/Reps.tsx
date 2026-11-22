@@ -10,7 +10,7 @@
 // carry — statusOf, the Apollo calls, the recycle rules — so it agrees with
 // All leads and Home.
 import { useMemo, useState } from "react";
-import type { StoredLead } from "../lib/leadStore";
+import { noteWithPrevious, type StoredLead } from "../lib/leadStore";
 import type { RosterIndex } from "../lib/apolloRoster";
 import { STATUS_META, statusOf, wasReached, type LeadStatus } from "../lib/leadStatus";
 import { REPS, UNASSIGNED, ownersOfLead } from "../lib/reps";
@@ -209,7 +209,7 @@ export default function Reps({ leads, apolloIndex, recycleRules, roster = [], fu
         "Stored As": r.l.tier, "Where it stands": STATUS_META[r.status].label, "Active sequence": r.active.join(" | "), Sequences: r.seqs.join(" | "),
         Calls: a ? String(a.callCount) : "", Emails: a?.emailCount !== undefined ? String(a.emailCount) : "", "Last outcome": a?.lastOutcome || "",
         "Last call": (a?.lastCallAt || "").slice(0, 10), Recycle: rc.stage === "ready" ? "Ready" : rc.stage === "resting" ? `Resting until ${rc.recycleOn}` : "",
-        Notes: stripSnippetPrefix(r.l.notes || ""),
+        Notes: stripSnippetPrefix(noteWithPrevious(r.l.notes || "")),
       };
     });
     void downloadBlob(toCSV(data, cols), `${rep.toLowerCase()}-leads-${new Date().toISOString().slice(0, 10)}.csv`);
