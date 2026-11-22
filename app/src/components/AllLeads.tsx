@@ -524,6 +524,23 @@ export default function AllLeads({
   const setPeriodKey = (k: string) => { setPeriodKeys(k === "all" ? [] : [k]); setRangeFrom(""); setRangeTo(""); };
   const togglePeriod = (k: string) => { setRangeFrom(""); setRangeTo(""); setPeriodKeys((prev) => (prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k])); };
   const periodSet = useMemo(() => new Set(periodKeys), [periodKeys]);
+  // Per Jack: "i got 323 when scanning … 178 in all leads when searching nov
+  // 2026 … so theres a big difference". By default a lead sits in the month
+  // it was FIRST seen, so people already stored from an earlier file are not
+  // in this month's count. "Any file" counts a lead under every month one of
+  // its files is dated, so a month matches the files uploaded for it.
+  const [monthBy, setMonthByState] = useState<"first" | "any">(() => {
+    try { return localStorage.getItem("allLeadsMonthBy") === "any" ? "any" : "first"; } catch { return "first"; }
+  });
+  const setMonthBy = (v: "first" | "any") => {
+    setMonthByState(v);
+    try { localStorage.setItem("allLeadsMonthBy", v); } catch { /* preference only */ }
+  };
+  const fileMonthMap = useMemo(() => {
+    if (monthBy !== "any") return null;
+    const dm = fileDates(leads);
+    return new Map([...dm].map(([f, d]) => [f, fileMonthKey(f, d)] as [string, string]));
+  }, [leads, monthBy]);
   const setPeriodKind = (k: PeriodKind) => {
     setPeriodKindState(k); setPeriodKey("all");
     try { localStorage.setItem("allLeadsPeriodView", k); } catch { /* preference only */ }
@@ -785,6 +802,11 @@ export default function AllLeads({
   const toT = to ? Date.parse(`${to}T23:59:59.999`) : null;
 
   type Key = "where" | "seen" | "listed" | "rule" | "visited" | "partner" | "inApollo" | "verdict" | "company" | "contact" | "level" | "fn" | "month" | "dates" | "status" | "search" | "notes" | "standing" | "lane" | "ready" | "source" | "tier" | "line" | "dyn" | "industry" | "size" | "apollo" | "seq" | "owner" | "plan" | "planSeq" | "files" | "fileName" | "date";
+  const monthsOf = (l: StoredLead, d: Derived): string[] => {
+    if (!fileMonthMap) return [d.month];
+    const ms = [...new Set(l.sourceFiles.map((f) => fileMonthMap.get(f) || "").filter(Boolean))];
+    return ms.length ? ms : [d.month];
+  };
   const tests = useMemo(() => {
     const t: Record<Key, (l: StoredLead, d: Derived) => boolean> = {
       inApollo: (l, d) => inApolloF === "all"
@@ -801,7 +823,7 @@ export default function AllLeads({
       },
       status: (_l, d) => statusF === "all" || d.status === statusF,
       where: (_l, d) => whereF === "all" || d.where === whereF,
-      month: (_l, d) => !periodSet.size || periodSet.has(periodKeyOf(d.month, periodKind)),
+      month: (l, d) => !periodSet.size || monthsOf(l, d).some((m) => periodSet.has(periodKeyOf(m, periodKind))),
       rule: (l) => !ruleF || !ruleFacts || ruleMatches(ruleF, l, ruleFacts.get(l.key)!, undefined, rawIndex?.get(l.key) ?? ""),
       level: (_l, d) => levelF === "all" || d.level === levelF,
       contact: (_l, d) => contactF === "all" || d.contact === contactF
@@ -861,7 +883,8 @@ export default function AllLeads({
       },
     };
     return t;
-  }, [ruleF, ruleFacts, periodSet, periodKind, inApolloF, verdictF, companyF, companyStats, contactF, levelF, fnF, dateF, statusF, q, kq, nq, rawIndex, standingF, laneF, readyOnly, sourceF, tierF, lineF, dynF, industryF, sizeF, apolloF, seqF, ownerF, planF, planSeqF, filesF, fileSet, fromT, toT, partnerKeys, exclIndustries, hideActive, visitedOnly, listFEff, listedKeys, whereF, seenF, seenMap]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ruleF, ruleFacts, periodSet, periodKind, fileMonthMap, inApolloF, verdictF, companyF, companyStats, contactF, levelF, fnF, dateF, statusF, q, kq, nq, rawIndex, standingF, laneF, readyOnly, sourceF, tierF, lineF, dynF, industryF, sizeF, apolloF, seqF, ownerF, planF, planSeqF, filesF, fileSet, fromT, toT, partnerKeys, exclIndustries, hideActive, visitedOnly, listFEff, listedKeys, whereF, seenF, seenMap]);
 
   // Each lead's filters are evaluated ONCE per change, recording whether it
   // passes all of them ("") or fails exactly one (that key) or more (null).
@@ -949,9 +972,9 @@ export default function AllLeads({
 
   /** Every month a CSV is dated, newest first, counted against the other filters. */
   const periodOptions = useMemo(() => (periodKind === "all" ? [] :
-    [...facet("month", (_l, d) => periodKeyOf(d.month, periodKind)).entries()].sort((a, b) => b[0].localeCompare(a[0]))),
+    [...facet("month", (l, d) => [...new Set(monthsOf(l, d).map((m) => periodKeyOf(m, periodKind)))]).entries()].sort((a, b) => b[0].localeCompare(a[0]))),
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  [leads, derived, tests, periodKind]);
+  [leads, derived, tests, periodKind, fileMonthMap]);
   // Per Jack: "select all the files from last october to this may". A
   // From/To pair selects every period between them, oldest to newest.
   const rangeKeys = useMemo(() => periodOptions.map(([k]) => k).filter((k) => k && !k.startsWith("0000")).sort(), [periodOptions]);
@@ -1478,6 +1501,13 @@ export default function AllLeads({
               </button>
             ))}
           </div>
+          {periodKind !== "all" && (
+            <select className="field" aria-label="Count by" value={monthBy} onChange={(e) => setMonthBy(e.target.value as "first" | "any")}
+                    title={"First seen: each lead counts once, in the month it first came in.\nAny file: a lead counts in every month one of its CSVs is dated, so a month shows everyone in that month's files, repeats from earlier months included."}>
+              <option value="first">Count by: first seen</option>
+              <option value="any">Count by: any file it came in on</option>
+            </select>
+          )}
           {periodKind !== "all" && (
             <div role="group" aria-label="Periods" style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
               <button className={`chip-btn${!periodKeys.length ? " active" : ""}`} aria-pressed={!periodKeys.length} onClick={() => setPeriodKey("all")} style={{ whiteSpace: "nowrap" }}>

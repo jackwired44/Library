@@ -8532,3 +8532,15 @@ Per Jack: "slow to move from any tab to all leads fix this". Measured at
   actually refresh this in lists to check and confirm". Re-reads every
   stored lead on the list now, the 7-day skip ignored (read-only, ~400 an
   hour).
+
+### 2026-11-22: All leads "Count by" — first seen or any file (scanner-platform-v29)
+
+Per Jack: "i got 323 when scanning … 178 in all leads when searching nov
+2026 … so theres a big difference". A lead keeps the month it was FIRST
+seen (`receivedOn` keeps the earliest), so people already stored from an
+earlier file are not in a later month's count. A "Count by" dropdown next to
+the month strip (localStorage `allLeadsMonthBy`): **first seen** (default,
+unchanged) or **any file it came in on**, where a lead counts in every month
+one of its CSVs is dated (`fileDates` + `fileMonthKey`), so a month shows
+everyone in that month's files. Smart-list rules still use the first-seen
+month. Suite `month-count-by-live` (6).
