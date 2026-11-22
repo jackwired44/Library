@@ -30,6 +30,8 @@ const rowKey = (m: MemberResult) => `${m.sequenceId}:${m.contactId}`;
 const sortedFlags = (m: MemberResult) => [...m.flags].sort((a, b) => SEVERITY_RANK[FLAG_META[a.kind].severity] - SEVERITY_RANK[FLAG_META[b.kind].severity]);
 const fmtPhone = (d: string) => d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : d;
 
+const NEVER_CALLED = "Never called";
+
 export default function SequenceCleaner() {
   const [sequences, setSequences] = useState<ApolloSequence[] | null>(null);
   const [mailboxes, setMailboxes] = useState<Mailbox[]>([]);
@@ -45,6 +47,11 @@ export default function SequenceCleaner() {
   const [flagFilter, setFlagFilter] = useState<FlagKind | "">("");
   const [seqFilter, setSeqFilter] = useState("all");
   const [addedWithin, setAddedWithin] = useState(0);
+  // Per Jack, 11/22: "filter by dispotion and select the ones i want when
+  // scanning it to remove". Read from the lead's own calls (outcomeTally),
+  // on any call by default, or only the last one.
+  const [dispFilter, setDispFilter] = useState("");
+  const [dispOn, setDispOn] = useState<"any" | "last">("any");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<Pending | null>(null);
   const [notice, setNotice] = useState("");
@@ -89,12 +96,24 @@ export default function SequenceCleaner() {
   const freshCount = useMemo(() => members.filter((m) => freshGroupOf(m).group === "fresh").length, [members]);
   const slipped = useMemo(() => members.map((m) => ({ m, why: finishReasonOf(m) })).filter((x) => x.why) as { m: MemberResult; why: string }[], [members]);
 
-  const rows = useMemo(() => members.filter((m) => {
+  const dispOf = (m: MemberResult): string[] => m.history.calls === 0 ? [NEVER_CALLED]
+    : dispOn === "last" ? [m.history.lastOutcome || "No outcome logged"] : Object.keys(m.history.outcomeTally);
+  const baseRows = useMemo(() => members.filter((m) => {
     if (seqFilter !== "all" && m.sequenceId !== seqFilter) return false;
     if (addedWithin && (!m.addedAt || Date.now() - Date.parse(m.addedAt) > addedWithin * 86_400_000)) return false;
     if (flagFilter) return m.flags.some((f) => f.kind === flagFilter);
     return tab === "all" || m.flags.length > 0;
   }), [members, tab, flagFilter, seqFilter, addedWithin]);
+  // Each disposition with how many of the leads shown (before this filter) carry it.
+  const dispCounts = useMemo(() => {
+    const c = new Map<string, number>();
+    for (const m of baseRows) for (const k of dispOf(m)) c.set(k, (c.get(k) || 0) + 1);
+    return [...c.entries()].sort((a, b) => b[1] - a[1]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseRows, dispOn]);
+  const rows = useMemo(() => dispFilter ? baseRows.filter((m) => dispOf(m).includes(dispFilter)) : baseRows,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [baseRows, dispFilter, dispOn]);
 
   const selRows = members.filter((m) => selected.has(rowKey(m)));
 
@@ -261,6 +280,16 @@ export default function SequenceCleaner() {
                   <option value={1}>Added in the last day</option>
                   <option value={7}>Added in the last 7 days</option>
                   <option value={30}>Added in the last 30 days</option>
+                </select>
+                <select className="field" aria-label="Disposition filter" value={dispFilter} onChange={(e) => { setDispFilter(e.target.value); setSelected(new Set()); }}
+                        title="A disposition logged on this lead's own calls in Apollo">
+                  <option value="">Any disposition</option>
+                  {dispCounts.map(([k, n]) => <option key={k} value={k}>{k} ({n})</option>)}
+                  {dispFilter && !dispCounts.some(([k]) => k === dispFilter) && <option value={dispFilter}>{dispFilter} (0)</option>}
+                </select>
+                <select className="field" aria-label="Disposition on" value={dispOn} onChange={(e) => { setDispOn(e.target.value as "any" | "last"); setSelected(new Set()); }}>
+                  <option value="any">on any call</option>
+                  <option value="last">on the last call</option>
                 </select>
                 <span className="panel-sub" style={{ marginLeft: "auto" }}>{rows.length} shown</span>
               </div>

@@ -8562,3 +8562,16 @@ in All leads for Nov 2026, "of which 80 i moved from dynamics needs review".
   strip (`aria-label="Month split"`) says how many came in on that period's
   files and how many were first seen earlier, with "Include them" when on
   first seen. `month-count-by-live` 6 → 10.
+
+### 2026-11-22: Sequence Scanner — filter active leads by disposition (scanner-platform-v29)
+
+Per Jack: "filter by dispotion and select the ones i want when scanning it
+to remove". The Active and Flagged tabs gained a **Disposition filter**
+(`select[aria-label="Disposition filter"]`, SequenceCleaner.tsx): every call
+outcome found on the shown leads' own calls (`history.outcomeTally`) with a
+count, plus "Never called", matched **on any call** (default) or **on the
+last call**. Then "Select all shown" → "Remove from sequence" (same confirm,
+same remove write as before). Changing the filter clears the ticks, so
+Remove never hits a lead that is not on screen. Apollo tasks are not read;
+"contacted" comes from call outcomes, replies and stage, as before.
+`sequence-cleaner` 61 → 65.

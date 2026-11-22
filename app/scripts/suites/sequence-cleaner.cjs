@@ -146,6 +146,22 @@ const MOCK = () => {
   ok('clean lead hidden from Flagged view', !txt.includes('Clean Carl'));
   ok('gap about Echo/HubSpot stated', (await page.locator('text=Echo and HubSpot').count()) > 0);
 
+  // 11/22: filter the active leads by disposition, tick them, remove.
+  await page.locator('[role=tab]', { hasText: /^Active/ }).click(); await sleep(300);
+  const dispOpts = await page.locator('select[aria-label="Disposition filter"] option').allInnerTexts();
+  ok('disposition filter lists outcomes with counts', dispOpts.some((t) => /^Meeting Booked \(\d+\)$/.test(t)) && dispOpts.some((t) => /^Never called \(\d+\)$/.test(t)), dispOpts.join(' | '));
+  await page.selectOption('select[aria-label="Disposition filter"]', 'Meeting Booked'); await sleep(250);
+  const shownNames = await page.locator('.table-card table.data-table tbody tr strong').allInnerTexts();
+  ok('filter shows only leads with that disposition', shownNames.length >= 1 && shownNames.includes('Booked Bea') && !shownNames.includes('Clean Carl'), shownNames.join(', '));
+  await page.locator('input[aria-label="Select all shown"]').check(); await sleep(150);
+  await page.locator('.bulkbar button', { hasText: 'Remove from sequence' }).click(); await sleep(200);
+  const bdlg = await page.locator('[role=dialog]').innerText();
+  ok('bulk remove names only the filtered leads, nothing written yet', bdlg.includes('Booked Bea') && !bdlg.includes('Clean Carl') && (await page.evaluate(() => window.__writes.length)) === 0, bdlg.slice(0, 200));
+  await page.locator('[role=dialog] button', { hasText: 'Cancel' }).click(); await sleep(150);
+  await page.selectOption('select[aria-label="Disposition filter"]', ''); await sleep(200);
+  ok('changing the filter clears the ticks', (await page.locator('.bulkbar strong').innerText()).includes('Tick leads'));
+  await page.locator('[role=tab]', { hasText: 'Flagged' }).click(); await sleep(300);
+
   // One-click remove from a row, behind a confirm.
   await row('Booked Bea').locator('button', { hasText: 'Remove' }).click(); await sleep(200);
   ok('remove asks first', await page.locator('[role=dialog]').count() === 1 && (await page.evaluate(() => window.__writes.length)) === 0);
