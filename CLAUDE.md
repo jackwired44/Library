@@ -8575,3 +8575,17 @@ same remove write as before). Changing the filter clears the ticks, so
 Remove never hits a lead that is not on screen. Apollo tasks are not read;
 "contacted" comes from call outcomes, replies and stage, as before.
 `sequence-cleaner` 61 → 65.
+- **Finish instead of remove** (same day), per Jack: "click a button review
+  what i would want removed from the selected sequence(s) and then remove
+  them or just finish their active task and skip all the other steps".
+  Fresh check (first tab after a run, the review list) now offers **Finish
+  all N (skip remaining steps)** beside Remove all, **Finish N ticked**
+  beside Remove N ticked, a per-group Finish all, and a "Tick all shown"
+  box. The Active / Flagged bulk bar gained **Finish (skip remaining
+  steps)**. Finish is the existing `finishInSequence` (Apollo stop mode,
+  already approved): the lead ends in that sequence, the current and every
+  later step are skipped, and it stays in the sequence's history as
+  finished; Apollo stores the reason (the call outcome, else the Fresh
+  check group, else "Finished from Sequence Scanner"). Same confirm that
+  names everyone first. Apollo tasks themselves are not completed one by
+  one (`tasks_complete` is not in the grant). `sequence-cleaner` 65 → 69.

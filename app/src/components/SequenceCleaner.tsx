@@ -23,7 +23,7 @@ const FLAG_ORDER: FlagKind[] = ["meeting", "reached", "deep-call", "stage", "rep
 type Tab = "fresh" | "flagged" | "duplicates" | "companies" | "all" | "finished";
 type Pending =
   | { kind: "remove"; rows: MemberResult[]; title: string }
-  | { kind: "finish"; rows: MemberResult[] }
+  | { kind: "finish"; rows: MemberResult[]; why?: Map<string, string> }
   | { kind: "merge"; group: DupGroup; keepId: string; dropIds: string[]; note: string | null };
 
 const rowKey = (m: MemberResult) => `${m.sequenceId}:${m.contactId}`;
@@ -130,7 +130,7 @@ export default function SequenceCleaner() {
         const done = new Set<string>(); const msgs: string[] = [];
         const groups = new Map<string, MemberResult[]>();
         for (const m of pending.rows) {
-          const k = `${m.sequenceId}|${finishReasonOf(m) || "Finished from Sequence Scanner"}`;
+          const k = `${m.sequenceId}|${finishReasonOf(m) || pending.why?.get(rowKey(m)) || "Finished from Sequence Scanner"}`;
           (groups.get(k) || groups.set(k, []).get(k)!).push(m);
         }
         for (const [k, ms] of groups) {
@@ -296,6 +296,9 @@ export default function SequenceCleaner() {
 
               <div className="bulkbar" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
                 <strong>{selected.size ? `${selected.size} selected` : "Tick leads to act on several"}</strong>
+                <button className="btn btn-secondary btn-sm" disabled={busy || !selected.size} data-finish-selected
+                  title="Stops each one in its sequence: the current step and every step after it are skipped."
+                  onClick={() => setPending({ kind: "finish", rows: selRows, why: new Map(selRows.map((m) => [rowKey(m), m.history.lastOutcome || "Finished from Sequence Scanner"])) })}>Finish (skip remaining steps)</button>
                 <button className="btn btn-danger btn-sm" disabled={busy || !selected.size} onClick={() => setPending({ kind: "remove", rows: selRows, title: `Remove ${selRows.length} lead${selRows.length === 1 ? "" : "s"} from their sequence` })}>Remove from sequence</button>
                 <button className="btn btn-secondary btn-sm" onClick={exportSelected}>⬇ Export {selected.size ? "selected" : "shown"} (CSV)</button>
               </div>
@@ -456,7 +459,8 @@ export default function SequenceCleaner() {
           )}
 
           {tab === "fresh" && <FreshCheck members={members} seqName={seqName} busy={busy}
-            onRemove={(rows, title) => setPending({ kind: "remove", rows, title })} />}
+            onRemove={(rows, title) => setPending({ kind: "remove", rows, title })}
+            onFinish={(rows, why) => setPending({ kind: "finish", rows, why })} />}
           {tab === "finished" && <FinishedView rows={audit.finished} seqName={seqName} />}
 
           {tab === "companies" && (
@@ -505,7 +509,7 @@ export default function SequenceCleaner() {
                 <div className="panel-title" style={{ marginBottom: 8 }}>Finish {pending.rows.length} in their sequences</div>
                 <p>Each one stops in its sequence in Apollo, so no more steps or emails go out. Apollo keeps the reason (the call outcome) on the record. They stay in Apollo.</p>
                 <ul style={{ maxHeight: 260, overflowY: "auto" }}>
-                  {pending.rows.map((m) => <li key={rowKey(m)}><strong>{m.name}</strong> ({m.company}) · {seqName.get(m.sequenceId)} · {finishReasonOf(m)}</li>)}
+                  {pending.rows.map((m) => <li key={rowKey(m)}><strong>{m.name}</strong> ({m.company}) · {seqName.get(m.sequenceId)} · {finishReasonOf(m) || pending.why?.get(rowKey(m)) || "Finished from Sequence Scanner"}</li>)}
                 </ul>
               </>
             ) : pending.kind === "remove" ? (
@@ -839,9 +843,13 @@ function FinishedView({ rows, seqName }: { rows: AuditResult["finished"]; seqNam
 
 // Per Jack: "scan a sequence see if leads like that not interested or have
 // clear next steps or spoken with are made aware to be removed".
-function FreshCheck({ members, seqName, busy, onRemove }: {
+function FreshCheck({ members, seqName, busy, onRemove, onFinish }: {
   members: MemberResult[]; seqName: Map<string, string>; busy: boolean;
   onRemove: (rows: MemberResult[], title: string) => void;
+  // Per Jack, 11/22: "remove them or just finish their active task and skip
+  // all the other steps". Finish = Apollo's stop mode: the lead stays in the
+  // sequence's history as finished and no further step runs.
+  onFinish: (rows: MemberResult[], why: Map<string, string>) => void;
 }) {
   const graded = useMemo(() => members.map((m) => ({ m, ...freshGroupOf(m, (id) => seqName.get(id) || "") })), [members, seqName]);
   const [group, setGroup] = useState<FreshGroup | "">("");
@@ -854,6 +862,9 @@ function FreshCheck({ members, seqName, busy, onRemove }: {
   const tickedRows = shown.filter((x) => ticked.has(rowKey(x.m))).map((x) => x.m);
   const removable = shown.filter((x) => FRESH_GROUP_META[x.group].remove).map((x) => x.m);
   const flip = (k: string) => setTicked((t) => { const n = new Set(t); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+  const whyMap = new Map(graded.map((x) => [rowKey(x.m), FRESH_GROUP_META[x.group].label]));
+  const finish = (rows: MemberResult[]) => onFinish(rows, whyMap);
+  const allShownTicked = shown.length > 0 && shown.every((x) => ticked.has(rowKey(x.m)));
 
   return (
     <div data-fresh-check>
@@ -863,10 +874,15 @@ function FreshCheck({ members, seqName, busy, onRemove }: {
         </strong>
         <span className="panel-sub">{count("fresh")} fresh · {count("prior")} been through a sequence before (kept)</span>
         {toRemove.length > 0 && (
-          <button className="btn btn-danger btn-sm" style={{ marginLeft: "auto" }} disabled={busy} data-remove-all
-            onClick={() => onRemove(toRemove.map((x) => x.m), `${toRemove.length} that had a meeting, said not interested, or were spoken with`)}>
-            Remove all {toRemove.length}
-          </button>
+          <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+            <button className="btn btn-secondary btn-sm" disabled={busy} data-finish-all
+              title="Stops each one in its sequence: the current step and every step after it are skipped. They stay in the sequence's history as finished."
+              onClick={() => finish(toRemove.map((x) => x.m))}>Finish all {toRemove.length} (skip remaining steps)</button>
+            <button className="btn btn-danger btn-sm" disabled={busy} data-remove-all
+              onClick={() => onRemove(toRemove.map((x) => x.m), `${toRemove.length} that had a meeting, said not interested, or were spoken with`)}>
+              Remove all {toRemove.length}
+            </button>
+          </span>
         )}
       </div>
 
@@ -884,18 +900,25 @@ function FreshCheck({ members, seqName, busy, onRemove }: {
       <div className="control-strip" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
         <span className="panel-sub">{group ? FRESH_GROUP_META[group].hint : "Showing everyone who should come out. Click a tile to see one group."}</span>
         {tickedRows.length > 0 && (
-          <button className="btn btn-danger btn-sm" style={{ marginLeft: "auto" }} disabled={busy}
-            onClick={() => onRemove(tickedRows, `${tickedRows.length} ticked`)}>Remove {tickedRows.length} ticked</button>
+          <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+            <button className="btn btn-secondary btn-sm" disabled={busy} data-finish-ticked onClick={() => finish(tickedRows)}>Finish {tickedRows.length} ticked</button>
+            <button className="btn btn-danger btn-sm" disabled={busy}
+              onClick={() => onRemove(tickedRows, `${tickedRows.length} ticked`)}>Remove {tickedRows.length} ticked</button>
+          </span>
         )}
         {!tickedRows.length && group && FRESH_GROUP_META[group].remove && removable.length > 0 && (
-          <button className="btn btn-danger btn-sm" style={{ marginLeft: "auto" }} disabled={busy}
-            onClick={() => onRemove(removable, `${removable.length} · ${FRESH_GROUP_META[group].label}`)}>Remove all {removable.length}</button>
+          <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+            <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => finish(removable)}>Finish all {removable.length}</button>
+            <button className="btn btn-danger btn-sm" disabled={busy}
+              onClick={() => onRemove(removable, `${removable.length} · ${FRESH_GROUP_META[group].label}`)}>Remove all {removable.length}</button>
+          </span>
         )}
       </div>
 
       <div className="table-card">
         <table className="data-table">
-          <thead><tr><th style={{ width: 28 }}></th><th>Lead</th><th>Sequence</th><th>Group</th><th>Why</th></tr></thead>
+          <thead><tr><th style={{ width: 28 }}><input type="checkbox" aria-label="Tick all shown" checked={allShownTicked}
+            onChange={() => setTicked(allShownTicked ? new Set() : new Set(shown.map((x) => rowKey(x.m))))} /></th><th>Lead</th><th>Sequence</th><th>Group</th><th>Why</th></tr></thead>
           <tbody>
             {shown.length === 0 && <tr><td colSpan={5} className="cell-empty">{group ? "Nobody in this group." : "Nobody needs to come out."}</td></tr>}
             {shown.slice(0, 300).map(({ m, group: g, why }) => (

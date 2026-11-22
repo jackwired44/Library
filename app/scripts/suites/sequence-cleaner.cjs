@@ -127,6 +127,16 @@ const MOCK = () => {
   const fdlg = await page.locator('[role=dialog]').innerText();
   ok('remove all asks first and names them, nothing written', fdlg.includes('Logged Lou') && fdlg.includes('Unsub Uma') && (await page.evaluate(() => window.__writes.length)) === w0, fdlg.slice(0, 200));
   await page.locator('[role=dialog] button', { hasText: 'Cancel' }).click(); await sleep(150);
+  // 11/22: finish instead of remove (skip remaining steps), for all or ticked.
+  ok('finish all sits beside remove all', (await fresh.locator('[data-finish-all]').innerText()).includes('skip remaining steps'));
+  await fr('Unsub Uma').locator('input[type=checkbox]').check(); await sleep(100);
+  await fresh.locator('[data-finish-ticked]').click(); await sleep(200);
+  const finDlg = await page.locator('[role=dialog]').innerText();
+  ok('finish ticked asks first, names only the ticked lead with its reason, nothing written', finDlg.includes('Unsub Uma') && finDlg.includes('Not interested') && !finDlg.includes('Logged Lou') && finDlg.includes('no more steps') && (await page.evaluate(() => window.__writes.length)) === w0, finDlg.slice(0, 220));
+  await page.locator('[role=dialog] button', { hasText: 'Cancel' }).click(); await sleep(150);
+  await fresh.locator('input[aria-label="Tick all shown"]').check(); await sleep(100);
+  ok('tick all shown ticks every lead listed', (await fresh.locator('[data-finish-ticked]').innerText()).includes(String(await fresh.locator('tbody tr[data-fresh-row]').count())));
+  await fresh.locator('input[aria-label="Tick all shown"]').uncheck(); await sleep(100);
   await page.locator('[role=tab]', { hasText: 'Flagged' }).click(); await sleep(300);
   const txt = await page.locator('.table-card table.data-table').innerText();
   const row = name => page.locator('.table-card table.data-table tbody tr').filter({ has: page.locator('strong', { hasText: new RegExp('^' + name + '$') }) });
@@ -154,6 +164,7 @@ const MOCK = () => {
   const shownNames = await page.locator('.table-card table.data-table tbody tr strong').allInnerTexts();
   ok('filter shows only leads with that disposition', shownNames.length >= 1 && shownNames.includes('Booked Bea') && !shownNames.includes('Clean Carl'), shownNames.join(', '));
   await page.locator('input[aria-label="Select all shown"]').check(); await sleep(150);
+  ok('finish sits beside remove in the bulk bar', await page.locator('.bulkbar [data-finish-selected]').isEnabled());
   await page.locator('.bulkbar button', { hasText: 'Remove from sequence' }).click(); await sleep(200);
   const bdlg = await page.locator('[role=dialog]').innerText();
   ok('bulk remove names only the filtered leads, nothing written yet', bdlg.includes('Booked Bea') && !bdlg.includes('Clean Carl') && (await page.evaluate(() => window.__writes.length)) === 0, bdlg.slice(0, 200));
