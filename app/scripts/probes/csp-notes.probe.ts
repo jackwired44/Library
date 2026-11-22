@@ -205,7 +205,8 @@ ok("a held row names the partner they go through", /via partner: CDW/.test(noteO
 const MSD = mk("GD - 3/Sep - Reviewing M365 E5.", {
   msp_licensingprogramname: "CSP | Annual New Upfront Billing", estimatedvalue: "90000", msp_partneraccountidname: "Microsoft",
 });
-ok("a Microsoft-direct row says so in words", /direct with Microsoft/.test(noteOf(MSD)), noteOf(MSD));
+// 11/22 per Jack: never "direct with Microsoft"; a direct row reads as no partner.
+ok("a Microsoft-direct row reads as no partner", /no partner yet/.test(noteOf(MSD)) && !/direct with Microsoft/i.test(noteOf(MSD)), noteOf(MSD));
 
 console.log("\n== the flow defects that prompted the rewrite ==");
 // 279 real rows read "Open lane \u00b7 SHI on record" — two clauses stating the

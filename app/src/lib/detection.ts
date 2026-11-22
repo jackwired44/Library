@@ -3231,7 +3231,9 @@ function directionClause(productArea: string, company: string, email: string, ru
   // says nothing about the lead, so the clause is omitted entirely.
   const kind = classifyProductArea(pa).kind;
   if (kind === "segment" || kind === "none") return "";
-  if (kind === "microsoft") return "Goes direct with Microsoft.";
+  // Per Jack, 11/22: "no more saying direct with microsoft in the scanned
+  // notes". A Microsoft-direct Product Area adds no clause.
+  if (kind === "microsoft") return "";
   if (kind === "product") {
     // Naming the direction when it is already what we just said they run
     // is noise, not information.
@@ -3456,9 +3458,8 @@ export function partnerStanceOf(fullText: string): PartnerStance {
 /** One short sentence, or "". */
 function partnerStanceLine(st: PartnerStance): string {
   if (st.wantsDirect) return "Wants to buy direct from Microsoft.";
-  if (st.buysDirect && st.wantsPartner) return "Direct with Microsoft today, wants to work with a partner.";
+  // Per Jack, 11/22: never "direct with Microsoft" in a note.
   if (st.wantsPartner) return "Wants to work with a partner.";
-  if (st.buysDirect) return "Direct with Microsoft, no partner.";
   return "";
 }
 
@@ -3552,7 +3553,8 @@ function buildDynamicsBrief(
   const st = partnerStanceOf(fullText);
   if (st.wantsDirect) parts.push("Wants to buy direct from Microsoft.");
   else {
-    if (pa.kind === "microsoft" || st.buysDirect) parts.push("Direct with Microsoft.");
+    // Per Jack, 11/22: no "Direct with Microsoft" clause.
+    if (pa.kind === "microsoft" || st.buysDirect) { /* said nothing */ }
     else if (pa.kind === "partner" && !isOwnCompany(pa.label, company, email)) parts.push(`Partner: ${firstWords(pa.label, 3)}.`);
     if (st.wantsPartner) parts.push("Wants a partner.");
   }
@@ -4115,11 +4117,11 @@ export function buildCallBrief(
   // Partner or direct, from the notes. Skipped when the Product Area
   // already said "Goes direct with Microsoft", so it is never said twice.
   const st = partnerStanceOf(fullText);
-  const columnDirect = /^Goes direct with Microsoft/.test(direction);
+  const columnDirect = classifyProductArea(productArea).kind === "microsoft";
   const stanceRaw = partnerStanceLine(columnDirect && st.wantsPartner ? { ...st, buysDirect: true } : st);
   // Never said twice: the Product Area already said direct, or the opening
   // line already says they need a partner (checked once the lead is known).
-  const stanceBase = columnDirect && /^Direct with Microsoft/.test(stanceRaw) && !st.wantsPartner ? "" : stanceRaw;
+  const stanceBase = stanceRaw;
   // A row can qualify on a platform gate alone — an Azure migration, a
   // Google→Microsoft move — naming no SKU and carrying no usable Product
   // Area. 19 of 742 real Strong Signal rows land here. Rather than open on
@@ -4152,7 +4154,7 @@ export function buildCallBrief(
   const stance = /\b(?:partner|msp|csp|reseller|consultant|integrator|managed\s+service)/i.test(lead) && /^Wants to work with a partner\.$/.test(stanceBase) ? "" : stanceBase;
   // "Direct with Microsoft today, wants to work with a partner." already
   // says what the Product Area's "Goes direct with Microsoft." would.
-  const dirShown = columnDirect && /^Direct with Microsoft today/.test(stance) ? "" : direction;
+  const dirShown = direction;
   // Document Intelligence leads the note: it is the thing they want, and
   // the row's own sentence (what the documents are) follows it.
   const stated = [

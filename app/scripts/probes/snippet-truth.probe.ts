@@ -387,13 +387,14 @@ ok("a Microsoft product in Product Area adds no pitching clause, still steers th
    !!DIR[0] && !/already pitching/.test(DIR[0].notesSummary) && /Ask how Azure is managed today/.test(DIR[0].notesSummary),
    DIR[0] ? DIR[0].notesSummary : "(no row)");
 ok("Microsoft itself reads as going direct",
-   !!DIR[1] && /Goes direct with Microsoft\./.test(DIR[1].notesSummary),
+   // 11/22 per Jack: "no more saying direct with microsoft" — the clause is dropped.
+   !!DIR[1] && !/direct with Microsoft/i.test(DIR[1].notesSummary) && !/Partner on record/.test(DIR[1].notesSummary),
    DIR[1] ? DIR[1].notesSummary : "(no row)");
 ok("a reseller name reads as a partner on the record",
    !!DIR[2] && /Partner on record: Sentinel Technologies\./.test(DIR[2].notesSummary),
    DIR[2] ? DIR[2].notesSummary : "(no row)");
 ok("  “Microsoft direct” is never reported as a partner",
-   !!DIR[3] && !/Partner on record/.test(DIR[3].notesSummary) && /Goes direct/.test(DIR[3].notesSummary),
+   !!DIR[3] && !/Partner on record/.test(DIR[3].notesSummary) && !/direct with Microsoft/i.test(DIR[3].notesSummary),
    DIR[3] ? DIR[3].notesSummary : "(no row)");
 ok("  a bare account number says nothing and is dropped",
    !!DIR[4] && !/Partner on record|pitching them/.test(DIR[4].notesSummary),
@@ -566,7 +567,8 @@ ok("a row with no SKU and no Product Area still states what matched",
 {
   const [d] = scan(["Customer has 40 Microsoft 365 E3 licenses purchased directly with Microsoft and wants to add Copilot for 40 users."]);
   const ds = d ? stripSnippetPrefix(d.notesSummary) : "(no row)";
-  ok("a direct buyer says so", /Direct with Microsoft, no partner\./.test(ds), ds);
+  // 11/22 per Jack: a direct buyer is no longer called out as "direct with Microsoft".
+  ok("a direct buyer is not called \"direct with Microsoft\"", !/direct with Microsoft/i.test(ds) && /Copilot/.test(ds), ds);
   const [w] = scan(["Planning to migrate our on-prem servers to Azure next quarter and would like to work with a partner."]);
   const ws = w ? stripSnippetPrefix(w.notesSummary) : "(no row)";
   ok("a partner ask says so", /Wants to work with a partner\./.test(ws), ws);

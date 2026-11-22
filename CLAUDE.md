@@ -8589,3 +8589,19 @@ Remove never hits a lead that is not on screen. Apollo tasks are not read;
   check group, else "Finished from Sequence Scanner"). Same confirm that
   names everyone first. Apollo tasks themselves are not completed one by
   one (`tasks_complete` is not in the grant). `sequence-cleaner` 65 → 69.
+
+### 2026-11-22: no "direct with Microsoft" in scanned notes (scanner-platform-v29)
+
+Per Jack: "no more saying direct with microsoft in the scanned notes".
+- Main: a Microsoft-direct Product Area adds no clause (`directionClause`);
+  `partnerStanceLine` says "Wants to work with a partner." when they ask for
+  one and nothing for a direct buyer ("Direct with Microsoft today, wants
+  …" and "Direct with Microsoft, no partner." are gone). Dynamics briefs
+  drop "Direct with Microsoft." "Wants to buy direct from Microsoft." (they
+  ask to buy direct) is unchanged.
+- CSP: a Microsoft-direct lane reads "No partner on record." (and "no
+  partner yet" in the old one-line note), which is what it means.
+- `NOTE_RULES_VERSION` = `2026-11-22-no-direct-with-microsoft`, so stored
+  notes with a saved CSV row rewrite on next open.
+- Re-pointed to this rule (dated notes): snippet-truth (3), csp-notes (1),
+  csp (1), csp-renewal-live (1), docs (1), dynamics-brief (1).

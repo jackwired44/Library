@@ -83,7 +83,8 @@ console.log("\n=== the Dynamics line: facts only ===");
 }
 {
   const r = scan("Looking at Dynamics 365.", "Acme Freight", "Microsoft Corporation");
-  ok("Microsoft in the partner slot reads as direct", /Direct with Microsoft/.test(r.notesSummary), r.notesSummary);
+  // 11/22 per Jack: never "direct with Microsoft" in a note; Microsoft is still never named as the partner.
+  ok("Microsoft in the partner slot is not named as partner, and not said as direct", !/direct with Microsoft/i.test(r.notesSummary) && !/Partner: Microsoft/.test(r.notesSummary), r.notesSummary);
 }
 {
   // The Product Area sometimes repeats the customer's own name.

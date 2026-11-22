@@ -1328,8 +1328,9 @@ export function cspMainBody(lead: CspLead, rules: CspRules = DEFAULT_CSP_RULES):
   const pain = lead.partnerPain ? ` (${lead.partnerPain})` : "";
   const named = lead.partnerConflict ? `; ${firstWord(lead.partnerConflict)} named in notes` : "";
   out.push(lead.posture === "named" && namedPartner ? `Partner on record: ${namedPartner}${pain}.`
-    : lead.posture === "microsoft" ? `Direct with Microsoft, no partner${named}${pain}.`
-      : `No partner on record${named}${pain}.`);
+    // Per Jack, 11/22: never "direct with Microsoft" in a note; it means
+    // nobody is on the record, which is what this says.
+    : `No partner on record${named}${pain}.`);
 
   const billing = BILLING_META.find((b) => b.rank === lead.billingRank)?.note ?? "";
   if (billing) out.push(`Billing: ${billing}.`);
@@ -1387,8 +1388,7 @@ export function cspNote(lead: CspLead, score: number, flags: string[] = [], pin 
     .test(firstWord(lead.partner).trim()) ? "" : firstWord(lead.partner);
   const lane = lead.posture === "named" && namedPartner
     ? `via partner: ${namedPartner}${pain}`
-    : lead.posture === "microsoft" ? `direct with Microsoft${conflict}${pain}`
-      : `no partner yet${conflict}${pain}`;
+    : `no partner yet${conflict}${pain}`;
   // Renewals are the whole play on this list, so this LEADS the line when
   // there is one and is never shed — a renewal in August IS the reason to
   // dial. ONE grammar, with the verb carrying the tense: four shapes

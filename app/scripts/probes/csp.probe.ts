@@ -283,7 +283,8 @@ ok("  and is Low priority after the penalty (monthly, no phone, no-show now)", g
 
 const np = rows.find(({ e }) => /NOTES PHONE/.test(e["Company Name"]));
 ok("a phone labelled in the notes fills an empty phone column", np?.e["Work Direct Phone"] === "+1 786 953 5229", np?.e["Work Direct Phone"]);
-ok("  Microsoft direct is named in its Notes", /Direct with Microsoft/.test(np?.e.Notes ?? ""), np?.e.Notes);
+// 11/22 per Jack: never "direct with Microsoft"; Microsoft-direct reads as no partner on record.
+ok("  Microsoft direct reads as no partner on record", /No partner on record/.test(np?.e.Notes ?? "") && !/direct with Microsoft/i.test(np?.e.Notes ?? ""), np?.e.Notes);
 
 {
   // A subset file saved out of Excel that LOST the company column — this is
