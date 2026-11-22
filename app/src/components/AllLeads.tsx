@@ -18,7 +18,7 @@
 import CopyName from "./CopyName";
 import RateLimitNote from "./RateLimitNote";
 import LeadChat from "./LeadChat";
-import { factsForLead, ruleMatches, ruleParts, quarterOf, quarterLabel, type RuleFacts, type SmartRule } from "../lib/smartRules";
+import { factsForLead, ruleMatches, ruleParts, quarterOf, quarterLabel, productOf, describeRule, type RuleFacts, type SmartRule } from "../lib/smartRules";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   LEAD_SOURCE_META, newestNote, noteSegments, outcomeSummary,
@@ -217,13 +217,14 @@ const DATE_LABEL: Record<Derived["dateKind"], string> = {
 
 /** A lead's arrival month as a month or quarter key. Pre-May sheets stay
  *  "before May 2026" in either view; an estimated month joins its quarter. */
-function periodKeyOf(month: string, kind: "month" | "quarter" | "all"): string {
+type PeriodKind = "month" | "quarter" | "year" | "all";
+function periodKeyOf(month: string, kind: PeriodKind): string {
   const m = viewMonthKey(month);
-  if (kind !== "quarter" || !m || m.startsWith("0000")) return m;
-  return quarterOf(m);
+  if (!m || m.startsWith("0000") || kind === "month" || kind === "all") return m;
+  return kind === "quarter" ? quarterOf(m) : m.slice(0, 4);
 }
-const periodLabel = (key: string, kind: "month" | "quarter" | "all") =>
-  !key ? "Undated" : kind === "quarter" && /^\d{4}-Q[1-4]$/.test(key) ? quarterLabel(key) : shortMonthLabel(key);
+const periodLabel = (key: string, kind: PeriodKind) =>
+  !key ? "Undated" : kind === "quarter" && /^\d{4}-Q[1-4]$/.test(key) ? quarterLabel(key) : kind === "year" && /^\d{4}$/.test(key) ? key : shortMonthLabel(key);
 
 /** A tier-filter value meaning "the top verdict on any scanner": High
  *  priority (Main, CSP) or Strong Signal (Custom, older Main rows). */
@@ -366,7 +367,7 @@ export default function AllLeads({
   noteRefresh?: { done: number; total: number; changed: number; finished: boolean; missing?: [string, number][] } | null;
   onRefreshNotes?: () => void;
   /** Save a lead-chat rule as a smart list (lib/smartRules.ts). */
-  onSaveSmartList?: (name: string, rule: SmartRule, ruleText: string, matched: StoredLead[]) => { listId: string; added: number } | null;
+  onSaveSmartList?: (name: string, rule: SmartRule, ruleText: string, matched: StoredLead[], meta?: { cycleDays?: number; tags?: string[]; campaign?: string }) => { listId: string; added: number } | null;
   /** Verifier results per email — see lib/deliverability.ts. */
   emailChecks?: EmailCheck[];
   onImportVerifier?: (files: ParsedFile[]) => Promise<VerifierImport>;
@@ -490,8 +491,8 @@ export default function AllLeads({
   const [whereF, setWhereF] = useState<Where | "all">("all");
   // Per Jack: "have different views as in by month or by quarter … months as
   // a whole should be able to be viewed". The time period leads the page.
-  const [periodKind, setPeriodKindState] = useState<"month" | "quarter" | "all">(() => {
-    try { const v = localStorage.getItem("allLeadsPeriodView"); return v === "quarter" || v === "all" ? v : "month"; } catch { return "month"; }
+  const [periodKind, setPeriodKindState] = useState<PeriodKind>(() => {
+    try { const v = localStorage.getItem("allLeadsPeriodView"); return v === "quarter" || v === "year" || v === "all" ? v : "month"; } catch { return "month"; }
   });
   // Per Jack: "i need to be able to view multipls months at a time so i can
   // view strong leads of certain months i want to group them together".
@@ -501,7 +502,7 @@ export default function AllLeads({
   const setPeriodKey = (k: string) => { setPeriodKeys(k === "all" ? [] : [k]); setRangeFrom(""); setRangeTo(""); };
   const togglePeriod = (k: string) => { setRangeFrom(""); setRangeTo(""); setPeriodKeys((prev) => (prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k])); };
   const periodSet = useMemo(() => new Set(periodKeys), [periodKeys]);
-  const setPeriodKind = (k: "month" | "quarter" | "all") => {
+  const setPeriodKind = (k: PeriodKind) => {
     setPeriodKindState(k); setPeriodKey("all");
     try { localStorage.setItem("allLeadsPeriodView", k); } catch { /* preference only */ }
   };
@@ -705,6 +706,45 @@ export default function AllLeads({
     }
     return m;
   }, [ruleF, chatUsed, leads, derived]);
+  // Per Jack (2026-11-22): "analyze leads that i select … one by one by month
+  // or quarter or year or all time … compare against where they stand in
+  // apollo and then pull the ones that were never able to be contacted and
+  // push those into a list like an auto generate … email cycles every
+  // month". Builds a smart list (re-runs as Apollo data changes) of the
+  // leads tried but never reached, with a 30-day cycle.
+  const [nrNotice, setNrNotice] = useState("");
+  const factsOf = (l: StoredLead): RuleFacts => {
+    const d = derived.get(l.key)!;
+    const hit = d.inApollo && d.inApollo.how !== "sync" ? (d.inApollo as ApolloHit) : null;
+    return factsForLead(l, { industry: d.industry === NO_INDUSTRY ? "" : d.industry, employees: d.employees, hit, engaged: !!d.engaged });
+  };
+  const buildNeverReachedList = () => {
+    if (!onSaveSmartList) return;
+    const scope = selected.size ? selectedLeads : filtered;
+    let rule: SmartRule = { contact: "triedNotReached" };
+    let scopeLabel: string;
+    if (selected.size) {
+      rule = { ...rule, keys: scope.map((l) => l.key) };
+      scopeLabel = `${scope.length.toLocaleString()} picked`;
+    } else {
+      if (periodKeys.length && periodKind !== "all") rule.periods = { kind: periodKind, keys: [...periodKeys] };
+      if (verdictF !== "all") rule.grades = [verdictF];
+      if (lineF !== "all") rule.product = [productOf(lineF === NO_LINE ? "" : lineF)];
+      if (sourceF !== "all") rule.scanners = [sourceF];
+      // Any other filter on: fix the list to exactly the leads shown.
+      const plain = leads.filter((l) => ruleMatches({ ...rule, contact: undefined }, l, factsOf(l)));
+      if (plain.length !== filtered.length) rule.keys = filtered.map((l) => l.key);
+      scopeLabel = periodKeys.length ? [...periodKeys].sort().map((k) => periodLabel(k, periodKind)).join(" + ") : "All time";
+    }
+    const pool = rule.keys ? scope : leads;
+    const matched = pool.filter((l) => ruleMatches(rule, l, factsOf(l)));
+    const notChecked = scope.filter((l) => !l.apolloCheckedAt && !l.apollo).length;
+    const today = new Date().toLocaleDateString("en-US", { month: "short", year: "numeric" });
+    const res = onSaveSmartList(`Never reached — ${scopeLabel} (${today})`, rule, describeRule(rule).join(" · "), matched,
+      { cycleDays: 30, tags: ["email cycle", "never reached"], campaign: "Monthly email cycle" });
+    if (!res) { setNrNotice("Couldn't create the list."); return; }
+    setNrNotice(`Saved ${res.added.toLocaleString()} tried-but-never-reached lead${res.added === 1 ? "" : "s"} as a smart list (30-day cycle) in Lists.${notChecked ? ` ${notChecked.toLocaleString()} here aren't checked in Apollo yet; check them and the list picks up any that qualify.` : ""}`);
+  };
   const leadsForRuleHere = useCallback((rule: SmartRule) => {
     if (!ruleFacts) return [];
     const rank: Record<Verdict, number> = { strong: 0, review: 1, bad: 2 };
@@ -1046,7 +1086,7 @@ export default function AllLeads({
   if (companyF !== "all") chips.push({ label: companyF === "multi" ? "2+ leads at the company" : "Only lead at the company", clear: () => setCompanyF("all") });
   if (periodKeys.length) {
     const ks = [...periodKeys].sort();
-    chips.push({ label: ks.length > 2 ? `Received ${periodLabel(ks[0], periodKind)} – ${periodLabel(ks[ks.length - 1], periodKind)} (${ks.length} ${periodKind === "quarter" ? "quarters" : "months"})` : `Received ${ks.map((k) => periodLabel(k, periodKind)).join(" + ")}`, clear: () => setPeriodKey("all") });
+    chips.push({ label: ks.length > 2 ? `Received ${periodLabel(ks[0], periodKind)} – ${periodLabel(ks[ks.length - 1], periodKind)} (${ks.length} ${periodKind === "quarter" ? "quarters" : periodKind === "year" ? "years" : "months"})` : `Received ${ks.map((k) => periodLabel(k, periodKind)).join(" + ")}`, clear: () => setPeriodKey("all") });
   }
   if (ruleF) chips.push({ label: `Asked: ${ruleParts(ruleF).map((p) => p.label).join(" · ")}`, clear: () => setRuleF(null) });
   if (dateF !== "all") chips.push({ label: DATE_LABEL[dateF], clear: () => setDateF("all") });
@@ -1403,16 +1443,16 @@ export default function AllLeads({
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}
              title={`By the date each CSV states, else its upload date. Nothing goes back before ${shortMonthLabel(EARLIEST_MONTH)}: anything older is counted there. Sheet files sit in their estimated month. Click several to group them; click again to take one out.`}>
           <div className="seg" role="group" aria-label="View by">
-            {(["month", "quarter", "all"] as const).map((k) => (
+            {(["month", "quarter", "year", "all"] as const).map((k) => (
               <button key={k} className={`seg-btn${periodKind === k ? " active" : ""}`} aria-pressed={periodKind === k} onClick={() => setPeriodKind(k)}>
-                {k === "month" ? "Month" : k === "quarter" ? "Quarter" : "All time"}
+                {k === "month" ? "Month" : k === "quarter" ? "Quarter" : k === "year" ? "Year" : "All time"}
               </button>
             ))}
           </div>
           {periodKind !== "all" && (
             <div role="group" aria-label="Periods" style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
               <button className={`chip-btn${!periodKeys.length ? " active" : ""}`} aria-pressed={!periodKeys.length} onClick={() => setPeriodKey("all")} style={{ whiteSpace: "nowrap" }}>
-                All {periodKind === "month" ? "months" : "quarters"} <b>{periodOptions.reduce((n, [, c]) => n + c, 0).toLocaleString()}</b>
+                All {periodKind === "month" ? "months" : periodKind === "quarter" ? "quarters" : "years"} <b>{periodOptions.reduce((n, [, c]) => n + c, 0).toLocaleString()}</b>
               </button>
               {periodOptions.map(([k, n]) => (
                 <button key={k || "undated"} className={`chip-btn${periodSet.has(k) ? " active" : ""}`} aria-pressed={periodSet.has(k)}
@@ -1981,6 +2021,13 @@ export default function AllLeads({
                 title="Anyone already in Apollo is left out">
           ⬇ Export selection{selected.size ? ` (${notInApollo(selectedLeads).length.toLocaleString()} not in Apollo)` : ""}
         </button>
+        {onSaveSmartList && (
+          <button className="btn btn-sm btn-secondary" data-never-reached onClick={buildNeverReachedList}
+                  title={"Builds a smart list of the leads here (ticked, else everything the filters match) that were called, emailed or sequenced but never reached: no conversation, reply, meeting, not interested or do not contact, not active in a sequence now, no deal on file.\nIt re-runs as Apollo data changes and carries a 30-day cycle for the monthly email push."}>
+            📬 Never-reached email list
+          </button>
+        )}
+        {nrNotice && <span style={{ color: "var(--success, #1F7A4D)" }} aria-label="Never reached notice">{nrNotice}</span>}
         <button className={`btn btn-sm ${moreActionsOpen ? "btn-secondary" : "btn-ghost"}`} aria-label="More actions" aria-expanded={moreActionsOpen}
                 onClick={() => setMoreActionsOpen((v) => !v)}>
           More actions {moreActionsOpen ? "▴" : "▾"}

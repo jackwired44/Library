@@ -11,10 +11,15 @@ export type Tier = "signal" | "mention" | "dq";
 // Azure") alongside Tenant Support/Migration/Licensing. ACTIVE_CATEGORY_KEYS
 // / ACTIVE_BUCKET_KEYS below are what new UI (filters, bulk-move, Final
 // Downloads) should iterate over — exactly the two live categories.
-export type CategoryKey = "m365Tenant" | "dynamics365" | "dataPlatform";
-export type BucketKey = "m365Tenant" | "dynamics" | "dataPlatform";
-export const ACTIVE_CATEGORY_KEYS: CategoryKey[] = ["dynamics365", "m365Tenant"];
-export const ACTIVE_BUCKET_KEYS: BucketKey[] = ["dynamics", "m365Tenant"];
+// "powerPlatform" (2026-11-22, per Jack): "make power apps its own category
+// pull it away from dynamics unless it says dynamics in the note". A third
+// live product line with its own chip and download file. A Power Platform
+// row whose note DOES say Dynamics stays in Dynamics 365, on the Power
+// Platform view tab (DynamicsTab "power").
+export type CategoryKey = "m365Tenant" | "dynamics365" | "powerPlatform" | "dataPlatform";
+export type BucketKey = "m365Tenant" | "dynamics" | "powerPlatform" | "dataPlatform";
+export const ACTIVE_CATEGORY_KEYS: CategoryKey[] = ["dynamics365", "powerPlatform", "m365Tenant"];
+export const ACTIVE_BUCKET_KEYS: BucketKey[] = ["dynamics", "powerPlatform", "m365Tenant"];
 
 export interface CategoryMeta {
   label: string;
@@ -26,6 +31,7 @@ export interface CategoryMeta {
 export const CATEGORY_META: Record<CategoryKey, CategoryMeta> = {
   m365Tenant: { label: "M365 / Azure", color: "#B34A1F", bg: "#FBE7DB", bucket: "m365Tenant" },
   dynamics365: { label: "Dynamics 365", color: "#5B3FC4", bg: "#EEEAFC", bucket: "dynamics" },
+  powerPlatform: { label: "Power Platform", color: "#0B6F86", bg: "#DFF2F6", bucket: "powerPlatform" },
   // Legacy only — see the type comment above.
   dataPlatform: { label: "Power BI / Azure / Fabric (legacy)", color: "#1470A0", bg: "#E1F1FA", bucket: "dataPlatform" },
 };
@@ -33,6 +39,7 @@ export const CATEGORY_META: Record<CategoryKey, CategoryMeta> = {
 export const BUCKET_META: Record<BucketKey, { label: string; slug: string }> = {
   m365Tenant: { label: "M365 / Azure", slug: "m365-azure" },
   dynamics: { label: "Dynamics", slug: "dynamics" },
+  powerPlatform: { label: "Power Platform", slug: "power-platform" },
   // Legacy only — see the CategoryKey type comment above.
   dataPlatform: { label: "Power BI / Azure / Fabric (legacy)", slug: "power-bi-azure-fabric" },
 };
@@ -40,12 +47,13 @@ export const BUCKET_META: Record<BucketKey, { label: string; slug: string }> = {
 export const BUCKET_LABEL: Record<BucketKey, string> = {
   m365Tenant: CATEGORY_META.m365Tenant.label,
   dynamics: CATEGORY_META.dynamics365.label,
+  powerPlatform: CATEGORY_META.powerPlatform.label,
   dataPlatform: CATEGORY_META.dataPlatform.label,
 };
 
 // Default-category priority when a row trips more than one bucket — a
 // default only, every row stays manually reassignable regardless.
-const CATEGORY_PRIORITY: CategoryKey[] = ["dynamics365", "m365Tenant"];
+const CATEGORY_PRIORITY: CategoryKey[] = ["dynamics365", "powerPlatform", "m365Tenant"];
 
 /* ------------------------------------------------------------------ */
 /* Licensing (Microsoft SKU / seat-count) engine                        */
@@ -168,7 +176,7 @@ export interface RuleOverrides {
 }
 export const DEFAULT_RULE_OVERRIDES: RuleOverrides = {
   qualifyThreshold: QUALIFY_THRESHOLD,
-  customKeywords: { dynamics365: [], dataPlatform: [], m365Tenant: [] },
+  customKeywords: { dynamics365: [], powerPlatform: [], dataPlatform: [], m365Tenant: [] },
 };
 
 /**
@@ -1068,7 +1076,17 @@ const DYNAMICS_FNO_TAB_RE =
  *  Operations … should be with bc erp"): Project Operations, HR, Commerce,
  *  the legacy ERPs, and Power Platform build work. */
 const DYNAMICS_BACK_OFFICE_RE =
-  /\b(?:project\s*operations|human\s*resources|(?:dynamics\s*(?:365\s*)?|d\s*365\s*)commerce|dynamics\s*(?:gp|nav|ax|sl)|navision|great\s*plains|axapta|power\s*(?:apps|automate|platform|pages)|powerapps|dataverse)\b/i;
+  /\b(?:project\s*operations|human\s*resources|(?:dynamics\s*(?:365\s*)?|d\s*365\s*)commerce|dynamics\s*(?:gp|nav|ax|sl)|navision|great\s*plains|axapta)\b/i;
+/** Power Platform wording (Power Apps, Power Automate, Power Pages, Power
+ *  Platform, Dataverse). Per Jack (2026-11-22) it is its own product line
+ *  unless the note also names Dynamics, and its own Dynamics view tab when
+ *  it does. Power BI is not part of it (that stays M365 / Azure). */
+export const POWER_PLATFORM_RE =
+  /\b(?:power\s*(?:apps|automate|platform|pages)|powerapps|dataverse|common\s*data\s*service)\b/i;
+/** The note names Dynamics itself (or a Dynamics product): such a Power
+ *  Platform row stays in Dynamics 365. */
+const DYNAMICS_NAMED_RE =
+  /\bdynamics?\b|\bd\s*365\b|\bdyn\s*365\b|\bbusiness\s*central\b|\bfinance\s*(?:and|&)\s*operations\b|\bnavision\b|\bgreat\s*plains\b|\baxapta\b/i;
 /**
  * Microsoft's propensity scorecard lists every product with the model's
  * verdict ("D365 F&O: Unknown (Unknown Fit; …)", "Has D365: No"). None of it
@@ -1625,6 +1643,8 @@ export interface PlatformResult {
   isBusinessCentral: boolean;
   // True if any hit is "Sales"/"CRM" specifically.
   isSalesCrm: boolean;
+  // The Dynamics row's tab is Power Platform (see dynamicsTabOfText).
+  isPowerPlatform: boolean;
 }
 
 // Jack's own custom trigger words (see RuleOverrides), plain text — not
@@ -1632,7 +1652,7 @@ export interface PlatformResult {
 // UI field can never produce a broken/catastrophic pattern. A match always
 // counts as hasTrigger: true, since the entire point of adding one is "if
 // you see this, treat it as a real signal."
-const CUSTOM_KEYWORD_LABEL: Record<CategoryKey, string> = { dynamics365: "Dynamics 365", dataPlatform: "Power BI", m365Tenant: TENANT_SUPPORT_LABEL };
+const CUSTOM_KEYWORD_LABEL: Record<CategoryKey, string> = { dynamics365: "Dynamics 365", powerPlatform: "Dynamics 365", dataPlatform: "Power BI", m365Tenant: TENANT_SUPPORT_LABEL };
 function escapeForLiteralMatch(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -1661,11 +1681,12 @@ function matchCustomKeywords(combined: string, customKeywords: Record<CategoryKe
  *  F&O → Everything else; Business Central named → BC / ERP; supply chain →
  *  Everything else; ERP / back office / an accounting or project need with
  *  no customer-facing app named → BC / ERP; the rest → Sales / CRM. */
-export type DynamicsTab = "bc" | "sales" | "other";
-export const DYNAMICS_TAB_ORDER: DynamicsTab[] = ["bc", "sales", "other"];
+export type DynamicsTab = "bc" | "sales" | "power" | "other";
+export const DYNAMICS_TAB_ORDER: DynamicsTab[] = ["bc", "sales", "power", "other"];
 export const DYNAMICS_TAB_META: Record<DynamicsTab, { label: string; hint: string }> = {
   bc: { label: "Business Central / ERP", hint: "Business Central, ERP, Project Operations, GP/NAV/AX, accounting or project needs" },
   sales: { label: "Sales / CRM / Customer Service", hint: "Dynamics Sales, CRM, Customer Service, Field Service, Customer Insights, a bare Dynamics 365" },
+  power: { label: "Power Platform", hint: "Power Apps, Power Automate, Power Pages, Power Platform, Dataverse, on a note that also names Dynamics" },
   other: { label: "Everything else (F&O, supply chain)", hint: "Finance and Operations, Dynamics 365 Finance, supply chain" },
 };
 export function dynamicsTabOfText(said: string): DynamicsTab {
@@ -1675,6 +1696,9 @@ export function dynamicsTabOfText(said: string): DynamicsTab {
   const namesBc = /\bbusiness\s*central\b|\bd\s*365\s*bc\b|\bdynamics\s*(?:365\s*)?\(?\s*bc\b/i.test(said);
   // …except Finance and Operations: "if fno is there everything else".
   if (DYNAMICS_FNO_TAB_RE.test(said) || (!namesBc && DYNAMICS_OTHER_TAB_RE.test(said))) return "other";
+  // Per Jack (2026-11-22): Power Platform sits on its own tab, apart from
+  // BC / ERP and Sales. Business Central named and F&O still win, as above.
+  if (!namesBc && POWER_PLATFORM_RE.test(said)) return "power";
   // An accounting or project need only counts when no customer-facing app is
   // named: a Sales lead "on Sage today" is still a Sales lead.
   const namesFrontOffice = SALES_CRM_RE.test(said) || FRONT_OFFICE_RE.test(said);
@@ -1986,6 +2010,7 @@ export function scanRowPlatform(
   const tab = hasDynamics ? dynamicsTabOfText(said) : null;
   const isBusinessCentral = tab === "bc";
   const isSalesCrm = tab === "sales";
+  const isPowerPlatform = tab === "power";
   const notes = stripScorecard(String(commentsValue ?? ""));
   const dynamicsCounts = hits.filter((h) => h.category === "Dynamics 365" && h.seatCount != null).map((h) => h.seatCount as number);
   const dynamicsSeatCount = dynamicsCounts.length
@@ -1993,7 +2018,7 @@ export function scanRowPlatform(
     : hasDynamics ? formLineCount(notes) ?? dynamicsHeadcountIn(notes) : null;
   const dynamicsModuleTiers = hits.filter((h) => h.category === "Dynamics 365" && h.moduleTier != null).map((h) => h.moduleTier as number);
   const dynamicsModuleTier = dynamicsModuleTiers.length ? Math.min(...dynamicsModuleTiers) : 2;
-  return { categories, tier, snippet: bestHit.snippet, notesSummary, hits, dynamicsSeatCount, dynamicsModuleTier, isGoogleToMicrosoft, isGoogleWorkspaceMigration, isPartnerSeeking, isBusinessCentral, isSalesCrm };
+  return { categories, tier, snippet: bestHit.snippet, notesSummary, hits, dynamicsSeatCount, dynamicsModuleTier, isGoogleToMicrosoft, isGoogleWorkspaceMigration, isPartnerSeeking, isBusinessCentral, isSalesCrm, isPowerPlatform };
 }
 
 // Free/personal email providers — shared source of truth for both the
@@ -2458,6 +2483,11 @@ export interface ScanResult {
   // True for a "Sales"/"CRM" Dynamics 365 lead — drives the Scanner's
   // separate Sales / CRM tab, same pattern as isBusinessCentral.
   isSalesCrm: boolean;
+  // Dynamics 365 row on the Power Platform view tab (2026-11-22).
+  isPowerPlatform: boolean;
+  // Azure Document Intelligence named in the notes: part of the merged
+  // "Migrations & Document Intelligence" M365 / Azure view tab.
+  isDocumentIntelligence: boolean;
   // True when this row's email is on a free/personal provider (gmail,
   // aol, etc.) but its OWN content already cleared Strong Signal — see
   // PERSONAL_EMAIL_DQ_LABEL/PERSONAL_PROSPECT_LABEL above. Carved out of
@@ -2497,7 +2527,7 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
   // and the row has a real M365/Azure hit, M365/Azure is the lead.
   const dynHits = platform?.hits.filter((h) => h.category === "Dynamics 365") ?? [];
   const genericDynOnly = dynHits.length > 0 && dynHits.every((h) => h.genericDynamics);
-  const autoCategory = genericDynOnly && categorySet.has("m365Tenant")
+  let autoCategory: CategoryKey = genericDynOnly && categorySet.has("m365Tenant")
     ? "m365Tenant"
     : CATEGORY_PRIORITY.find((k) => categorySet.has(k)) || categories[0];
   let tier: Tier = (platform && platform.tier === "signal") || licensingTier === "signal" ? "signal" : "mention";
@@ -2566,6 +2596,20 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
 
 
   const combinedForDQ = columns.map((c) => String(row[c] ?? "")).join("   ");
+  // Per Jack (2026-11-22): Power Platform is its own product line "unless it
+  // says dynamics in the note". The match and every grading rule stay the
+  // Dynamics ones (dynLike below), so a Power Platform lead grades exactly as
+  // it did before; only the product line (chip, download file) moves.
+  const ppNote = stripScorecard(String(resolved.comments ?? "").trim());
+  const ppSaid = ppNote ? `${ppNote}   ${resolved.productArea || ""}` : stripScorecard(combinedForDQ);
+  if (autoCategory === "dynamics365" && POWER_PLATFORM_RE.test(ppSaid) && !DYNAMICS_NAMED_RE.test(ppNote || stripScorecard(combinedForDQ))) {
+    autoCategory = "powerPlatform";
+    const i = categories.indexOf("dynamics365");
+    if (i >= 0) categories[i] = "powerPlatform";
+  }
+  const dynLike = autoCategory === "dynamics365" || autoCategory === "powerPlatform";
+  // Azure Document Intelligence, for the merged M365 / Azure view tab.
+  const isDocumentIntelligence = DOCUMENT_INTELLIGENCE_RE.test(ppSaid);
   let dqReasons = getDQReasons(combinedForDQ, resolved);
   // 11/9: a licence count of 1-4 is no longer a Bad Lead (under 5 is company
   // size only). It caps the row at Needs Review below (smallLicenceAsk).
@@ -2615,7 +2659,7 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
   // about a new platform". A Dynamics lead stays Strong only when the notes
   // show they are moving onto a platform — see newPlatformSignal. Without
   // one it is Needs Review: still visible, still filed under Dynamics.
-  if (tier === "signal" && autoCategory === "dynamics365" && !googleLead && !newPlatformSignal(resolved.comments)) tier = "mention";
+  if (tier === "signal" && dynLike && !googleLead && !newPlatformSignal(resolved.comments)) tier = "mention";
   // The other direction. Per Jack: "alot of the needs review for dynamics
   // from august and september should be strong". The Dynamics hit's own
   // Strong test only knew trigger words and seat counts, so "wants to use
@@ -2626,7 +2670,7 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
   // is a Dynamics code and the note is the short inbound line naming the
   // product ("Dynamics 365 Business Central", "Dynamic ERP"). Campaign
   // names never count. Every Auto-DQ still wins.
-  if (tier === "mention" && autoCategory === "dynamics365" && !subThreshold) {
+  if (tier === "mention" && dynLike && !subThreshold) {
     const said = withoutCampaignCodes(String(resolved.comments ?? ""));
     if (newPlatformSignal(said) || dynamicsInboundLine(said, resolved.productArea)) tier = "signal";
   }
@@ -2639,11 +2683,11 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
   // "has X: yes" flag, the bare word ERP/CRM, or a Product Area code over
   // empty notes. Every Auto-DQ still wins (below).
   const realDynamics = dynHits.some((h) => !h.genericDynamics && (!h.fromProductArea || h.hasTrigger));
-  if (autoCategory === "dynamics365" && realDynamics) tier = "signal";
+  if (dynLike && realDynamics) tier = "signal";
   // ...except a note that is nothing but the product name. Per Jack (11/6):
   // "if it just straight up says dynamics crm like needs review does yeah
   // leave it there", "those lots of time are inaccurate lead".
-  if (autoCategory === "dynamics365" && !googleLead && bareDynamicsMention(resolved.comments)) tier = "mention";
+  if (dynLike && !googleLead && bareDynamicsMention(resolved.comments)) tier = "mention";
   // Per Jack (11/6): a customer asking for a partner is Strong ("yes this
   // is strong"). A confirmed sub-threshold licensing count still pulls it
   // to Needs Review — "Copilot Studio - 2 users ... this is low".
@@ -2664,7 +2708,7 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
   // never a Bad Lead. A bigger headcount anywhere in the row, or a Number of
   // Employees of 5+, lifts the cap. Dynamics is exempt (a project, not a
   // seat deal), and so are a Google move and a partner ask.
-  if (tier === "signal" && autoCategory !== "dynamics365" && !googleLead && !platform?.isPartnerSeeking &&
+  if (tier === "signal" && !dynLike && !googleLead && !platform?.isPartnerSeeking &&
       smallLicenceAsk(String(resolved.comments ?? ""), licensing?.count, resolved.employees)) tier = "mention";
   // A Google lead also survives the CRM-opportunity rule: on Jack's 9/30
   // file every real Google row was a Microsoft seller's opportunity note,
@@ -2740,7 +2784,7 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
   // happen on a scored row (it named a product to get here) but keeps the
   // function total rather than relying on that.
   notesSummary = cleanNoteText(buildCallBrief(
-    autoCategory,
+    dynLike ? "dynamics365" : autoCategory,
     licensing,
     platform,
     cleanText(resolved.comments) || combinedForDQ,
@@ -2753,7 +2797,7 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
   // engine talking over the lead. Every other product line keeps the head,
   // which Jack asked for separately ("put a score and then priority symbol
   // being high or low").
-  notesSummary = autoCategory === "dynamics365"
+  notesSummary = dynLike
     ? notesSummary
     : formatMatchedSnippet(notesSummary, mainScore.score, priorityBand);
 
@@ -2777,6 +2821,8 @@ export function scanRowUnified(row: Record<string, unknown>, columns: string[], 
       || partnerStanceOf(cleanText(resolved.comments) || combinedForDQ).wantsPartner,
     isBusinessCentral: platform ? platform.isBusinessCentral : false,
     isSalesCrm: platform ? platform.isSalesCrm : false,
+    isPowerPlatform: platform ? platform.isPowerPlatform : false,
+    isDocumentIntelligence,
     isPersonalProspect,
   };
 }
@@ -4649,6 +4695,9 @@ export interface ResultRow {
   wantsPartner?: boolean;
   isBusinessCentral: boolean;
   isSalesCrm: boolean;
+  /** Optional: rows saved before 2026-11-22 never carried these. */
+  isPowerPlatform?: boolean;
+  isDocumentIntelligence?: boolean;
   isPersonalProspect: boolean;
   // Manual status tracking (see DISPOSITION_META above) — never set by the
   // scan itself, always "none"/false/null until someone sets it by hand.
@@ -5197,25 +5246,24 @@ export function topPriorityReason(
  * stored rows carry the same two flags under `__` names and resolve through
  * storedM365SubView (lib/library.ts).
  */
-export type M365SubView = "google" | "migration" | "other";
-export const M365_SUB_VIEWS: M365SubView[] = ["google", "migration", "other"];
+// 2026-11-22, per Jack ("better filter azure document intelligence and
+// migrations so merge those three as one"): Google -> Microsoft, the other
+// migrations and Azure Document Intelligence are ONE tab now. Three tabs:
+// All, Migrations & Document Intelligence, Everything else.
+export type M365SubView = "migration" | "other";
+export const M365_SUB_VIEWS: M365SubView[] = ["migration", "other"];
 export const M365_SUB_VIEW_META: Record<M365SubView, { label: string; hint: string }> = {
-  google: {
-    label: "Google \u2192 Microsoft",
-    hint: "Google Workspace / G Suite / Gmail for Business moving to Microsoft 365, and nothing else.",
-  },
   migration: {
-    label: "Migrations",
-    hint: "Every other migration: generic legacy / modernization / re-platforming work, and Azure on-prem-to-cloud moves.",
+    label: "Migrations & Document Intelligence",
+    hint: "Google Workspace -> Microsoft 365, every other migration (legacy, re-platforming, on-prem to Azure), and Azure Document Intelligence.",
   },
   other: {
     label: "Everything else",
     hint: "Licensing, Azure billing, CSP / partner engagement, tenant support and security design.",
   },
 };
-export function m365SubViewOf(r: { isGoogleWorkspaceMigration?: boolean; isGoogleToMicrosoft?: boolean }): M365SubView {
-  if (r.isGoogleWorkspaceMigration) return "google";
-  if (r.isGoogleToMicrosoft) return "migration";
+export function m365SubViewOf(r: { isGoogleWorkspaceMigration?: boolean; isGoogleToMicrosoft?: boolean; isDocumentIntelligence?: boolean }): M365SubView {
+  if (r.isGoogleWorkspaceMigration || r.isGoogleToMicrosoft || r.isDocumentIntelligence) return "migration";
   return "other";
 }
 

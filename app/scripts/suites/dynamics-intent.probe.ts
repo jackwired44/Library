@@ -20,7 +20,8 @@ notStrong("bare BC line with a Dynamics ERP code stays Needs Review (11/6)", "Dy
 notStrong("bare product line stays Needs Review (11/6)", "Dynamics 365", "Services - Dynamics 365 Business Central -");
 notStrong("bare Dynamic ERP stays Needs Review (11/6)", "Dynamics ERP", "Dynamic ERP");
 notStrong("bare customer engagement stays Needs Review (11/6)", "Dynamics CRM", "dynamics 365 customer engagement");
-strong("would like a demo of Power Automate", "Dynamics CRM", "I would like a demo of Power Automate and to understand if/how it can automate many of my RCM processes.");
+// 2026-11-22: Power Automate with no Dynamics in the note is the Power Platform line (Jack); still Strong.
+{ const t = tierOf("Dynamics CRM", "I would like a demo of Power Automate and to understand if/how it can automate many of my RCM processes."); ok("would like a demo of Power Automate", t === "signal/powerPlatform", t); }
 
 strong("'demonstrating' is not a demo (11/6: anything Dynamics is Strong)", "", "Customer is actively evaluating expansion of Copilot Studio. DJ has already developed a Copilot agent that creates records in Dynamics 365, demonstrating an established foundation for agent-based automation.");
 notStrong("bare BC line stays Needs Review whatever the code (11/6)", "Azure", "Dynamics 365 Business Central");

@@ -42,9 +42,9 @@ const num = s => Number((String(s).match(/\((\d+)\)/) || [])[1]);
   const d0 = num(await chip('Dynamics 365').innerText());
   ok('chips add up: Dynamics + M365 / Azure = All', d0 + m0 === all0, `${d0} + ${m0} vs ${all0}`);
 
-  // Jack's path: open M365 / Azure, pick the Google tab, go back to All.
+  // Jack's path: open M365 / Azure, pick the migrations tab (Google merged into it 2026-11-22), go back to All.
   await chip('M365 / Azure').click(); await sleep(300);
-  await page.locator('button', { hasText: /Google → Microsoft/ }).first().click(); await sleep(300);
+  await page.locator('button', { hasText: /Migrations & Document Intelligence/ }).first().click(); await sleep(300);
   const googleRows = await rows();
   ok('Google tab narrows the table', googleRows > 0 && googleRows < m0, `${googleRows} of ${m0}`);
   await chip(/^All \(/).click(); await sleep(300);

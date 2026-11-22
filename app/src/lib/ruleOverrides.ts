@@ -28,6 +28,7 @@ export async function loadRuleOverrides(): Promise<RuleOverrides> {
     qualifyThreshold: typeof stored.qualifyThreshold === "number" ? stored.qualifyThreshold : DEFAULT_RULE_OVERRIDES.qualifyThreshold,
     customKeywords: {
       dynamics365: stored.customKeywords?.dynamics365 ?? [],
+      powerPlatform: stored.customKeywords?.powerPlatform ?? [],
       dataPlatform: stored.customKeywords?.dataPlatform ?? [],
       m365Tenant: stored.customKeywords?.m365Tenant ?? [],
     },

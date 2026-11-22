@@ -886,6 +886,12 @@ button:disabled {
 
 /* Three-line clamp for the Scanner's matched-snippet column — keeps row
    heights even without truncating to a single unreadable line. */
+.clamp-5 {
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 .clamp-3 {
   display: -webkit-box;
   -webkit-line-clamp: 3;

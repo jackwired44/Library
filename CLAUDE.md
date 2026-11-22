@@ -6237,6 +6237,101 @@ name under one column title is it strong signal bad lead or needs review".
   (month/quarter chips, range). Same controls and counts as before.
 - "Ask for leads" folds behind a button (`details.ask-fold`).
 
+### 2026-11-20: Sequence Scanner Fresh check (scanner-platform-v29)
+
+Per Jack: "scan a sequence see if leads like that not interested or have
+clear next steps or spoken with are made aware to be removed".
+- New first tab after a run, **Fresh check** (`FreshCheck`,
+  SequenceCleaner.tsx; `freshGroupOf` / `FRESH_GROUP_META`,
+  `lib/apolloSequences.ts`). Each active lead lands in one group, strongest
+  first: **Had a meeting** (Meeting Booked / Qualified call, stage Meeting
+  Logged) → **Not interested** (Not interested / DNC call, stage Not
+  Interested, email unsubscribed) → **Spoken with / next steps set** (Info
+  Requested, Call Back Scheduled, 4+ min call, conversation note, reply,
+  stage Review + Email, "talked on phone" / replied / interested in an
+  earlier sequence) → **Been through a sequence before** (finished another
+  one, or this one, unreached; kept) → **Fresh**.
+- The top line says how many should come out; "Remove all N", per-group
+  Remove and Remove ticked all use the existing remove confirm that names
+  everyone. Removes only from the sequence each lead is in.
+- `fetchMembers` now also reads `email_unsubscribed`.
+- Live link: Remove needs the remove tool in the page's grant (taken out
+  in Version 102 so the page would load).
+- `sequence-cleaner` 49 → 61.
+
+### 2026-11-22: Power Platform product line; Dynamics 5th tab; M365 tabs merged (scanner-platform-v29)
+
+Per Jack: "make power apps its own category pull it away from dynamics
+unless it says dynamics in the note store it under dynamics but a new
+category so i can keep it seperated", then (via questions) whole Power
+Platform, a 3rd product line, and "better filter azure document
+intelligence and migrations so merge those three as one".
+- **Power Platform product line** (`CategoryKey`/`BucketKey`
+  `powerPlatform`, label "Power Platform", own chip, download file,
+  Library file and All leads product line). Wording: `POWER_PLATFORM_RE`
+  (Power Apps, Power Automate, Power Pages, Power Platform, Dataverse,
+  Common Data Service; Power BI stays M365 / Azure). A row that would be
+  Dynamics 365 moves to Power Platform when its note names that wording
+  and never says Dynamics (`DYNAMICS_NAMED_RE`: Dynamics, D365, Business
+  Central, F&O, Navision, Great Plains, Axapta). The match and every
+  grading rule are still the Dynamics ones (`dynLike` in `scanRowUnified`),
+  so grades are unchanged; the note keeps the Dynamics brief shape.
+  Smart rules / Ask for leads gained product `power`; the Refresher builds
+  Fresh / Backlog / Re-engage Power Platform lists; routing sends Power
+  Platform leads with Dynamics (as before).
+- **Dynamics 365 has five view tabs**: All, Business Central / ERP,
+  Sales / CRM / Customer Service, **Power Platform**, Everything else
+  (`DynamicsTab` "power"; `isPowerPlatform` on ScanResult / ResultRow,
+  `__isPowerPlatform` on StoredRow, `dynamicsView: "power"` on
+  StoredLead). Order in `dynamicsTabOfText`: F&O → other; BC named → bc;
+  supply chain → other; Power Platform → power; ERP / back office → bc;
+  rest → sales. Power words left `DYNAMICS_BACK_OFFICE_RE`. Same tabs in
+  the Scanner, Lead Library files and the All leads Dynamics filter.
+- **M365 / Azure has three view tabs**: All, **Migrations & Document
+  Intelligence** (Google → Microsoft + other migrations + Azure Document
+  Intelligence, `isDocumentIntelligence` / `__isDocumentIntelligence`),
+  Everything else. `M365SubView` is now `"migration" | "other"`. The
+  ★ Google top-priority pin is unchanged.
+- `NOTE_RULES_VERSION` = `2026-11-22-power-platform`, so stored Main
+  leads with a saved CSV row re-file on next open (hand-moved grades kept).
+  Library rows filed before this read as not Power Platform / not Document
+  Intelligence until re-scanned.
+
+### 2026-11-22: Never-reached email list; Main Scanner table re-cut (scanner-platform-v29)
+
+- **All leads → "📬 Never-reached email list"** (per Jack: pull leads
+  "never able to be contacted" from a selection / month / quarter / year /
+  all time into an auto list "for regular email cycles every month"). One
+  click saves a SMART list (re-runs as Apollo data changes) with a 30-day
+  cycle, tags `email cycle`, `never reached`. Rule: `contact:
+  "triedNotReached"` (`lib/smartRules.ts`): called, emailed or sequenced,
+  but no conversation / reply / meeting / not interested / DNC, not active
+  in a sequence, no deal on file. Ticked rows → `keys`; else the period
+  (`periods`, month / quarter / year), grade, product line and scanner, and
+  `keys` too when any other filter is on. All leads' period strip gained
+  **Year**.
+- **Main Scanner table** (per Jack: "i dont want deteced … we just need
+  product line … dispostion should only exist for live connection"): the
+  Detected column is gone; the product line cell names its type (Dynamics
+  tab, M365 migrations tab, Dynamics seat count) and carries the ★ pin,
+  DUPLICATE, Personal Prospect and DQ reasons. Notes column is wider and
+  shows 5 lines. The manual disposition dropdown, undo, note and bulk
+  disposition are removed; the column is **Apollo disposition**: a live,
+  read-only check per row (⟳) or for ticked / all shown rows (up to 400),
+  showing the most recent call outcome, its date, call count and the
+  active/ended sequence. Results live for this scan only.
+
+### 2026-11-22: Home trimmed to the work queue (scanner-platform-v29)
+
+Per Jack: "redo the hompage bunch is unecesarry"; he kept only the work
+queue numbers. Home (`components/Overview.tsx`) is the greeting line (date,
+lead count, Apollo sync age), Upload leads / All leads, and four tiles:
+Strong signal · never contacted, tried, not reached, In a sequence now,
+Ready to recycle; each clicks through. The Apollo panel, filters bar,
+other tiles, every chart and the Customize button are off Home
+(`HOME_KEEP`); the code stays, and the same data is still in All leads,
+Recycle and the Sequence Scanner.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

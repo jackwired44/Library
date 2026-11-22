@@ -60,7 +60,8 @@ const LEADS = [
 
   console.log('\n== time first ==');
   await nav('All leads');
-  ok('a View by switch leads the page', await page.locator('[aria-label="View by"] button').count() === 3);
+  // 2026-11-22: Year joined Month / Quarter / All time.
+  ok('a View by switch leads the page', await page.locator('[aria-label="View by"] button').count() === 4);
   const strip = page.locator('[role=group][aria-label="Periods"]');
   const chipsText = (await strip.innerText()).replace(/\s+/g, ' ');
   ok('each month a CSV is dated is a period, newest first', chipsText.indexOf(monthName(day(5))) > -1 && chipsText.indexOf(monthName(day(5))) < chipsText.indexOf(monthName(day(90))), chipsText);

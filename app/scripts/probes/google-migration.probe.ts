@@ -66,7 +66,7 @@ for (const n of [
   "Small nonprofit. Organization email still hosted on Gmail. - Forecast status: Committed - Reason of the forecast status: in the next stage of the sales cycle.",
 ]) {
   const r = scan(n);
-  ok(JSON.stringify(n.slice(0, 60)), !!r && r.isGoogleWorkspaceMigration === true && r.tier === "signal" && m365SubViewOf(r) === "google" && topPriorityReason(r) === "google", show(r));
+  ok(JSON.stringify(n.slice(0, 60)), !!r && r.isGoogleWorkspaceMigration === true && r.tier === "signal" && m365SubViewOf(r) === "migration" && topPriorityReason(r) === "google", show(r));
 }
 
 console.log("\n== not a move to Microsoft — never pinned as Google ==");

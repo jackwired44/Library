@@ -136,7 +136,7 @@ export interface StoredLead {
    *  Sales / CRM, Everything else), from the scan. Absent on non-Dynamics
    *  leads and on leads stored before it was kept; All leads then reads it
    *  off the note with the same rule (dynamicsTabOfText). */
-  dynamicsView?: "bc" | "sales" | "other";
+  dynamicsView?: "bc" | "sales" | "power" | "other";
   /** Match key: the email, else first-name + company. See leadKeyOf. */
   key: string;
   source: LeadSource;

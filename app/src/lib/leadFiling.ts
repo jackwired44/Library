@@ -276,7 +276,7 @@ export function leadInputsFromResults(rows: ResultRow[]): LeadInput[] {
       phone: String(f.workPhone || ""),
       mobilePhone: String(f.mobilePhone || ""),
       productArea: CATEGORY_META[r.category]?.label || "",
-      ...(r.category === "dynamics365" ? { dynamicsView: r.isBusinessCentral ? "bc" as const : r.isSalesCrm ? "sales" as const : "other" as const } : {}),
+      ...(r.category === "dynamics365" ? { dynamicsView: r.isBusinessCentral ? "bc" as const : r.isSalesCrm ? "sales" as const : r.isPowerPlatform ? "power" as const : "other" as const } : {}),
       tier: r.priorityBand
         ? PRIORITY_META[r.priorityBand]?.label || ""
         : TIER_WORDS[r.tier] || "",

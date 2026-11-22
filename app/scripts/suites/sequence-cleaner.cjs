@@ -32,6 +32,9 @@ const MOCK = () => {
     { id: 'c15', name: 'Pat Lee', first_name: 'Pat', last_name: 'Lee', email: 'plee@patco.com', organization_name: 'PatCo', account_id: 'a14', typed_custom_fields: { [NOTE]: 'Wants Business Central for 30 users.' }, seq: B },
     { id: 'c16', name: 'Mo Diaz', first_name: 'Mo', last_name: 'Diaz', email: 'mo@moco.com', organization_name: 'MoCo', account_id: 'a16', typed_custom_fields: { [NOTE]: 'Wants E3.' }, seq: A },
     { id: 'c17', name: 'Maurice Diaz', first_name: 'Maurice', last_name: 'Diaz', email: 'MO@moco.com', organization_name: 'MoCo LLC', account_id: 'a16', typed_custom_fields: { [NOTE]: 'Wants E3.' }, seq: B },
+    { id: 'c18', name: 'Logged Lou', email: 'lou@louco.com', organization_name: 'LouCo', account_id: 'a18', contact_stage_id: '6a73bd6b59c987000cc2c50c', typed_custom_fields: { [NOTE]: 'Wants E3.' }, seq: A },
+    { id: 'c19', name: 'Unsub Uma', email: 'uma@umaco.com', organization_name: 'UmaCo', account_id: 'a19', email_unsubscribed: true, typed_custom_fields: { [NOTE]: 'Wants E3.' }, seq: A },
+    { id: 'c20', name: 'Spoke Sid', email: 'sid@sidco.com', organization_name: 'SidCo', account_id: 'a29', typed_custom_fields: { [NOTE]: 'Wants E3.' }, seq: A, prior: [{ emailer_campaign_id: 'cccccccccccccccccccccccc', status: 'finished', finished_at: '2026-11-02T00:00:00Z', inactive_reason: 'talked on phone' }] },
     { id: 'r1', name: 'Ready Rita', email: 'rita@ritaco.com', organization_name: 'RitaCo', account_id: 'a20', typed_custom_fields: {}, seq: A, fin: daysAgo(15) },
     { id: 'r2', name: 'Fresh Fred', email: 'fred@fredco.com', organization_name: 'FredCo', account_id: 'a21', typed_custom_fields: {}, seq: A, fin: daysAgo(1) },
     { id: 'r3', name: 'Talked Tom', email: 'tom@tomco.com', organization_name: 'TomCo', account_id: 'a22', typed_custom_fields: {}, seq: A, fin: daysAgo(10) },
@@ -102,6 +105,29 @@ const MOCK = () => {
   await page.locator('label:has-text("Jack M365 Sequence") input').check();
   await page.locator('label:has-text("Jacks Dynamics Sequence") input').check();
   await page.click('button:has-text("Run check (2)")'); await sleep(1200);
+  // Fresh check (default tab): who should come out of the sequence.
+  const fresh = page.locator('[data-fresh-check]');
+  ok('fresh check is the first view', await fresh.count() === 1);
+  ok('fresh check says how many should come out', /should come out/.test(await fresh.locator('[data-fresh-verdict]').innerText()));
+  const fr = (n) => fresh.locator('tbody tr', { hasText: n });
+  ok('meeting call lands in Had a meeting', (await fr('Booked Bea').getAttribute('data-fresh-row')) === 'meeting');
+  ok('stage Meeting Logged lands in Had a meeting', (await fr('Logged Lou').getAttribute('data-fresh-row')) === 'meeting');
+  ok('stage Not Interested lands in Not interested', (await fr('Stage Sam').getAttribute('data-fresh-row')) === 'not-interested');
+  ok('unsubscribed lands in Not interested', (await fr('Unsub Uma').getAttribute('data-fresh-row')) === 'not-interested');
+  ok('call back lands in Spoken with / next steps', (await fr('Callback Cal').getAttribute('data-fresh-row')) === 'spoken');
+  ok('talked on phone in an earlier sequence lands in Spoken with', (await fr('Spoke Sid').getAttribute('data-fresh-row')) === 'spoken');
+  ok('fresh and prior leads are not in the removal list', await fr('Clean Carl').count() === 0 && await fr('Again Ann').count() === 0);
+  await fresh.locator('[data-fresh-group="prior"]').click(); await sleep(150);
+  ok('prior group lists earlier-sequence leads', (await fr('Again Ann').getAttribute('data-fresh-row')) === 'prior');
+  await fresh.locator('[data-fresh-group="fresh"]').click(); await sleep(150);
+  ok('fresh group lists clean leads', (await fr('Clean Carl').getAttribute('data-fresh-row')) === 'fresh');
+  await fresh.locator('[data-fresh-group="fresh"]').click(); await sleep(150);
+  const w0 = await page.evaluate(() => window.__writes.length);
+  await fresh.locator('[data-remove-all]').click(); await sleep(200);
+  const fdlg = await page.locator('[role=dialog]').innerText();
+  ok('remove all asks first and names them, nothing written', fdlg.includes('Logged Lou') && fdlg.includes('Unsub Uma') && (await page.evaluate(() => window.__writes.length)) === w0, fdlg.slice(0, 200));
+  await page.locator('[role=dialog] button', { hasText: 'Cancel' }).click(); await sleep(150);
+  await page.locator('[role=tab]', { hasText: 'Flagged' }).click(); await sleep(300);
   const txt = await page.locator('.table-card table.data-table').innerText();
   const row = name => page.locator('.table-card table.data-table tbody tr').filter({ has: page.locator('strong', { hasText: new RegExp('^' + name + '$') }) });
   ok('meeting booked flagged', (await row('Booked Bea').innerText()).includes('Meeting booked'));

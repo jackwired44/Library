@@ -156,8 +156,9 @@ ok("and the stored reason matches the live one",
 // and Azure lift-and-shift. Now four tabs, and they are exclusive.
 console.log("\n== M365 / Azure View tabs: Google is Google, migrations are their own ==");
 const TABS: [string, string][] = [
-  ["Currently on Google Workspace and want to move to Microsoft 365 for 80 users.", "google"],
-  ["Looking to migrate off Google this quarter.", "google"],
+  // 2026-11-22: Google, migrations and Document Intelligence share one tab (Jack).
+  ["Currently on Google Workspace and want to move to Microsoft 365 for 80 users.", "migration"],
+  ["Looking to migrate off Google this quarter.", "migration"],
   ["Modernizing a legacy system and bringing in a partner this year.", "migration"],
   ["Lift and shift our on-prem servers to Azure with a partner.", "migration"],
   ["Renewing 40 Microsoft 365 E3 licenses next month.", "other"],
@@ -173,7 +174,7 @@ ok("every lead lands in exactly one tab",
 ok("the three tabs cover every lead", tabRows.filter(Boolean).every((r) => M365_SUB_VIEWS.includes(m365SubViewOf(r))));
 
 console.log("\n== the Lead Library puts a filed lead in the same tab ==");
-ok("a filed Google move", storedM365SubView({ __isGoogleWorkspaceMigration: true, __isGoogleToMicrosoft: true } as never) === "google");
+ok("a filed Google move", storedM365SubView({ __isGoogleWorkspaceMigration: true, __isGoogleToMicrosoft: true } as never) === "migration");
 ok("a filed generic migration", storedM365SubView({ __isGoogleToMicrosoft: true } as never) === "migration");
 ok("a filed licensing lead", storedM365SubView({} as never) === "other");
 // A row filed before the narrow flag existed reads as a migration rather

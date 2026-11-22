@@ -69,7 +69,9 @@ export const ROUTE_META: Record<RouteKey, { label: string; hint: string }> = {
 
 export function routeKeyOf(lead: Pick<StoredLead, "source" | "productArea">): RouteKey {
   if (lead.source === "csp") return "csp";
-  const line = lead.productArea === "Dynamics 365" ? "dynamics365"
+  // Power Platform (its own product line since 2026-11-22) routes with
+  // Dynamics, where it always went before.
+  const line = lead.productArea === "Dynamics 365" || lead.productArea === "Power Platform" ? "dynamics365"
     : lead.productArea === "M365 / Azure" ? "m365" : "other";
   return `${lead.source}:${line}` as RouteKey;
 }

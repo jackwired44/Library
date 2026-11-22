@@ -19,9 +19,7 @@ import {
   type M365SubView,
   sortTopPriorityFirst,
   topPriorityReason,
-  splitLicensingHits,
   type CategoryKey,
-  type Disposition,
   type ParsedFile,
   type ResultRow,
   type RuleOverrides,
@@ -34,7 +32,6 @@ import {
   noSignalNote,
 } from "../lib/detection";
 import { dispositionMetaFor, type CustomDisposition } from "../lib/dispositions";
-import DispositionOptions from "./DispositionOptions";
 import type { CompanyEnrichOutcome } from "../lib/apolloEnrich";
 import { downloadCSV, parseCSVFile, parseCSVText } from "../lib/csv";
 import { listMatchIndex, listsHolding, type LeadList, type ListPick } from "../lib/leadLists";
@@ -64,6 +61,9 @@ import type { UploadedFile } from "../App";
 import type { StoredLead } from "../lib/leadStore";
 import { buildSeenIndex, seenFilesFor, seenLabel, type SeenFile } from "../lib/seenBefore";
 import { confirmAction } from "../lib/confirmBox";
+import { checkLeadsInApollo, APOLLO_LOOKUPS_PER_HOUR, type CheckProgress } from "../lib/apolloLive";
+import type { ApolloLeadState } from "../lib/leadStore";
+import { DYNAMICS_TAB_META, m365SubViewOf as m365TabOf, M365_SUB_VIEW_META as M365_TAB_META } from "../lib/detection";
 
 // Raised from 5. The old cap is what forced Jack to upload 14 CSVs as
 // three separate batches — and splitting an upload is exactly what makes
@@ -91,7 +91,7 @@ interface Facets {
   tier: Tier | "all";
   category: CategoryKey | "all";
   m365Sub: "all" | M365SubView;
-  dynSub: "all" | "businessCentral" | "salesCrm" | "other";
+  dynSub: "all" | "businessCentral" | "salesCrm" | "powerPlatform" | "other";
   dupOnly: boolean;
   prioOnly: boolean;
   /** Only leads whose notes state they want a partner (ScanResult.wantsPartner). */
@@ -121,7 +121,8 @@ function applyFacets(rows: ResultRow[], f: Facets): ResultRow[] {
     list = list.filter((r) => {
       if (f.dynSub === "businessCentral") return r.isBusinessCentral;
       if (f.dynSub === "salesCrm") return r.isSalesCrm;
-      return !r.isBusinessCentral && !r.isSalesCrm;
+      if (f.dynSub === "powerPlatform") return !!r.isPowerPlatform;
+      return !r.isBusinessCentral && !r.isSalesCrm && !r.isPowerPlatform;
     });
   }
   if (f.dupOnly) list = list.filter((r) => r.isDuplicate);
@@ -279,7 +280,7 @@ export default function Scanner({
   // Per-bucket download file name — editable, defaults to the standard
   // wired-cio-<bucket>-leads.csv name until Jack renames it. Reset on
   // "Start over" via `reset()` below, same as every other per-batch choice.
-  const [bucketFileNames, setBucketFileNames] = useState<Record<BucketKey, string>>({ m365Tenant: "", dynamics: "", dataPlatform: "" });
+  const [bucketFileNames, setBucketFileNames] = useState<Record<BucketKey, string>>({ m365Tenant: "", dynamics: "", powerPlatform: "", dataPlatform: "" });
   // Save-to-Lead-Library moved from a pre-upload checkbox to a post-scan
   // action — per Jack: "i want to be able to store strong signals in
   // files after theyre scan... put it after so i can store after
@@ -389,9 +390,29 @@ export default function Scanner({
   const [partnerOnly, setPartnerOnly] = useState(false);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Per Jack (2026-11-22): "dispostion should only exist for live connection
+  // to see if that contact is in apollo what was the most recent selected
+  // dispostion … click a button scan or refresh it checks that contact or
+  // multiple or all". Read-only Apollo lookups, held for this scan only.
+  const [apolloLive, setApolloLive] = useState<Map<string, { at: string; state: ApolloLeadState | null }>>(new Map());
+  const [liveProgress, setLiveProgress] = useState<CheckProgress | null>(null);
+  const [liveError, setLiveError] = useState("");
+  const liveAbort = useRef<AbortController | null>(null);
+  async function checkRowsInApollo(rows: ResultRow[]) {
+    if (!rows.length || liveProgress && !liveProgress.finished) return;
+    setLiveError("");
+    const ctl = new AbortController(); liveAbort.current = ctl;
+    const pseudo = rows.map((r) => ({ key: r.id, email: String(r.row.__f.email || ""), contact: getFullName(r.row.__f), company: String(r.row.__f.company || "") })) as unknown as StoredLead[];
+    try {
+      await checkLeadsInApollo({
+        leads: pseudo, signal: ctl.signal,
+        onResults: (res) => setApolloLive((m) => { const n = new Map(m); for (const x of res) n.set(x.key, { at: x.at, state: x.apollo }); return n; }),
+        onProgress: setLiveProgress,
+      });
+    } catch (err) { setLiveError(err instanceof Error ? err.message : String(err)); setLiveProgress(null); }
+  }
   const [pageSize, setPageSize] = useState<number>(PAGE_SIZE);
   const [bulkTarget, setBulkTarget] = useState<CategoryKey>("dynamics365");
-  const [bulkDisposition, setBulkDisposition] = useState<Disposition>("none");
   const [bulkPriorityMonth, setBulkPriorityMonth] = useState("");
   const [listPickerValue, setListPickerValue] = useState("");
   const [newListName, setNewListName] = useState("");
@@ -429,7 +450,7 @@ export default function Scanner({
   // category, bucket, or export — every tab still files/downloads as
   // Dynamics 365. A lead can match both (e.g. "ERP and CRM" together) and
   // show up under both specific tabs; "Everything else" means neither.
-  const [dynamicsSubView, setDynamicsSubView] = useState<"all" | "businessCentral" | "salesCrm" | "other">("all");
+  const [dynamicsSubView, setDynamicsSubView] = useState<"all" | "businessCentral" | "salesCrm" | "powerPlatform" | "other">("all");
   // Pull a file already sitting in the Lead Library back into Scanner for a
   // rescan/closer look, without leaving this screen first — per Jack's
   // explicit ask. Reuses the exact same load path Library.tsx's own "Load
@@ -567,7 +588,7 @@ export default function Scanner({
 
   function reset() {
     onReset();
-    setBucketFileNames({ m365Tenant: "", dynamics: "", dataPlatform: "" });
+    setBucketFileNames({ m365Tenant: "", dynamics: "", powerPlatform: "", dataPlatform: "" });
     setLastScanStats(null);
     setScannedAt(null);
     setError(null);
@@ -847,7 +868,6 @@ export default function Scanner({
       category,
       m365Sub: {
         all: n({ category: "m365Tenant", m365Sub: "all" }),
-        google: n({ category: "m365Tenant", m365Sub: "google" }),
         migration: n({ category: "m365Tenant", m365Sub: "migration" }),
         other: n({ category: "m365Tenant", m365Sub: "other" }),
       },
@@ -855,6 +875,7 @@ export default function Scanner({
         all: n({ category: "dynamics365", dynSub: "all" }),
         businessCentral: n({ category: "dynamics365", dynSub: "businessCentral" }),
         salesCrm: n({ category: "dynamics365", dynSub: "salesCrm" }),
+        powerPlatform: n({ category: "dynamics365", dynSub: "powerPlatform" }),
         other: n({ category: "dynamics365", dynSub: "other" }),
       },
       duplicates: n({ dupOnly: true }),
@@ -946,44 +967,12 @@ export default function Scanner({
       return [row];
     });
   }
-  function setDisposition(id: string, disposition: Disposition) {
-    mutateResults((list) => {
-      const row = list.find((r) => r.id === id);
-      if (!row) return [];
-      row.disposition = disposition;
-      // Per Jack: "if not interested is selected, cross their name out
-      // also automatically, for now." One-way trigger — going back to a
-      // different disposition later does NOT auto-uncross; crossedOut
-      // stays manual-undo-only otherwise (see the sticky-state feature).
-      if (disposition === "not-interested") row.crossedOut = true;
-      return [row];
-    });
-  }
   // Per Jack: "when I select the disposition made I can undo it in case I
   // mistakenly put one down." Reverts disposition + its note back to
   // "none," and — since a "Not interested" pick auto-crosses the row out
   // (see setDisposition above) — also un-crosses it when THAT'S the
   // disposition being undone, so a mistaken click is fully reversed in one
   // action rather than needing a separate trip to the cross-out toggle.
-  function undoDisposition(id: string) {
-    mutateResults((list) => {
-      const row = list.find((r) => r.id === id);
-      if (!row) return [];
-      const wasNotInterested = row.disposition === "not-interested";
-      row.disposition = "none";
-      row.dispositionNote = "";
-      if (wasNotInterested && row.crossedOut) row.crossedOut = false;
-      return [row];
-    });
-  }
-  function setDispositionNote(id: string, note: string) {
-    mutateResults((list) => {
-      const row = list.find((r) => r.id === id);
-      if (!row) return [];
-      row.dispositionNote = note;
-      return [row];
-    });
-  }
   function togglePriority(id: string) {
     mutateResults((list) => {
       const row = list.find((r) => r.id === id);
@@ -1021,32 +1010,6 @@ export default function Scanner({
     if (!selected.size) return;
     mutateResults((list) => list.filter((r) => selected.has(r.id)).map((r) => { r.crossedOut = value; return r; }));
     setSelected(new Set());
-  }
-  function setDispositionForSelected(disposition: Disposition) {
-    if (!selected.size) return;
-    mutateResults((list) =>
-      list
-        .filter((r) => selected.has(r.id))
-        .map((r) => {
-          r.disposition = disposition;
-          if (disposition === "not-interested") r.crossedOut = true;
-          return r;
-        })
-    );
-  }
-  function undoDispositionForSelected() {
-    if (!selected.size) return;
-    mutateResults((list) =>
-      list
-        .filter((r) => selected.has(r.id))
-        .map((r) => {
-          const wasNotInterested = r.disposition === "not-interested";
-          r.disposition = "none";
-          r.dispositionNote = "";
-          if (wasNotInterested && r.crossedOut) r.crossedOut = false;
-          return r;
-        })
-    );
   }
   function setPriorityForSelected(value: boolean) {
     if (!selected.size) return;
@@ -1813,6 +1776,7 @@ export default function Scanner({
                     ["all", `All Dynamics 365 (${dynamicsSubViewCounts.all})`],
                     ["businessCentral", `Business Central / ERP (${dynamicsSubViewCounts.businessCentral})`],
                     ["salesCrm", `Sales / CRM / Customer Service (${dynamicsSubViewCounts.salesCrm})`],
+                    ["powerPlatform", `Power Platform (${dynamicsSubViewCounts.powerPlatform})`],
                     ["other", `Everything else (${dynamicsSubViewCounts.other})`],
                   ] as const
                 ).map(([key, label]) => (
@@ -1868,6 +1832,22 @@ export default function Scanner({
         </button>
         {listNotice && <span style={{ fontSize: 12, color: "var(--ink-2)" }}>{listNotice}</span>}
       </div>
+      <div className="list-strip" role="group" aria-label="Check in Apollo">
+        {liveProgress && !liveProgress.finished ? (
+          <>
+            <span style={{ fontSize: 12 }}>Checking Apollo… {liveProgress.done}/{liveProgress.total}</span>
+            <button className="btn btn-sm btn-secondary" onClick={() => liveAbort.current?.abort()}>Stop</button>
+          </>
+        ) : (
+          <button className="btn btn-sm btn-secondary" data-live-check disabled={!selected.size && !filtered.length}
+                  onClick={() => void checkRowsInApollo((selected.size ? filtered.filter((r) => selected.has(r.id)) : filtered).slice(0, APOLLO_LOOKUPS_PER_HOUR))}
+                  title={`Looks each contact up in Apollo (read-only) and shows the most recent call disposition. Ticked rows, else every row shown, up to ${APOLLO_LOOKUPS_PER_HOUR} at a time (Apollo's hourly limit).`}>
+            ⟳ Check {Math.min(selected.size || filtered.length, APOLLO_LOOKUPS_PER_HOUR).toLocaleString()} in Apollo{selected.size ? " (selected)" : ""}
+          </button>
+        )}
+        {liveProgress?.finished && <span style={{ fontSize: 12, color: "var(--ink-2)" }}>Checked {liveProgress.done}: {liveProgress.found} in Apollo, {liveProgress.notFound} not{liveProgress.rateLimitedAt ? " · Apollo's hourly limit reached, try again in an hour" : ""}{liveProgress.lastError ? ` · ${liveProgress.lastError}` : ""}</span>}
+        {liveError && <span style={{ fontSize: 12, color: "var(--danger)" }}>{liveError}</span>}
+      </div>
 
       {selected.size > 0 && (
         <div className="bulkbar">
@@ -1896,13 +1876,6 @@ export default function Scanner({
           <button onClick={() => setCrossedOutForSelected(true)} className="btn btn-sm btn-secondary">Cross out</button>
           <button onClick={() => setCrossedOutForSelected(false)} className="btn btn-sm btn-ghost" style={{ textDecoration: "underline" }}>Restore</button>
           <div className="bulkbar-divider" />
-          <span className="bulkbar-label">Disposition</span>
-          <select value={bulkDisposition} onChange={(e) => setBulkDisposition(e.target.value as Disposition)} className="field">
-            <DispositionOptions dispositions={dispositions} />
-          </select>
-          <button onClick={() => setDispositionForSelected(bulkDisposition)} className="btn btn-sm btn-primary">Apply</button>
-          <button onClick={undoDispositionForSelected} title="Undo disposition on selected rows" className="btn btn-sm btn-secondary">↺ Undo</button>
-          <div className="bulkbar-divider" />
           <span className="bulkbar-label">Priority</span>
           <button onClick={() => setPriorityForSelected(true)} className="btn btn-sm btn-warn">⭐ Mark</button>
           <button onClick={() => setPriorityForSelected(false)} className="btn btn-sm btn-secondary">Unmark</button>
@@ -1930,18 +1903,17 @@ export default function Scanner({
               </th>
               <th>Company</th>
               <th>Contact</th>
-              <th>Detected</th>
               <th>Notes</th>
               <th>Tier</th>
               <th>Priority</th>
               <th>Product line</th>
-              <th>Status</th>
+              <th>Apollo disposition</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {pageItems.length === 0 ? (
-              <tr><td colSpan={10} className="cell-empty">No rows match this filter.</td></tr>
+              <tr><td colSpan={9} className="cell-empty">No rows match this filter.</td></tr>
             ) : (
               pageItems.map((r) => {
                 const f = r.row.__f;
@@ -1993,61 +1965,8 @@ export default function Scanner({
                         </span>
                       )}
                     </td>
-                    <td style={{ padding: "10px 11px" }}>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                        {topPriorityReason(r) && <TopPriorityBadge reason={topPriorityReason(r)!} />}
-                        {r.isDuplicate && <span style={{ fontSize: 10.5, background: "#F7B955", color: "#5C3A00", padding: "2px 7px", borderRadius: 20, fontWeight: 700 }}>DUPLICATE</span>}
-                        {/* What the ROW wrote, not the catalogue's name for it, and
-                            each count beside the product it was actually found next
-                            to - per Jack, "use the info given".
-                            Capped at SKU_CHIPS_SHOWN with the rest folded into a
-                            "+N" pill that lists them on hover: a licence inventory
-                            seven deep buried the reason to call. Nothing is
-                            dropped, and none of this touches qualification. */}
-                        {(() => {
-                          if (!r.licensing) return null;
-                          const { shown, hidden } = splitLicensingHits(r.licensing.hits);
-                          return (
-                            <>
-                              {shown.map((h, i) => (
-                                <span
-                                  key={`${h.matched}-${i}`}
-                                  title={h.count != null
-                                    ? `The row says "${h.matched}" with ${h.count} beside it.`
-                                    : `The row says "${h.matched}". No count stated next to it.`}
-                                  style={{ fontSize: 10.5, background: "#FBF0DC", color: "#8A5A00", padding: "2px 7px", borderRadius: 20 }}
-                                >
-                                  {h.matched}{h.count != null ? ` · ${h.count}` : ""}
-                                </span>
-                              ))}
-                              {hidden.length > 0 && (
-                                <span
-                                  title={`Also named in this row:\n${hidden.map((h) => `• ${h.matched}${h.count != null ? ` · ${h.count}` : ""}`).join("\n")}`}
-                                  style={{ fontSize: 10.5, background: "var(--surface-sunken)", color: "var(--muted)", padding: "2px 7px", borderRadius: 20, cursor: "help" }}
-                                >
-                                  +{hidden.length}
-                                </span>
-                              )}
-                            </>
-                          );
-                        })()}
-                        {r.categories.filter((ck) => !(ck === "m365Tenant" && r.licensing)).map((ck) => (
-                          <span key={ck} style={{ fontSize: 10.5, background: CATEGORY_META[ck].bg, color: CATEGORY_META[ck].color, padding: "2px 7px", borderRadius: 20 }}>
-                            {CATEGORY_META[ck].label}{ck === "dynamics365" && r.dynamicsSeatCount != null ? ` · ${r.dynamicsSeatCount}` : ""}
-                          </span>
-                        ))}
-                        {r.isPersonalProspect && (
-                          <span title="Personal/free email domain, but the row's own content already cleared Strong Signal — carved out of Auto-DQ instead of being a flat Bad Lead." style={{ fontSize: 10.5, background: "#DFF3F1", color: "#0F7A72", padding: "2px 7px", borderRadius: 20, fontWeight: 700 }}>
-                            {PERSONAL_PROSPECT_LABEL}
-                          </span>
-                        )}
-                        {r.tier === "dq" && r.dqReasons.map((reason) => (
-                          <span key={reason} style={{ fontSize: 10.5, background: "#FBEAE8", color: "#B5443B", padding: "2px 7px", borderRadius: 20 }}>{reason}</span>
-                        ))}
-                      </div>
-                    </td>
-                    <td style={{ padding: "10px 11px", color: "var(--muted)", fontSize: 12.5, minWidth: 190, maxWidth: 280 }}>
-                      <span className="clamp-3" title={r.notesSummary}>{r.notesSummary}</span>
+                    <td style={{ padding: "10px 11px", color: "var(--muted)", fontSize: 12.5, minWidth: 320, maxWidth: 620 }}>
+                      <span className="clamp-5" title={r.notesSummary}>{r.notesSummary}</span>
                     </td>
                     <td style={{ padding: "10px 11px" }}>
                       <button onClick={() => toggleTier(r.id)} style={{ border: "none", borderRadius: 20, padding: "4px 10px", fontWeight: 700, fontSize: 11.5, whiteSpace: "nowrap", color: tierColor, background: tierBg }}>{tierLabel}</button>
@@ -2089,39 +2008,38 @@ export default function Scanner({
                     </td>
                     <td style={{ padding: "10px 11px" }}>
                       <select value={r.category} onChange={(e) => reassignRow(r.id, e.target.value as CategoryKey)} style={{ background: meta.bg, color: meta.color, fontWeight: 600, border: "1px solid var(--border)", borderRadius: 7, padding: "6px 8px" }}>
-                        {ACTIVE_CATEGORY_KEYS.map((k) => (
+                        {(ACTIVE_CATEGORY_KEYS.includes(r.category) ? ACTIVE_CATEGORY_KEYS : [...ACTIVE_CATEGORY_KEYS, r.category]).map((k) => (
                           <option key={k} value={k}>{CATEGORY_META[k].label}</option>
                         ))}
                       </select>
+                      {/* Every product line names its own type under it, and the
+                          flags that used to sit in Detected ride here. */}
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+                        {r.category === "dynamics365" && (
+                          <span style={{ fontSize: 10.5, color: meta.color }}>
+                            {DYNAMICS_TAB_META[r.isBusinessCentral ? "bc" : r.isSalesCrm ? "sales" : r.isPowerPlatform ? "power" : "other"].label}
+                            {r.dynamicsSeatCount != null ? ` · ${r.dynamicsSeatCount}` : ""}
+                          </span>
+                        )}
+                        {r.category === "m365Tenant" && m365TabOf(r) === "migration" && (
+                          <span style={{ fontSize: 10.5, color: meta.color }}>{M365_TAB_META.migration.label}</span>
+                        )}
+                        {topPriorityReason(r) && <TopPriorityBadge reason={topPriorityReason(r)!} />}
+                        {r.isDuplicate && <span style={{ fontSize: 10.5, background: "#F7B955", color: "#5C3A00", padding: "2px 7px", borderRadius: 20, fontWeight: 700 }}>DUPLICATE</span>}
+                        {r.isPersonalProspect && (
+                          <span title="Personal/free email domain, but the row's own content already cleared Strong Signal." style={{ fontSize: 10.5, background: "#DFF3F1", color: "#0F7A72", padding: "2px 7px", borderRadius: 20, fontWeight: 700 }}>
+                            {PERSONAL_PROSPECT_LABEL}
+                          </span>
+                        )}
+                        {r.tier === "dq" && r.dqReasons.map((reason) => (
+                          <span key={reason} style={{ fontSize: 10.5, background: "#FBEAE8", color: "#B5443B", padding: "2px 7px", borderRadius: 20 }}>{reason}</span>
+                        ))}
+                      </div>
                     </td>
                     <td style={{ padding: "10px 11px" }}>
                       <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 132 }}>
-                        <div style={{ display: "flex", gap: 4 }}>
-                          <select
-                            value={r.disposition}
-                            onChange={(e) => setDisposition(r.id, e.target.value as Disposition)}
-                            style={{ flex: 1, background: dispositionMetaFor(r.disposition, dispositions).bg, color: dispositionMetaFor(r.disposition, dispositions).color, fontWeight: 600, border: "1px solid var(--border)", borderRadius: 7, padding: "5px 7px", fontSize: 12 }}
-                          >
-                            <DispositionOptions dispositions={dispositions} />
-                          </select>
-                          {r.disposition !== "none" && (
-                            <button
-                              onClick={() => undoDisposition(r.id)}
-                              title="Undo disposition (mistakenly selected)"
-                              style={{ border: "1px solid var(--border)", background: "#fff", borderRadius: 7, padding: "0 7px", fontSize: 13, cursor: "pointer" }}
-                            >
-                              ↺
-                            </button>
-                          )}
-                        </div>
-                        {r.disposition !== "none" && (
-                          <input
-                            defaultValue={r.dispositionNote}
-                            onBlur={(e) => setDispositionNote(r.id, e.target.value)}
-                            placeholder="Note"
-                            style={{ border: "1px solid var(--border)", borderRadius: 6, padding: "4px 6px", fontSize: 11.5 }}
-                          />
-                        )}
+                        <LiveDisposition live={apolloLive.get(r.id)} busy={!!liveProgress && !liveProgress.finished}
+                          onCheck={() => checkRowsInApollo([r])} />
                         <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
                           <button
                             onClick={() => togglePriority(r.id)}
@@ -2279,6 +2197,32 @@ function NonRelevantTable({ rows }: { rows: NoSignalRow[] }) {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+/** The contact's most recent Apollo call disposition, from a live check. */
+function LiveDisposition({ live, busy, onCheck }: { live?: { at: string; state: ApolloLeadState | null }; busy: boolean; onCheck: () => void }) {
+  const st = live?.state;
+  const active = st?.sequences?.find((x) => x.status === "active");
+  const lastSeq = active ?? st?.sequences?.[0];
+  return (
+    <div data-live-disposition style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
+      <div style={{ flex: 1, fontSize: 12, lineHeight: 1.35 }}>
+        {!live ? <span className="muted">Not checked</span>
+          : !st ? <span className="muted">Not in Apollo</span>
+          : (
+            <>
+              <div style={{ fontWeight: 600 }}>{st.lastOutcome || "No call disposition yet"}</div>
+              {st.lastCallAt && <div className="muted">{st.lastCallAt}{st.callCount ? ` · ${st.callCount} call${st.callCount === 1 ? "" : "s"}` : ""}</div>}
+              {lastSeq && <div className="muted" title={lastSeq.reason || ""}>{lastSeq.status === "active" ? "Active" : "Ended"}: {lastSeq.name}</div>}
+            </>
+          )}
+      </div>
+      <button onClick={onCheck} disabled={busy} title={live ? `Checked ${live.at.slice(0, 16).replace("T", " ")}. Check again.` : "Check this contact in Apollo (read-only)"}
+              style={{ border: "1px solid var(--border)", background: "#fff", borderRadius: 7, padding: "2px 7px", fontSize: 12, cursor: "pointer" }}>
+        ⟳
+      </button>
     </div>
   );
 }
