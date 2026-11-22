@@ -279,6 +279,9 @@ export type LeadInput = Omit<
   /** The rest of the CSV row as it arrived — goes to the raw store, never
    *  onto the lead record. */
   rawFields?: Record<string, string>;
+  /** A grade moved by hand in the scanner before Save. Stored as a hand
+   *  grade (moveGrade), so later automatic re-grades keep it. */
+  handGrade?: HandGrade;
 };
 
 /** Keep an existing non-empty value; a later, sparser upload must never
@@ -489,8 +492,9 @@ export function mergeLeads(
         ...(inc.notFit ? { notFit: inc.notFit } : {}),
         ...(inc.dynamicsView ? { dynamicsView: inc.dynamicsView } : {}),
       };
-      byKey.set(key, lead);
-      changed.set(key, lead);
+      const placed = inc.handGrade ? moveGrade(lead, inc.handGrade, now, "Moved in the Main Scanner") : lead;
+      byKey.set(key, placed);
+      changed.set(key, placed);
       added++;
       continue;
     }
@@ -528,8 +532,9 @@ export function mergeLeads(
       noteDates: mergeNoteDates(prev.noteDates, datesIn(inc, now)),
       ...(inc.notFit ? { notFit: inc.notFit } : {}),
     });
-    byKey.set(key, lead);
-    changed.set(key, lead);
+    const placed = inc.handGrade ? moveGrade(lead, inc.handGrade, now, "Moved in the Main Scanner") : lead;
+    byKey.set(key, placed);
+    changed.set(key, placed);
     updated++;
   }
 

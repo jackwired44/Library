@@ -16,7 +16,7 @@ import {
 } from "./detection";
 import { BUCKET2_META, CSP_BUCKET_META, type Row2, type ScannerKind } from "./scanner2";
 import { rawFieldsOf } from "./rawNotes";
-import { NO_SIGNAL_TIER, leadKeyOfInput, type LeadInput, type LeadSource } from "./leadStore";
+import { NO_SIGNAL_TIER, leadKeyOfInput, type LeadInput, type LeadSource, type HandGrade } from "./leadStore";
 
 /** The local calendar day of a timestamp, "YYYY-MM-DD". A bare date is
  *  already a day and passes through; a full ISO stamp is read in the
@@ -264,6 +264,9 @@ const TIER_WORDS: Record<Tier, string> = {
   dq: "Bad Lead",
 };
 
+const BAND_TIER: Record<string, Tier> = { high: "signal", medium: "mention", low: "mention", dq: "dq" };
+const HAND_OF_TIER: Record<Tier, HandGrade> = { signal: "Strong Signal", mention: "Needs Review", dq: "Bad Lead" };
+
 export function leadInputsFromResults(rows: ResultRow[]): LeadInput[] {
   return rows.map((r) => {
     const f = r.row.__f;
@@ -280,6 +283,10 @@ export function leadInputsFromResults(rows: ResultRow[]): LeadInput[] {
       tier: r.priorityBand
         ? PRIORITY_META[r.priorityBand]?.label || ""
         : TIER_WORDS[r.tier] || "",
+      // A grade moved by hand in the scanner (the band still holds the
+      // scanner's own verdict). Per Jack, 11/22: 80 Dynamics leads he moved
+      // from Needs Review to Strong Signal were saved as Needs Review.
+      ...(r.priorityBand && BAND_TIER[r.priorityBand] !== r.tier ? { handGrade: HAND_OF_TIER[r.tier] } : {}),
       notes: r.notesSummary || "",
       score: r.mainScore ? r.mainScore.score : null,
       sourceFile: r.sourceFile || "",

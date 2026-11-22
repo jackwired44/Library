@@ -530,11 +530,14 @@ export default function AllLeads({
   // in this month's count. "Any file" counts a lead under every month one of
   // its files is dated, so a month matches the files uploaded for it.
   const [monthBy, setMonthByState] = useState<"first" | "any">(() => {
-    try { return localStorage.getItem("allLeadsMonthBy") === "any" ? "any" : "first"; } catch { return "first"; }
+    // 11/22: "any file" is the default, per Jack: "november still says 178"
+    // after scanning the Nov 8 and Nov 17 files. A month means that month's
+    // files. New key so an earlier "first seen" pick doesn't hold it back.
+    try { return localStorage.getItem("allLeadsMonthBy2") === "first" ? "first" : "any"; } catch { return "any"; }
   });
   const setMonthBy = (v: "first" | "any") => {
     setMonthByState(v);
-    try { localStorage.setItem("allLeadsMonthBy", v); } catch { /* preference only */ }
+    try { localStorage.setItem("allLeadsMonthBy2", v); } catch { /* preference only */ }
   };
   const fileMonthMap = useMemo(() => {
     if (monthBy !== "any") return null;
@@ -909,6 +912,29 @@ export default function AllLeads({
     const f = failOf.get(l.key);
     return f === "" || (skip !== undefined && f === skip);
   };
+
+  // For the picked months: how many matching leads came in on that month's
+  // files, and how many of those were first seen in an earlier month. Shown
+  // under the strip so the two counts can't be mistaken for missing leads.
+  const monthSplit = useMemo(() => {
+    if (!periodSet.size || periodKind === "all") return null;
+    const fm = fileMonthMap ?? (() => {
+      const dm = fileDates(leads);
+      return new Map([...dm].map(([f, dd]) => [f, fileMonthKey(f, dd)] as [string, string]));
+    })();
+    const hit = (m: string) => periodSet.has(periodKeyOf(m, periodKind));
+    let inFiles = 0, earlier = 0;
+    for (const l of leads) {
+      if (!passes(l, "month")) continue;
+      const d = derived.get(l.key)!;
+      const viaFile = l.sourceFiles.some((f) => { const m = fm.get(f); return !!m && hit(m); });
+      if (!viaFile) continue;
+      inFiles++;
+      if (!hit(d.month)) earlier++;
+    }
+    return { inFiles, earlier };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periodSet, periodKind, fileMonthMap, leads, derived, failOf]);
 
   const filtered = useMemo(() => {
     const out = leads.filter((l) => passes(l));
@@ -1519,6 +1545,15 @@ export default function AllLeads({
                   {periodLabel(k, periodKind)} <b>{n.toLocaleString()}</b>
                 </button>
               ))}
+            </div>
+          )}
+          {monthSplit && monthSplit.earlier > 0 && (
+            <div className="muted" aria-label="Month split" style={{ fontSize: 12.5, flexBasis: "100%" }}>
+              {monthSplit.inFiles.toLocaleString()} came in on this period's files; {monthSplit.earlier.toLocaleString()} of them were first seen in an earlier month
+              {monthBy === "any" ? " and are included." : " and are not counted here. "}
+              {monthBy === "first" && (
+                <button className="btn btn-ghost btn-sm" onClick={() => setMonthBy("any")}>Include them</button>
+              )}
             </div>
           )}
           {periodKind !== "all" && rangeKeys.length > 1 && (

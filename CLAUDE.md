@@ -8544,3 +8544,21 @@ unchanged) or **any file it came in on**, where a lead counts in every month
 one of its CSVs is dated (`fileDates` + `fileMonthKey`), so a month shows
 everyone in that month's files. Smart-list rules still use the first-seen
 month. Suite `month-count-by-live` (6).
+
+### 2026-11-22: hand grade moves in the scanner are saved; "any file" is the month default (scanner-platform-v29)
+
+Per Jack: 323 Dynamics Strong in the scanner (Book11-8 + Book11-17) vs 178
+in All leads for Nov 2026, "of which 80 i moved from dynamics needs review".
+- **Bug fixed:** a grade moved in the Main Scanner (tier toggle / bulk) was
+  lost on Save: `leadInputsFromResults` stored the scan's own priority band.
+  Now a row whose tier differs from its band carries `LeadInput.handGrade`,
+  and `mergeLeads` applies `moveGrade` (reason "Moved in the Main Scanner"),
+  so it is a hand grade that re-uploads and the note refresh keep.
+  Leads saved before this stay as saved. Suite `scanner-hand-grade` (8).
+- Scanning the two files one at a time counted 48 people twice; together
+  they hold 275 unique Dynamics Strong (BC 108, Sales 145, other 22).
+- All leads "Count by" now defaults to **any file it came in on**
+  (localStorage `allLeadsMonthBy2`). With a month picked, a line under the
+  strip (`aria-label="Month split"`) says how many came in on that period's
+  files and how many were first seen earlier, with "Include them" when on
+  first seen. `month-count-by-live` 6 → 10.

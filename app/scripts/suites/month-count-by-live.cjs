@@ -42,10 +42,17 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   if (await seg.count()) { await seg.first().click(); await sleep(400); }
   const nov = () => page.locator('[aria-label="Periods"] button', { hasText: /Nov 2026/ }).first();
   const countOf = async () => Number(((await nov().innerText()).match(/(\d+)\s*$/) || [])[1]);
-  ok('first seen: Nov 2026 counts only the new lead', await countOf() === 1, String(await countOf()));
-  await page.selectOption('select[aria-label="Count by"]', 'any'); await sleep(500);
+  // 11/22 (later): per Jack, "any file" is now the default.
+  ok('default is any file', (await page.locator('select[aria-label="Count by"]').inputValue()) === 'any');
   ok('any file: Nov 2026 counts both leads in the November file', await countOf() === 2, String(await countOf()));
   await nov().click(); await sleep(500);
+  const split = async () => (await page.locator('[aria-label="Month split"]').innerText().catch(() => ''));
+  ok('  the split line says 1 was first seen earlier and is included', /2 came in on this period's files; 1 of them were first seen in an earlier month and are included/.test(await split()), await split());
+  await page.selectOption('select[aria-label="Count by"]', 'first'); await sleep(500);
+  ok('first seen: Nov 2026 counts only the new lead', await countOf() === 1, String(await countOf()));
+  ok('  the split line offers to include the earlier one', /not counted here/.test(await split()), await split());
+  await page.locator('[aria-label="Month split"] button', { hasText: 'Include them' }).click(); await sleep(500);
+  ok('  Include them switches back to any file', (await page.locator('select[aria-label="Count by"]').inputValue()) === 'any' && await countOf() === 2);
   const t = (await page.locator('main').innerText());
   ok('  and picking Nov 2026 shows the repeat lead too', /Ray Peat/.test(t) && /Fay Resh/.test(t));
   const oct = page.locator('[aria-label="Periods"] button', { hasText: /Oct 2026/ }).first();
