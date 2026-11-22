@@ -1171,6 +1171,13 @@ export default function AllLeads({
     return due.sort((a, b) => rank(a) - rank(b));
   }, [checkBase, recheck, weekAgo]);
   const checkTargets = useMemo(() => (batchN && !selected.size ? checkDue.slice(0, batchN) : checkDue), [checkDue, batchN, selected.size]);
+  // Per Jack: "selected the months … its not giving me all them". Say where
+  // every filtered lead went, so the check always adds up to what is shown.
+  const checkMix = useMemo(() => {
+    const weekDone = recheck ? 0 : checkBase.length - checkDue.length;
+    const noQuery = checkDue.filter((l) => !String(l.email || "").includes("@") && String(l.contact || "").trim().split(/\s+/).length < 2).length;
+    return { total: checkBase.length, weekDone, noQuery, later: checkDue.length - checkTargets.length };
+  }, [checkBase, checkDue, checkTargets, recheck]);
   const checkCounts = useMemo(() => {
     let found = 0, notFound = 0, unchecked = 0;
     for (const l of leads) {
@@ -2035,6 +2042,15 @@ export default function AllLeads({
               <input type="checkbox" checked={recheck} disabled={checking} onChange={(e) => setRecheck(e.target.checked)} />
               Re-check this week's
             </label>
+            {!checking && checkMix.total > 0 && (checkMix.weekDone > 0 || checkMix.later > 0 || checkMix.noQuery > 0) && (
+              <span className="muted" data-check-mix style={{ fontSize: 11.5, width: "100%" }}>
+                Of {checkMix.total.toLocaleString()} {selected.size ? "ticked" : "matched"}:
+                {checkMix.weekDone > 0 && <> {checkMix.weekDone.toLocaleString()} already checked this week (tick Re-check to include) ·</>}
+                {checkMix.later > 0 && <> {checkMix.later.toLocaleString()} wait for the next batch (or pick All due) ·</>}
+                {checkMix.noQuery > 0 && <> {checkMix.noQuery.toLocaleString()} have no email or full name to search ·</>}
+                {" "}Apollo allows about 400 look-ups an hour, and a found lead also reads its calls and emails, so a run can stop early and pick up on the next click.
+              </span>
+            )}
           </>
         )}
         <span style={{ width: 1, height: 18, background: "var(--border)" }} />
