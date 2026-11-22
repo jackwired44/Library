@@ -6297,6 +6297,30 @@ intelligence and migrations so merge those three as one".
   Library rows filed before this read as not Power Platform / not Document
   Intelligence until re-scanned.
 
+### 2026-11-22: Never-reached email list; Main Scanner table re-cut (scanner-platform-v29)
+
+- **All leads → "📬 Never-reached email list"** (per Jack: pull leads
+  "never able to be contacted" from a selection / month / quarter / year /
+  all time into an auto list "for regular email cycles every month"). One
+  click saves a SMART list (re-runs as Apollo data changes) with a 30-day
+  cycle, tags `email cycle`, `never reached`. Rule: `contact:
+  "triedNotReached"` (`lib/smartRules.ts`): called, emailed or sequenced,
+  but no conversation / reply / meeting / not interested / DNC, not active
+  in a sequence, no deal on file. Ticked rows → `keys`; else the period
+  (`periods`, month / quarter / year), grade, product line and scanner, and
+  `keys` too when any other filter is on. All leads' period strip gained
+  **Year**.
+- **Main Scanner table** (per Jack: "i dont want deteced … we just need
+  product line … dispostion should only exist for live connection"): the
+  Detected column is gone; the product line cell names its type (Dynamics
+  tab, M365 migrations tab, Dynamics seat count) and carries the ★ pin,
+  DUPLICATE, Personal Prospect and DQ reasons. Notes column is wider and
+  shows 5 lines. The manual disposition dropdown, undo, note and bulk
+  disposition are removed; the column is **Apollo disposition**: a live,
+  read-only check per row (⟳) or for ticked / all shown rows (up to 400),
+  showing the most recent call outcome, its date, call count and the
+  active/ended sequence. Results live for this scan only.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool
