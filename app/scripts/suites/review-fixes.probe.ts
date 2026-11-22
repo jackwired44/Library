@@ -92,6 +92,15 @@ const twoSeg = { ...base, tier: "No signal", notes: `(40) \u25BC Wants Copilot f
 const fixedTwo = unscannedFix(twoSeg, rawRec);
 ok("only the raw-copy line is rewritten; the scanned line stays", fixedTwo.notes.startsWith("(40) \u25BC Wants Copilot for 20 users.") && !fixedTwo.notes.includes("copier"), fixedTwo.notes);
 
+// 11/22: a no-signal lead filed before raw notes were kept had its raw note
+// as its note and nothing to compare it to. A Main no-signal lead never had
+// a scanned note before 10/29, so an unmarked line on one is raw.
+const nsNoRaw = { ...base, tier: "No signal", notes: `2026-08-01 \u00b7 ${RAW}`, apollo: undefined } as StoredLead;
+const fixedNoRaw = unscannedFix(nsNoRaw, undefined);
+ok("a no-signal lead with no saved raw note still gets a scanned line", /^2026-08-01 \u00b7 \u25BC No Dynamics/.test(fixedNoRaw.notes), fixedNoRaw.notes);
+const shortNs = { ...base, tier: "No signal", notes: "Need a quote", apollo: undefined } as StoredLead;
+ok("a short raw note (under 20 chars) is scanned too", /^\u25BC /.test(unscannedFix(shortNs, undefined).notes), unscannedFix(shortNs, undefined).notes);
+
 // 7b. The generated "Ask" tail is still found after an ellipsis or a mark.
 const ell = combineNotes("(50) \u25B2 Wants dashboards, track performance, analyze\u2026 Ask how they manage licensing today.", "(60) \u25B2 Newer.", "2026-10-29");
 ok("'Ask' after an ellipsis is still stripped from the older line", !/Ask how they manage/.test(ell.split("\n").slice(1).join("\n")), ell);

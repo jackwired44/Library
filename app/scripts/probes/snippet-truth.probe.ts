@@ -642,5 +642,21 @@ ok("a row with no SKU and no Product Area still states what matched",
   ok("  but a meeting with a Microsoft PARTNER is not exempt", !/Thursday/.test(d5), d5);
 }
 
+// Per Jack, 11/22: "some leads in needs review are coming through as raw
+// scan". A form line listing two products, or a product name with "for" in
+// it, was quoted back whole because a field longer than seven words or
+// holding "for" was not read as a product.
+{
+  const [a] = scan(["product - Juneau Bone and Joint Clinic - Microsoft 365 Business Premium and Microsoft Teams Phone Standard- 30"]);
+  const x = a ? stripSnippetPrefix(a.notesSummary) : "(no row)";
+  ok("a two-product form line reads as a want, not the raw line", /^Wants Microsoft 365 Business Premium and Microsoft Teams Phone Standard for 30 users\./.test(x) && !/Juneau/.test(x), x);
+  const [b] = scan(["f1 SERVICE-Microsoft Defender Suite for Business Premium- 1 USER"]);
+  const y = b ? stripSnippetPrefix(b.notesSummary) : "(no row)";
+  ok("a product named with 'for' still reads as a want", /^Wants Microsoft Defender Suite for Business Premium for 1 user\./.test(y), y);
+  const [c] = scan(["1C0E Azure Monitor and Log Analytics Microsoft Sentinel HIPAA compliance"]);
+  const z = c ? stripSnippetPrefix(c.notesSummary) : "(no row)";
+  ok("a CRM code prefix is dropped", !/1C0E/.test(z) && /^Wants Azure Monitor/.test(z), z);
+}
+
 console.log(`\n${pass}/${pass + fail} checks passed`);
 if (fail) process.exit(1);

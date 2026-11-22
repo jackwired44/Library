@@ -14,7 +14,7 @@
 // is left alone. Older dated note segments are history and are not
 // rewritten. Custom and CSP leads get the Main-format note too, keeping
 // their own grade (see refreshMainNotes).
-import { scanParsedFiles, stripSnippetPrefix, noSignalNote, DEFAULT_RULE_OVERRIDES, type RuleOverrides } from "./detection";
+import { scanParsedFiles, stripSnippetPrefix, noSignalNote, looksScanned, DEFAULT_RULE_OVERRIDES, type RuleOverrides } from "./detection";
 import { NOTE_SEP, NO_SIGNAL_TIER, noteSegments, keepHandGrade, gradeOfTier, type StoredLead } from "./leadStore";
 import { leadInputsFromResults } from "./leadFiling";
 import type { ResultRow } from "./detection";
@@ -22,7 +22,7 @@ import { loadRawNotesMany, newestRaw, type RawNotes, type RawRowRecord } from ".
 import { scan2, emptyRuleSet, loadRuleSets, profileColumns, guessFieldMapping, type RuleSet2, type ScannerKind } from "./scanner2";
 
 /** Bump when the Main note rules change, so stored notes refresh once. */
-export const NOTE_RULES_VERSION = "2026-11-22-no-direct-with-microsoft";
+export const NOTE_RULES_VERSION = "2026-11-22-form-lines-scanned";
 const VERSION_KEY = "mainNoteRulesVersion";
 
 /** The most recent CSV row kept for a lead. appendRow stores rows newest
@@ -185,6 +185,10 @@ export async function refreshMainNotes(
           const f = orig.sourceFiles[orig.sourceFiles.length - 1] || "Unknown file";
           missing.set(f, (missing.get(f) || 0) + 1);
         }
+        // No saved row to re-scan, but a raw note stored as a no-signal
+        // lead's note can still be told apart and scanned.
+        const fixed = unscannedFix(orig, undefined);
+        if (fixed !== orig) changed.push(fixed);
         continue;
       }
       // A note line that is a copy of the raw CSV note is replaced first
@@ -219,7 +223,7 @@ function normNote(t: string): string {
 export function isRawCopy(text: string, raw: RawNotes | undefined): boolean {
   if (!raw?.segments?.length) return false;
   const n = normNote(text);
-  if (n.length < 20) return false;
+  if (n.length < 4) return false;
   return raw.segments.some((s) => {
     const r = normNote(s.text);
     return r === n || (n.length >= 40 && (r.includes(n) || n.includes(r)));
@@ -238,8 +242,20 @@ export function isRawCopy(text: string, raw: RawNotes | undefined): boolean {
  */
 const NOTHING_QUALIFIED = "Nothing in the note qualified on this scanner.";
 export function unscannedFix(l: StoredLead, raw: RawNotes | undefined): StoredLead {
-  if (!raw) return l;
   const segs = noteSegments(l.notes);
+  // A Main no-signal lead never had a scanned note before 10/29: any line
+  // on it without a mark is the raw CSV note stored as-is. That holds even
+  // when no raw note was saved to compare against (leads filed before raw
+  // notes were kept), which is where raw text was still showing (11/22).
+  if (l.source === "main" && l.tier === NO_SIGNAL_TIER && segs.some((s) => !looksScanned(s.text))) {
+    const lines = segs.map((s) => {
+      const text = looksScanned(s.text) ? s.text : noSignalNote(s.text);
+      return s.date ? `${s.date} · ${text}` : text;
+    });
+    const notes = lines.join(NOTE_SEP);
+    if (notes !== l.notes) return { ...l, notes };
+  }
+  if (!raw) return l;
   if (!segs.length) {
     if (l.source !== "main" || l.tier !== NO_SIGNAL_TIER) return l;
     const text = newestRaw(raw);

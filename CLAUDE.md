@@ -8605,3 +8605,23 @@ Per Jack: "no more saying direct with microsoft in the scanned notes".
   notes with a saved CSV row rewrite on next open.
 - Re-pointed to this rule (dated notes): snippet-truth (3), csp-notes (1),
   csp (1), csp-renewal-live (1), docs (1), dynamics-brief (1).
+
+### 2026-11-22: form lines no longer quoted back raw (scanner-platform-v29)
+
+Per Jack: "seems some leads in needs review are coming through as raw scan".
+On his November files every note had a head and an ask, but a short form
+line was quoted almost whole ("Product - Juneau Bone and Joint Clinic -
+Microsoft 365 Business Premium and Microsoft Teams Phone Standard- 30.").
+- The form-line reader (`noteLead`, `isProductField`) reads a field listing
+  several products (split on and / & / with / plus / comma, each piece up
+  to 10 words) and a product named with "for" ("Defender Suite for Business
+  Premium"). Those now read "Wants <products> for N users." CRM codes like
+  "1C0E" are stripped (`1C[0-9A-F]{2}`).
+- Stored notes: a Main no-signal lead's line without a mark is its raw note
+  (no-signal leads had no scanned note before 10/29), so `unscannedFix`
+  scans it even when no raw note was saved, and the refresh now applies it
+  to leads with no saved CSV row. `isRawCopy` matches an exact copy at any
+  length (was 20+ chars).
+- Note only: grade totals on Book11-8 + Book11-17 unchanged (899 / 2,669 /
+  88). `NOTE_RULES_VERSION` = `2026-11-22-form-lines-scanned`.
+- snippet-truth 117 → 120, review-fixes 35 → 37.

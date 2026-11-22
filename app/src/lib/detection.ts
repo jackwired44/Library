@@ -3650,7 +3650,7 @@ function stripCrmChrome(t: string): string {
     .replace(/\bComments?\s*:/gi, " ")
     .replace(/\bComment\s*\|/gi, " ")
     .replace(/(?:^|\s)[A-Z]{2,4}\s*-\s*\d{1,2}\/[A-Za-z]{3,9}\s*-\s*/g, " ")
-    .replace(/\b1C1E\b/g, " ")
+    .replace(/\b1C[0-9A-F]{2}\b/g, " ")
     .replace(/\*\*|__/g, "")
     // Microsoft's mandatory-field form: "First Comment (Mandatory fields):
     // - Tenant ID: <guid> - Organization details: …". The headers and IDs
@@ -3698,6 +3698,13 @@ function stripTimelinePhrase(u: string): string {
   }
   return out.replace(/\s+([.,;])/g, "$1").replace(/\s{2,}/g, " ").trim();
 }
+const PRODUCT_FIELD_CLAUSE_RE = /;|\b(?:they|we|our|their|i|is|are|was|run|runs|renew\w*|review\w*|created|recommended|looking|need\w*|want\w*|this|follow)\b|\bfor\b(?!\s+(?:business|enterprise|education|frontline|government|teams|office|microsoft|m365|o365|endpoint|identity|servers?|cloud|storage|sql))|\d+\/\d+/i;
+function isProductField(sg: string): boolean {
+  const pieces = sg.replace(/\s+etc\.?$/i, "").split(/\s+(?:and|&|plus|with)\s+|\s*[,+]\s*/i).map((x) => x.trim()).filter(Boolean);
+  if (!pieces.length || pieces.length > 4 || sg.split(/\s+/).length > 16) return false;
+  if (!pieces.some((p) => LEAD_PRODUCT_RE.test(p))) return false;
+  return pieces.every((p) => p.split(/\s+/).length <= 10 && !PRODUCT_FIELD_CLAUSE_RE.test(p));
+}
 function noteLead(fullText: string, anchor: string, skip?: RegExp): string {
   // "…Referral ID: 7426… Notes: Microsoft Partner is engaging…" — a label
   // opens the real sentence, so break there or it is glued to the IDs.
@@ -3735,8 +3742,10 @@ function noteLead(fullText: string, anchor: string, skip?: RegExp): string {
       if (sg.split(/\s+/).length >= 5 && LEAD_INTENT_RE.test(sg)) said.push(sg);
       // A product field is a short noun phrase — "Microsoft 365 E3", not a
       // clause like "reviewed E3 renewal, 90 seats" or "They run Office 365".
-      else if (LEAD_PRODUCT_RE.test(sg) && sg.split(/\s+/).length <= 7 &&
-        !/[,;]|\b(?:they|we|our|their|i|is|are|was|run|runs|renew\w*|review\w*|created|recommended|looking|need\w*|want\w*|for|this|follow)\b|\d+\/\d+/i.test(sg)) products.push(sg);
+      // A field may list several ("Microsoft 365 Business Premium and
+      // Microsoft Teams Phone Standard"): each piece is checked on its own,
+      // so a two-product field is not quoted back whole as if raw (11/22).
+      else if (isProductField(sg)) products.push(sg.replace(/\s+etc\.?$/i, ""));
     }
     if (products.length) {
       const ask = n != null && n > 0 && !(n >= 1900 && n <= 2100)
