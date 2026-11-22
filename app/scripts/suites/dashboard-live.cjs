@@ -40,7 +40,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   const b = await chromium.launch({ executablePath: EXE });
   const page = await (await b.newContext({ viewport: { width: 1600, height: 1000 } })).newPage();
   // These checks read columns All leads now hides by default; show every column.
-  await page.addInitScript(() => { try { if (localStorage.getItem('allLeadsHiddenParts2') === null) { localStorage.setItem('allLeadsHiddenParts2', '[]'); localStorage.setItem('allLeadsPanelsRemoved1', '1'); localStorage.setItem('allLeadsPanelsRemoved2', '1'); localStorage.setItem('allLeadsColsSimple1', '1'); } } catch { /* ignore */ } });
+  await page.addInitScript(() => { try { if (localStorage.getItem('allLeadsHiddenParts2') === null) { localStorage.setItem('allLeadsHiddenParts2', '[]'); localStorage.setItem('allLeadsPanelsRemoved1', '1'); localStorage.setItem('allLeadsPanelsRemoved2', '1'); localStorage.setItem('allLeadsColsSimple1', '1'); localStorage.setItem('allLeadsScannerLayout1', '1'); } } catch { /* ignore */ } });
   const errs = [];
   page.on('pageerror', e => errs.push('PAGEERROR ' + e.message));
   page.on('console', m => { if (m.type() === 'error' && !/favicon|font|net::|googleapis|Failed to load/i.test(m.text())) errs.push('CONSOLE ' + m.text()); });
@@ -93,7 +93,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
 
   console.log('\n== the dense table ==');
   const rowH = await page.locator('.dense-table tbody tr').first().evaluate((el) => el.getBoundingClientRect().height);
-  ok('rows stay compact: the note wraps to three lines at most', rowH <= 80, String(rowH));
+  // 11/22: per Jack, All leads rows take the Main Scanner's format, whose note wraps to five lines.
+  ok('rows stay compact: the note wraps to five lines at most, like the Main Scanner', rowH <= 140, String(rowH));
   ok('100 rows per page by default', (await page.locator('select:has(option[value="500"])').inputValue()) === '100');
   // First and last name are separate columns now, so match across the cell break.
   const byName = (name) => ({ hasText: new RegExp(name.split(' ').join('\\s*')) });
