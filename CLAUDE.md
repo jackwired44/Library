@@ -6321,6 +6321,17 @@ intelligence and migrations so merge those three as one".
   showing the most recent call outcome, its date, call count and the
   active/ended sequence. Results live for this scan only.
 
+### 2026-11-22: Home trimmed to the work queue (scanner-platform-v29)
+
+Per Jack: "redo the hompage bunch is unecesarry"; he kept only the work
+queue numbers. Home (`components/Overview.tsx`) is the greeting line (date,
+lead count, Apollo sync age), Upload leads / All leads, and four tiles:
+Strong signal · never contacted, tried, not reached, In a sequence now,
+Ready to recycle; each clicks through. The Apollo panel, filters bar,
+other tiles, every chart and the Customize button are off Home
+(`HOME_KEEP`); the code stays, and the same data is still in All leads,
+Recycle and the Sequence Scanner.
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool

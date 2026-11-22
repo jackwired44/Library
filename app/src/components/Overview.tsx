@@ -12,7 +12,6 @@
 // disagree with the screens it summarises. Apollo-derived numbers are only
 // as fresh as the last sync, so the sync's age is stated beside them.
 import { arrivalOf } from "../lib/leadFiling";
-import Customize, { loadHiddenSet, saveHiddenSet } from "./Customize";
 import { useEffect, useMemo, useState } from "react";
 import { LEAD_SOURCE_META, hasActiveSequence, type LeadSource, type StoredLead } from "../lib/leadStore";
 import { TOP_TIERS, holdReason, type RoutingRules } from "../lib/sequenceRouting";
@@ -123,7 +122,7 @@ const HOME_WIDGETS = [
   { id: "c-uploads", group: "Charts", label: "Recent uploads" },
 ] as const;
 type WidgetId = (typeof HOME_WIDGETS)[number]["id"];
-const HIDDEN_KEY = "homeHiddenWidgets";
+const HOME_KEEP = new Set<WidgetId>(["k-uncontacted", "k-unreached", "k-insequence", "k-recycle"]);
 
 export default function Overview({
   leads, funnels, historyEntries, companyProfiles, rules, onNavigate, onOpenStatus, onOpenPreset, apolloIndex = null, topPanel, recycle,
@@ -145,9 +144,11 @@ export default function Overview({
   /** Rendered right under the page header (the Apollo status panel). */
   topPanel?: React.ReactNode;
 }) {
-  const [hidden, setHiddenState] = useState<Set<string>>(() => loadHiddenSet(HIDDEN_KEY, HOME_WIDGETS));
-  const setHidden = (h: Set<string>) => { setHiddenState(h); saveHiddenSet(HIDDEN_KEY, h); };
-  const show = (id: WidgetId) => !hidden.has(id);
+  // Per Jack (2026-11-22): "redo the hompage bunch is unecesarry" — Home is
+  // the work-queue numbers only. The other panels and charts stay in the
+  // code (and their numbers elsewhere in the platform); they just don't show
+  // here.
+  const show = (id: WidgetId) => HOME_KEEP.has(id);
   const [runs, setRuns] = useState<Run2[]>([]);
   useEffect(() => {
     Promise.all([loadRuns("smc"), loadRuns("csp")])
@@ -344,7 +345,6 @@ export default function Overview({
           <p className="page-sub">{today} · {scopeNote} · {syncNote}</p>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <Customize items={HOME_WIDGETS} hidden={hidden} onChange={setHidden} label="Customize home" />
           <button className="btn btn-sm btn-secondary" onClick={() => onNavigate("scanner")}>⬆ Upload leads</button>
           <button className="btn btn-sm btn-primary" onClick={() => onNavigate("allleads")}>All leads →</button>
         </div>
