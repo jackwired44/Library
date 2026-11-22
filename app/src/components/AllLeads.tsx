@@ -602,7 +602,7 @@ export default function AllLeads({
         employees: c.employees,
         sizeKey: bucket ? bucket.key : "unknown",
         line: l.productArea || NO_LINE,
-        dyn: /dynamics/i.test(l.productArea || "") ? (l.dynamicsView ?? dynamicsTabOfText(`${l.notes || ""}   ${l.productArea || ""}`)) : null,
+        dyn: /dynamics/i.test(l.productArea || "") ? (l.dynamicsView && l.dynamicsView !== "power" ? l.dynamicsView : dynamicsTabOfText(`${l.notes || ""}   ${l.productArea || ""}`)) : null,
         active: seqs.some((x) => x.status === "active"),
         finished: seqs.length > 0 && !seqs.some((x) => x.status === "active"),
         sequenced: seqs.length > 0,

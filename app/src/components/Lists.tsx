@@ -117,11 +117,11 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
     if (cur.has(rowKey)) cur.delete(rowKey); else cur.add(rowKey);
     onUpdateMeta(list.id, { includeRowKeys: [...cur] });
   }
-  function checkList(list: LeadList) {
+  function checkList(list: LeadList, force = false) {
     if (!onCheckLeads) return;
     const st = standings.get(list.id);
     const stored = [...new Map(list.rows.map((r) => st?.get(r.__rowKey)?.lead).filter((l): l is StoredLead => !!l).map((l) => [l.key, l])).values()];
-    if (stored.length) onCheckLeads(stored.map((l) => l.key), `list "${list.name}"`);
+    if (stored.length) onCheckLeads(stored.map((l) => l.key), `list "${list.name}"`, force);
   }
 
   // Per Jack: lists "with the created date and taggs so then i can move them
@@ -322,13 +322,23 @@ export default function ListsView({ lists, loading, error, onRename, onDelete, o
                       const st = standings.get(list.id);
                       const stored = [...new Map(list.rows.map((r) => st?.get(r.__rowKey)?.lead).filter((l): l is StoredLead => !!l).map((l) => [l.key, l])).values()];
                       const due = leadsDueForApollo(stored).length;
-                      return (
+                      return (<>
                         <button onClick={() => checkList(list)} disabled={checkBusy || !due} aria-label={`Check ${list.name} in Apollo`}
                           title={checkBusy ? "An Apollo check is already running" : due ? `Looks up ${due} lead${due === 1 ? "" : "s"} in Apollo (read-only). Anyone checked in the last 7 days is skipped.` : stored.length ? "Every stored lead on this list was checked in Apollo this week" : "None of these rows are saved in All leads"}
                           style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 12px", opacity: checkBusy || !due ? 0.55 : 1 }}>
                           ⟳ Check in Apollo{due ? ` (${due})` : ""}
                         </button>
-                      );
+                        {/* Per Jack: "want a button to actually refresh this in
+                            lists to check and confirm". Re-reads every stored
+                            lead on the list now, the 7-day skip ignored. */}
+                        {stored.length > 0 && (
+                          <button onClick={() => checkList(list, true)} disabled={checkBusy} aria-label={`Refresh ${list.name} from Apollo`}
+                            title={`Looks up all ${stored.length} stored lead${stored.length === 1 ? "" : "s"} on this list in Apollo again now, including ones checked this week (read-only). About 400 an hour; a big list may take more than one run.`}
+                            style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 12px", opacity: checkBusy ? 0.55 : 1 }}>
+                            ↻ Refresh all from Apollo ({stored.length})
+                          </button>
+                        )}
+                      </>);
                     })()}
                     {onUpdateMeta && (
                       <button onClick={() => setPickingId(pickingId === list.id ? null : list.id)} aria-label={`Pick sequence for ${list.name}`}

@@ -603,10 +603,10 @@ function CategoryFileCard({ entry, expanded, onToggleExpanded, onDelete, onDownl
   // Everything else. Same tab keys and rules as the Scanner.
   const [subView, setSubView] = useState<string>("all");
   const dynTabOf = (r: StoredRow) =>
-    r.__isBusinessCentral ? "bc" : r.__isSalesCrm ? "sales" : r.__isPowerPlatform ? "power" : "other";
+    r.__isBusinessCentral ? "bc" : r.__isSalesCrm ? "sales" : "other";
   const tabOf = (r: StoredRow): string => (isDynamics ? dynTabOf(r) : isM365 ? storedM365SubView(r) : "all");
   const tabKeys: Array<[string, string]> = isDynamics
-    ? [["bc", "Business Central / ERP"], ["sales", "Sales / CRM / Customer Service"], ["power", "Power Platform"], ["other", "Everything else"]]
+    ? [["bc", "Business Central / ERP"], ["sales", "Sales / CRM / Customer Service"], ["other", "Everything else"]]
     : isM365
       ? [["migration", M365_SUB_VIEW_META.migration.label], ["other", M365_SUB_VIEW_META.other.label]]
       : [];

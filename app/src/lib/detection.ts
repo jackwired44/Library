@@ -1682,7 +1682,7 @@ function matchCustomKeywords(combined: string, customKeywords: Record<CategoryKe
  *  Everything else; ERP / back office / an accounting or project need with
  *  no customer-facing app named → BC / ERP; the rest → Sales / CRM. */
 export type DynamicsTab = "bc" | "sales" | "power" | "other";
-export const DYNAMICS_TAB_ORDER: DynamicsTab[] = ["bc", "sales", "power", "other"];
+export const DYNAMICS_TAB_ORDER: DynamicsTab[] = ["bc", "sales", "other"];
 export const DYNAMICS_TAB_META: Record<DynamicsTab, { label: string; hint: string }> = {
   bc: { label: "Business Central / ERP", hint: "Business Central, ERP, Project Operations, GP/NAV/AX, accounting or project needs" },
   sales: { label: "Sales / CRM / Customer Service", hint: "Dynamics Sales, CRM, Customer Service, Field Service, Customer Insights, a bare Dynamics 365" },
@@ -1696,9 +1696,11 @@ export function dynamicsTabOfText(said: string): DynamicsTab {
   const namesBc = /\bbusiness\s*central\b|\bd\s*365\s*bc\b|\bdynamics\s*(?:365\s*)?\(?\s*bc\b/i.test(said);
   // …except Finance and Operations: "if fno is there everything else".
   if (DYNAMICS_FNO_TAB_RE.test(said) || (!namesBc && DYNAMICS_OTHER_TAB_RE.test(said))) return "other";
-  // Per Jack (2026-11-22): Power Platform sits on its own tab, apart from
-  // BC / ERP and Sales. Business Central named and F&O still win, as above.
-  if (!namesBc && POWER_PLATFORM_RE.test(said)) return "power";
+  // Per Jack (2026-11-22, later the same day): "power platform should be its
+  // own full category … but if it says that and dynamics put into dynamics".
+  // Power Platform is a product line, not a Dynamics tab: a Dynamics note
+  // that also names Power Apps sits in its normal Dynamics tab. "power" stays
+  // in the type only so rows saved with it still render.
   // An accounting or project need only counts when no customer-facing app is
   // named: a Sales lead "on Sage today" is still a Sales lead.
   const namesFrontOffice = SALES_CRM_RE.test(said) || FRONT_OFFICE_RE.test(said);
@@ -5265,6 +5267,58 @@ export const M365_SUB_VIEW_META: Record<M365SubView, { label: string; hint: stri
 export function m365SubViewOf(r: { isGoogleWorkspaceMigration?: boolean; isGoogleToMicrosoft?: boolean; isDocumentIntelligence?: boolean }): M365SubView {
   if (r.isGoogleWorkspaceMigration || r.isGoogleToMicrosoft || r.isDocumentIntelligence) return "migration";
   return "other";
+}
+
+/* M365 / Azure sub-categories (Main Scanner view filter only).
+   Per Jack (2026-11-22): "filter further with dynamics and m365/azure with
+   their sub categories" … "so i can add them just in the scanner". Tags, not
+   buckets: a lead asking for Copilot licences is both Licensing and Copilot.
+   Read from the row's own notes and Product Area, never from our scanned
+   note (its closing question would tag everything "Licensing"). Display and
+   filtering only: grade, category and downloads are untouched. */
+export type M365Topic = "google" | "migration" | "docintel" | "infra" | "licensing" | "copilot" | "security" | "devices" | "support" | "powerbi";
+export const M365_TOPIC_ORDER: M365Topic[] = ["google", "migration", "docintel", "infra", "licensing", "copilot", "security", "devices", "support", "powerbi"];
+export const M365_TOPIC_META: Record<M365Topic, { label: string; hint: string }> = {
+  google: { label: "Google → Microsoft", hint: "On Google Workspace, or moving off it to Microsoft 365" },
+  migration: { label: "Other migrations", hint: "On-prem to Azure, lift and shift, tenant-to-tenant, data or server migrations" },
+  docintel: { label: "Document Intelligence / app builds", hint: "Azure Document Intelligence, or a custom app built on Azure" },
+  infra: { label: "Azure infrastructure", hint: "Azure VMs, Virtual Desktop (AVD), landing zones, hosting, backup, disaster recovery, Azure billing" },
+  licensing: { label: "Licensing", hint: "M365 / Office 365 plans and seats: buying, renewing, adding, true-ups" },
+  copilot: { label: "Copilot", hint: "Microsoft 365 Copilot or Copilot Studio" },
+  security: { label: "Security", hint: "Security assessments and hardening, Defender, Purview, Sentinel, MFA, phishing, ransomware" },
+  devices: { label: "Device management", hint: "Intune, Endpoint Manager, MDM, Autopilot" },
+  support: { label: "IT support / MSP", hint: "IT support, help desk, managed / co-managed IT, an MSP, ongoing support, switching provider" },
+  powerbi: { label: "Power BI / Fabric", hint: "Power BI, Microsoft Fabric, OneLake" },
+};
+const M365_TOPIC_RE: Record<M365Topic, RegExp> = {
+  google: /\b(?:google\s*workspace|g\s*\.?\s*suite|gsuite|google\s+(?:workplace|apps|email|mail|chat|drive|voice))\b/i,
+  migration: /\b(?:on-?prem\w*\s+(?:to|into)\s+(?:azure|the\s+cloud|cloud)|lift[\s-]+and[\s-]+shift|tenant[\s-]+to[\s-]+tenant|(?:tenant|data|server|mailbox|email|file|sharepoint|domain)\s+migrat\w*|migrat\w*\s+(?:\w+[\s-]+){0,3}(?:to|into)\s+(?:azure|microsoft|m365|office\s*365|the\s+cloud|cloud|sharepoint|exchange))/i,
+  docintel: /\b(?:document\s*intelligence|form\s+recognizer|(?:custom|bespoke)\s+(?:app|application|solution)s?\b[^.]{0,40}\bazure|build\w*\s+(?:an?\s+)?(?:app|application)s?\s+(?:on|in)\s+azure)/i,
+  infra: /\b(?:azure\s+(?:virtual\s+machines?|vms?|virtual\s+desktop|infrastructure|landing\s+zone|hosting|backup|site\s+recovery|subscriptions?|consumption|credits?|billing|costs?|spend)|\bavd\b|landing\s+zone|disaster\s+recovery|site\s+recovery)/i,
+  licensing: /\b(?:licen[cs]\w*|seats?\b|true[\s-]?ups?|renew\w*\s+(?:\w+\s+){0,3}(?:office|microsoft|m365|o365|subscriptions?)|(?:m365|microsoft\s*365|office\s*365|o365)\s+(?:e[1357]|f[13]|a[135]|g[135]|business\s+(?:basic|standard|premium)))/i,
+  copilot: /\bco-?pilot\b/i,
+  security: /\b(?:cyber\s*security|security\s+(?:assessment|evaluation|posture|review|audit|hardening|gaps?|design|architecture|concerns?|program)|defender|purview|sentinel|\bmfa\b|multi-?factor|phishing|ransomware|conditional\s+access|zero\s+trust|\bedr\b|\bxdr\b|\bmdr\b|\bsiem\b|\bdlp\b|data\s+loss\s+prevention|soc\s*2|hipaa|cmmc)/i,
+  devices: /\b(?:intune|endpoint\s+manager|device\s+management|\bmdm\b|autopilot)\b/i,
+  support: /\b(?:it\s+support|help\s*desk|service\s+desk|managed\s+(?:it|services?|service\s+provider)|\bmsp\b|co-?managed|outsourc\w*\s+(?:it|their\s+it)|ongoing\s+(?:\w+\s+){0,2}support|(?:new|another|different)\s+(?:it\s+)?(?:provider|partner|msp))/i,
+  powerbi: /\b(?:power\s*bi|microsoft\s+fabric|onelake)\b/i,
+};
+const m365TopicCache = new WeakMap<object, Set<M365Topic>>();
+/** The M365 / Azure sub-categories one scanned row talks about. */
+export function m365TopicsOf(r: { row: { __f: ResolvedFields } & Record<string, unknown>; isGoogleWorkspaceMigration?: boolean; isGoogleToMicrosoft?: boolean; isDocumentIntelligence?: boolean }): Set<M365Topic> {
+  const hit = m365TopicCache.get(r);
+  if (hit) return hit;
+  const f = r.row.__f || ({} as ResolvedFields);
+  let text = `${f.comments || ""}   ${f.productArea || ""}`;
+  if (!String(f.comments || "").trim()) {
+    text += "   " + Object.entries(r.row).filter(([k, v]) => k !== "__f" && typeof v === "string").map(([, v]) => v).join("   ");
+  }
+  const out = new Set<M365Topic>();
+  for (const k of M365_TOPIC_ORDER) if (M365_TOPIC_RE[k].test(text)) out.add(k);
+  if (r.isGoogleWorkspaceMigration) out.add("google");
+  if (r.isDocumentIntelligence) out.add("docintel");
+  if (r.isGoogleToMicrosoft && !r.isGoogleWorkspaceMigration && !out.has("google")) out.add("migration");
+  m365TopicCache.set(r, out);
+  return out;
 }
 
 export function sortTopPriorityBy<T>(rows: T[], reasonOf: (r: T) => TopPriorityReason | null): T[] {

@@ -13,10 +13,10 @@ import {
   PRIORITY_META,
   scanParsedFiles,
   sortByDynamicsSeatCount,
-  m365SubViewOf,
-  M365_SUB_VIEWS,
-  M365_SUB_VIEW_META,
-  type M365SubView,
+  m365TopicsOf,
+  M365_TOPIC_ORDER,
+  M365_TOPIC_META,
+  type M365Topic,
   sortTopPriorityFirst,
   topPriorityReason,
   type CategoryKey,
@@ -63,7 +63,7 @@ import { buildSeenIndex, seenFilesFor, seenLabel, type SeenFile } from "../lib/s
 import { confirmAction } from "../lib/confirmBox";
 import { checkLeadsInApollo, APOLLO_LOOKUPS_PER_HOUR, type CheckProgress } from "../lib/apolloLive";
 import type { ApolloLeadState } from "../lib/leadStore";
-import { DYNAMICS_TAB_META, m365SubViewOf as m365TabOf, M365_SUB_VIEW_META as M365_TAB_META } from "../lib/detection";
+import { DYNAMICS_TAB_META } from "../lib/detection";
 
 // Raised from 5. The old cap is what forced Jack to upload 14 CSVs as
 // three separate batches — and splitting an upload is exactly what makes
@@ -90,8 +90,8 @@ const PAGE_SIZE_CHOICES = [25, 50, 100, 250, 500] as const;
 interface Facets {
   tier: Tier | "all";
   category: CategoryKey | "all";
-  m365Sub: "all" | M365SubView;
-  dynSub: "all" | "businessCentral" | "salesCrm" | "powerPlatform" | "other";
+  m365Sub: "all" | M365Topic;
+  dynSub: "all" | "businessCentral" | "salesCrm" | "other";
   dupOnly: boolean;
   prioOnly: boolean;
   /** Only leads whose notes state they want a partner (ScanResult.wantsPartner). */
@@ -115,14 +115,13 @@ function applyFacets(rows: ResultRow[], f: Facets): ResultRow[] {
   // Sub-views are children of their category — they only narrow anything
   // while that category is the active filter, same as in the UI.
   if (f.category === "m365Tenant" && f.m365Sub !== "all") {
-    list = list.filter((r) => m365SubViewOf(r) === f.m365Sub);
+    list = list.filter((r) => m365TopicsOf(r).has(f.m365Sub as M365Topic));
   }
   if (f.category === "dynamics365" && f.dynSub !== "all") {
     list = list.filter((r) => {
       if (f.dynSub === "businessCentral") return r.isBusinessCentral;
       if (f.dynSub === "salesCrm") return r.isSalesCrm;
-      if (f.dynSub === "powerPlatform") return !!r.isPowerPlatform;
-      return !r.isBusinessCentral && !r.isSalesCrm && !r.isPowerPlatform;
+      return !r.isBusinessCentral && !r.isSalesCrm;
     });
   }
   if (f.dupOnly) list = list.filter((r) => r.isDuplicate);
@@ -443,14 +442,14 @@ export default function Scanner({
   // Microsoft migration leads specifically — see CLAUDE.md "Google ->
   // Microsoft view." Purely a view-level split; doesn't touch category,
   // bucket, or export — both tabs still file/download as M365/Azure.
-  const [m365SubView, setM365SubView] = useState<"all" | M365SubView>("all");
+  const [m365SubView, setM365SubView] = useState<"all" | M365Topic>("all");
   // Same pattern, for Business Central/ERP and Sales/CRM within the
   // Dynamics 365 category view — see CLAUDE.md "Business Central view" /
   // "Sales / CRM view." Purely a view-level split; doesn't touch
   // category, bucket, or export — every tab still files/downloads as
   // Dynamics 365. A lead can match both (e.g. "ERP and CRM" together) and
   // show up under both specific tabs; "Everything else" means neither.
-  const [dynamicsSubView, setDynamicsSubView] = useState<"all" | "businessCentral" | "salesCrm" | "powerPlatform" | "other">("all");
+  const [dynamicsSubView, setDynamicsSubView] = useState<"all" | "businessCentral" | "salesCrm" | "other">("all");
   // Pull a file already sitting in the Lead Library back into Scanner for a
   // rescan/closer look, without leaving this screen first — per Jack's
   // explicit ask. Reuses the exact same load path Library.tsx's own "Load
@@ -866,16 +865,14 @@ export default function Scanner({
         total: n({ tier: "all" }),
       },
       category,
-      m365Sub: {
-        all: n({ category: "m365Tenant", m365Sub: "all" }),
-        migration: n({ category: "m365Tenant", m365Sub: "migration" }),
-        other: n({ category: "m365Tenant", m365Sub: "other" }),
-      },
+      m365Sub: Object.fromEntries([
+        ["all", n({ category: "m365Tenant", m365Sub: "all" })],
+        ...M365_TOPIC_ORDER.map((k) => [k, n({ category: "m365Tenant", m365Sub: k })]),
+      ]) as Record<"all" | M365Topic, number>,
       dynSub: {
         all: n({ category: "dynamics365", dynSub: "all" }),
         businessCentral: n({ category: "dynamics365", dynSub: "businessCentral" }),
         salesCrm: n({ category: "dynamics365", dynSub: "salesCrm" }),
-        powerPlatform: n({ category: "dynamics365", dynSub: "powerPlatform" }),
         other: n({ category: "dynamics365", dynSub: "other" }),
       },
       duplicates: n({ dupOnly: true }),
@@ -1749,17 +1746,19 @@ export default function Scanner({
                 {(
                   [
                     ["all", `All M365/Azure (${m365SubViewCounts.all})`, "Every M365 / Azure lead, however it qualified."],
-                    ...M365_SUB_VIEWS.map((k) => [
+                    // A lead can sit under several (Copilot licences are
+                    // Licensing and Copilot). Empty ones are hidden unless picked.
+                    ...M365_TOPIC_ORDER.filter((k) => m365SubViewCounts[k] > 0 || m365SubView === k).map((k) => [
                       k,
-                      `${M365_SUB_VIEW_META[k].label} (${m365SubViewCounts[k]})`,
-                      M365_SUB_VIEW_META[k].hint,
+                      `${M365_TOPIC_META[k].label} (${m365SubViewCounts[k]})`,
+                      M365_TOPIC_META[k].hint,
                     ] as const),
                   ] as const
-                ).map(([key, label]) => (
+                ).map(([key, label, hint]) => (
                   <button
                     key={key}
                     onClick={() => setM365SubView(key)}
-                    title="Still files/downloads as M365/Azure either way — this only changes what's shown here."
+                    title={`${hint}\nA lead can sit under more than one. Still files/downloads as M365/Azure either way — this only changes what's shown here.`}
                     className={`chip-btn${m365SubView === key ? " active" : ""}`}
                   >
                     {label}
@@ -1776,7 +1775,6 @@ export default function Scanner({
                     ["all", `All Dynamics 365 (${dynamicsSubViewCounts.all})`],
                     ["businessCentral", `Business Central / ERP (${dynamicsSubViewCounts.businessCentral})`],
                     ["salesCrm", `Sales / CRM / Customer Service (${dynamicsSubViewCounts.salesCrm})`],
-                    ["powerPlatform", `Power Platform (${dynamicsSubViewCounts.powerPlatform})`],
                     ["other", `Everything else (${dynamicsSubViewCounts.other})`],
                   ] as const
                 ).map(([key, label]) => (
@@ -2017,12 +2015,14 @@ export default function Scanner({
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
                         {r.category === "dynamics365" && (
                           <span style={{ fontSize: 10.5, color: meta.color }}>
-                            {DYNAMICS_TAB_META[r.isBusinessCentral ? "bc" : r.isSalesCrm ? "sales" : r.isPowerPlatform ? "power" : "other"].label}
+                            {DYNAMICS_TAB_META[r.isBusinessCentral ? "bc" : r.isSalesCrm ? "sales" : "other"].label}
                             {r.dynamicsSeatCount != null ? ` · ${r.dynamicsSeatCount}` : ""}
                           </span>
                         )}
-                        {r.category === "m365Tenant" && m365TabOf(r) === "migration" && (
-                          <span style={{ fontSize: 10.5, color: meta.color }}>{M365_TAB_META.migration.label}</span>
+                        {r.category === "m365Tenant" && m365TopicsOf(r).size > 0 && (
+                          <span style={{ fontSize: 10.5, color: meta.color }} title={[...m365TopicsOf(r)].map((k) => M365_TOPIC_META[k].label).join(" · ")}>
+                            {[...m365TopicsOf(r)].slice(0, 2).map((k) => M365_TOPIC_META[k].label).join(" · ")}{m365TopicsOf(r).size > 2 ? ` +${m365TopicsOf(r).size - 2}` : ""}
+                          </span>
                         )}
                         {topPriorityReason(r) && <TopPriorityBadge reason={topPriorityReason(r)!} />}
                         {r.isDuplicate && <span style={{ fontSize: 10.5, background: "#F7B955", color: "#5C3A00", padding: "2px 7px", borderRadius: 20, fontWeight: 700 }}>DUPLICATE</span>}

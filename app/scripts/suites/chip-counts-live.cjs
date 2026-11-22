@@ -44,7 +44,8 @@ const num = s => Number((String(s).match(/\((\d+)\)/) || [])[1]);
 
   // Jack's path: open M365 / Azure, pick the migrations tab (Google merged into it 2026-11-22), go back to All.
   await chip('M365 / Azure').click(); await sleep(300);
-  await page.locator('button', { hasText: /Migrations & Document Intelligence/ }).first().click(); await sleep(300);
+  // 11/22: M365 / Azure sub-categories are tags now (per Jack); Google → Microsoft is its own.
+  await page.locator('button', { hasText: /Google → Microsoft \(/ }).first().click(); await sleep(300);
   const googleRows = await rows();
   ok('Google tab narrows the table', googleRows > 0 && googleRows < m0, `${googleRows} of ${m0}`);
   await chip(/^All \(/).click(); await sleep(300);

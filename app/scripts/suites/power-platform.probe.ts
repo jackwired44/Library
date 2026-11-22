@@ -18,7 +18,9 @@ const h = scan("Dataverse app build for 30 users with a partner.");
 ok("Dataverse counts as Power Platform", h?.category === "powerPlatform", h?.category);
 const b = scan("Wants Dynamics 365 Sales plus Power Apps for field reps, 25 users.");
 ok("Power Apps on a note that says Dynamics stays Dynamics 365", b?.category === "dynamics365", b?.category);
-ok("…on the Power Platform tab", !!b?.isPowerPlatform && !b?.isSalesCrm && !b?.isBusinessCentral);
+// 11/22 (later): per Jack, Power Platform is its own product line, not a Dynamics tab;
+// a Dynamics note that also names Power Apps sits in its normal Dynamics tab.
+ok("…in its normal Dynamics tab (Sales), no Power Platform tab", !b?.isPowerPlatform && !!b?.isSalesCrm && !b?.isBusinessCentral);
 const c = scan("Evaluating Dynamics 365 Business Central and Power Automate for 30 users.");
 ok("Business Central named still wins the BC / ERP tab", !!c?.isBusinessCentral && !c?.isPowerPlatform);
 const f = scan("Finance and Operations with Power Apps on top, 50 users of Dynamics.");
@@ -28,7 +30,7 @@ ok("a Dynamics Sales lead is untouched", d?.category === "dynamics365" && !!d?.i
 const pbi = scan("Need a partner to build Power BI dashboards for 30 users.");
 ok("Power BI stays M365 / Azure", pbi?.category === "m365Tenant", pbi?.category);
 ok("tab rule: BC beats Power Platform", dynamicsTabOfText("Business Central and Power Apps") === "bc");
-ok("tab rule: Power Platform beats Sales", dynamicsTabOfText("Dynamics 365 Sales and Power Apps") === "power");
+ok("tab rule: Dynamics Sales with Power Apps stays Sales", dynamicsTabOfText("Dynamics 365 Sales and Power Apps") === "sales");
 ok("tab rule: ERP alone is still BC", dynamicsTabOfText("Dynamics ERP project") === "bc");
 const g = scan("Moving off Google Workspace to Microsoft 365 for 50 users.");
 ok("Google move is on the merged migrations tab", g?.category === "m365Tenant" && m365SubViewOf(g!) === "migration");

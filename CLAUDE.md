@@ -8505,3 +8505,30 @@ Per Jack: "slow to move from any tab to all leads fix this". Measured at
   `perf-scan` read `performance.memory`, which newer Chromium rounds (it read
   a flat 10 MB before and after a 96 MB scan); it now reads the heap over
   CDP. `csp-download` still needs Jack's real CSP export file.
+
+### 2026-11-22: M365 / Azure sub-categories in the Main Scanner; Power Platform is a product line only; list refresh (scanner-platform-v29)
+
+- **M365 / Azure sub-categories (Main Scanner only)**, per Jack: "filter
+  further with dynamics and m365/azure with their sub categories … so i can
+  add them just in the scanner". The M365 / Azure View row is now tags
+  (`m365TopicsOf`, `M365_TOPIC_ORDER` / `M365_TOPIC_META`,
+  `lib/detection.ts`): Google → Microsoft, Other migrations, Document
+  Intelligence / app builds, Azure infrastructure, Licensing, Copilot,
+  Security, Device management, IT support / MSP, Power BI / Fabric. A lead
+  can carry several. Read from the row's own notes and Product Area, never
+  the scanned note (its closing question would tag everything Licensing).
+  Empty tags are hidden. View filter only: grade, category, downloads
+  unchanged. The Lead Library keeps the old two M365 tabs; All leads has no
+  M365 sub-filter (Jack scoped this to the scanner).
+- **Power Platform is its own product line, not a Dynamics tab**, per Jack:
+  "power platform should be its own full cateory with power apps and data
+  verse but if it says that and dynamics put into dynamics". The Dynamics
+  "Power Platform" sub-tab is gone (Scanner, Lead Library, All leads);
+  `dynamicsTabOfText` never returns "power", so a Dynamics note that also
+  names Power Apps sits in its normal tab (BC / ERP, Sales, Everything
+  else). "power" stays in the type so older rows still render.
+  `NOTE_RULES_VERSION` = `2026-11-22-power-platform-own-line`.
+- **Lists → "↻ Refresh all from Apollo (N)"**, per Jack: "want a button to
+  actually refresh this in lists to check and confirm". Re-reads every
+  stored lead on the list now, the 7-day skip ignored (read-only, ~400 an
+  hour).
