@@ -94,9 +94,11 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   ok('  the file table lists the upload', /diag-leads\.csv 4 3 0/.test(fh), fh);
 
   console.log('\n== after a check, the numbers move together ==');
-  await page.locator('.side-nav-btn', { hasText: 'Home' }).first().click(); await sleep(700);
-  await page.locator('button', { hasText: /^Check next 4$/ }).first().click();
-  await page.waitForFunction(() => /Done:/.test(document.querySelector('[aria-label="Apollo check progress"]')?.textContent || ''), null, { timeout: 60000 });
+  // 11/22: Home's Apollo panel (and its "Check next N") left Home per Jack's
+  // Home trim; the same read-only check runs from All leads' actions bar.
+  await page.locator('.side-nav-btn', { hasText: 'All leads' }).first().click(); await sleep(900);
+  await page.locator('button', { hasText: /^⟳ Check 4 in Apollo/ }).first().click();
+  await page.waitForFunction(() => /Apollo check done:/.test(document.querySelector('[aria-label="Apollo check"]')?.textContent || ''), null, { timeout: 60000 });
   await page.locator('button[aria-label="Diagnostics"]').click(); await sleep(900);
   t = await main();
   ok('  every check still passes', /All \d+ checks pass/.test(t), t.slice(0, 900));

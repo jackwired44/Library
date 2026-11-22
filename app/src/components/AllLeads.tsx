@@ -304,14 +304,14 @@ function splitName(full: string): { first: string; last: string } {
   const parts = String(full || "").trim().split(/\s+/).filter(Boolean);
   return { first: parts[0] || "", last: parts.slice(1).join(" ") };
 }
-/** The priority band a stored note carries in its head mark (▲ ▸ ▼ ✕), the
- *  same band the Main Scanner shows; else read off the grade. */
-function bandOf(l: { notes: string; tier: string }): Priority {
-  const top = String(l.notes || "").split("\n")[0].replace(/^\d{4}-\d{2}-\d{2} · /, "").trim();
-  const m = /^(?:\(\d{1,3}\)\s*)?([▲▸▼✕])/.exec(top);
-  if (m) return m[1] === "▲" ? "high" : m[1] === "▸" ? "medium" : m[1] === "✕" ? "dq" : "low";
-  const t = String(l.tier || "").toLowerCase();
-  return /strong|high|signal/.test(t) ? "high" : /bad|dq|excluded/.test(t) ? "dq" : /medium/.test(t) ? "medium" : "low";
+/** The priority band, the Main Scanner's rule: the grade decides High
+ *  (Strong Signal) and Bad; the note's head mark (▸ / ▼) only splits a
+ *  Needs Review lead into Medium or Low. */
+function bandOf(verdict: string, notes: string): Priority {
+  if (/strong|high/i.test(verdict)) return "high";
+  if (/bad/i.test(verdict)) return "dq";
+  const top = String(notes || "").split("\n")[0].replace(/^\d{4}-\d{2}-\d{2} · /, "").trim();
+  return /^(?:\(\d{1,3}\)\s*)?▸/.test(top) ? "medium" : "low";
 }
 /** Product-line colours from the scanner's own CATEGORY_META, by label. */
 const LINE_STYLE: Record<string, { color: string; bg: string }> = Object.fromEntries(
@@ -2260,7 +2260,7 @@ export default function AllLeads({
                     {l.gradeOverride && <div className="muted" data-moved style={{ fontSize: 11, marginTop: 3 }}>✋ moved</div>}
                   </td>
                   <td data-col="priority" style={{ whiteSpace: "nowrap" }}>
-                    {(() => { const b = bandOf(l); return <>
+                    {(() => { const b = bandOf(VERDICT_META[d.verdict].label, l.notes); return <>
                       <div aria-label="Score" style={{ fontWeight: 700, fontSize: 15, lineHeight: 1.1, fontVariantNumeric: "tabular-nums", color: PRIORITY_META[b].color }}>{l.score ?? "—"}</div>
                       <div title={PRIORITY_META[b].hint} className="band-chip" style={{ color: PRIORITY_META[b].color, background: PRIORITY_META[b].bg }}>{PRIORITY_META[b].short}</div>
                     </>; })()}
@@ -2277,6 +2277,7 @@ export default function AllLeads({
                     {seq
                       ? <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>{seq.name} · {seq.status}{seq.step != null ? ` · step ${seq.step}${total ? `/${total}` : ""}` : ""}</div>
                       : !a && d.inApollo?.sequences.length ? <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>{d.inApollo.sequences[0]}</div> : null}
+                    {!a && !d.inApollo && l.apolloCheckedAt && <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>Not found in Apollo</div>}
                     {a?.lastOutcome && <div style={{ fontSize: 11.5, marginTop: 2 }}>📞 {a.lastOutcome}{a.lastCallAt ? <span className="muted"> · {a.lastCallAt.slice(0, 10)}</span> : null}</div>}
                     {onCheckLeads && (
                       <button className="btn btn-sm btn-ghost" style={{ padding: "1px 6px", fontSize: 11, marginTop: 3 }} disabled={checking}

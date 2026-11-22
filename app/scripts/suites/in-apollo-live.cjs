@@ -92,7 +92,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   console.log('\n== Home reports it too ==');
   await nav('Home');
   t = await main();
-  ok('Home shows Active in Apollo', /Active in Apollo 1/.test(t), t.slice(0, 800));
+  // 11/22: Home's "Active in Apollo" tile left Home (Jack's Home trim); the work-queue tile "In a sequence now" carries the same lead.
+  ok('Home shows the active lead in "In a sequence now"', /In a sequence now 1\b/.test(t), t.slice(0, 800));
   ok('Home no longer shows a queue', !/Queued for Apollo|Apollo queue/.test(t));
 
   ok('no page errors', errs.length === 0, errs.slice(0, 2).join(' | '));

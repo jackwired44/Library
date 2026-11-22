@@ -174,7 +174,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   console.log('\n== Home ==');
   await nav('Home');
   t = await main();
-  ok('Home shows Ready to recycle', /Ready to recycle/.test(t) && /Recycling later this month/.test(t));
+  // 11/22: Home keeps four work-queue tiles (Jack's Home trim); "Ready to recycle" is one, "Recycling later this month" left Home.
+  ok('Home shows Ready to recycle', /Ready to recycle/.test(t));
 
   ok('no page errors', errs.length === 0, errs.join(' | '));
   await b.close();
