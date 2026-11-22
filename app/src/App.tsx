@@ -1069,11 +1069,11 @@ export default function App() {
     return { listId: saved.id, added: rows.length };
   }
   /** Save a rule as a smart list, filled with what it matches today. */
-  function saveSmartList(name: string, rule: SmartRule, ruleText: string, matched: StoredLead[]): { listId: string; added: number } | null {
+  function saveSmartList(name: string, rule: SmartRule, ruleText: string, matched: StoredLead[], meta?: { cycleDays?: number; tags?: string[]; campaign?: string }): { listId: string; added: number } | null {
     const { lists, list } = createLeadList(leadListsRef.current, name);
     if (!list) return null;
     const rows = rowsForLeads(matched);
-    const withRule = lists.map((l) => (l.id === list.id ? { ...l, rule, ruleText, rows, ruleRefreshedAt: new Date().toISOString() } : l));
+    const withRule = lists.map((l) => (l.id === list.id ? { ...l, rule, ruleText, rows, ruleRefreshedAt: new Date().toISOString(), ...(meta?.cycleDays ? { cycleDays: meta.cycleDays } : {}), ...(meta?.tags?.length ? { tags: meta.tags } : {}), ...(meta?.campaign ? { campaign: meta.campaign } : {}) } : l));
     setLeadLists(withRule);
     const saved = withRule.find((l) => l.id === list.id);
     if (saved) persistLeadList(saved);

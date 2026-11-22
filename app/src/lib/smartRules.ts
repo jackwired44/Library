@@ -37,13 +37,21 @@ export interface SmartRule {
   product?: ProductKey[];
   grades?: Verdict[];
   /** "never": no call, email or sequence on record, ever.
-   *  "stale": not active in a sequence and nothing on record for staleDays. */
-  contact?: "never" | "stale";
+   *  "stale": not active in a sequence and nothing on record for staleDays.
+   *  "triedNotReached" (2026-11-22, per Jack: "pull the ones that were never
+   *  able to be contacted"): called, emailed or sequenced, but never reached —
+   *  no conversation, reply, meeting, not interested or do not contact on
+   *  record, not active in a sequence now, and no deal on file. */
+  contact?: "never" | "stale" | "triedNotReached";
   staleDays?: number;
   /** The CSV's own date (else upload date) is within the last N days. */
   arrivedWithinDays?: number;
   /** A month ("2026-09") or a quarter ("2026-Q3") of arrival. */
   period?: { kind: "month" | "quarter"; key: string };
+  /** Several arrival periods at once: months, quarters or years. */
+  periods?: { kind: "month" | "quarter" | "year"; keys: string[] };
+  /** Only these leads (by key) — a list built from leads ticked by hand. */
+  keys?: string[];
   scanners?: LeadSource[];
   industries?: string[];
   excludeIndustries?: string[];
@@ -188,7 +196,14 @@ function daysAgo(n: number, today: Date): string {
 }
 
 /** Does this lead match the rule? `hay` is lowercased note + company + title. */
+const keySets = new WeakMap<string[], Set<string>>();
+const keySetOf = (keys: string[]) => { let s = keySets.get(keys); if (!s) { s = new Set(keys); keySets.set(keys, s); } return s; };
+export const periodKeyFor = (month: string, kind: "month" | "quarter" | "year") =>
+  kind === "month" ? month : kind === "quarter" ? quarterOf(month) : (/^\d{4}/.exec(month)?.[0] ?? "");
+
 export function ruleMatches(rule: SmartRule, l: StoredLead, f: RuleFacts, today = new Date(), rawNote = ""): boolean {
+  if (rule.keys?.length && !keySetOf(rule.keys).has(l.key)) return false;
+  if (rule.periods?.keys.length && !rule.periods.keys.includes(periodKeyFor(f.arrivalMonth, rule.periods.kind))) return false;
   if (rule.grades?.length && !rule.grades.includes(f.verdict)) return false;
   if (rule.product?.length && !rule.product.includes(f.product)) return false;
   if (rule.scanners?.length && !rule.scanners.includes(l.source)) return false;
@@ -208,6 +223,8 @@ export function ruleMatches(rule: SmartRule, l: StoredLead, f: RuleFacts, today 
   if (rule.contact === "never") {
     // Uncontacted: nothing on record, ever, and nobody else owns the account.
     if (f.touched || f.sequenced || f.engaged) return false;
+  } else if (rule.contact === "triedNotReached") {
+    if (!(f.touched || f.sequenced) || f.reached || f.closedOut || f.engaged || f.active) return false;
   } else if (rule.contact === "stale") {
     // Not worked for N days. A lead someone is working now, a booked or
     // closed-out lead, and an account-manager account never come back here.
@@ -240,9 +257,16 @@ export function ruleParts(r: SmartRule): { label: string; keys: (keyof SmartRule
   if (r.grades?.length) add(r.grades.map((g) => VERDICT_META[g].label).join(" or "), "grades");
   if (r.product?.length) add(r.product.map((p) => PRODUCT_LABEL[p]).join(" or "), "product");
   if (r.contact === "never") add("Never contacted", "contact", "staleDays");
+  if (r.contact === "triedNotReached") add("Tried, never reached", "contact", "staleDays");
   if (r.contact === "stale") add(`Not contacted in ${r.staleDays && r.staleDays > 0 ? r.staleDays : 30} days`, "contact", "staleDays");
   if (r.arrivedWithinDays) add(`Received in the last ${r.arrivedWithinDays} days`, "arrivedWithinDays");
   if (r.period) add(r.period.kind === "month" ? `Received ${monthName(r.period.key)}` : `Received ${quarterLabel(r.period.key)}`, "period");
+  if (r.periods?.keys.length) {
+    const lab = (k: string) => r.periods!.kind === "month" ? monthName(k) : r.periods!.kind === "quarter" ? quarterLabel(k) : k;
+    const ks = [...r.periods.keys].sort();
+    add(`Received ${ks.length > 2 ? `${lab(ks[0])} – ${lab(ks[ks.length - 1])} (${ks.length})` : ks.map(lab).join(" + ")}`, "periods");
+  }
+  if (r.keys?.length) add(`${r.keys.length.toLocaleString()} picked lead${r.keys.length === 1 ? "" : "s"}`, "keys");
   if (r.scanners?.length) add(r.scanners.map((s) => ({ main: "Main Scanner", smc: "Custom Scanner", csp: "CSP Scanner" })[s]).join(" or "), "scanners");
   if (r.industries?.length) add(`Industry: ${r.industries.join(" or ")}`, "industries");
   if (r.excludeIndustries?.length) add(`Not ${r.excludeIndustries.join(", ")}`, "excludeIndustries");
