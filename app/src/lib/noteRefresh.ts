@@ -217,7 +217,7 @@ function normNote(t: string): string {
  *  is ever rewritten — a note in an older scanned shape (a CSP renewal line,
  *  an older Custom or Dynamics line) is not raw and is left exactly as is. */
 export function isRawCopy(text: string, raw: RawNotes | undefined): boolean {
-  if (!raw?.segments.length) return false;
+  if (!raw?.segments?.length) return false;
   const n = normNote(text);
   if (n.length < 20) return false;
   return raw.segments.some((s) => {

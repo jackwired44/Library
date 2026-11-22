@@ -39,6 +39,7 @@ import type { CompanyEnrichOutcome } from "../lib/apolloEnrich";
 import { downloadCSV, parseCSVFile, parseCSVText } from "../lib/csv";
 import { listMatchIndex, listsHolding, type LeadList, type ListPick } from "../lib/leadLists";
 import BookedStamp from "./BookedStamp";
+import CopyName from "./CopyName";
 import OnCrmBadge from "./OnCrmBadge";
 import { apolloHitFor, type ApolloHit, type RosterIndex } from "../lib/apolloRoster";
 import TopPriorityBadge from "./TopPriorityBadge";
@@ -1972,7 +1973,7 @@ export default function Scanner({
                       <div style={strike}>{f.company || "—"}</div>
                     </td>
                     <td style={{ padding: "10px 11px", minWidth: 104, whiteSpace: "nowrap", ...strike }}>
-                      {getFullName(f) || f.email || "—"} {matchedContact?.onCrm && <OnCrmBadge />}
+                      {getFullName(f) || f.email || "—"}<CopyName name={getFullName(f)} /> {matchedContact?.onCrm && <OnCrmBadge />}
                       {apolloHits.get(r.id) && (
                         <span className="pill" style={{ marginLeft: 6, fontSize: 11, color: "#9A5B22", background: "#FBF0E2" }}
                               title={`Already in Apollo (matched by ${apolloHits.get(r.id)!.how === "email" ? "email" : "name only — check"})${apolloHits.get(r.id)!.sequences.length ? `\n${apolloHits.get(r.id)!.sequences.join("\n")}` : ""}`}>

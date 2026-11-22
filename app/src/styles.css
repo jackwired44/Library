@@ -2669,3 +2669,7 @@ details.panel.fold[open] > summary.fold-head::before { content: "▾"; }
 .leads-filters .row-label { font-size: 12px; font-weight: 600; color: var(--ink-3); min-width: 92px; }
 .ask-fold > summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-surface); margin-bottom: 8px; }
 .ask-fold > summary::-webkit-details-marker { display: none; }
+
+/* ⧉ copy-name button beside a contact (Scanner, All leads) */
+.copy-name { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 12px; line-height: 1; padding: 2px 4px; margin-left: 2px; border-radius: 4px; vertical-align: baseline; }
+.copy-name:hover { color: var(--accent); background: var(--surface-sunken); }

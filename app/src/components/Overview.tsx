@@ -12,6 +12,7 @@
 // disagree with the screens it summarises. Apollo-derived numbers are only
 // as fresh as the last sync, so the sync's age is stated beside them.
 import { arrivalOf } from "../lib/leadFiling";
+import { PLATFORM_TZ } from "../lib/centralTime";
 import Customize, { loadHiddenSet, saveHiddenSet } from "./Customize";
 import { useEffect, useMemo, useState } from "react";
 import { LEAD_SOURCE_META, hasActiveSequence, type LeadSource, type StoredLead } from "../lib/leadStore";
@@ -72,7 +73,8 @@ const shortDate = (iso: string) =>
   new Date(`${iso}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
 function greeting(d = new Date()) {
-  const h = d.getHours();
+  // Central time, same clock as the top bar (PLATFORM_TZ).
+  const h = Number(new Intl.DateTimeFormat("en-US", { timeZone: PLATFORM_TZ, hour: "numeric", hourCycle: "h23" }).format(d));
   return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
 }
 

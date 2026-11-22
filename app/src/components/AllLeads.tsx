@@ -15,6 +15,7 @@
 //   - The table renders one page at a time, at most 500 rows. 77,500 DOM
 //     nodes is what an unpaginated Contacts table measured at 3,000 rows.
 //   - Selection is a Set of keys, so it survives paging and refiltering.
+import CopyName from "./CopyName";
 import RateLimitNote from "./RateLimitNote";
 import LeadChat from "./LeadChat";
 import { factsForLead, ruleMatches, ruleParts, quarterOf, quarterLabel, type RuleFacts, type SmartRule } from "../lib/smartRules";
@@ -229,17 +230,6 @@ const periodLabel = (key: string, kind: "month" | "quarter" | "all") =>
 const TOP = "__top";
 /** The owners a filter offers: the people whose names head the sequences. */
 const SEQUENCE_OWNERS = REPS;
-async function copyText(text: string): Promise<boolean> {
-  try { await navigator.clipboard.writeText(text); return true; } catch { /* sandboxed frame: fall back */ }
-  try {
-    const ta = document.createElement("textarea");
-    ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
-    document.body.appendChild(ta); ta.select();
-    const ok = document.execCommand("copy");
-    ta.remove();
-    return ok;
-  } catch { return false; }
-}
 const TOP_TIER_SET = new Set(["High priority", "Strong Signal"]);
 
 /** The two views Jack asked for by name: strong leads nobody has touched,
@@ -479,7 +469,6 @@ export default function AllLeads({
   const [seqF, setSeqF] = useState(initialSequence || "all");
   // Per Jack: "filter by owner of sequence also so i can see all carlys or all jacks".
   const [ownerF, setOwnerF] = useState<string>("all");
-  const [copiedKey, setCopiedKey] = useState("");
   const [planF, setPlanF] = useState<PlanFilter>("all");
   const [planSeqF, setPlanSeqF] = useState("all");
   const [filesF, setFilesF] = useState<FilesFilter>("all");
@@ -2169,17 +2158,7 @@ export default function AllLeads({
                   <td className="pin pin-1" data-col="contact" title={[l.contact, l.title, l.email, LANE_META[d.lane].hint].filter(Boolean).join(" · ")}>
                     <div className="strong" style={{ display: "flex", alignItems: "center", gap: 2 }}>
                       <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{l.contact || "—"}</span>
-                      {(l.contact || l.company) && (
-                        <button className="btn btn-sm btn-ghost" style={{ padding: "0 4px", fontSize: 11 }}
-                                aria-label={`Copy ${l.contact || l.company}`}
-                                title="Copy name and company"
-                                onClick={async (e) => {
-                                  e.stopPropagation();
-                                  if (await copyText([l.contact, l.company].filter(Boolean).join(" — "))) {
-                                    setCopiedKey(l.key); setTimeout(() => setCopiedKey((k) => (k === l.key ? "" : k)), 1200);
-                                  }
-                                }}>{copiedKey === l.key ? "✓" : "⧉"}</button>
-                      )}
+                      <CopyName name={l.contact} />
                     </div>
                     <div className="muted" style={{ fontSize: 11.5, overflow: "hidden", textOverflow: "ellipsis" }}>
                       {l.email || "No email"}
