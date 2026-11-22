@@ -45,9 +45,10 @@ const csv=[HEAD,...rows].join('\n');
  ok('combined download present', /All Strong Signal/.test(t), t);
 
  const counts = await strip.locator('.dl-count').allInnerTexts();
- ok('three download buttons', counts.length === 3, counts.join(','));
- const [dyn, m365, all] = counts.map(c => Number(c.replace(/[^\d]/g,'')));
- ok('combined count equals the two product lines summed', all === dyn + m365, `${dyn}+${m365} != ${all}`);
+ // 2026-11-22: Power Platform is a third product line with its own file.
+ ok('four download buttons', counts.length === 4, counts.join(','));
+ const [dyn, pp, m365, all] = counts.map(c => Number(c.replace(/[^\d]/g,'')));
+ ok('combined count equals the three product lines summed', all === dyn + pp + m365, `${dyn}+${pp}+${m365} != ${all}`);
  ok('combined is not a third bucket', all === 2, `expected the 2 Strong Signal leads, got ${all}`);
 
  // Per Jack: "File Strong Signal leads into … Save to Lead Library — remove

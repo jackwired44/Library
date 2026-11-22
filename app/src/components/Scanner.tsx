@@ -1830,7 +1830,8 @@ export default function Scanner({
           {selected.size ? `Add ${selected.size.toLocaleString()} selected` : `Add all ${filtered.length.toLocaleString()} shown`}
         </button>
         {listNotice && <span style={{ fontSize: 12, color: "var(--ink-2)" }}>{listNotice}</span>}
-        <span style={{ width: 1, height: 18, background: "var(--border)" }} />
+      </div>
+      <div className="list-strip" role="group" aria-label="Check in Apollo">
         {liveProgress && !liveProgress.finished ? (
           <>
             <span style={{ fontSize: 12 }}>Checking Apollo… {liveProgress.done}/{liveProgress.total}</span>

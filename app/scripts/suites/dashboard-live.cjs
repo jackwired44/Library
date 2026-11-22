@@ -60,26 +60,14 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   // Nothing is stored until Save (per Jack: a save option on every upload).
   await page.locator('button[aria-label="Save to platform"]').first().click(); await sleep(900);
 
-  console.log('\n== Home: Power BI-style dashboard ==');
+  // 2026-11-22, per Jack ("redo the hompage bunch is unecesarry"): Home is
+  // the four work-queue tiles only. The slicer, chart and tooltip checks
+  // went with the charts they tested.
+  console.log('\n== Home: the work queue ==');
   await nav('Home');
-  ok('KPI tiles render', (await page.locator('.viz-kpi').count()) >= 6);
-  ok('Leads tile counts every stored lead', /^Leads 4\b/.test(await kpi('Leads')), await kpi('Leads'));
+  ok('Home shows exactly the four work-queue tiles', (await page.locator('.viz-kpi').count()) === 4);
   ok('strong signal never contacted counts the top tier', /never contacted 3\b/.test(await kpi('never contacted')), await kpi('never contacted'));
-  ok('every chart card has a title', (await page.locator('.viz-card .viz-title').count()) >= 9);
-  // Slicers scope everything.
-  await page.locator('[role=group][aria-label="Scanner"] button', { hasText: 'CSP' }).click(); await sleep(500);
-  ok('the Scanner slicer re-scopes the tiles (CSP -> 0 leads)', /^Leads 0\b/.test(await kpi('Leads')), await kpi('Leads'));
-  ok('  and says how many are in view', /0 of 4 leads in view/.test(await text()));
-  await page.locator('button', { hasText: 'Reset' }).click(); await sleep(400);
-  ok('Reset brings them back', /^Leads 4\b/.test(await kpi('Leads')));
-  // Table view on a chart.
-  const statusCard = page.locator('.viz-card', { hasText: 'Where every lead stands' });
-  await statusCard.locator('.viz-toggle', { hasText: 'Table' }).click(); await sleep(300);
-  ok('a chart switches to its table view', (await statusCard.locator('table.viz-table tbody tr').count()) === 11);
-  await statusCard.locator('.viz-toggle', { hasText: 'Chart' }).click(); await sleep(300);
-  // Hover tooltip.
-  await statusCard.locator('.viz-barrow:has(.viz-barlabel:text-is("Strong Signal"))').hover(); await sleep(200);
-  ok('hovering a bar shows a tooltip with its value', /\b3\b/.test(await statusCard.locator('[role=tooltip]').innerText().catch(() => '')));
+  ok('no charts, filters bar or Customize on Home', (await page.locator('.viz-card').count()) === 0 && (await page.locator('.viz-slicers').count()) === 0 && (await page.locator('button', { hasText: 'Customize home' }).count()) === 0);
 
   console.log('\n== sync, then the strong-signal views ==');
   await nav('All leads');
