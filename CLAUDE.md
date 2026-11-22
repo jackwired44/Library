@@ -8655,10 +8655,39 @@ either way.
   real note replaces a same-day no-signal line. `dropSameDayNoSignal` cleans
   leads already stored that way, from `unscannedFix`. After: 105 → 24
   multi-note leads, **0 mixed**.
+- **A no-signal line never outranks a real note, whatever its date** (per
+  Jack, "can we make this a rule going forward if there is a previous note
+  in here" + "look at the last 3 months of leads and see which need this
+  update"). The first pass only caught two lines from the SAME day;
+  measuring the two November files showed **11 leads reading "no signal"
+  with the reason to call demoted behind it, one of them (American
+  Executive Centers) graded High** — the two notes were from different
+  days. A no-signal line says only that THAT row carried nothing, which
+  `sourceFiles` already records, so `combineNotes` refuses to stack one
+  over a real note and `dropSameDayNoSignal` drops every one from a lead
+  that holds a real note. A lead whose notes are ALL no-signal keeps them.
+  After: 11 → 0; leads holding a 2nd note 93 → 75 (the 18 were redundant
+  no-signal lines).
+- **Scanning is untouched, proven not assumed** (per Jack, "do not touch
+  how the leads are scanned"): grades and product lines across both files
+  are byte-identical with and without this change — High 896 / Medium 129 /
+  Low 128 / Bad 88, M365 834 / Dynamics 364 / Power Platform 43. Every
+  grading suite re-run green (snippet-truth, grade-fixes, qualification,
+  audit-rules, dynamics-views, note-counts, direct-notes, isolation).
 - Measured on a two-save run of those files: 59 of 1,015 rows on the second
-  file carry a Previous note line; 93 stored leads hold 2+ notes; longest
+  file carry a Previous note line; 75 stored leads hold 2+ notes; longest
   export note 463 chars.
 - Grades, counts and which leads download are unchanged — note text only.
   `NOTE_RULES_VERSION` = `2026-11-22-previous-note`.
-- `review-fixes` 37 → 45; `all-leads`' "+1 earlier note" locator re-pointed
-  to the line that replaced it (same behaviour, stated explicitly).
+- **Nothing has to be run by hand.** `noteWithPrevious` reads the stored
+  note at display/export time, so every lead already holding two notes
+  states the earlier one the next time the app opens; the no-signal cleanup
+  rides the `NOTE_RULES_VERSION` refresh. Asserted end to end in
+  `previous-note-live` (12), which plants three months of leads straight
+  into IndexedDB and reads each case back: two months of notes state the
+  earlier one with the rules marker CURRENT, a one-note lead invents
+  nothing, the same-day and cross-month burials are both cleaned, and the
+  CSV download carries the line.
+- `review-fixes` 37 → 48; `previous-note-live` (12) is new; `all-leads`'
+  "+1 earlier note" locator re-pointed to the line that replaced it (same
+  behaviour, stated explicitly).

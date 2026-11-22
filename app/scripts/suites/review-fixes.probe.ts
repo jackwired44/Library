@@ -110,6 +110,15 @@ ok("a short raw note (under 20 chars) is scanned too", /^\u25BC /.test(unscanned
   const b = combineNotes(combineNotes("", ns, "2026-11-22T10:00:00Z"), real, "2026-11-22T10:00:00Z");
   ok("a real note replaces a same-day no-signal line", b === "2026-11-22 \u00b7 " + real, b);
   ok("an old stacked no-signal line is cleaned", dropSameDayNoSignal(`2026-11-22 \u00b7 ${ns}\n2026-11-22 \u00b7 ${real}`) === `2026-11-22 \u00b7 ${real}`);
+  // 11/22, measured on Jack's November files: 11 leads read "no signal"
+  // with the reason to call demoted behind it, one of them graded High,
+  // because the two notes were from DIFFERENT days. A no-signal line never
+  // outranks a real note, whatever its date.
+  const cross = combineNotes(combineNotes("", real, "2026-11-08T10:00:00Z"), ns, "2026-11-17T10:00:00Z");
+  ok("a no-signal line never lands on top of a real note from another day", cross === "2026-11-08 \u00b7 " + real, cross);
+  ok("  and an already-stored one is dropped", dropSameDayNoSignal(`2026-11-17 \u00b7 ${ns}\n2026-11-08 \u00b7 ${real}`) === `2026-11-08 \u00b7 ${real}`);
+  const onlyNs = `2026-11-17 \u00b7 ${ns}\n2026-11-08 \u00b7 ${ns}`;
+  ok("  a lead with nothing BUT no-signal notes keeps them", dropSameDayNoSignal(onlyNs) === onlyNs);
   const two = combineNotes(combineNotes("", "(30) \u25B8 Wants Microsoft 365 E3 for 40 users. Ask how they manage licensing today.", "2026-10-19T10:00:00Z"), real, "2026-11-22T10:00:00Z");
   const exp = noteWithPrevious(two);
   ok("the export note states the previous note with its date and grade", exp === `${real} Previous note (10/19, Needs Review): Wants Microsoft 365 E3 for 40 users.`, exp);

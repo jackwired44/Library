@@ -369,14 +369,17 @@ export function combineNotes(prevCombined: string, incoming: string, when: strin
   if (!prev) return `${when.slice(0, 10)} · ${fresh}`;
 
   const day = when.slice(0, 10);
-  // Per Jack (11/22): the same person twice in one upload, once with a real
-  // ask and once with nothing, stacked the "no signal" line ON TOP of the
-  // real note. Two lines from the same day are one sitting, not history: a
-  // no-signal line never joins a real one from that day, and a real note
-  // replaces a same-day no-signal line.
+  // Per Jack (11/22): the same person came in twice, once with a real ask
+  // and once with a thin row, and the "no signal" line stacked ON TOP of
+  // the real note — on his two November files that left 11 leads reading
+  // "no signal" with the reason to call demoted behind it, one of them
+  // graded High. A no-signal line says only that THIS row carried nothing,
+  // which the lead's own file list already records, so it never outranks a
+  // real note and is dropped whenever one exists. A lead whose notes are
+  // all no-signal keeps them: nothing better exists.
   const freshNs = isNoSignalLine(fresh);
-  if (freshNs && noteSegments(prev).some((s) => s.date === day && !isNoSignalLine(s.text))) return prev;
-  const segs = noteSegments(prev).filter((s) => freshNs || !(s.date === day && isNoSignalLine(s.text)));
+  if (freshNs && noteSegments(prev).some((s) => !isNoSignalLine(s.text))) return prev;
+  const segs = noteSegments(prev).filter((s) => freshNs || !isNoSignalLine(s.text));
   const freshBody = noteBody(fresh);
   // Already hold it, or hold something that contains it.
   if (segs.some((s) => { const b = noteBody(s.text); return b === freshBody || b.includes(freshBody); })) {
@@ -413,12 +416,12 @@ export function isNoSignalLine(text: string): boolean {
   return NO_SIGNAL_LINE_RE.test(String(text || ""));
 }
 
-/** Drop a same-day no-signal line that sits beside a real note from that
- *  day (stacked before combineNotes knew better). */
+/** Drop every no-signal line from a lead that also holds a real note
+ *  (stacked before combineNotes knew better). */
 export function dropSameDayNoSignal(combined: string): string {
   const segs = noteSegments(combined);
-  const realDays = new Set(segs.filter((s) => s.date && !isNoSignalLine(s.text)).map((s) => s.date));
-  const kept = segs.filter((s) => !(s.date && isNoSignalLine(s.text) && realDays.has(s.date)));
+  if (!segs.some((s) => !isNoSignalLine(s.text))) return combined;
+  const kept = segs.filter((s) => !isNoSignalLine(s.text));
   if (kept.length === segs.length) return combined;
   return kept.map((s) => (s.date ? `${s.date} · ${s.text}` : s.text)).join(NOTE_SEP);
 }
