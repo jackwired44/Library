@@ -78,11 +78,14 @@ const putLead = (db, l) => new Promise((res) => { const t = db.transaction('lead
   ok('  its note no longer reads as a High lead', !/\) ▲ /.test(rampsAfter.notes.split('\n')[0]), rampsAfter.notes);
   const after = leads.find(l => l.key === acme.key);
   const top = (after.notes || '').split('\n')[0];
-  ok('reload rewrites the stale note with today\'s rule', /Partner is engaging with Acme Bank/.test(top) && /Looking for Azure architecture support/.test(top), top);
-  // 11/22, per Jack "Drop it, end on the facts": no generated question at
-// all, so what must hold is that the Azure need is stated and the old
-// licensing wording is gone.
-  ok('  states the Azure need and poses no question', /Looking for Azure architecture support/.test(top) && !/\bAsk (?:if|how|what|who)\b/.test(top), top);
+  // 11/23, per Jack "no do not quote any sentences": the note no longer
+  // lifts the row's own sentence, so what must hold is that the refresh
+  // ran and today's derived wording replaced the stale licensing line.
+  ok('reload rewrites the stale note with today\'s rule', /Looking for Azure architecture support/.test(top) && !/manage licensing today/.test(top), top);
+  // 11/23, per Jack "switch back azure notes after scanner to how they
+  // were": the Azure ask he called gold is back (it had been dropped on
+  // 11/22 under "end on the facts"), and it is the only area that asks.
+  ok('  states the Azure need and closes on the Azure ask', /Looking for Azure architecture support/.test(top) && /Ask how Azure is managed today, internal IT or an external partner/.test(top), top);
   ok('  keeps its date and carries a band mark', /^2026-10-01 · [▲▼▸✕] /.test(top), top);
   ok('  leaves the older dated segment alone', /\n2026-09-01 · \(30\) ▲ Older history line\.$/.test(after.notes), after.notes);
   ok('  tier and score match today\'s scan', after.tier === acme.tier && after.score === acme.score, `${after.tier}/${after.score}`);
