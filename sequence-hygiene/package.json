@@ -1,0 +1,9 @@
+{
+  "name": "sequence-hygiene",
+  "private": true,
+  "description": "Checks an Apollo sequence against every Wired CIO source before outreach. Published as a private claude.ai Artifact.",
+  "scripts": {
+    "build": "node build.js",
+    "test": "node --test test/*.test.js"
+  }
+}
