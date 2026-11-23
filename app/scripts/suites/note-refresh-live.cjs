@@ -62,7 +62,7 @@ const putLead = (db, l) => new Promise((res) => { const t = db.transaction('lead
 
   // Plant an old-rule note: an old dated segment underneath, and a stale
   // newest segment with a score mark of its own.
-  const old = { ...acme, notes: '2026-10-01 · (38) ▲ Runs Copilot. Partner on record: AI Ready with Surface Copilot PCs. Ask how they manage licensing today, in-house or through a partner, and where the pain is.\n2026-09-01 · (30) ▲ Older history line.' };
+  const old = { ...acme, notes: '2026-10-01 · (38) ▲ Runs Copilot. Partner indicated: AI Ready with Surface Copilot PCs. Ask how they manage licensing today, in-house or through a partner, and where the pain is.\n2026-09-01 · (30) ▲ Older history line.' };
   await idb(page, putLead, old);
   const ramps = leads.find(l => /ramps/i.test(l.company));
   ok('a pending-purchase row scans as a Bad Lead today', !!ramps && /^Bad Lead/.test(ramps.tier), ramps && ramps.tier);
@@ -79,8 +79,11 @@ const putLead = (db, l) => new Promise((res) => { const t = db.transaction('lead
   const after = leads.find(l => l.key === acme.key);
   const top = (after.notes || '').split('\n')[0];
   ok('reload rewrites the stale note with today\'s rule', /Partner is engaging with Acme Bank/.test(top) && /Looking for Azure architecture support/.test(top), top);
-  ok('  closes on the Azure ask, not the old licensing one', /Ask how Azure is managed today/.test(top) && !/manage licensing/.test(top), top);
-  ok('  keeps its date and carries a score mark', /^2026-10-01 · \(\d{1,3}\) [▲▼▸✕] /.test(top), top);
+  // 11/22, per Jack "Drop it, end on the facts": no generated question at
+// all, so what must hold is that the Azure need is stated and the old
+// licensing wording is gone.
+  ok('  states the Azure need and poses no question', /Looking for Azure architecture support/.test(top) && !/\bAsk (?:if|how|what|who)\b/.test(top), top);
+  ok('  keeps its date and carries a band mark', /^2026-10-01 · [▲▼▸✕] /.test(top), top);
   ok('  leaves the older dated segment alone', /\n2026-09-01 · \(30\) ▲ Older history line\.$/.test(after.notes), after.notes);
   ok('  tier and score match today\'s scan', after.tier === acme.tier && after.score === acme.score, `${after.tier}/${after.score}`);
 

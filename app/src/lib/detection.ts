@@ -3141,36 +3141,11 @@ function briefTopicOf(fullText: string, platform: PlatformResult | null): BriefT
   return null;
 }
 
-function briefQuestions(
-  area: "dynamics" | "licensing" | "azure",
-  knowsIncumbent: boolean,
-  knowsPain: boolean,
-): string {
-  const pain = knowsPain ? "" : ", and where the pain is";
-  if (area === "dynamics") {
-    // Dynamics asks for the pain in Jack's own words rather than the
-    // terser "where the pain is" the other two areas use — he corrected
-    // the first wording directly. It is still dropped when the row has
-    // already stated its pain, same rule as everywhere else: asking for
-    // what we were just told wastes one of only two questions.
-    if (knowsIncumbent) {
-      // The row already named what they run, so that half becomes the
-      // forcing question instead.
-      return knowsPain
-        ? "Ask if they have looked at Dynamics before and what is forcing the change now."
-        : "Ask if they have looked at Dynamics before, what is forcing the change now, and what the high level pain points are.";
-    }
-    // Two clauses take "and", three take a comma list — dropping the pain
-    // clause without this left "…Dynamics before, what they run today."
-    return knowsPain
-      ? "Ask if they have looked at Dynamics before and what they run today."
-      : "Ask if they have looked at Dynamics before, what they run today, and what the high level pain points are.";
-  }
-  if (area === "licensing") {
-    return `Ask how they manage licensing today, in-house or through a partner${pain}.`;
-  }
-  return `Ask how Azure is managed today, internal IT or an external partner${pain}.`;
-}
+// Per Jack, 11/22: "Ask how Azure is managed today ... remove this style
+// of ending for the scanned notes" — he chose ending on the facts, so a
+// brief states what the row says and stops. Nothing in a note is a
+// question the engine made up. stripAsk (lib/leadStore) still strips the
+// old ending from notes stored before this.
 
 /* --- WHO HANDLES IT / WHERE THEY ARE GOING -------------------------- *
  * Per Jack, on the M365 line: "indicate who handles it do they go direct
@@ -3232,8 +3207,11 @@ function directionClause(productArea: string, company: string, email: string, ru
   const kind = classifyProductArea(pa).kind;
   if (kind === "segment" || kind === "none") return "";
   // Per Jack, 11/22: "no more saying direct with microsoft in the scanned
-  // notes". A Microsoft-direct Product Area adds no clause.
-  if (kind === "microsoft") return "";
+  // notes", then "do not have partner say microsoft or microsoft
+  // corporation just put 'no partner indicated'". Microsoft itself in the
+  // partner column means nobody real holds this customer, so it is stated
+  // as that rather than named as a partner.
+  if (kind === "microsoft") return NO_PARTNER_LINE;
   if (kind === "product") {
     // Naming the direction when it is already what we just said they run
     // is noise, not information.
@@ -3246,8 +3224,12 @@ function directionClause(productArea: string, company: string, email: string, ru
   const own = [company, (email.split("@")[1] || "").split(".")[0]].map(normaliseName).filter(Boolean);
   const paKey = normaliseName(pa);
   if (own.some((o) => o && (o.includes(paKey) || paKey.includes(o)))) return "";
-  return `Partner on record: ${pa}.`;
+  // Per Jack, 11/22: "change when listing partner to 'partner indicated'
+  // and name the partner listed".
+  return `Partner indicated: ${pa}.`;
 }
+/** Per Jack, 11/22: Microsoft in the partner column is not a partner. */
+export const NO_PARTNER_LINE = "No partner indicated.";
 
 /**
  * Build the Main Scanner's Notes line. Returns "" when the row gives
@@ -3553,9 +3535,12 @@ function buildDynamicsBrief(
   const st = partnerStanceOf(fullText);
   if (st.wantsDirect) parts.push("Wants to buy direct from Microsoft.");
   else {
-    // Per Jack, 11/22: no "Direct with Microsoft" clause.
-    if (pa.kind === "microsoft" || st.buysDirect) { /* said nothing */ }
-    else if (pa.kind === "partner" && !isOwnCompany(pa.label, company, email)) parts.push(`Partner: ${firstWords(pa.label, 3)}.`);
+    // Per Jack, 11/22: no "Direct with Microsoft" clause; Microsoft in the
+    // partner column reads as nobody holding them, and a real partner is
+    // "Partner indicated: <name>".
+    if (st.buysDirect) { /* said nothing */ }
+    else if (pa.kind === "microsoft") parts.push(NO_PARTNER_LINE);
+    else if (pa.kind === "partner" && !isOwnCompany(pa.label, company, email)) parts.push(`Partner indicated: ${firstWords(pa.label, 3)}.`);
     if (st.wantsPartner) parts.push("Wants a partner.");
   }
 
@@ -4237,22 +4222,8 @@ export function buildCallBrief(
       // The migration line does not show the opening sentence, so a partner
       // ask in it still has to be said here.
       stanceBase,
-      /\b(?:Azure|the cloud)\.$/.test(migration)
-        ? briefQuestions("azure", false, false)
-        : briefQuestions(hits.length > 0 || /Microsoft 365|Google/.test(migration) ? "licensing" : "azure", false, false),
     ].filter(Boolean).join(" "));
   }
-
-  // The ask follows the DIRECTION, not the installed base — see
-  // briefQuestions. Azure wins when the opportunity itself is Azure, which
-  // the row says either through the Product Area column or through the hit
-  // that qualified it.
-  const azureDirection =
-    /\bazure\b/i.test(productArea) ||
-    (platform?.hits ?? []).some((h) => h.category === "Azure" || h.category === "Microsoft Fabric") ||
-    !!azureHelp;
-  const area: "dynamics" | "licensing" | "azure" =
-    dynamics ? "dynamics" : azureDirection ? "azure" : hits.length > 0 ? "licensing" : "azure";
 
   // Per Jack: "we need to know exactly what they want and if theres a
   // timeline of when they want it".
@@ -4264,7 +4235,6 @@ export function buildCallBrief(
     dirShown,
     stance,
     known,
-    briefQuestions(area, !!incumbent, !!pain),
   ].filter(Boolean).join(" "));
 }
 /** The brief opens with the row's OWN wording for the product, which is
@@ -4285,8 +4255,14 @@ export const LARGE_ESTATE_SEATS = 500;
  *  first, then the band mark, then whatever the row actually said. This is
  *  also the CSV Notes column, so an export carries the same read. */
 export function formatMatchedSnippet(summary: string, score: number | null | undefined, band: Priority): string {
+  // Per Jack (11/22): "do not do scores anymore" — the number is gone from
+  // the note; the priority symbol he asked for by name stays. The score
+  // itself is still computed and still drives the band, this is the note
+  // text only. `score` is kept in the signature so every caller and the
+  // band it passes are unchanged.
+  void score;
   const body = String(summary || "").trim();
-  const head = `(${score ?? 0}) ${PRIORITY_SYMBOL[band]}`;
+  const head = PRIORITY_SYMBOL[band];
   return body ? `${head} ${body}` : head;
 }
 /** The inverse of formatMatchedSnippet: the row's own words, with the

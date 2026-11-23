@@ -85,7 +85,7 @@ fs.writeFileSync(CSP, csv);
   ok('  it carries the ★ pin', /★/.test(acme), acme);
   ok('  the partner column reads Open', /\bOpen\b/.test(acme) && /No partner assigned/i.test(acme), acme);
   ok('  the contact and phone carried through', /Dana Reyes/.test(acme) && /312-555-0147/.test(acme), acme);
-  ok('  the notes carry the score in parentheses', /\(\d{1,3}\)/.test(acme), acme);
+  ok('  the notes carry the band mark', /[\u25B2\u25B8\u25BC\u2715]/.test(acme), acme);
 
   const held = await rowText('HELD CO');
   ok('a held deal names its partner in the Partner column', /CDW Logistics LLC/.test(held), held);
@@ -103,7 +103,7 @@ fs.writeFileSync(CSP, csv);
   ok('High priority holds ACME, HELD CO, MANGLED and DIRECT CORP', /High priority \(4\)/.test(tiers), tiers);
   ok('Low priority holds the ghosted one (scored, penalised, still Low)', /Low priority \(1\)/.test(tiers), tiers);
   const ghost = await rowText('GHOST LLC');
-  ok('  the ghosted row carries a real score, not a blank', /\(\d{1,3}\)/.test(ghost), ghost);
+  ok('  the ghosted row carries a band mark, not a blank', /[\u25B2\u25B8\u25BC\u2715]/.test(ghost), ghost);
   ok('  and its notes say the newest entry is the problem', /Latest note: /.test(ghost), ghost);
   ok('Medium priority holds the middling one', /Medium priority \(1\)/.test(tiers), tiers);
   ok('no Strong Signal / Bad Leads wording on this tab', !/Strong Signal \(|Bad Leads \(|Needs Review \(/.test(tiers), tiers);

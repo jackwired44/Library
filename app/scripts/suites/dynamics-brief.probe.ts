@@ -49,15 +49,15 @@ ok("a partner whose NAME contains a product word is still a partner",
 
 console.log("\n=== the segment labels stop being printed as facts ===");
 // 253 real rows said "Microsoft is already pitching them Growth"; the most
-// common "Partner on record" value was "Baseline" (29 rows).
+// common "Partner indicated" value was "Baseline" (29 rows).
 for (const seg of ["Growth", "Baseline", "AI Business Solutions", "Cloud and AI Platforms"]) {
   const r = scan("Renewing Microsoft 365 E3 for 300 users this year.", "Acme Freight", seg);
   ok(`"${seg}" is never printed as a product or a partner`,
-     !/pitching them/.test(r.notesSummary) && !/Partner on record/.test(r.notesSummary), r.notesSummary);
+     !/pitching them/.test(r.notesSummary) && !/Partner indicated/.test(r.notesSummary), r.notesSummary);
 }
 {
   const r = scan("Renewing Microsoft 365 E3 for 300 users this year.", "Acme Freight", "CDW Logistics LLC");
-  ok("a real partner name still reads as the partner", /Partner on record: CDW/.test(r.notesSummary), r.notesSummary);
+  ok("a real partner name still reads as the partner", /Partner indicated: CDW/.test(r.notesSummary), r.notesSummary);
 }
 
 console.log("\n=== the Dynamics line: facts only ===");
@@ -67,7 +67,7 @@ console.log("\n=== the Dynamics line: facts only ===");
   ok("  no generated question", !/\bAsk /.test(r.notesSummary), r.notesSummary);
   ok("  names the platform", /Business Central/.test(r.notesSummary), r.notesSummary);
   ok("  states the user count", /\(20 users\)/.test(r.notesSummary), r.notesSummary);
-  ok("  names the partner", /Partner: CDW/.test(r.notesSummary), r.notesSummary);
+  ok("  names the partner", /Partner indicated: CDW/.test(r.notesSummary), r.notesSummary);
   ok("  carries the timeline", /3\/30\/2027/.test(r.notesSummary), r.notesSummary);
 }
 {

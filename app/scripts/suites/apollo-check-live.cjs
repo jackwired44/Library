@@ -46,7 +46,10 @@ const FAKE = () => {
       window.__calls.push({ tool, args });
       if (tool.endsWith('contacts_search') && window.__rateLimitAfter != null
           && window.__calls.filter(c => c.tool.endsWith('contacts_search')).length > window.__rateLimitAfter)
-        throw { code: 'tool_error', message: 'USAGE.RATE_LIMIT.API_RATE_LIMIT_EXCEEDED: 400 contacts/search calls per hour' };
+        throw { code: 'tool_error', message: window.__rateLimitDaily
+          // Apollo's real daily refusal, verbatim from the one Jack hit.
+          ? '{ "message": "The maximum number of api calls allowed for api/v1/contacts/search is 2000 times per day.", "error_details": { "code": "USAGE.RATE_LIMIT.API_RATE_LIMIT_EXCEEDED", "suggestions": [ { "label": "Wait 56815 seconds, then retry the request.", "retry_after_seconds": 56815 } ], "context": { "window": { "value": "day" } } } }'
+          : 'USAGE.RATE_LIMIT.API_RATE_LIMIT_EXCEEDED: 400 contacts/search calls per hour' };
       if (tool.endsWith('emailer_campaigns_search')) return { payload: { emailer_campaigns: [{ id: 'seq1', name: 'Dynamics Sequence', num_steps: 5, emailer_steps: steps }], pagination: { total_pages: 1 } } };
       return { payload: { contacts: contacts[args.q_keywords] || [] } };
     },
@@ -222,14 +225,28 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  ok   ' + n)) : (fail+
   await page.evaluate(() => { window.__rateLimitAfter = window.__calls.filter(c => c.tool.endsWith('contacts_search')).length + 1; });
   const nBefore = await page.evaluate(() => window.__calls.length);
   await page.locator('button', { hasText: /^Check \d+ (Strong Signal )?lead/ }).click();
-  await page.waitForFunction(() => /Apollo allows 400 lookups an hour/.test(document.querySelector('main').innerText), null, { timeout: 30000 });
+  // 11/22: the note now names the cap Apollo stated and the wait Apollo
+  // gave, rather than always reporting the hourly one.
+  await page.waitForFunction(() => /cap of 400 lookups an hour/.test(document.querySelector('main').innerText), null, { timeout: 30000 });
   const tl = await main();
-  ok('the hourly cap pauses the run with a come-back time', /Apollo allows 400 lookups an hour/.test(tl) && /run it again after about/.test(tl), tl.match(/Checked[^\n]{0,240}/)?.[0]);
+  ok('the hourly cap pauses the run with a come-back time', /cap of 400 lookups an hour/.test(tl) && /run it again after/.test(tl), tl.match(/Checked[^\n]{0,240}/)?.[0]);
   await page.waitForFunction(() => /Checked \d/.test(document.querySelector('[aria-label="Apollo check"]')?.innerText || ''), null, { timeout: 30000 });
   const line = (await page.locator('[aria-label="Apollo check"]').innerText()).replace(/\s+/g, ' ');
   ok('it stops instead of failing every lead', /Checked 1 of \d/.test(line) && !/failed/.test(line), line);
   ok('it stops calling Apollo once refused', (await page.evaluate(() => window.__calls.length)) - nBefore <= 6);
-  await page.evaluate(() => { window.__rateLimitAfter = null; });
+  // Per Jack, 11/22, pasting the real refusal: Apollo also caps the DAY at
+  // 2,000 searches, and said to wait 56,815 seconds. Reporting that as the
+  // hourly cap sent him back into the same wall an hour later.
+  await page.evaluate(() => {
+    window.__rateLimitDaily = true;
+    window.__rateLimitAfter = window.__calls.filter(c => c.tool.endsWith('contacts_search')).length;
+  });
+  await page.locator('button', { hasText: /^Check \d+ (Strong Signal )?lead/ }).click();
+  await page.waitForFunction(() => /daily cap of 2,000 lookups/.test(document.querySelector('main').innerText), null, { timeout: 30000 });
+  const dl = await main();
+  ok('a DAILY refusal names the daily cap, not the hourly one', /daily cap of 2,000 lookups/.test(dl) && !/cap of 400 lookups an hour/.test(dl), dl.match(/daily cap[^\n]{0,200}/)?.[0]);
+  ok('  and reports Apollo\'s own wait, not "about an hour"', /wait about 16 hours/.test(dl), dl.match(/wait about[^\n]{0,60}/)?.[0]);
+  await page.evaluate(() => { window.__rateLimitDaily = false; window.__rateLimitAfter = null; });
   ok('no page errors', errs.length === 0, errs.join(' | '));
   await b.close();
   console.log(`\n${pass}/${pass + fail} checks passed`);

@@ -306,7 +306,7 @@ export default function Documentation() {
               ["Wants M365 E5 and Copilot (285 seats, $504k).", "What it is about and the size of the opportunity. The licence count is read out of the seller notes; this export has no column for it."],
               ["Timeline: renews ~Dec (56d).", "When their renewal is. \u201cForecast close\u201d is the seller\u2019s guess, never worded as a contract; the day count shows inside the window."],
               ["Wants to work with a partner (12 Jun): \u2026", "The customer asked for a partner, dated to the entry it was written in."],
-              ["Partner on record: CDW. / No partner on record; SHI named in notes.", "Whether a partner is on the record or nobody is yet. Pain with that partner rides on it in brackets."],
+              ["Partner indicated: CDW. / No partner indicated; SHI named in notes.", "Whether a partner is indicated or nobody is yet. Pain with that partner rides on it in brackets."],
               ["Billing: annual new, paid upfront.", "How they pay."],
               ["Ask how they buy licensing today, direct or through a partner, and where the pain is.", "The question to open with. Azure-only rows get the Azure ask."],
             ]}

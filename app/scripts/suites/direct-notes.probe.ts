@@ -16,9 +16,10 @@ const note = (pa: string, n: string) => scan(pa, n)?.notesSummary ?? "";
 
 let n = note("Azure", "The customer wants to use Azure Document Intelligence to extract data from invoices and purchase orders, about 2,000 documents a month.");
 ok("doc intel: the row's own sentence", /Azure Document Intelligence to extract data from invoices/.test(n), n);
-ok("doc intel keeps Jack's gold ask", /Ask how Azure is managed today, internal IT or an external partner/.test(n), n);
+// 11/22, per Jack "Drop it, end on the facts": no generated question.
+ok("doc intel ends on the facts, no generated question", !/\bAsk (?:if|how|what|who)\b/.test(n), n);
 n = note("Azure", "Healthcare - Azure Document Intelligence - The customer stated that they want to digitize patient intake forms and integrate with their EHR.");
-ok("doc intel leads the note", /^\(\d+\) ▲ Wants Azure Document Intelligence\. They want to digitize/.test(n), n);
+ok("doc intel leads the note", /^▲ Wants Azure Document Intelligence\. They want to digitize/.test(n), n);
 
 n = note("M365", "Customer is looking for help improving their security posture, MFA and conditional access across 80 users.");
 ok("security: quoted whole", /improving their security posture, MFA and conditional access across 80 users\./.test(n), n);
@@ -32,7 +33,7 @@ ok("support: quoted with its count", /Need ongoing IT support and help desk for 
 
 const sw = scan("M365", "Customer's current IT provider is unresponsive and they want a new partner for ongoing Microsoft 365 support, 60 users.");
 ok("switching provider is a lead", sw?.tier === "signal", sw?.tier);
-ok("switching provider: quoted whole, no repeat", /^\(\d+\) ▲ Customer's current IT provider is unresponsive and they want a new partner/.test(sw?.notesSummary ?? "") && !/Flagged/.test(sw?.notesSummary ?? ""), sw?.notesSummary);
+ok("switching provider: quoted whole, no repeat", /^▲ Customer's current IT provider is unresponsive and they want a new partner/.test(sw?.notesSummary ?? "") && !/Flagged/.test(sw?.notesSummary ?? ""), sw?.notesSummary);
 const doc = scan("", "S - 26/Oct - [5/20/2024, DJ]:: Requesting 1 more user for a new provider starting soon.");
 ok("a new healthcare provider is not a new IT provider", doc?.tier !== "signal", `${doc?.tier} ${doc?.notesSummary}`);
 
@@ -51,15 +52,15 @@ ok("an ERP hosted on Azure is not a Dynamics lead", kb?.category !== "dynamics36
 const pre = "Spoke with the office manager about their current environment. They have about 70 employees across two locations and use Microsoft 365 Business Standard today. ";
 const post = " Follow-up meeting scheduled with the owner next week to review options.";
 const buried: [string, string, RegExp][] = [
-  ["security", "They want a security review and help tightening MFA and conditional access.", /^\(\d+\) ▲ They want a security review/],
-  ["device management", "They need device management for their laptops and phones and want Intune set up.", /^\(\d+\) ▲ They need device management for their laptops and phones and want Intune set up\./],
-  ["MDM / Autopilot", "Main ask is MDM and Autopilot so new devices are enrolled automatically.", /^\(\d+\) ▲ Main ask is MDM and Autopilot/],
-  ["ongoing support", "They need ongoing IT support since their last IT person left.", /^\(\d+\) ▲ They need ongoing IT support/],
-  ["MSP", "They are looking for an MSP to take over day to day IT.", /^\(\d+\) ▲ They are looking for an MSP to take over day to day IT\./],
-  ["partner", "They want to work with a partner going forward on their Microsoft stack.", /^\(\d+\) ▲ They want to work with a partner going forward/],
-  ["Azure migration", "They want to migrate their on-prem file server and SQL server to Azure.", /^\(\d+\) ▲ Migrating on-prem file server and SQL server to Azure\./],
-  ["Document Intelligence", "They are interested in Azure Document Intelligence to read scanned invoices.", /^\(\d+\) ▲ They are interested in Azure Document Intelligence/],
-  ["Copilot rollout", "They want to roll out Copilot to the leadership team first and then the whole company.", /^\(\d+\) ▲ They want to roll out Copilot to the leadership team/],
+  ["security", "They want a security review and help tightening MFA and conditional access.", /^▲ They want a security review/],
+  ["device management", "They need device management for their laptops and phones and want Intune set up.", /^▲ They need device management for their laptops and phones and want Intune set up\./],
+  ["MDM / Autopilot", "Main ask is MDM and Autopilot so new devices are enrolled automatically.", /^▲ Main ask is MDM and Autopilot/],
+  ["ongoing support", "They need ongoing IT support since their last IT person left.", /^▲ They need ongoing IT support/],
+  ["MSP", "They are looking for an MSP to take over day to day IT.", /^▲ They are looking for an MSP to take over day to day IT\./],
+  ["partner", "They want to work with a partner going forward on their Microsoft stack.", /^▲ They want to work with a partner going forward/],
+  ["Azure migration", "They want to migrate their on-prem file server and SQL server to Azure.", /^▲ Migrating on-prem file server and SQL server to Azure\./],
+  ["Document Intelligence", "They are interested in Azure Document Intelligence to read scanned invoices.", /^▲ They are interested in Azure Document Intelligence/],
+  ["Copilot rollout", "They want to roll out Copilot to the leadership team first and then the whole company.", /^▲ They want to roll out Copilot to the leadership team/],
 ];
 for (const [name, line, want] of buried) {
   n = note(name === "Azure migration" || name === "Document Intelligence" ? "Azure" : "M365", pre + line + post);

@@ -83,7 +83,7 @@ const notesOf = async page => (await page.locator('tbody tr').allInnerTexts());
   let rows = await notesOf(page);
   const find = c => rows.find(t => t.includes(c)) || '';
   ok('an open-lane renewal carries the ◆ pin mark', /◆/.test(find('OPEN SOON')), find('OPEN SOON').slice(0, 160));
-  ok('  with the clock, the days out and the lane', /Timeline: renews .*\(\d+d\)/.test(find('OPEN SOON')) && /No partner on record/.test(find('OPEN SOON')), find('OPEN SOON').slice(0, 160));
+  ok('  with the clock, the days out and the lane', /Timeline: renews .*\(\d+d\)/.test(find('OPEN SOON')) && /No partner indicated/.test(find('OPEN SOON')), find('OPEN SOON').slice(0, 160));
   ok('Microsoft direct pins too — nobody is on that record', /◆/.test(find('DIRECT CORP')), find('DIRECT CORP').slice(0, 160));
   ok('a renewal HELD by a named partner does NOT pin', !/◆/.test(find('HELD CO')), find('HELD CO').slice(0, 160));
   ok('  but still shows the date', /Timeline: renews /.test(find('HELD CO')), find('HELD CO').slice(0, 160));
@@ -93,10 +93,10 @@ const notesOf = async page => (await page.locator('tbody tr').allInnerTexts());
      /Timeline: renews .*\(\d+d\)/.test(find('OPEN SOON'))
      && /\$90k\)/.test(find('OPEN SOON'))
      && /M365 E5/.test(find('OPEN SOON'))
-     && /No partner on record/.test(find('OPEN SOON')), find('OPEN SOON').slice(0, 200));
-  ok('  a held row names the partner it goes through', /Partner on record: CDW/.test(find('HELD CO')), find('HELD CO').slice(0, 160));
+     && /No partner indicated/.test(find('OPEN SOON')), find('OPEN SOON').slice(0, 200));
+  ok('  a held row names the partner it goes through', /Partner indicated: CDW/.test(find('HELD CO')), find('HELD CO').slice(0, 160));
   // 11/22 per Jack: "no more saying direct with microsoft" — a Microsoft-direct row reads as no partner.
-  ok('  a Microsoft-direct row reads as no partner, never "direct with Microsoft"', /No partner on record/.test(find('DIRECT CORP')) && !/direct with Microsoft/i.test(find('DIRECT CORP')), find('DIRECT CORP').slice(0, 160));
+  ok('  a Microsoft-direct row reads as no partner, never "direct with Microsoft"', /No partner indicated/.test(find('DIRECT CORP')) && !/direct with Microsoft/i.test(find('DIRECT CORP')), find('DIRECT CORP').slice(0, 160));
   ok('  billing never contradicts itself', !/annual \w+, monthly/.test(body), (body.match(/annual \w+, monthly/) || [''])[0]);
   ok('a renewal already passed does NOT pin', !/◆/.test(find('RESIGNED')), find('RESIGNED').slice(0, 160));
   ok('  and reads "Renewed", not as urgency', /Timeline: renewed /.test(find('RESIGNED')), find('RESIGNED').slice(0, 160));

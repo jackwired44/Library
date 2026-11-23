@@ -1327,10 +1327,10 @@ export function cspMainBody(lead: CspLead, rules: CspRules = DEFAULT_CSP_RULES):
     .test(firstWord(lead.partner).trim()) ? "" : firstWord(lead.partner);
   const pain = lead.partnerPain ? ` (${lead.partnerPain})` : "";
   const named = lead.partnerConflict ? `; ${firstWord(lead.partnerConflict)} named in notes` : "";
-  out.push(lead.posture === "named" && namedPartner ? `Partner on record: ${namedPartner}${pain}.`
+  out.push(lead.posture === "named" && namedPartner ? `Partner indicated: ${namedPartner}${pain}.`
     // Per Jack, 11/22: never "direct with Microsoft" in a note; it means
     // nobody is on the record, which is what this says.
-    : `No partner on record${named}${pain}.`);
+    : `No partner indicated${named}${pain}.`);
 
   const billing = BILLING_META.find((b) => b.rank === lead.billingRank)?.note ?? "";
   if (billing) out.push(`Billing: ${billing}.`);
@@ -1338,11 +1338,7 @@ export function cspMainBody(lead: CspLead, rules: CspRules = DEFAULT_CSP_RULES):
     out.push(`Latest note: ${lead.deadReasons.join(", ")}.`);
   }
 
-  const azureOnly = skus.length > 0 && skus.every((k) => /azure/i.test(k));
-  const painKnown = !!lead.partnerPain;
-  out.push(azureOnly
-    ? `Ask how Azure is managed today, internal IT or an external partner${painKnown ? "" : ", and where the pain is"}.`
-    : `Ask how they buy licensing today, direct or through a partner${painKnown ? "" : ", and where the pain is"}.`);
+  // Per Jack, 11/22: notes end on the facts; no generated closing question.
   return pin + out.join(" ");
 }
 

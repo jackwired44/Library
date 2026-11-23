@@ -1,3 +1,6 @@
+// Per Jack, 11/22: he chose "Drop it, end on the facts" — a brief states
+// what the row says and stops. These assertions moved from "it asks" to
+// "it never asks", which is the rule that replaced it.
 // A matched snippet may only say what the row actually contains.
 //
 // Per Jack, with the row that caught it: "i just found a lead that was
@@ -93,7 +96,7 @@ const factsTraceable = (snippet: string, row: string): true | string => {
     // Ours, not the row's: engine vocabulary and derived bands.
     if (/^Large estate$/i.test(c)) continue;
     if (/no products or seat count named in the row/i.test(c)) continue;
-    if (/^(?:Microsoft is already pitching them |Partner on record: |Goes direct with Microsoft)/.test(c)) continue;
+    if (/^(?:Microsoft is already pitching them |Partner indicated: |Goes direct with Microsoft)/.test(c)) continue;
     // Dynamics-line clauses that are OURS, not the row's: the partner and
     // "direct with Microsoft" come from the Product Area COLUMN (scanPA
     // covers those directly), and "already on Dynamics" is a derived
@@ -173,8 +176,9 @@ if (acg) {
   // The apology ("no quotable sentence in the source notes") is retired:
   // every scored row now gets a brief instead of an excuse. What has to
   // hold is that the brief states only what the row gave, then asks.
-  ok("states only facts the row gave, then asks", numbersTraceable(s, ACG) && /Copilot/i.test(factHalf(s)), s);
-  ok("  and the question half is visibly a question we pose", /^Ask /.test(askHalf(s)), s);
+  ok("states only facts the row gave", numbersTraceable(s, ACG) && /Copilot/i.test(factHalf(s)), s);
+  // 11/22: ends on the facts — no generated question at all.
+  ok("  and poses no question of its own", !/\bAsk (?:if|how|what|who)\b/.test(s), s);
 }
 
 console.log("\n== a real sentence is still quoted verbatim ==");
@@ -188,13 +192,8 @@ scan(REAL).forEach((row, i) => {
   const s: string = row.notesSummary;
   const t = factsTraceable(s, REAL[i]);
   ok(`facts traceable to the row: "${REAL[i].slice(0, 38)}…"`, t === true, `${s}  <<< ${t} >>>`);
-  // Dynamics carries NO ask — per Jack, "i just need the platform in
-  // dyanmics mentioned the user count if theres info on a partner and
-  // timeline". Every other product line still closes on one.
-  ok(row.category === "dynamics365"
-       ? `  and a Dynamics line carries no generated question`
-       : `  and it asks rather than inventing intent`,
-     row.category === "dynamics365" ? !/\bAsk /.test(s) : /^Ask .+\.$/.test(askHalf(s)), s);
+  // 11/22: NO line carries a generated question any more, Dynamics or not.
+  ok(`  and it carries no generated question`, !/\bAsk (?:if|how|what|who)\b/.test(s), s);
 });
 
 console.log("\n== no snippet anywhere may invent a hot signal ==");
@@ -295,14 +294,14 @@ console.log("\n== the call brief: what it is about, then two questions ==");
 // stores with m365 so thats there", "dynamics is its own" and "if its
 // general it or m365/azure go with the azure".
 const AREAS: [string, string, RegExp][] = [
-  ["a named licensing SKU asks the licensing question",
-   "Renewing Microsoft 365 E3 for 300 users this year.", /Ask how they manage licensing today/],
+  ["a named licensing SKU states the SKU and stops",
+   "Renewing Microsoft 365 E3 for 300 users this year.", /Microsoft 365 E3/],
   ["Dynamics names the module instead of asking a question",
    "Looking at Dynamics 365 Business Central for 40 users.", /Business Central/],
-  ["general IT / Azure with no SKU named asks the Azure question",
-   "We want to bring in an MSP for ongoing IT support.", /Ask how Azure is managed today/],
-  ["an Azure migration asks the Azure question too",
-   "Planning an on-prem to Azure migration with a partner this year.", /Ask how Azure is managed today/],
+  ["general IT / Azure with no SKU named quotes the row",
+   "We want to bring in an MSP for ongoing IT support.", /bring in an MSP for ongoing IT support/],
+  ["an Azure migration names the move",
+   "Planning an on-prem to Azure migration with a partner this year.", /Azure/],
 ];
 scan(AREAS.map((a) => a[1])).forEach((row, i) => {
   const [label, , want] = AREAS[i];
@@ -342,7 +341,7 @@ const [soft] = scan(["Planning an on-prem to Azure migration with a partner, but
 ok("a bare \u201cbut\u201d is NOT reported as a lost deal",
    !!soft && !/reversed:/.test(soft.notesSummary), soft ? soft.notesSummary : "(no row)");
 ok("  so the row keeps its normal questions",
-   !!soft && /Ask how Azure is managed today/.test(soft.notesSummary), soft ? soft.notesSummary : "(no row)");
+   !!soft && !/\bAsk (?:if|how|what|who)\b/.test(soft.notesSummary), soft ? soft.notesSummary : "(no row)");
 const [hard] = scan(["We evaluated Dynamics 365 Business Central for 40 users, but they are staying on SAP for now."]);
 ok("a substantive verdict IS reported even with a \u201cbut\u201d before it",
    !!hard && /[Rr]eversed:/.test(hard.notesSummary), hard ? hard.notesSummary : "(no row)");
@@ -384,25 +383,25 @@ const DIR = scanPA([
 // partner with them" — no pitching clause, but the Product Area still steers
 // the ask to Azure.
 ok("a Microsoft product in Product Area adds no pitching clause, still steers the ask",
-   !!DIR[0] && !/already pitching/.test(DIR[0].notesSummary) && /Ask how Azure is managed today/.test(DIR[0].notesSummary),
+   !!DIR[0] && !/already pitching/.test(DIR[0].notesSummary) && !/\bAsk (?:if|how|what|who)\b/.test(DIR[0].notesSummary),
    DIR[0] ? DIR[0].notesSummary : "(no row)");
 ok("Microsoft itself reads as going direct",
    // 11/22 per Jack: "no more saying direct with microsoft" — the clause is dropped.
-   !!DIR[1] && !/direct with Microsoft/i.test(DIR[1].notesSummary) && !/Partner on record/.test(DIR[1].notesSummary),
+   !!DIR[1] && !/direct with Microsoft/i.test(DIR[1].notesSummary) && !/Partner indicated/.test(DIR[1].notesSummary),
    DIR[1] ? DIR[1].notesSummary : "(no row)");
 ok("a reseller name reads as a partner on the record",
-   !!DIR[2] && /Partner on record: Sentinel Technologies\./.test(DIR[2].notesSummary),
+   !!DIR[2] && /Partner indicated: Sentinel Technologies\./.test(DIR[2].notesSummary),
    DIR[2] ? DIR[2].notesSummary : "(no row)");
 ok("  “Microsoft direct” is never reported as a partner",
-   !!DIR[3] && !/Partner on record/.test(DIR[3].notesSummary) && !/direct with Microsoft/i.test(DIR[3].notesSummary),
+   !!DIR[3] && !/Partner indicated/.test(DIR[3].notesSummary) && !/direct with Microsoft/i.test(DIR[3].notesSummary),
    DIR[3] ? DIR[3].notesSummary : "(no row)");
 ok("  a bare account number says nothing and is dropped",
-   !!DIR[4] && !/Partner on record|pitching them/.test(DIR[4].notesSummary),
+   !!DIR[4] && !/Partner indicated|pitching them/.test(DIR[4].notesSummary),
    DIR[4] ? DIR[4].notesSummary : "(no row)");
 // Real on this data: a Datadog contact on a @datadoghq.com address whose
 // Product Area reads "Datadog". That is the customer, not their partner.
 ok("  the customer's OWN name is never reported as their partner",
-   !!DIR[5] && !/Partner on record/.test(DIR[5].notesSummary),
+   !!DIR[5] && !/Partner indicated/.test(DIR[5].notesSummary),
    DIR[5] ? DIR[5].notesSummary : "(no row)");
 ok("  a direction that just restates what they run is dropped",
    !!DIR[6] && !/pitching them/.test(DIR[6].notesSummary),
@@ -413,7 +412,7 @@ console.log("\n== the ask follows the direction, not the installed base ==");
 // STILL the Azure one, because Azure is what the opportunity is about.
 const [jack] = scanPA([{ note: "They run Office 365 E3 and Microsoft 365 Copilot across the business.", pa: "Azure Virtual Desktop" }]);
 ok("an Azure direction takes the Azure ask even when M365 SKUs are named",
-   !!jack && /\b(?:Runs|They run) /.test(jack.notesSummary) && /Ask how Azure is managed today/.test(jack.notesSummary),
+   !!jack && /\b(?:Runs|They run) /.test(jack.notesSummary) && !/\bAsk (?:if|how|what|who)\b/.test(jack.notesSummary),
    jack ? jack.notesSummary : "(no row)");
 
 console.log("\n== the Dynamics line states facts instead of asking ==");
@@ -450,12 +449,12 @@ scan(DYN_FACTS.map((d) => d[1])).forEach((row, i) => {
 });
 
 console.log("\n== the pain probe ==");
-// Per Jack the ask ends "and where the pain is" — except where the row
-// already stated its pain, since asking for what we were just told wastes
-// one of only two questions.
+// 11/22: the pain PROBE is gone with the rest of the ask, but a pain the
+// row states itself is still quoted — that is a fact, not a question.
 const [noPain] = scan(["Renewing Microsoft 365 E3 for 300 users this year."]);
-ok("the ask closes on the pain probe",
-   !!noPain && /and where the pain is\./.test(noPain.notesSummary), noPain ? noPain.notesSummary : "(no row)");
+ok("a row stating no pain simply says nothing about pain",
+   !!noPain && !/where the pain is/.test(noPain.notesSummary) && !/Flagged "/.test(noPain.notesSummary),
+   noPain ? noPain.notesSummary : "(no row)");
 const [hasPain] = scan(["Renewing Microsoft 365 E3 for 300 users. Their current setup is end of life and the manual process is a bottleneck."]);
 ok("  but not when the row already said what the pain is",
    !!hasPain && /Flagged "/.test(hasPain.notesSummary) && !/and where the pain is/.test(hasPain.notesSummary),
@@ -501,7 +500,7 @@ ok("a row with no SKU and no Product Area still states what matched",
   const s = az ? az.notesSummary : "(no row)";
   ok("partner-led Azure note opens on what the row is about", /Partner is engaging with Acme Bank/.test(s) && !/Follow-up sent/i.test(s), s);
   ok("  states the Azure architecture support it is after", /Looking for Azure architecture support\./.test(s), s);
-  ok("  and closes on the existing Azure ask", /Ask how Azure is managed today, internal IT or an external partner/.test(s), s);
+  ok("  and closes on the facts, with no generated question", !/\bAsk (?:if|how|what|who)\b/.test(s), s);
 }
 
 // Per Jack: "Customer has 6 copilot licenses and want to expand across all
@@ -511,7 +510,7 @@ ok("a row with no SKU and no Product Area still states what matched",
   const [cp] = scan(["Customer has 6 copilot licenses and want to expand across all 305 E3 users."]);
   const s = cp ? stripSnippetPrefix(cp.notesSummary) : "(no row)";
   ok("a plain expansion sentence is the note as written, then the ask",
-     /^Customer has 6 copilot licenses and want to expand across all 305 E3 users\. Ask how they manage licensing today/.test(s), s);
+     /^Customer has 6 copilot licenses and want to expand across all 305 E3 users\.$/.test(s.trim()), s);
 }
 
 // Per Jack, on "The purchase is pending because the admin assistant has the
@@ -534,10 +533,10 @@ ok("a row with no SKU and no Product Area still states what matched",
 {
   const [g] = scan(["We are moving from Google Workspace to Microsoft 365 for 40 users in Q1 2027 and want a partner to run it."]);
   const gs = g ? stripSnippetPrefix(g.notesSummary) : "(no row)";
-  ok("a Google move reads as what is moving, the count and the timeline", /^Moving off Google Workspace to Microsoft 365\. 40 (?:users|seats)\. Timeline: Q1 2027\. (?:Wants to work with a partner\. )?Ask /.test(gs), gs);
+  ok("a Google move reads as what is moving, the count and the timeline", /^Moving off Google Workspace to Microsoft 365\. 40 (?:users|seats)\. Timeline: Q1 2027\.(?: Wants to work with a partner\.)?$/.test(gs), gs);
   const [a] = scan(["Looking to migrate our file servers and SQL databases to Azure by end of the year with a partner."]);
   const as = a ? stripSnippetPrefix(a.notesSummary) : "(no row)";
-  ok("an Azure move names what is migrating and when", /^Migrating file servers and SQL databases to Azure\. Timeline: end of the year\. Ask how Azure/.test(as), as);
+  ok("an Azure move names what is migrating and when", /^Migrating file servers and SQL databases to Azure\. Timeline: end of the year\.$/.test(as), as);
   const [past] = scan(["9/22/2025 - Looking to migrate their on-premises servers to Azure with a partner."]);
   const ps = past ? stripSnippetPrefix(past.notesSummary) : "(no row)";
   ok("  a past note stamp is never read as the timeline", !!past && !/Timeline/.test(ps), ps);
@@ -551,7 +550,7 @@ ok("a row with no SKU and no Product Area still states what matched",
 {
   const [cm] = scan(["CU needs a partner to create the tenant in USA f1 Services - Microsoft 365 Business Premium - 28 User"]);
   const s2 = cm ? cm.notesSummary : "(no row)";
-  ok("the Christian Monahan note keeps its shape", /^\(\d+\) ▲ Customer needs a partner to create the tenant in USA\. Wants Microsoft 365 Business Premium for 28 users\. Ask how they manage licensing today/.test(s2), s2);
+  ok("the Christian Monahan note keeps its shape", /^▲ Customer needs a partner to create the tenant in USA\. Wants Microsoft 365 Business Premium for 28 users\.$/.test(s2), s2);
 }
 
 // Per Jack: "if a company is looking to migrate to azure or on prem to azure
@@ -559,7 +558,7 @@ ok("a row with no SKU and no Product Area still states what matched",
 {
   const [op] = scan(["We are looking to move from on-premises to Azure next quarter with a partner."]);
   const o = op ? stripSnippetPrefix(op.notesSummary) : "(no row)";
-  ok("on-prem to Azure reads as one direct line", /^Migrating on-prem to Azure\. Timeline: next quarter\. Ask how Azure/.test(o), o);
+  ok("on-prem to Azure reads as one direct line", /^Migrating on-prem to Azure\. Timeline: next quarter\.$/.test(o), o);
 }
 
 // Per Jack: "make it known in the notes if they want to work with a partner
@@ -599,7 +598,7 @@ ok("a row with no SKU and no Product Area still states what matched",
 {
   const [di] = scan(["Service - Azure Document Intelligence - process invoices"]);
   const d3 = di ? stripSnippetPrefix(di.notesSummary) : "(no row)";
-  ok("Document Intelligence reads exactly as Jack's gold line", /^Wants Azure Document Intelligence\. Ask how Azure is managed today, internal IT or an external partner/.test(d3), d3);
+  ok("Document Intelligence reads exactly as Jack's gold line", /^Wants Azure Document Intelligence\.$/.test(d3), d3);
   const [di2] = scan(["Customer wants to use Azure Document Intelligence to automate invoice processing by Q1 2027."]);
   const e3 = di2 ? stripSnippetPrefix(di2.notesSummary) : "(no row)";
   ok("  and is named even when its sentence cannot be quoted", /Wants Azure Document Intelligence\. Timeline: Q1 2027\./.test(e3), e3);

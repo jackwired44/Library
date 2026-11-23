@@ -337,8 +337,16 @@ function stripAsk(s: string): string {
 
 /** The body of a note, for deciding whether we already hold it. */
 function noteBody(s: string): string {
-  return stripAsk(String(s || "").replace(SEGMENT_RE, "")).toLowerCase().replace(/\s+/g, " ").trim();
+  // The score/mark head is metadata the engine adds, not what the note
+  // SAYS: per Jack (11/22) the same note arriving on two files must merge
+  // as one, and on his November files 2 leads stacked notes whose only
+  // difference was the score in that head. Stripped before comparing, so
+  // "(64) \u25B2 Azure Document Intelligence." and "(70) \u25B2 Azure Document
+  // Intelligence." are one note. Trailing punctuation goes too.
+  return stripAsk(String(s || "").replace(SEGMENT_RE, "").replace(HEAD_RE, ""))
+    .toLowerCase().replace(/\s+/g, " ").replace(/[.\s\u2026]+$/, "").trim();
 }
+const HEAD_RE = /^\s*(?:\(\d{1,3}\)\s*)?[\u25B2\u25B8\u25BC\u2715]?\s*/;
 
 /** Split a stored combined note back into its dated segments, newest
  *  first. A note written before combining existed has no date marker and
@@ -381,15 +389,22 @@ export function combineNotes(prevCombined: string, incoming: string, when: strin
   if (freshNs && noteSegments(prev).some((s) => !isNoSignalLine(s.text))) return prev;
   const segs = noteSegments(prev).filter((s) => freshNs || !isNoSignalLine(s.text));
   const freshBody = noteBody(fresh);
-  // Already hold it, or hold something that contains it.
-  if (segs.some((s) => { const b = noteBody(s.text); return b === freshBody || b.includes(freshBody); })) {
+  // Per Jack (11/22): "if the same note is on each upload from two
+  // different csv files for the same person just merge it as one ... only
+  // if there are different notes" do they stack. Already holding this note,
+  // or holding a fuller version of it, means there is nothing new to say.
+  if (!freshBody || segs.some((s) => { const b = noteBody(s.text); return b === freshBody || b.includes(freshBody); })) {
     if (segs.length === noteSegments(prev).length) return prev;
     return segs.map((s) => (s.date ? `${s.date} · ${s.text}` : s.text)).join(NOTE_SEP);
   }
+  // The other direction: this note says everything an older one did and
+  // more (a re-scan that picked up a timeline, say). That is the SAME note
+  // grown, not a second one — the older, thinner copy is replaced.
+  const kept = segs.filter((s) => { const b = noteBody(s.text); return !b || !freshBody.includes(b); });
 
   // The newest keeps its ask; everything older loses the scaffolding, and
   // an older segment that becomes empty once stripped is dropped.
-  const older = segs
+  const older = kept
     .map((s) => {
       const body = stripAsk(s.text);
       if (!body) return null;

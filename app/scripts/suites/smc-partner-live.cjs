@@ -59,17 +59,23 @@ const csv = [HEAD.join(',')].concat(rows.map((r, i) => [
 
   console.log('\n== the fixture actually scores, or nothing below means anything ==');
   const all = await tableRows();
-  // The note now closes with the band and score — "High priority (83)" —
-  // rather than opening with "Score 83".
-  ok('all three rows scored', all.length === 3 && all.every(t => /\(\d+\) [\u25B2\u25B8\u25BC\u2715]/.test(t)), JSON.stringify(all.map(t => (t.match(/\(\d+\) [\u25B2\u25B8\u25BC\u2715]/) || [''])[0])));
+  // Per Jack (11/22) "do not do scores anymore": the note opens on the band
+  // mark alone, so the number is read from the Score COLUMN (5th cell), not
+  // out of the note. The scoring this suite asserts is unchanged.
+  const scoreCells = () => page.locator('table.data-table tbody tr').evaluateAll(
+    ns => ns.map(n => [n.children[1] ? n.children[1].innerText.trim() : '',
+                       Number((((n.children[4] || {}).innerText || '').match(/\d+/) || [NaN])[0])]));
+  const cells0 = await scoreCells();
+  ok('all three rows scored', all.length === 3 && cells0.every(([, n]) => Number.isFinite(n)), JSON.stringify(cells0));
+  ok('  and every note opens with its band mark', all.every(t => /[\u25B2\u25B8\u25BC\u2715] /.test(t)), JSON.stringify(all.map(t => t.slice(0, 40))));
 
   console.log('\n== the lane shows on the row ==');
   ok('a held account names its partner', /Rackspace Technology/.test(await rowFor('Alpine Freight')), (await rowFor('Alpine Freight')).slice(0, 200));
-  ok('an open lane is flagged', /No partner on record/.test(await rowFor('Borden Labs')), (await rowFor('Borden Labs')).slice(0, 200));
-  ok('a row that states nothing shows neither', !/No partner on record|Rackspace/.test(await rowFor('Carlow Metals')), (await rowFor('Carlow Metals')).slice(0, 200));
+  ok('an open lane is flagged', /No partner indicated/.test(await rowFor('Borden Labs')), (await rowFor('Borden Labs')).slice(0, 200));
+  ok('a row that states nothing shows neither', !/No partner indicated|Rackspace/.test(await rowFor('Carlow Metals')), (await rowFor('Carlow Metals')).slice(0, 200));
 
   console.log('\n== the score moved, and only where it should ==');
-  const scoreOf = async co => Number(((await rowFor(co)).match(/\((\d+)\) [\u25B2\u25B8\u25BC\u2715]/) || [])[1]);
+  const scoreOf = async co => { const r = (await scoreCells()).find(([c]) => c.includes(co)); return r ? r[1] : NaN; };
   const held0 = await scoreOf('Alpine Freight'), open0 = await scoreOf('Borden Labs'), quiet0 = await scoreOf('Carlow Metals');
   ok('the open lane outscores the silent row by the adjustment', open0 - quiet0 === 8, `${quiet0} -> ${open0}`);
   ok('the held account undercuts it by the same', quiet0 - held0 === 8, `${quiet0} -> ${held0}`);

@@ -87,7 +87,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('  PASS', n)) : (fail++,
     ok('CSP: documents the renewal timeline and the forecast-close wording', /Timeline: renews/.test(c) && /Forecast close/.test(c), '');
     ok('CSP: the notes line documents the licence count and partner pain',
        /licence count/i.test(c) && /Pain with that partner/i.test(c), '');
-    ok('CSP: documents direct vs partner and the ask', /Partner on record/.test(c) && /No partner on record/.test(c) && !/direct with Microsoft/i.test(c) /* 11/22 per Jack: never 'direct with Microsoft' */ && /Ask how they buy licensing today/.test(c), ''); }
+    ok('CSP: documents direct vs partner and the ask', /Partner indicated/.test(c) && /No partner indicated/.test(c) && !/direct with Microsoft/i.test(c) /* 11/22 per Jack: never 'direct with Microsoft' */ && /Ask how they buy licensing today/.test(c), ''); }
   ok('CSP: says Product Area carries the priority', /Product Area carries the priority/.test(csp));
   ok('CSP: says there is no product line here', /no product line/i.test(csp));
   ok('CSP: documents which date it filters on', /createdon/.test(csp) && /forecast, not a receipt/.test(csp));

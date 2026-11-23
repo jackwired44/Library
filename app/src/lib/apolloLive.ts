@@ -462,13 +462,41 @@ export async function readTouchpoints(h: LiveHandle, c: Rec, signal?: AbortSigna
  *  call in an hour is refused with a rate-limit error). */
 export const APOLLO_LOOKUPS_PER_HOUR = 400;
 export interface CheckProgress { total: number; done: number; found: number; notFound: number; skipped: number; errors: number; finished: boolean; lastError?: string;
-  /** Set when Apollo's hourly limit stopped the run: leads not reached stay unchecked, so the next run picks them up. */
-  rateLimitedAt?: string }
+  /** Set when an Apollo limit stopped the run: leads not reached stay unchecked, so the next run picks them up. */
+  rateLimitedAt?: string;
+  /** Seconds Apollo said to wait, and which cap it was — read from the
+   *  refusal, never assumed (an hourly cap and the 2,000/day cap are very
+   *  different waits). */
+  rateLimitRetrySec?: number;
+  rateLimitWindow?: "minute" | "hour" | "day" }
 
-const RATE_LIMIT_RE = /rate.?limit|too many requests|\b429\b|per hour|quota/i;
+const RATE_LIMIT_RE = /rate.?limit|too many requests|\b429\b|per hour|per day|quota/i;
 export function isRateLimitError(err: unknown): boolean {
   const e = err as { code?: string; message?: string } | null;
   return !!e && (e.code === "rate_limited" || RATE_LIMIT_RE.test(String(e.message ?? err)));
+}
+
+/**
+ * How long Apollo says to wait, and which cap was hit.
+ *
+ * Per Jack, 11/22, pasting the real refusal: "The maximum number of api
+ * calls allowed for api/v1/contacts/search is 2000 times per day ...
+ * retry_after_seconds: 56815". Every refusal used to be reported as the
+ * HOURLY cap, so the app told him to come back in an hour — and an hour
+ * later he would hit the same wall. Apollo states both the window and the
+ * seconds; they are read out of the error rather than assumed. Read
+ * defensively: the body arrives as text on the error's message, and a
+ * refusal that states neither still reports as the hourly cap, which is
+ * what the measured 400/hour limit makes it.
+ */
+export function rateLimitFrom(err: unknown): { seconds: number; window: "minute" | "hour" | "day" } {
+  const text = String((err as { message?: string } | null)?.message ?? err ?? "");
+  const secs = /retry_after_seconds"?\s*:\s*(\d+)/i.exec(text) ?? /\bWait\s+(\d+)\s+seconds/i.exec(text);
+  const win = /"value"\s*:\s*"(minute|hour|day)"/i.exec(text) ?? /\bper\s+(minute|hour|day)\b/i.exec(text);
+  const window = (win?.[1]?.toLowerCase() as "minute" | "hour" | "day" | undefined) ?? "hour";
+  const fallback = window === "day" ? 24 * 3600 : window === "minute" ? 60 : 3600;
+  const seconds = secs ? Number(secs[1]) : fallback;
+  return { seconds: Number.isFinite(seconds) && seconds > 0 ? seconds : fallback, window };
 }
 export interface CheckResult { key: string; at: string; apollo: ApolloLeadState | null }
 
@@ -507,7 +535,10 @@ export async function checkLeadsInApollo(opts: {
           if (t) state = { ...state, ...t, callsUnknown: false };
         } catch (err) {
           if (opts.signal?.aborted) return false;
-          if (isRateLimitError(err) && !p.rateLimitedAt) p.rateLimitedAt = new Date().toISOString();
+          if (isRateLimitError(err) && !p.rateLimitedAt) {
+            p.rateLimitedAt = new Date().toISOString();
+            const rl = rateLimitFrom(err); p.rateLimitRetrySec = rl.seconds; p.rateLimitWindow = rl.window;
+          }
         }
         batch.push({ key: lead.key, at, apollo: state });
       }
@@ -517,7 +548,10 @@ export async function checkLeadsInApollo(opts: {
       // Apollo's hourly cap: stop the whole run, write nothing for this lead,
       // and say when to come back. Hammering on would only fail every lead.
       if (isRateLimitError(err)) {
-        if (!p.rateLimitedAt) p.rateLimitedAt = new Date().toISOString();
+        if (!p.rateLimitedAt) {
+          p.rateLimitedAt = new Date().toISOString();
+          const rl = rateLimitFrom(err); p.rateLimitRetrySec = rl.seconds; p.rateLimitWindow = rl.window;
+        }
         queue.length = 0;
         return false;
       }

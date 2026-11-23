@@ -101,16 +101,22 @@ const smcCsv = [HEAD.join(',')].concat(samples.map((d, i) => [
   // the ORDER (file order, so the score was invisible the moment you left
   // the app), the filename, and the set of files on offer.
   // The note closes with "High priority (83)" now, not "Score 83 — High priority".
-  const noteScore = t => { const m = /^\((\d+)\) [\u25B2\u25B8\u25BC\u2715]/.exec(t); return m ? Number(m[1]) : -1; };
+  // Per Jack (11/22) "do not do scores anymore": the note opens on the band
+  // mark alone, so the score is read from the on-screen Score column, by
+  // company, rather than out of the note text. The ordering this asserts is
+  // unchanged — only where the number is read from moved.
+  const domScore = new Map(await page.locator('.data-table tbody tr').evaluateAll(
+    ns => ns.map(n => [n.children[1] ? n.children[1].innerText.trim() : '',
+                       Number((n.children[4] ? n.children[4].innerText.trim() : '').match(/\d+/) || [-1])])));
   const parsed = rows.map(r => r.match(/("([^"]|"")*"|[^,]*)/g).filter(x => x !== '').map(c => c.replace(/^"|"$/g, '')));
-  const scores = parsed.map(c => noteScore(c[custCols.indexOf('Notes')] || ''));
-  ok('every row states its score in Notes', scores.every(n => n >= 0), JSON.stringify(scores));
+  const noteScore = c => { const co = (c[custCols.indexOf('Company Name')] || '').trim(); return domScore.has(co) ? domScore.get(co) : -1; };
+  ok('every row\'s note opens with its band mark', parsed.every(c => /^[\u25B2\u25B8\u25BC\u2715] /.test(c[custCols.indexOf('Notes')] || '')), JSON.stringify(parsed.map(c => (c[custCols.indexOf('Notes')] || '').slice(0, 24))));
   // Flagged rows (a stated need, or all four at once) are pinned above the
   // score, exactly as the CSP file pins "wants a partner" — so the check is
   // that the UNflagged tail descends, not that the whole column does.
   const tail = parsed
     .filter(c => !/[\u2605\u2691]/.test(c[custCols.indexOf('Notes')] || ''))
-    .map(c => noteScore(c[custCols.indexOf('Notes')] || ''));
+    .map(c => noteScore(c));
   ok('unpinned rows come out best-score-first', tail.every((n, i) => i === 0 || tail[i - 1] >= n), JSON.stringify(tail));
   ok('pinned and flagged rows lead the file',
      parsed.findIndex(c => !/[\u2605\u2691]/.test(c[custCols.indexOf('Notes')] || '')) !== 0
@@ -195,8 +201,10 @@ const smcCsv = [HEAD.join(',')].concat(samples.map((d, i) => [
     ]);
     const f5 = path.join(os.tmpdir(), 'parity-scored.csv'); await d5.saveAs(f5);
     const txt5 = fs.readFileSync(f5, 'utf8');
-    const got = (txt5.match(/\((\d+)\) [\u25B2\u25B8\u25BC\u2715]/g) || []).map(m => Number(m.match(/(\d+)/)[1]));
-    ok('every row IN THE FILE is inside the range', got.length > 0 && got.every(n => n >= 80 && n <= 84), JSON.stringify(got));
+    // The score left the note (11/22), so the range is proven by the file
+    // holding exactly the rows the ranged filter counted on screen.
+    const got = txt5.trim().split(/\r?\n/).slice(1).filter(Boolean);
+    ok('the file holds exactly the rows inside the range', got.length === ranged.both, `${got.length} vs ${ranged.both}`);
   }
   await page.locator('button[aria-label="Clear score range"]').click(); await sleep(900);
   ok('Clear restores the full downloads', (await snapshot()).both === wide.both);

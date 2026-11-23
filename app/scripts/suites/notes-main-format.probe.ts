@@ -8,7 +8,8 @@ import type { StoredLead } from "../../src/lib/leadStore";
 
 let pass = 0, fail = 0;
 const ok = (n: string, c: boolean, d = "") => { if (c) { pass++; console.log("  ok   " + n); } else { fail++; console.log(`  FAIL ${n}${d ? " — " + d : ""}`); } };
-const HEAD = /^\(\d{1,3}\) [▲▸▼✕] /;
+// Per Jack (11/22) "do not do scores anymore": the head is the mark alone.
+const HEAD = /^[▲▸▼✕] /;
 
 const cspHead = ["customeridname","estimatedvalue","msp_forecastcomments","msp_licensingprogramname","msp_partneraccountidname","fullname","telephone1","emailaddress1"];
 const cspRows = [
@@ -21,16 +22,16 @@ const csp = scan2([{ name: "f.csv", fields: cspHead, data: cspRows }], {
   notesColumns: ["msp_forecastcomments"],
 }).rows;
 const [a, b] = csp.map((r) => r.snippet);
-ok("CSP note opens with the score and band mark", HEAD.test(a) && HEAD.test(b), `${a} | ${b}`);
-ok("  the head matches the bucket (High ▲)", csp[0].bucket !== "priority" || /^\(\d+\) ▲/.test(a), a);
+ok("CSP note opens with the band mark", HEAD.test(a) && HEAD.test(b), `${a} | ${b}`);
+ok("  the head matches the bucket (High ▲)", csp[0].bucket !== "priority" || /^▲/.test(a), a);
 ok("  open renewal keeps its ◆ pin", /◆/.test(a), a);
 ok("  what it is about, with seats and value", /Wants M365 E5 and Copilot \(285 seats, \$504k\)\./.test(a), a);
 ok("  timeline in Main wording", /Timeline: renews 12\/15\/26/.test(a), a);
 ok("  the partner ask reads like Main", /Wants to work with a partner \(1 Oct\) for licensing\./.test(a), a);
-ok("  no partner on record", /No partner on record\./.test(a), a);
+ok("  no partner on record", /No partner indicated\./.test(a), a);
 ok("  billing as a sentence", /Billing: annual new, paid upfront\./.test(a), a);
-ok("  ends on the licensing ask", /Ask how they buy licensing today, direct or through a partner, and where the pain is\.$/.test(a), a);
-ok("  named partner reads 'Partner on record'", /Partner on record: Executech\./.test(b), b);
+ok("  ends on the facts, no generated question", !/\bAsk (?:if|how|what|who)\b/.test(a), a);
+ok("  named partner reads 'Partner indicated'", /Partner indicated: Executech\./.test(b), b);
 ok("  old clause style is gone", !/ · /.test(a) && !/d cold/.test(a) && !/⏰/.test(a), a);
 
 const smcHead = ["Company","Full Name","Email","Description"];
@@ -41,7 +42,7 @@ const smc = scan2([{ name: "s.csv", fields: smcHead, data: [smcRow] }], {
   fields: { company: "Company", contact: "Full Name", email: "Email" },
   notesColumns: ["Description"],
 }).rows[0];
-ok("Custom note opens with the score and band mark (or is a no-signal reason)", HEAD.test(smc.snippet) || smc.bucket === "unmatched", smc.snippet);
+ok("Custom note opens with the band mark (or is a no-signal reason)", HEAD.test(smc.snippet) || smc.bucket === "unmatched", smc.snippet);
 if (smc.bucket !== "unmatched" && smc.bucket !== "excluded") {
   ok("  Custom note ends on an Ask", /Ask [^.]+\.$/.test(smc.snippet), smc.snippet);
   ok("  no old ' · High priority (N)' tail", !/· (Strong Signal|High priority|Needs Review|Medium priority)/.test(smc.snippet), smc.snippet);

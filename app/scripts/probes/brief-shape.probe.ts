@@ -17,8 +17,8 @@ console.log(`  Runs …                              ${n(/\bRuns /)}`);
 console.log(`  … with a (N seats) on a SKU         ${n(/\(\d+ seats\)/)}`);
 console.log(`  Microsoft is already pitching them  ${n(/Microsoft is already pitching them/)}`);
 console.log(`  Goes direct with Microsoft          ${n(/Goes direct with Microsoft/)}`);
-console.log(`  Partner on record:                  ${n(/Partner on record:/)}`);
-console.log(`  any direction clause                ${n(/Microsoft is already pitching them|Goes direct with Microsoft|Partner on record:/)}`);
+console.log(`  Partner indicated:                  ${n(/Partner indicated:/)}`);
+console.log(`  any direction clause                ${n(/Microsoft is already pitching them|Goes direct with Microsoft|Partner indicated:/)}`);
 console.log(`  On <platform> today                 ${n(/\bOn .+ today\./)}`);
 console.log(`  Flagged "<pain>"                    ${n(/Flagged "/)}`);
 console.log(`  Row reverses                        ${n(/Row reverses:/)}`);
@@ -43,6 +43,6 @@ bare.slice(0, 5).forEach((r) => console.log(`   ${r.company} — ${r.notesSummar
 console.log("\n=== 14 real notes ===");
 for (const r of strong.slice(0, 14)) console.log(`  ${r.notesSummary}`);
 console.log("\n=== 6 with a partner on record ===");
-strong.filter((r) => /Partner on record:/.test(r.notesSummary)).slice(0, 6).forEach((r) => console.log(`  ${r.notesSummary}`));
+strong.filter((r) => /Partner indicated:/.test(r.notesSummary)).slice(0, 6).forEach((r) => console.log(`  ${r.notesSummary}`));
 console.log("\n=== 6 Azure-direction ===");
 strong.filter((r) => /Ask how Azure/.test(r.notesSummary)).slice(0, 6).forEach((r) => console.log(`  ${r.notesSummary}`));

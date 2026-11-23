@@ -8691,3 +8691,74 @@ either way.
 - `review-fixes` 37 → 48; `previous-note-live` (12) is new; `all-leads`'
   "+1 earlier note" locator re-pointed to the line that replaced it (same
   behaviour, stated explicitly).
+
+### 2026-11-22: same note merges, no scores, partner wording, notes end on facts, Apollo's daily cap
+
+Five asks in one thread, all measured on Book11-8 + Book11-17.
+
+**Same note on two files merges as one.** Per Jack: "if the same note is on
+each upload from two different csv files for the same person just merge it
+as one ... only if there are different notes" do they stack. 15 of 75
+multi-note leads were the SAME note stacked twice, from two causes:
+`noteBody` did not strip the score/mark head (so `(64) ▲ Azure Document
+Intelligence.` and `(70) ▲ Azure Document Intelligence.` read as different
+notes), and a richer re-scan stacked instead of replacing the thinner copy.
+`noteBody` now strips the head and trailing punctuation, and `combineNotes`
+drops an older segment the new note wholly contains. **15 → 0**; the 60
+genuinely different notes still stack.
+
+**The match was already right, measured not assumed.** Per Jack: "it
+processes against the same first and last name email and company if there
+is an existing contact in here". Of 3,657 stored leads, **3,651 key on
+email**, 6 on name+company, and **zero** of those hold two different full
+names. No re-keying, no migration.
+
+**No scores in notes.** Per Jack: "do not do scores anymore", confirmed as
+notes-only. `formatMatchedSnippet` and `noteHead` (scanner2) emit the
+▲ ▸ ▼ ✕ mark alone. The score is still computed, still drives the band,
+and still shows in the Scanner's Score column and its range filter. Every
+reader already treated the score as optional, so nothing broke.
+
+**Partner wording.** Per Jack: "do not have partner say microsoft or
+microsoft corporation just put 'no partner indicated'" and "change when
+listing partner to 'partner indicated' and name the partner listed".
+`NO_PARTNER_LINE` = "No partner indicated."; a named partner reads
+"Partner indicated: <name>." Applied in all three engines
+(`detection.ts` direction clause + Dynamics brief, `scanner2.ts`,
+`cspRenewal.ts`) and the Documentation table.
+
+**Notes end on the facts.** Per Jack: "Ask how Azure is managed today ...
+remove this style of ending", then he chose "Drop it, end on the facts".
+`briefQuestions`, `smcAsk` and the CSP ask are deleted — nothing in a note
+is a question the engine made up. `stripAsk` stays, for notes stored
+before this. A Custom row whose whole note WAS the ask would have become a
+bare mark on **177 rows**, so it falls back to "Nothing further stated in
+the row." — saying nothing is worse than saying there is nothing.
+**Median Main note length 156 → 54 chars**; 0 notes carry an ask, a score,
+"Partner on record", or Microsoft as a partner.
+
+**Grades untouched, proven:** High 896 / Medium 129 / Low 128 / Bad 88 and
+M365 834 / Dynamics 364 / Power Platform 43, byte-identical before and
+after all of the above.
+
+**Apollo's DAILY cap.** Jack pasted the real refusal: 2,000
+`contacts/search` a day, `retry_after_seconds: 56815`. Every refusal was
+reported as the measured 400/hour cap, so the app told him to come back in
+an hour — into the same wall. `rateLimitFrom` (`lib/apolloLive.ts`) reads
+the window and the seconds out of the error (defensively: the body arrives
+as text, and a refusal stating neither still reads as hourly);
+`CheckProgress` carries them; `RateLimitNote` names the cap Apollo named
+and the time Apollo gave, with the date when it is not today.
+
+Suites: `rate-limit` (10, new — built from the verbatim refusal),
+`previous-note-live` 10 → 12, `review-fixes` 45 → 48,
+`apollo-check-live` 44 → 48 (the daily case added). **95/97 suites,
+2,653 checks**; the two failures are `csp-download` (needs Jack's real CSP
+export, absent from this session) and nothing else. Assertions re-pointed,
+never loosened, across snippet-truth, direct-notes, notes-main-format,
+dynamics-brief, csp, docs, download-parity, smc-partner-live,
+note-refresh-live and csp-live — every one encoded a rule Jack replaced
+("it asks" became "it never asks"; the score head became the band mark;
+"Partner on record" became "Partner indicated"). `download-parity` and
+`smc-partner-live` now read the score from the Score COLUMN rather than
+the note, so their ordering coverage is unchanged.
