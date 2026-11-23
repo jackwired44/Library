@@ -8831,3 +8831,37 @@ which now states the same two facts in our words) and `dynamics-brief` (1,
 the pain quote became the derived reason). A real bug the re-point caught:
 the Dynamics `Why:` clause printed a double stop, because `dynamicsReason`
 no longer strips the derived sentence's own period.
+
+### 2026-11-23: the Dynamics note, straight to the interest
+
+Per Jack, straight after the derived-notes change above: "make sure dynamics
+is straight forward also no quotes just the interest." The Dynamics brief
+already quoted nothing, so this is about what it says and how it reads.
+
+- **The "Wants a sales platform:" preamble is gone.** It sat in front of the
+  product it was already naming — "Wants a sales platform: Dynamics 365
+  Sales (12 users)." now reads "Wants Dynamics 365 Sales (12 users)." The
+  Sales/CRM branch stays, because it still supplies a NAME on a row that
+  names no product outright ("Need a CRM — looking at Dynamics 365" →
+  "Wants Dynamics 365 Sales / CRM (20 users).").
+- **Product names are cased as Microsoft writes them** (`properProduct`) —
+  "Wants business central (10 users)." and "Wants Power platform." were the
+  row's own arbitrary casing shouted back. Not a rename: the same words,
+  cased.
+- **"No partner indicated. Wants a partner." said it twice**, the second
+  half contradicting the first. The ask wins.
+- **Two real bugs in the partner line**, both found by reading the output
+  rather than the code:
+  - `Partner indicated: Microsoft Defender.` — a Product Area reading
+    "Microsoft Defender for Identity" was classified a PARTNER, because
+    `PA_PRODUCT_RE` is anchored and had no optional leading "Microsoft ",
+    and because a tail starting "for" is Microsoft's own naming
+    ("Defender for Office 365"). Microsoft is never a partner.
+  - `Partner indicated: Dell Marketing L.P..` — a name already ending in a
+    stop took a second one. `firstWords` now also refuses to end a name on
+    a dangling connective, which is what cut "…Defender for".
+
+Median Dynamics note **53 → 43 chars**, p90 82 → 79. Grades byte-identical
+again: High 899 / Medium 126 / Low 127 / Bad 88, M365 835 / Dynamics 363 /
+Power Platform 42. One assertion re-pointed (`dynamics-views`, the
+sales-platform preamble), with a dated note.

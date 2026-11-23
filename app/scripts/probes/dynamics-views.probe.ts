@@ -126,7 +126,10 @@ for (const [note, want] of [
   ok(`${want.padEnd(23)} <- ${note.slice(0, 52)}`, got === want, `got ${got}`);
 }
 const salesNote = scan(["Need a CRM — looking at Dynamics 365, 20 users."])[0];
-ok("a Sales / CRM lead's note names the sales platform", /^Wants a sales platform: /.test(salesNote?.notesSummary ?? ""), salesNote?.notesSummary);
+// 11/23, per Jack: "make sure dynamics is straight forward ... just the
+// interest" — the "Wants a sales platform:" preamble was dropped; the
+// branch still supplies the NAME when the row names no product outright.
+ok("a Sales / CRM lead's note names the sales platform", /^Wants Dynamics 365 Sales \/ CRM \(20 users\)\.$/.test(salesNote?.notesSummary ?? ""), salesNote?.notesSummary);
 
 console.log("\n== Jack's own examples (2026-10-28) ==");
 for (const [note, want] of [

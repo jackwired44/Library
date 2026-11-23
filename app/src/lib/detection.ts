@@ -3313,7 +3313,10 @@ const PA_MICROSOFT_RE = /^(?:microsoft(?:\s+(?:corp|corporation|services|inc))?|
  * every one of those companies would be silently reclassified.
  */
 const PA_PRODUCT_RE =
-  /^(azure|m365|o365|office\s*365|microsoft\s*365|w365|windows\s*365|dynamics|d365|business\s*central|power\s*(?:bi|apps|automate|platform|pages)|fabric|copilot|intune|entra|purview|defender|exchange|sharepoint|teams|sql\s*server|windows\s*server|visio|project|surface|viva|onedrive|security|developer\s+tools|microsoft\s+services)\b/i;
+  // "Microsoft " may lead any of these: a real row's Product Area read
+  // "Microsoft Defender for Identity" and, unmatched here, came out as
+  // "Partner indicated: Microsoft Defender." Microsoft is never a partner.
+  /^(?:microsoft\s+)?(azure|m365|o365|office\s*365|microsoft\s*365|w365|windows\s*365|dynamics|d365|business\s*central|power\s*(?:bi|apps|automate|platform|pages)|fabric|copilot|intune|entra|purview|defender|exchange|sharepoint|teams|sql\s*server|windows\s*server|visio|project|surface|viva|onedrive|security|developer\s+tools|microsoft\s+services)\b/i;
 
 /**
  * Words that may legitimately FOLLOW a product name in a Product Area
@@ -3341,6 +3344,10 @@ function isProductValue(norm: string): boolean {
   if (!m) return false;
   const rest = norm.slice(m[0].length).trim();
   if (!rest) return true;
+  // "Defender for Identity", "Defender for Office 365" — Microsoft's own
+  // naming. A real row's Product Area read "Microsoft Defender for
+  // Identity" and came out as "Partner indicated: Microsoft Defender for."
+  if (/^for\b/.test(rest)) return true;
   return rest.split(/\s+/).every((w) => PA_PRODUCT_TAIL.has(w) || /^\d+$/.test(w));
 }
 
@@ -3490,6 +3497,37 @@ function dynamicsReason(fullText: string): string {
   return derivedReason(fullText).replace(/^Reason:\s*/, "").replace(/\.\s*$/, "");
 }
 
+/** The row's own product wording, cased as Microsoft writes it. Not a
+ *  rename — "business central" and "Power platform" are the same names the
+ *  row used, just not shouted back in the row's arbitrary casing. */
+const PRODUCT_CASE: [RegExp, string][] = [
+  [/\bbusiness central\b/gi, "Business Central"],
+  [/\bpower platform\b/gi, "Power Platform"],
+  [/\bpower apps\b/gi, "Power Apps"],
+  [/\bpower automate\b/gi, "Power Automate"],
+  [/\bpower pages\b/gi, "Power Pages"],
+  [/\bpower bi\b/gi, "Power BI"],
+  [/\bdataverse\b/gi, "Dataverse"],
+  [/\bsupply chain( management)?\b/gi, (m: string) => /management/i.test(m) ? "Supply Chain Management" : "Supply Chain"],
+  [/\bfinance and operations\b/gi, "Finance and Operations"],
+  [/\bfield service\b/gi, "Field Service"],
+  [/\bcustomer service\b/gi, "Customer Service"],
+  [/\bcustomer insights\b/gi, "Customer Insights"],
+  [/\bcustomer engagement\b/gi, "Customer Engagement"],
+  [/\bproject operations\b/gi, "Project Operations"],
+  [/\bhuman resources\b/gi, "Human Resources"],
+  [/\bdynamics\b/gi, "Dynamics"],
+  [/\bd365\b/gi, "D365"],
+  [/\bcrm\b/gi, "CRM"],
+  [/\berp\b/gi, "ERP"],
+  [/\bsales\b/gi, "Sales"],
+] as [RegExp, string][];
+export function properProduct(name: string): string {
+  let out = String(name || "").trim();
+  for (const [re, to] of PRODUCT_CASE) out = out.replace(re, to as unknown as string);
+  return out.replace(/^[a-z]/, (c) => c.toUpperCase());
+}
+
 function buildDynamicsBrief(
   platform: PlatformResult | null,
   fullText: string,
@@ -3519,14 +3557,19 @@ function buildDynamicsBrief(
   }
   // Only a row that names Sales / CRM / Customer Insights reads as a sales
   // platform; Customer Service or a bare Dynamics 365 keeps its own name.
+  // Per Jack, 11/23: "make sure dynamics is straight forward ... just the
+  // interest". The old "Wants a sales platform: Dynamics 365 Sales" read
+  // as a preamble in front of the product it was already naming, so the
+  // product is simply named. The Sales / CRM branch still exists to supply
+  // a NAME when the product itself does not carry one.
   if (platform?.isSalesCrm && SALES_CRM_RE.test(fullText)) {
     const said = SALES_CRM_RE.exec(fullText)?.[0]?.trim() ?? "";
     const salesName = /sales|insights|crm|engagement/i.test(product) ? product : said && !/^crm$/i.test(said) ? said : "Dynamics 365 Sales / CRM";
-    parts.push(`Wants a sales platform: ${salesName}${count}.`);
-  } else parts.push(`Wants ${product}${count}.`);
+    parts.push(`Wants ${properProduct(salesName)}${count}.`);
+  } else parts.push(`Wants ${properProduct(product)}${count}.`);
   // A row that reversed itself must never read as a live want.
   const reversal = reversalClause(fullText);
-  if (reversal) parts[0] = parts[0].replace(/^Wants (?:a sales platform: )?/, "Looked at ");
+  if (reversal) parts[0] = parts[0].replace(/^Wants /, "Looked at ");
 
   // 2. WHY, only when they said.
   const reason = dynamicsReason(fullText) || nearestIn(fullText, anchorText, PAIN_RE);
@@ -3557,7 +3600,9 @@ function buildDynamicsBrief(
     // partner column reads as nobody holding them, and a real partner is
     // "Partner indicated: <name>".
     if (st.buysDirect) { /* said nothing */ }
-    else if (pa.kind === "microsoft") parts.push(NO_PARTNER_LINE);
+    // "No partner indicated. Wants a partner." said the same thing twice,
+    // the second half contradicting the first. The ask wins.
+    else if (pa.kind === "microsoft" && !st.wantsPartner) parts.push(NO_PARTNER_LINE);
     else if (pa.kind === "partner" && !isOwnCompany(pa.label, company, email)) parts.push(`Partner indicated: ${firstWords(pa.label, 3)}.`);
     if (st.wantsPartner) parts.push("Wants a partner.");
   }
@@ -3583,7 +3628,11 @@ function isOwnCompany(value: string, company: string, email: string): boolean {
 /** Keep a partner name short — "CDW Logistics LLC" is CDW Logistics. */
 function firstWords(s: string, n: number): string {
   const w = String(s || "").trim().split(/\s+/).slice(0, n).join(" ");
-  return w.replace(/[(,;:].*$/, "").trim();
+  // Never end a name on a dangling connective — a three-word cut of
+  // "Microsoft Defender for Identity" read "Microsoft Defender for".
+  // A name already ending in a stop ("Dell Marketing L.P.") must not take
+  // a second one from the caller's sentence.
+  return w.replace(/[(,;:].*$/, "").replace(/\s+(?:for|of|and|&|the|with|to)$/i, "").replace(/\.$/, "").trim();
 }
 
 /**
