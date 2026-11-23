@@ -27,6 +27,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .muted { color: var(--muted); }
 .sub { color: var(--muted); font-size: 12px; }
 .warn { color: var(--review); }
+.err { color: var(--remove); max-width: 46ch; }
 .num { text-align: right; white-space: nowrap; }
 .nowrap { white-space: nowrap; }
 

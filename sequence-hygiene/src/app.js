@@ -31,10 +31,11 @@
     const col = db.collection(`data/users/${uid}`);
     const queue = new Map();
     return {
-      async get(id) { const s = await col.doc(id).get(); return s.exists ? s.data() : null; },
-      async set(id, v) { const prev = queue.get(id) || Promise.resolve(); const p = prev.then(() => col.doc(id).set(v)).catch((e) => { throw e; }); queue.set(id, p.catch(() => {})); return p; },
+      // Snapshots from the store are frozen, so every read is copied before anything can change it.
+      async get(id) { const s = await col.doc(id).get(); return s.exists ? clone(s.data()) : null; },
+      async set(id, v) { const body = clone(v); const prev = queue.get(id) || Promise.resolve(); const p = prev.then(() => col.doc(id).set(body)); queue.set(id, p.catch(() => {})); return p; },
       async del(id) { await col.doc(id).delete(); },
-      async listRuns() { const snap = await col.where("kind", "==", "run").get(); return snap.docs.map((d) => d.data()); },
+      async listRuns() { const snap = await col.where("kind", "==", "run").get(); return snap.docs.map((d) => clone(d.data())); },
     };
   }
 
@@ -495,7 +496,7 @@
   function runStatus(r) {
     if (r.status === "done") return `<span class="pill ok">Done</span>`;
     if (r.status === "paused") return `<span class="pill warn">Paused${r.resumeAt ? ` until ${new Date(r.resumeAt).toLocaleTimeString()}` : ""}</span>`;
-    if (r.status === "error") return `<span class="pill bad" title="${esc(r.error)}">Stopped on an error</span>`;
+    if (r.status === "error") return `<span class="pill bad">Stopped on an error</span><div class="sub err">${esc(r.error)}</div><div class="sub">Resume picks up where it stopped.</div>`;
     return `<span class="pill">${esc(r.phase || r.status)}</span>`;
   }
   function progressBox() {
