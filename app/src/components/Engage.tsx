@@ -14,6 +14,7 @@ import CompaniesView from "./Companies";
 import ChannelTasks from "./ChannelTasks";
 import SequencesView, { type StepExtra } from "./Sequences";
 import ListsView from "./Lists";
+import FollowUpsView from "./FollowUps";
 import type { Task, TaskPriority } from "../lib/tasks";
 import type { OutreachAttempt, AttemptChannel } from "../lib/outreachAttempts";
 import type { SequenceTemplate } from "../lib/sequenceTemplates";
@@ -109,11 +110,12 @@ interface EngageProps {
   onTabChange?: (tab: EngageTab) => void;
 }
 
-export type EngageTab = "sequences" | "tasks" | "calls" | "emails" | "companies" | "contacts" | "lists";
+export type EngageTab = "sequences" | "tasks" | "calls" | "followups" | "emails" | "companies" | "contacts" | "lists";
 const TAB_OPTIONS: { key: EngageTab; label: string }[] = [
   { key: "sequences", label: "Sequences" },
   { key: "tasks", label: "Tasks" },
   { key: "calls", label: "Calls" },
+  { key: "followups", label: "Follow-ups" },
   { key: "emails", label: "Emails" },
   { key: "companies", label: "Companies" },
   { key: "contacts", label: "Contacts" },
@@ -270,6 +272,7 @@ export default function Engage({
         <ChannelTasks
           onLogAttempt={onLogAttempt} channel="call" contacts={contacts} tasks={tasks} users={users} dispositions={dispositions} onAddContactTask={onAddContactTask} onToggleTask={onToggleTask} onDeleteTask={onDeleteTask} onUpdateTaskFields={onUpdateTaskFields} />
       )}
+      {tab === "followups" && <FollowUpsView contacts={contacts} onLogAttempt={onLogAttempt} />}
       {tab === "emails" && (
         <ChannelTasks
           onLogAttempt={onLogAttempt} channel="email" contacts={contacts} tasks={tasks} users={users} dispositions={dispositions} onAddContactTask={onAddContactTask} onToggleTask={onToggleTask} onDeleteTask={onDeleteTask} onUpdateTaskFields={onUpdateTaskFields} />

@@ -4397,6 +4397,91 @@ bug, so it is Jack's call:
   per the standing note that DQ'ing those would contradict leads Jack
   personally re-promoted.
 
+## Follow-ups: Apollo calls → drafted follow-up emails (app/ only)
+
+Per Jack: "pull my leads daily from calls in Apollo through Trellus that
+are Info Requested… set a date filter (last 7 days, a date of the month to
+another)… every day I can just click Draft and it drafts the follow-up
+email from the recording… more like normal human," then, mid-build: "select
+the user and the disposition for calls for that day or time period… check
+Trellus for the recording, draft a follow-up email," and the email
+structure itself: "high level what we talked about, what we agreed to for
+next steps, and to reach out if there are any questions — Hi {first
+name}, following up after our call."
+
+New Engage tab **Follow-ups** (sidebar: Work → Follow-ups, right after
+Calls; also in Engage's in-page dropdown). Files: `lib/followups.ts`
+(pure rules + persistence), `lib/apolloCalls.ts` (Apollo/Outlook/`sample`
+calls), `components/FollowUps.tsx`, new store `STORE_FOLLOWUPS` keyed by
+Apollo call id (`DB_VERSION` 15→16), included in Backup.
+
+**What Apollo actually holds for a Trellus call (confirmed live, not
+assumed):** no recording file, `duration` 0, `transcribed` false, and
+nothing in Apollo's conversations index (`source: phone_call` returns
+empty). Trellus writes its own AI summary of the conversation into the
+call's `note_text`, followed by `Called +1… (MOBILE). Recording:
+https://app.trellus.ai/transcripts?id=…`. So the **summary is the drafting
+source**, and the recording is a link Jack opens — app.trellus.ai is
+behind a login and is never scraped. Some Info Requested calls carry only
+the dial line and no summary; those show "No call summary", never draft
+from nothing, and take pasted notes instead (pasted notes, when present,
+override the summary as the drafting source).
+
+- **Filters**: Rep (Me — resolved via `apollo_users_api_profile` — any
+  teammate from `apollo_users_search`, or Everyone), Disposition (built
+  from Apollo's own outcome facets each pull; defaults to "Info
+  Requested", resolved by trimmed name since Apollo's display name carries
+  a trailing space; "Any disposition" available), and Today / Yesterday /
+  Last 7 days (default) / This month / Custom from–to. All boundaries are
+  LOCAL calendar days. Last-used selection is a localStorage preference.
+- **Pulling**: `apollo_phone_calls_search` has no outcome or date filter,
+  so the page reads newest-first (per_page 100, stepping down to 50/25 if
+  the tool refuses on page 1) and stops at the first page older than the
+  range start, capped at 60 pages with an on-screen warning if the cap is
+  hit. Call reads cost 0 Apollo credits. Only on a "Pull calls" click.
+- **One row per contact**: the most recent matching call, plus "N calls".
+  Status New → Drafted → Sent (marked by Jack) / Skipped, sticky across
+  refreshes (`mergeFollowUp` never overwrites status, draft, or pasted
+  notes). Sent/Skipped hidden by default.
+- **Draft**: opens a side panel and drafts immediately through the
+  `sample` capability (Claude on the viewer's own account), with the call
+  summary shown above the draft for a two-second check. The prompt fixes
+  Jack's structure — first line exactly "Hi {First}, following up after our
+  call.", a high-level recap, the agreed next steps (only what's in the
+  notes, never an invented date), last line "If any questions come up in
+  the meantime, feel free to reach out." — plus his banned-word list,
+  no links/em dashes/exclamation points, 60–120 words, lowercase subject.
+  A banned word in the output triggers one rewrite. Lead context comes
+  from the call summary and Jack's own lead-note custom field only — the
+  long AI research blobs and Apollo's pre-generated email field are
+  deliberately ignored. Without `sample` (or if declined) it falls back to
+  a deterministic **Template draft** (third→second-person rewrite of the
+  summary into the same four-paragraph structure), labeled as such.
+- **Create Outlook draft** calls the Microsoft 365 connector's
+  `outlook_create_draft` (plain-text body). It never sends — no send tool
+  is in the grant, and the suite asserts no send call is ever made.
+  Copy is the fallback. "Mark sent" logs an email `OutreachAttempt` on the
+  matching local Contact (email-first lookup) so the Reached board stays
+  truthful.
+
+**Not verified yet**: the live Apollo, Outlook and `sample` round-trips
+only happen inside the real Artifact viewer with Jack's connectors. The
+Outlook response's exact key names (`id`/`webLink`) were not observed —
+creating a real draft just to learn its shape wasn't acceptable — so
+they're read defensively; a missing link only hides "Open in Outlook".
+**Deliberately not built** (Jack's call): a real Trellus API integration
+for full transcripts, and writing anything back to Apollo after drafting.
+
+Verified: `followups.cjs` (52 unit checks — note parsing, local-day ranges
+including an 8pm call on a range's last day, call selection, one row per
+contact, sticky merge, banned words, the template and prompt structure)
+and `followups-ui.cjs` (29 browser checks against mocked connectors in the
+observed shapes — pull paging stops at the range start, defaults, presets,
+Any disposition, AI draft, Outlook draft payload, no-summary paste path,
+Mark sent, persistence across reload). Full suite: everything green except
+`lead-library.cjs`, which hardcodes "September 2026" as the current month
+(pre-existing, date drift, not this change).
+
 ## Roadmap — long-term direction, not a build queue
 
 Jack's own words, captured so they don't get re-derived or lost: this tool
