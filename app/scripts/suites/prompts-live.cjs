@@ -14,10 +14,15 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await page.click('button:has-text("Unlock")'); await sleep(900);
   await page.locator('aside button:has-text("Prompts")').first().click(); await sleep(400);
   ok('prompts tab opens', await page.locator('h2:has-text("Prompts")').count() === 1);
-  // The 14 prompts live in Apollo on 2026-11-20 load on their own, grouped by product area.
+  // Every Apollo prompt on file loads on its own, grouped by product area.
+  // 2026-11-23: was pinned to the literal 14 live on 2026-11-20; that breaks
+  // every time Jack saves another sequence's prompts, which is noise rather
+  // than safety. The real invariant is that every seed renders, which the
+  // row-count comparison already asserts. The floor keeps the file from
+  // silently emptying out.
   const seeds = require('fs').readFileSync(require('path').join(__dirname, '../../src/lib/emailPromptSeeds.ts'), 'utf8');
   const nSeeds = (seeds.match(/"id": "apollo-/g) || []).length;
-  ok('the Apollo prompts load on their own', (await page.locator('table[aria-label="Prompts"] tbody tr:not(.prompt-group)').count()) === nSeeds && nSeeds === 14, String(nSeeds));
+  ok('the Apollo prompts load on their own', (await page.locator('table[aria-label="Prompts"] tbody tr:not(.prompt-group)').count()) === nSeeds && nSeeds >= 14, String(nSeeds));
   ok('grouped by Dynamics 365 and M365 / Azure', await page.locator('tr.prompt-group[data-area="Dynamics 365"]').count() === 1 && await page.locator('tr.prompt-group[data-area="M365 / Azure"]').count() === 1);
   await page.locator('table[aria-label="Prompts"] tbody tr', { hasText: 'Jacks Dynamics Sequence · Step 5' }).first().click(); await sleep(150);
   const firstLine = JSON.parse(seeds.slice(seeds.indexOf('= [', seeds.indexOf('PROMPT_SEEDS: PromptSeed')) + 2, seeds.lastIndexOf(']') + 1)).find((x) => x.title === 'Jacks Dynamics Sequence · Step 5').userPrompt.split('\n')[0];

@@ -8968,3 +8968,47 @@ the ten multi-select tags shipped the day before.
 - Suite `m365-topics-live` (25): the four tabs render, none of the old ten
   do, the counts don't double-count, each bucket holds its lead, and both
   precedence cases resolve the way they should.
+
+### 2026-11-23: the 11/23 Dynamics prompts saved; the Recycled sequences are gone
+
+Per Jack: "pull the new 11/23 dyanimcs sequence prompts to [save] here",
+then "make sure carly m365 and carly dyanmics saved here as well as jacks
+also for [p]rompts". Re-read live from `apollo_emailer_campaigns_show`
+(0 credits) and merged into `lib/emailPromptSeeds.ts`: **14 → 20 seeds.**
+
+- **"11/23/26 Dynamics Emails" is a NEW sequence** (created 2026-11-23,
+  cloned, 3 auto-email steps, currently **inactive** with 404 contacts
+  paused). All four of its prompts saved — step 1 carries an A/B pair and
+  **variant B is still `to_be_reviewed` in Apollo**, which the seed records
+  as its `apolloStatus` rather than claiming it is live.
+- **A step 5 was added to each Dynamics sequence** since 11/20 — Carly's on
+  11/22, Jack's earlier — both saved.
+- **The six step-2 prompts came back unchanged** since 11/20 (Carly M365 A
+  and B, Carly Dynamics A and B, Jacks Dynamics A and B), so they were not
+  duplicated. That also answers Jack's "make sure carly m365 and carly
+  dyanmics saved here": they already were, and still match Apollo.
+- **Deduped on sequence + prompt text, not text alone.** The first pass
+  keyed on text and filed one of the new sequence's prompts under the older
+  sequence it was cloned from, which loses the attribution the Prompts tab
+  exists to compare. The same prompt running in two sequences is two things
+  to measure, so it is saved under each.
+- **Jack M365's own read was declined**, so its three 11/20 seeds stand
+  untouched. Its steps have not changed id since 11/20, so they are very
+  likely still current — re-read when convenient to confirm.
+
+**Flagged, not acted on: `MAIN_SEQUENCES` is stale.** It names six
+sequences, but Apollo returns six campaigns today and **"Jack Main
+Recycled" and "Carly Main Recycled" are not among them** — the list is the
+four above plus "11/23/26 Dynamics Emails" and "IT Directors Indiana".
+Their four seeds are kept (a deleted seed stays deleted, and nothing is
+gained by dropping prompt history), but Recycle, the Sequence Scanner's
+sequence list and the Reps ranking all read `MAIN_SEQUENCES`, so they are
+pointing at two sequences that no longer exist and missing the new one.
+Updating that constant changes what Recycle pushes to, so it is Jack's
+call, not a unilateral edit.
+
+`prompts-live` 13/13. One assertion re-pointed, not loosened: it pinned
+the literal 14 seeds live on 11/20, which breaks every time Jack saves
+another sequence's prompts. The real invariant — every seed on file
+renders — was already asserted by the row-count comparison beside it; the
+literal became a floor so the file still cannot silently empty.
