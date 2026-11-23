@@ -37,6 +37,19 @@
     blocked_by_policy: "Your organization blocks this tool.",
   };
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // Runs fn over items, `size` at a time. Every item settles before the first error is rethrown,
+  // so finished work is never thrown away.
+  async function pool(items, size, fn) {
+    let i = 0, firstErr = null;
+    const worker = async () => {
+      while (i < items.length && !firstErr) {
+        const item = items[i++];
+        try { await fn(item); } catch (e) { if (!firstErr) firstErr = e; }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(size, items.length) }, worker));
+    if (firstErr) throw firstErr;
+  }
 
   class SourceDown extends Error { constructor(source, code, msg) { super(msg); this.source = source; this.code = code; } }
   class BudgetHit extends Error { constructor(tool, resumeAt) { super(`Apollo limit reached for ${tool}`); this.tool = tool; this.resumeAt = resumeAt; } }
@@ -90,7 +103,10 @@
       if (key === "apollo") this.spend(tool);
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          const res = await this.mcp.callTool(server, tool, input, write ? { cache: false } : undefined);
+          // Reads get a time limit so one slow source can't stall a whole check. Writes never do:
+          // a cancelled write has an unknown outcome.
+          const opts = write ? { cache: false } : (typeof AbortSignal !== "undefined" && AbortSignal.timeout ? { signal: AbortSignal.timeout(this.readTimeoutMs || 90000) } : undefined);
+          const res = await this.mcp.callTool(server, tool, input, opts);
           return { payload: res.payload, blocks: blocks(res) };
         } catch (e) {
           const code = (e && e.code) || "upstream_error";
@@ -98,7 +114,7 @@
             this.down[key] = `${server}: ${FIXES[code] || e.message || code}`;
             throw new SourceDown(key, code, this.down[key]);
           }
-          if (!write && e && e.retryable && attempt === 0) { await sleep(Math.min(e.retryAfterMs || 1500, 60000) + Math.random() * 800); continue; }
+          if (!write && e && (e.retryable || code === "cancelled") && attempt === 0) { await sleep(Math.min(e.retryAfterMs || 1500, 60000) + Math.random() * 800); continue; }
           throw Object.assign(new Error(`${server} ${tool}: ${e && e.message ? e.message : code}`), { code });
         }
       }
@@ -295,10 +311,12 @@
   // Outlook calendar, once per run: every event with someone outside Wired CIO.
   const OWN_DOMAINS = ["wiredcio.com", "wired-cio.com", "wiredcio.co", "wiredcio.us", "wiredcio.net", "grandstrategygroup.com"];
   async function calendarIndex(col, cfg, onProgress) {
-    const byEmail = new Map(), byDomain = new Map();
+    const byEmail = new Map(), byDomain = new Map(), seen = new Set();
     const months = cfg.calendarMonths || 24;
     const end = new Date(); end.setMonth(end.getMonth() + 3);
-    for (let m = 0; m < months + 3; m++) {
+    const total = months + 3;
+    let done = 0;
+    const month = async (m) => {
       const to = new Date(end); to.setMonth(end.getMonth() - m);
       const from = new Date(to); from.setMonth(to.getMonth() - 1);
       for (let offset = 0; offset <= 1000; offset += 25) {
@@ -306,7 +324,8 @@
         const events = bl.filter((b) => b && b.id && b.attendees);
         for (const raw of events) {
           const ev = R.adaptCalendarEvent(raw);
-          if (ev.cancelled) continue;
+          if (ev.cancelled || seen.has(ev.id)) continue;
+          seen.add(ev.id);
           const external = ev.attendees.filter((a) => a.includes("@") && !OWN_DOMAINS.includes(a.split("@")[1]));
           for (const a of external) {
             if (!byEmail.has(a)) byEmail.set(a, []);
@@ -319,8 +338,10 @@
         const more = bl.find((b) => b && b.nextOffset != null);
         if (!more) break;
       }
-      if (onProgress) onProgress(m + 1, months + 3);
-    }
+      done += 1;
+      if (onProgress) onProgress(done, total);
+    };
+    await pool(Array.from({ length: total }, (_, m) => m), 4, month);
     return { byEmail, byDomain };
   }
 
@@ -342,7 +363,7 @@
   }
 
   root.SH_COLLECT = {
-    SERVERS, MANIFEST, ALWAYS_UNAVAILABLE, OWN_DOMAINS, Collector, SourceDown, BudgetHit, Stopped, blocks,
+    SERVERS, MANIFEST, ALWAYS_UNAVAILABLE, OWN_DOMAINS, Collector, pool, SourceDown, BudgetHit, Stopped, blocks,
     listSequences, sequenceContacts, apolloPerson, companySources, hubspotPerson, calendarIndex, removeOrStop, addToSequence,
   };
 })(typeof window !== "undefined" ? window : globalThis);

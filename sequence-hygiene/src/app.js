@@ -10,6 +10,7 @@
   const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
   const initials = (n) => (n || "?").split(/\s+/).filter(Boolean).slice(0, 2).map((x) => x[0].toUpperCase()).join("");
   const CHUNK = 15;
+  const PARALLEL = 4; // people or companies checked at the same time
   const ACTIONS = { remove: "Remove", keep: "Keep", move: "Move to another sequence", followup: "Follow up manually", skip: "Skip for now" };
   const BUCKETS = ["REMOVE", "REVIEW", "KEEP", "CONFLICTS"];
   const BUCKET_INFO = {
@@ -213,9 +214,18 @@
     S.actionLog = (dec && dec.log) || [];
     S.selected.clear(); S.result = null; S.progress = null;
     if (meta.status === "done") { evaluate(); S.view = "review"; } else S.view = "check";
+    scheduleAutoResume();
     render();
   }
   function setProgress(label, done, total) { S.progress = { ...(S.progress || {}), label, done, total }; renderProgress(); }
+  function startEta(from) { S.eta = { t0: Date.now(), from }; }
+  function etaText(p) {
+    if (!S.eta || !p.total || p.done <= S.eta.from) return "";
+    const rate = (p.done - S.eta.from) / (Date.now() - S.eta.t0);
+    if (!rate) return "";
+    const mins = Math.ceil((p.total - p.done) / rate / 60000);
+    return mins <= 1 ? "about a minute left" : `about ${mins} minutes left`;
+  }
   function logLine(t) {
     S.progress = S.progress || { log: [] };
     S.progress.log = (S.progress.log || []).concat(`${new Date().toLocaleTimeString()}  ${t}`).slice(-80);
@@ -284,16 +294,24 @@
       }
       if (meta.phase === "people") {
         const ppl = d.people;
-        for (let i = meta.cursor; i < ppl.length; i++) {
-          setProgress("Checking each person", i, ppl.length);
-          const p = ppl[i];
+        const checkPerson = async (p) => {
           p.sourceChecks = p.sourceChecks || {};
-          try { await C.apolloPerson(col, p); p.sourceChecks.Apollo = { state: "checked" }; }
-          catch (e) { if (e instanceof C.BudgetHit || e instanceof C.Stopped) throw e; if (!markDown(e)) p.sourceChecks.Apollo = { state: "error", reason: e.message }; }
-          try { await C.hubspotPerson(col, p); p.sourceChecks["HubSpot contact"] = { state: "checked" }; }
-          catch (e) { if (e instanceof C.BudgetHit || e instanceof C.Stopped) throw e; if (!markDown(e)) p.sourceChecks["HubSpot contact"] = { state: "error", reason: e.message }; }
-          meta.cursor = i + 1;
-          if ((i + 1) % CHUNK === 0 || i === ppl.length - 1) { await saveChunk("p", meta.id, ppl, Math.floor(i / CHUNK)); await S.store.set(`run__${meta.id}`, meta); await col.saveBudget(); }
+          // Apollo and HubSpot for one person run side by side.
+          await Promise.all([
+            C.apolloPerson(col, p).then(() => { p.sourceChecks.Apollo = { state: "checked" }; }, (e) => { if (e instanceof C.BudgetHit || e instanceof C.Stopped) throw e; if (!markDown(e)) p.sourceChecks.Apollo = { state: "error", reason: e.message }; }),
+            C.hubspotPerson(col, p).then(() => { p.sourceChecks["HubSpot contact"] = { state: "checked" }; }, (e) => { if (e instanceof C.BudgetHit || e instanceof C.Stopped) throw e; if (!markDown(e)) p.sourceChecks["HubSpot contact"] = { state: "error", reason: e.message }; }),
+          ]);
+        };
+        startEta(meta.cursor);
+        for (let i = meta.cursor; i < ppl.length; i += PARALLEL) {
+          setProgress("Checking each person", i, ppl.length);
+          const results = await Promise.allSettled(ppl.slice(i, i + PARALLEL).map(checkPerson));
+          const failed = results.find((r) => r.status === "rejected");
+          if (failed) throw failed.reason;
+          const next = Math.min(i + PARALLEL, ppl.length);
+          for (let c = Math.floor(i / CHUNK); c <= Math.floor((next - 1) / CHUNK); c++) await saveChunk("p", meta.id, ppl, c);
+          meta.cursor = next;
+          await S.store.set(`run__${meta.id}`, meta); await col.saveBudget();
         }
         meta.phase = "companies"; meta.cursor = 0; await S.store.set(`run__${meta.id}`, meta);
       }
@@ -301,13 +319,13 @@
         const comps = companiesOf(d.people);
         let cal = null;
         try {
+          startEta(0);
           setProgress("Reading your Outlook calendar", 0, 1);
           cal = await C.calendarIndex(col, S.cfg, (n, t) => setProgress("Reading your Outlook calendar", n, t));
         } catch (e) { if (e instanceof C.BudgetHit || e instanceof C.Stopped) throw e; if (!markDown(e)) meta.notChecked.push({ source: "Outlook calendar", reason: e.message }); }
         const coItems = await loadChunks("co", meta.id, (meta.chunks && meta.chunks.co) || 0);
-        for (let i = meta.cursor; i < comps.length; i++) {
-          const c = comps[i];
-          setProgress("Checking each company", i, comps.length);
+        coItems.length = Math.min(coItems.length, meta.cursor);
+        const checkCompany = async (c) => {
           let found;
           try { found = await C.companySources(col, c, S.cfg); }
           catch (e) { if (e instanceof C.BudgetHit || e instanceof C.Stopped) throw e; found = { sources: [], personMeetings: {}, personMail: {}, checks: { Companies: { state: "error", reason: e.message } } }; }
@@ -323,13 +341,20 @@
             found.checks["Outlook calendar"] = { state: "checked" };
           }
           d.companyFound[c.id] = found;
-          coItems.push({ id: c.id, found });
-          meta.cursor = i + 1;
-          if ((i + 1) % CHUNK === 0 || i === comps.length - 1) {
-            meta.chunks.co = Math.ceil(coItems.length / CHUNK);
-            await saveChunk("co", meta.id, coItems, Math.floor(i / CHUNK));
-            await S.store.set(`run__${meta.id}`, meta); await col.saveBudget();
-          }
+          return { id: c.id, found };
+        };
+        startEta(meta.cursor);
+        for (let i = meta.cursor; i < comps.length; i += PARALLEL) {
+          setProgress("Checking each company", i, comps.length);
+          const results = await Promise.allSettled(comps.slice(i, i + PARALLEL).map(checkCompany));
+          const failed = results.find((r) => r.status === "rejected");
+          if (failed) throw failed.reason;
+          const next = Math.min(i + PARALLEL, comps.length);
+          results.forEach((r, k) => { coItems[i + k] = r.value; });
+          for (let c = Math.floor(i / CHUNK); c <= Math.floor((next - 1) / CHUNK); c++) await saveChunk("co", meta.id, coItems, c);
+          meta.chunks.co = Math.ceil(next / CHUNK);
+          meta.cursor = next;
+          await S.store.set(`run__${meta.id}`, meta); await col.saveBudget();
         }
         meta.phase = "done";
       }
@@ -346,7 +371,17 @@
     S.collector = null;
     await refreshConnectors();
     await refreshRuns();
+    scheduleAutoResume();
     render();
+  }
+  // A check paused at Apollo's hourly limit picks itself back up when the limit resets.
+  let resumeTimer = null;
+  function scheduleAutoResume() {
+    clearTimeout(resumeTimer);
+    const meta = S.data && S.data.meta;
+    if (!meta || meta.status !== "paused" || !meta.resumeAt || S.collector || S.demo) return;
+    const wait = Math.max(0, R.toMs(meta.resumeAt) - Date.now()) + 5000;
+    resumeTimer = setTimeout(() => { if (!S.collector && S.data && S.data.meta.id === meta.id && S.data.meta.status === "paused") runPipeline(); }, wait);
   }
 
   // ---------- evaluate ----------
@@ -544,9 +579,13 @@
       ${meta ? `<div class="side-run"><div class="eyebrow">Open check</div><div class="run-name">${esc(meta.targetName)}</div><div class="run-meta">${esc(runStatusText(meta))}</div></div>` : ""}
       <div class="side-conn"><div class="eyebrow">Sources</div><ul>${conns}</ul>${needAllow ? `<button class="btn sm block" data-act="allow-all">${icon("plug")}Allow all sources</button>` : ""}</div></aside>`;
   }
+  const isLive = (r) => S.collector && S.data && S.data.meta.id === r.id;
   function runStatusText(r) {
+    if (r.status === "running" && !isLive(r)) return "Interrupted before it finished. Resume to pick up where it stopped.";
     if (r.status === "done") return `${plural(r.counts && r.counts.people != null ? r.counts.people : 0, "contact")} · checked ${fmtDate(r.finishedAt || r.createdAt)}`;
-    if (r.status === "paused") return `Paused${r.resumeAt ? ` until ${new Date(r.resumeAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}`;
+    if (r.status === "paused") return r.resumeAt && R.toMs(r.resumeAt) > Date.now()
+      ? `Paused at Apollo's hourly limit. Resumes on its own at ${new Date(r.resumeAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} while this page is open.`
+      : "Paused. Resume to pick up where it stopped.";
     if (r.status === "error") return "Stopped on an error";
     return "Running";
   }
@@ -578,6 +617,7 @@
     const running = S.collector != null;
     const conns = C.MANIFEST.map((m) => connState(m.server));
     const notReady = conns.filter((c) => c.key !== "ok").length;
+    const unfinished = pick ? S.runs.find((r) => r.targetId === pick.id && r.status !== "done" && !r.demo) : null;
     const checklist = pick ? [
       [true, "Sequence", `${pick.numSteps} steps · ${isEmailOnly(pick) ? "email only" : "mixed channels"} · ${pick.delivered ? "has sent, so removals stop people and keep their history" : "never sent, so removals take people out cleanly"}`, ""],
       [callSeqs.length > 0, "Live call sequence", callSeqs.length ? callSeqs.join(", ") : "None picked for this product, so rules 13 and 14 are skipped.", callSeqs.length ? "" : `<button class="link" data-act="view" data-v="settings">Pick in Settings</button>`],
@@ -592,9 +632,17 @@
         ${pick ? `<div class="row-gap mt"><span class="lbl inline-lbl">Product</span><div class="seg" role="radiogroup" aria-label="Product">${[["dynamics", "Dynamics 365"], ["m365", "M365 / Azure"]].map(([v, l]) => `<button class="seg-btn ${product === v ? "on" : ""}" data-act="pick-product" data-v="${v}" role="radio" aria-checked="${product === v}">${l}</button>`).join("")}</div></div>
           <ul class="checklist">${checklist.map(([ok, k, v, act]) => `<li class="${ok ? "ok" : "warn"}">${icon(ok ? "check" : "alert")}<div><strong>${k}</strong><span>${esc(v)}</span>${act}</div></li>`).join("")}</ul>
           <p class="note">Each person takes about three Apollo calls, and Apollo allows about 400 an hour. A big sequence pauses at that limit and picks up where it stopped.</p>` : ""}
-        <div class="card-foot"><button class="btn primary lg" data-act="start-run" ${!pick || running || !product ? "disabled" : ""}>${icon("play")}Start check</button></div>`}
+        ${unfinished ? `<div class="resume-box">${icon("play")}<div><strong>This sequence has a check in progress.</strong><span>${esc(phaseLabel(unfinished))}. Resuming keeps everything already checked, so it's much faster than starting over.</span></div></div>` : ""}
+        <div class="card-foot">${unfinished ? `<button class="btn ghost" data-act="start-run" ${running || !product ? "disabled" : ""}>Start over</button><button class="btn primary lg" data-act="resume-run" data-id="${esc(unfinished.id)}" ${running ? "disabled" : ""}>${icon("play")}Resume check</button>`
+          : `<button class="btn primary lg" data-act="start-run" ${!pick || running || !product ? "disabled" : ""}>${icon("play")}Start check</button>`}</div>`}
       </section>
       <div class="stack">${S.progress || (S.data && S.data.meta.status !== "done" && !S.demo) ? progressCard() : ""}${pastRuns()}</div></div>`;
+  }
+  function phaseLabel(r) {
+    const n = r.counts && r.counts.people;
+    if (r.phase === "people") return `${r.cursor || 0} of ${n || "?"} people checked`;
+    if (r.phase === "companies") return `All ${n || ""} people checked; companies ${r.cursor ? `${r.cursor} done` : "next"}`;
+    return "Just started";
   }
   function progressCard() {
     const meta = S.data && S.data.meta;
@@ -608,14 +656,14 @@
       ${meta.status === "error" ? `<div class="alert">${icon("alert")}<div><strong>Stopped on an error</strong><span>${esc(meta.error)}</span><span class="muted">Resume picks up where it stopped.</span></div></div>` : ""}
       <ol class="phases">${PHASES.slice(0, -1).map(([k, label], i) => {
         const state = meta.status === "done" || i < idx ? "done" : i === idx ? (running ? "now" : "paused") : "todo";
-        return `<li class="ph-${state}"><span class="ph-dot">${state === "done" ? icon("check") : ""}</span><div><span>${esc(label)}</span>${state === "now" ? `<div class="bar"><span style="width:${pct}%"></span></div><small>${esc(p.label || "")} · ${p.done || 0} of ${p.total || 0}</small>` : ""}</div></li>`;
+        return `<li class="ph-${state}"><span class="ph-dot">${state === "done" ? icon("check") : ""}</span><div><span>${esc(label)}</span>${state === "now" ? `<div class="bar"><span style="width:${pct}%"></span></div><small>${esc(p.label || "")} · ${p.done || 0} of ${p.total || 0}${etaText(p) ? ` · ${etaText(p)}` : ""}</small>` : ""}</div></li>`;
       }).join("")}</ol>
       ${(p.log || []).length ? `<details class="log-wrap"><summary>Activity log</summary><pre class="log">${esc(p.log.join("\n"))}</pre></details>` : ""}</section>`;
   }
   function pastRuns() {
     const running = S.collector != null;
     return `<section class="card"><div class="card-head"><h2>Past checks</h2></div>
-      ${!S.runsLoaded && !S.demo ? `<p class="muted">Loading your saved checks…</p>` : S.runs.length ? `<ul class="runs">${S.runs.map((r) => `<li><div class="run-main"><span class="run-dot rs-${esc(r.status)}"></span><div><div class="run-title">${esc(r.targetName)}</div><div class="muted small">${fmtDate(r.createdAt)} · ${esc(runStatusText(r))}</div>${r.status === "error" ? `<div class="err small">${esc(r.error)}</div>` : ""}</div></div>
+      ${!S.runsLoaded && !S.demo ? `<p class="muted">Loading your saved checks…</p>` : S.runs.length ? `<ul class="runs">${S.runs.map((r) => `<li><div class="run-main"><span class="run-dot rs-${esc(r.status === "running" && !isLive(r) ? "paused" : r.status)}"></span><div><div class="run-title">${esc(r.targetName)}</div><div class="muted small">${fmtDate(r.createdAt)} · ${esc(runStatusText(r))}</div>${r.status === "error" ? `<div class="err small">${esc(r.error)}</div>` : ""}</div></div>
         <div class="run-actions">${r.status === "done" ? `<button class="btn sm" data-act="open-run" data-id="${esc(r.id)}">Open</button>` : r.demo ? "" : `<button class="btn sm" data-act="resume-run" data-id="${esc(r.id)}" ${running ? "disabled" : ""}>Resume</button>`}${r.demo ? "" : `<button class="btn sm ${S.pendingDelete === r.id ? "danger" : "ghost"}" data-act="del-run" data-id="${esc(r.id)}">${S.pendingDelete === r.id ? "Confirm delete" : "Delete"}</button>`}</div></li>`).join("")}</ul>`
         : `<div class="empty-state">${icon("review")}<p>No checks yet. Each one is saved here so you can come back to it.</p></div>`}
       ${!S.persistent && !S.demo ? `<p class="warn small">Checks aren't being saved in this view. They'll be lost when the page closes.</p>` : ""}</section>`;
