@@ -8865,3 +8865,59 @@ Median Dynamics note **53 → 43 chars**, p90 82 → 79. Grades byte-identical
 again: High 899 / Medium 126 / Low 127 / Bad 88, M365 835 / Dynamics 363 /
 Power Platform 42. One assertion re-pointed (`dynamics-views`, the
 sales-platform preamble), with a dated note.
+
+### 2026-11-23: a stated Need is the note's detail, not a generic ask
+
+Per Jack, pasting his Apollo note beside the platform's on the same lead
+(Aaliyah Pryce, Regency Park Senior Living — he referred to it as the one
+under Angie Craig):
+
+> his: `▲ Wants Azure Document Intelligence. Digitize large volumes of paper records, categorize, store and retrieve them electronically`
+> ours: `▲ Wants Azure Document Intelligence. Ask how Azure is managed today, internal IT or an external partner, and where the pain is.`
+
+— "1st one is better be more like that if high level details".
+
+**The source is a labelled field, which is why this does not reverse the
+no-quoting rule.** That row carries `Business Need: - Digitize a large
+backlog of paper records onto a platform where they can be uploaded and
+retrieved at any time - Classify and organize documents …`. Reading a
+labelled field is the same thing the form-line product reader already
+does; what 11/23 stopped was lifting a sentence out of the prose.
+`needStatement` (`lib/detection.ts`) reads `Need:` / `Business Need:` /
+`Customer Need:`, turns its bullets into a comma list, stops at the next
+field label, and keeps only WHOLE clauses inside `NEED_MAX` (150) — half a
+thought reads worse than one fact.
+
+**Three guards, each from a real row that printed something worse:**
+- **A verb is required** (`NEED_VERB_IN_STATEMENT`): a Need field is often
+  just a product list — "Power bi embedded", "Microsoft 365 E3, E5, F3,
+  F1", "Secuirty bundles, e3, copilot" — which is an inventory, and worse
+  than the product clause it would replace. 225 rows → 63.
+- **"Upgrade", "implementation" and "Calling Plan" defeat the verb test**,
+  so a statement must also run `NEED_MIN_WORDS` (8) long and still say
+  `NEED_MIN_PLAIN_WORDS` (6) once `maskAll` removes the product names, and
+  must not OPEN on a product or a number — "18 M365 E3 (Upgrade from user
+  licensing) 2 M365 Copilot (20% growth) CSP annual" fails all three.
+  63 → **38 rows of 1,240**.
+- **It replaces the ask only.** The ask exists to get what the row did not
+  say; when the row said it, asking is noise. The timeline, partner line,
+  incumbent and reason all still print, and a row with no Need field keeps
+  the Azure ask Jack asked back for earlier the same day.
+
+The lead he pasted now reads:
+
+```
+▲ Wants Azure Document Intelligence. Digitize a large backlog of paper
+records onto a platform where they can be uploaded and retrieved at any
+time. Timeline: 12/31/2026. No partner indicated. Reason: a compliance
+requirement.
+```
+
+**Dynamics is deliberately untouched** — `buildDynamicsBrief` is its own
+path and he approved its shape hours earlier.
+
+Grades byte-identical to HEAD again across both real files: High 899 /
+Medium 126 / Low 127 / Bad 88, M365 835 / Dynamics 363 / Power Platform
+42. `NOTE_RULES_VERSION` = `2026-11-23-need-statement`. `direct-notes`
+33 → 38 (the Document Intelligence row, both licence-list rejections, and
+that a row with no Need field still closes on the Azure ask).

@@ -11,7 +11,7 @@
 // line, and a sweep at the end proves no note lifts a run of words from
 // the row it came from.
 import { parseCSVText } from "../../src/lib/csv";
-import { scanParsedFiles } from "../../src/lib/detection";
+import { scanParsedFiles, needStatement } from "../../src/lib/detection";
 
 let pass = 0, fail = 0;
 const ok = (n: string, c: boolean, d = "") => { c ? pass++ : (fail++, console.log(`  FAIL ${n}${d ? " — " + d : ""}`)); };
@@ -80,6 +80,38 @@ n = note("Intune", "Customer wants to roll out Intune to manage 120 laptops and 
 ok("Intune leads and names the product", /^\u25B2 Device management \(Intune\)\./.test(n) && !/120 laptops/.test(n), n);
 n = note("Copilot", "Customer is rolling out Microsoft 365 Copilot to 50 users and wants help with adoption and training.");
 ok("Copilot leads, with its count", /^\u25B2 Copilot\./.test(n) && /Microsoft 365 Copilot \(50 seats\)/.test(n), n);
+
+// 11/23, per Jack, pasting his Apollo note beside the platform's: "1st one
+// is better be more like that if high level details". A labelled Need
+// field IS the high-level statement, and it replaces the generic ask.
+{
+  const row = "LAG - 6/Nov - Current Infrastructure: - Assisted living facility; records are paper-based "
+    + "Business Need: - Digitize a large backlog of paper records onto a platform where they can be uploaded and retrieved at any time "
+    + "- Classify and organize documents for multiple staff users "
+    + "Recommended Solution: - Azure AI Document Intelligence for document extraction";
+  const n = note("Azure", row);
+  ok("the Need field is said, not the generic ask",
+     /Digitize a large backlog of paper records/.test(n) && !/Ask how Azure/.test(n), n);
+  ok("  and the product still leads", /^\u25B2 Wants Azure Document Intelligence\./.test(n), n);
+}
+{
+  // A Need field that is a licence list is an inventory, not a need — it
+  // would replace the product clause with a worse version of it.
+  const n = note("M365", "Need: 18 M365 E3 (Upgrade from user licensing) 2 M365 Copilot (20% growth) CSP annual");
+  ok("a licence list in the Need field is not used as a statement",
+     !/18 M365 E3/.test(n), n);
+  // Checked on the reader itself: a short field like this is also read by
+  // the form-line reader, which legitimately renders "Wants <product>" —
+  // what must not happen is it being treated as a business statement.
+  ok("  nor a two-word product line", needStatement("Need: Licensing Upgrade (Business Premium)") === "",
+     needStatement("Need: Licensing Upgrade (Business Premium)"));
+}
+{
+  // No Need field: nothing invented, and the Azure ask Jack asked back on
+  // 11/23 still closes the note.
+  const n = note("Azure", "Customer is looking to set up Azure Virtual Desktop for 45 remote users and wants a partner to manage it.");
+  ok("a row with no Need field keeps the Azure ask", /Ask how Azure is managed today/.test(n), n);
+}
 
 console.log(`${pass} / ${pass + fail}`);
 if (fail) process.exit(1);

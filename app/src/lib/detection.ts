@@ -3178,6 +3178,72 @@ function azureAsk(knowsPain: boolean): string {
   return `Ask how Azure is managed today, internal IT or an external partner${knowsPain ? "" : ", and where the pain is"}.`;
 }
 
+/* --- WHAT THEY WANT TO DO -------------------------------------------- *
+ * Per Jack, 11/23, pasting his Apollo note beside the platform's:
+ *   "▲ Wants Azure Document Intelligence. Digitize large volumes of paper
+ *    records, categorize, store and retrieve them electronically"   (his)
+ *   "▲ Wants Azure Document Intelligence. Ask how Azure is managed today…"
+ * — "1st one is better be more like that if high level details".
+ *
+ * These CRM rows carry a LABELLED "Business Need:" / "Need:" field, and
+ * that field IS the high-level statement of what they are trying to do.
+ * Reading a labelled field is the same thing the form-line product reader
+ * already does — it is not quoting a sentence out of the prose, which is
+ * the thing 11/23 stopped. Nothing here is inferred: absent field, absent
+ * clause.
+ */
+const NEED_FIELD_RE =
+  /\b(?:business|customer|client)?\s*needs?\s*[-:]\s*([^]{12,400}?)(?=\s*(?:recommended\s+solution|product\s+scenario|current\s+infrastructure|next\s+steps?|timeline|partner|budget|authority|solution|products?|tpid|tenantid|notes|contact)\s*[-:]|$)/i;
+/** Longest sensible length for the clause; his own example is ~105 chars. */
+export const NEED_MAX = 150;
+/** A statement about the business runs at least this long. */
+const NEED_MIN_WORDS = 8;
+/** …and still says this much once the product names are masked out. */
+const NEED_MIN_PLAIN_WORDS = 6;
+/** What they want to DO. Without one of these the field is a product list. */
+const NEED_VERB_IN_STATEMENT =
+  /\b(?:want\w*|need\w*|look\w*|plan\w*|consolidat\w*|digitiz\w*|migrat\w*|mov(?:e|es|ing)|replac\w*|adopt\w*|implement\w*|upgrad\w*|expand\w*|automat\w*|improv\w*|reduc\w*|protect\w*|classif\w*|organiz\w*|stor(?:e|es|ing|age)|retriev\w*|build\w*|set\s+up|roll(?:ing)?\s+out|manage\w*|secur\w*|evaluat\w*|explor\w*|modernis\w*|moderniz\w*|streamlin\w*|integrat\w*|deploy\w*|support\w*)\b/i;
+
+/** The row's own labelled Need field, as one short clause. "" when absent. */
+export function needStatement(fullText: string): string {
+  const t = stripCrmChrome(cleanText(fullText));
+  const m = NEED_FIELD_RE.exec(t);
+  if (!m) return "";
+  // Bullets become a comma list; a bare "-" separator is not punctuation.
+  const parts = m[1]
+    .split(/\s+[-\u2022]\s+/)
+    .map((x) => x.replace(/^[\s\-\u2022]+/, "").replace(/[\s;,.]+$/, "").trim())
+    .filter((x) => x.length >= 8 && !hasForbiddenContent(x) && !/^\[/.test(x));
+  if (!parts.length) return "";
+  let out = "";
+  for (const part of parts) {
+    const next = out ? `${out}, ${part}` : part;
+    // Keep whole clauses only — a half-sentence reads worse than one fact.
+    if (next.length > NEED_MAX) break;
+    out = next;
+  }
+  // No whole clause fits: say nothing rather than half a thought.
+  if (!out) return "";
+  out = out.replace(/[\s,;.\u2026]+$/, "");
+  // A Need field is often just a product list ("Power bi embedded",
+  // "Microsoft 365 E3, E5, F3, F1"), which is an inventory, not a need —
+  // and worse than the product clause it would replace. A real statement
+  // says what they want to DO, so it carries a verb.
+  if (!NEED_VERB_IN_STATEMENT.test(out)) return "";
+  // Measured on the real files: "Upgrade", "implementation" and "Calling
+  // Plan" let plain licence lists through the verb test ("18 M365 E3
+  // (Upgrade from user licensing) 2 M365 Copilot … CSP annual"). A real
+  // statement is a sentence about the business, so it survives having the
+  // product names masked out and does not OPEN on a product or a number.
+  const words = out.split(/\s+/).filter(Boolean);
+  if (words.length < NEED_MIN_WORDS) return "";
+  if (/^(?:\d|\()/.test(out) || PRODUCT_TOKEN_RE.test(words[0])) return "";
+  const plain = maskAll(out).replace(/[^A-Za-z\s]+/g, " ").split(/\s+/)
+    .filter((w) => w.length >= 3 && !/^X+$/.test(w));
+  if (plain.length < NEED_MIN_PLAIN_WORDS) return "";
+  return out.length >= 12 ? `${normalizeSentence(out)}` : "";
+}
+
 /* --- WHO HANDLES IT / WHERE THEY ARE GOING -------------------------- *
  * Per Jack, on the M365 line: "indicate who handles it do they go direct
  * or do they have a partner", and on the shape generally: "Microsoft is
@@ -4324,13 +4390,23 @@ export function buildCallBrief(
 
   const whenWanted = wantedTimeline(fullText);
   const whenLine = whenWanted && !stated.toLowerCase().includes(whenWanted.toLowerCase()) ? `Timeline: ${whenWanted.replace(/[.\s]+$/, "")}.` : "";
+  // Per Jack, 11/23: a row that states a Need gets that detail instead of
+  // the generic ask — "1st one is better be more like that if high level
+  // details". The ask exists to get what the row did not say; when the row
+  // DID say it, asking is noise. It also beats the "Runs …" clause, which
+  // on his own example listed a product the row only floated for later.
+  const need = needStatement(fullText);
+  const wantLine = need
+    ? [topicSays || (wantsDocIntel ? "Wants Azure Document Intelligence." : ""), need]
+        .filter(Boolean).join(" ") || stated
+    : stated;
   return sentenceCase([
-    stated ? `${stated}${size}` : "",
+    wantLine ? `${wantLine}${size}` : "",
     whenLine,
     dirShown,
     stance,
     known,
-    azureDirection ? azureAsk(!!pain) : "",
+    azureDirection && !need ? azureAsk(!!pain) : "",
   ].filter(Boolean).join(" "));
 }
 /** The brief opens with the row's OWN wording for the product, which is
