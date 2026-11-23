@@ -34,6 +34,16 @@
       "6a65319835213500203822f0": "Open Deal",
       "6a73ee5976e5ba001c169964": "Review + Email",
     },
+    // Every Apollo contact stage, so the Rules page can switch each one on or off for rule 8.
+    allStages: {
+      "6a73bd924f135d0014ac11a0": "Follow Up",
+      "6a73bd6b59c987000cc2c50c": "Meeting Logged",
+      "66203bd7183e31042298045e": "Not Interested",
+      "6a65319835213500203822ef": "Open",
+      "6a65319835213500203822f0": "Open Deal",
+      "6a73ee5976e5ba001c169964": "Review + Email",
+    },
+    disabledRules: [],
     okStages: {
       "6a73bd924f135d0014ac11a0": "Follow Up",
       "6a65319835213500203822ef": "Open",

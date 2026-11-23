@@ -263,7 +263,8 @@
     14: "Colleague in call sequence", 15: "Several from one company", 16: "Duplicate", 17: "Product fit", 18: "Company already engaged",
   };
 
-  function addF(p, f) { p.findings.push(f); }
+  let DISABLED = new Set();
+  function addF(p, f) { if (!DISABLED.has(f.rule)) p.findings.push(f); }
 
   // Per-person rules. ctx: {cfg, target, sequences, product, targetEmailOnly, now}
   function personFindings(p, ctx) {
@@ -283,7 +284,7 @@
       const name = cfg.removeStages[p.stageId];
       const st = name === "Not Interested" ? "closed" : name === "Review + Email" ? "contacted" : "live";
       addF(p, { rule: 8, effect: "remove", status: st, reason: `Apollo stage: ${name}`, source: "Apollo contacts", link: p.link, scope: "person" }); bump(st);
-    } else if (p.stageId && !cfg.okStages[p.stageId]) {
+    } else if (p.stageId && !cfg.okStages[p.stageId] && !(cfg.allStages || {})[p.stageId]) {
       addF(p, { rule: 8, effect: "review", status: null, reason: "Apollo stage not in the settings list", source: "Apollo contacts", link: p.link, scope: "person" });
     }
 
@@ -385,6 +386,7 @@
 
   function evaluateRun(input) {
     const cfg = input.cfg;
+    DISABLED = new Set((cfg.disabledRules || []).map(Number));
     const now = input.now || Date.now();
     const target = input.target;
     const sequences = input.sequences || {};
@@ -561,6 +563,59 @@
     return rows.sort((a, b) => (toMs(b.at) || 0) - (toMs(a.at) || 0));
   }
 
+  // ---------- rule catalog (what the Rules page shows) ----------
+  // effect: what a hit does. params: which settings the rule reads, edited in place on the Rules page.
+  const RULES = [
+    { id: 1, group: "Phone", name: "Call outcome", effect: "remove", params: ["wrongNumber"],
+      what: "Any logged outcome other than No Answer or Left Voicemail: Meeting Booked, Qualified / Pending Review, Info Requested, Call Back Scheduled, Not Interested, Do Not Contact.",
+      why: "A disposition like that means someone already spoke with them." },
+    { id: 2, group: "Phone", name: "Hidden conversation", effect: "remove", params: ["longCallSec", "midCallSec"],
+      what: "A No Disposition or No Answer call that was really a conversation: long enough, or the Trellus summary in the call note says they spoke, set a meeting, asked for a quote, are evaluating, or declined.",
+      why: "Trellus logs calls into Apollo with a duration of 0, so the summary is what usually catches these. Sentences about a gatekeeper or voicemail are ignored." },
+    { id: 3, group: "Phone", name: "Opted out of calls", effect: "remove", params: [],
+      what: "The contact is marked as opted out of calls. Gatekeeper-only calls and calls transferred to voicemail stay in.",
+      why: "A hard block." },
+    { id: 4, group: "Email", name: "Replied", effect: "remove", params: [],
+      what: "They replied to any Apollo email, from anyone at Wired CIO, at any time.", why: "A reply is contact." },
+    { id: 5, group: "Email", name: "Email blocked", effect: "remove", params: [],
+      what: "Unsubscribed, bounced, spam-blocked, invalid or unavailable email, or no email at all.", why: "Can't be emailed." },
+    { id: 6, group: "Email", name: "Real email thread", effect: "remove", params: ["extraMailboxes"],
+      what: "They wrote to a Wired CIO mailbox in Outlook. Out-of-office and other auto-replies don't count, and neither do unreplied sequence emails.",
+      why: "They engaged one to one." },
+    { id: 7, group: "Meetings & CRM", name: "Meeting", effect: "remove", params: ["calendarMonths"],
+      what: "An intro, discovery, demo or sales meeting with them: in Echo, or on the Outlook calendar. A meeting with anyone else at their company is caught by rule 18.",
+      why: "A meeting is contact, booked or held." },
+    { id: 8, group: "Meetings & CRM", name: "Apollo stage", effect: "remove", params: ["removeStages"],
+      what: "Their Apollo contact stage is one you've marked as a remove stage.", why: "The stage already says where they stand." },
+    { id: 9, group: "Meetings & CRM", name: "Deal or proposal", effect: "remove", params: [],
+      what: "A deal or proposal on file for them or their company in Apollo, HubSpot or Switchboard, open or closed.", why: "They're already in the pipeline, or were." },
+    { id: 10, group: "Meetings & CRM", name: "Active client", effect: "remove", params: [],
+      what: "Their company is a client: HubSpot lifecycle Customer, a closed-won deal, a Switchboard client room, or delivery meetings in Echo. Applies at every contact and title.",
+      why: "Clients are never prospected." },
+    { id: 11, group: "Sequence history", name: "Earlier sequence ended on contact", effect: "remove", params: ["contactEndReasons"],
+      what: "A past sequence ended for one of these reasons.", why: "Apollo already recorded that contact was made." },
+    { id: 12, group: "Sequence history", name: "Active in another sequence", effect: "conflict", params: [],
+      what: "They're active or paused in a different sequence.", why: "You choose whether to finish them there." },
+    { id: 13, group: "Sequence history", name: "Already in the call sequence", effect: "remove", params: ["callSequences"],
+      what: "They were ever in your live call sequence for the same product, active or finished. Only applies when the sequence you're checking is email only.",
+      why: "The call sequence already covers them." },
+    { id: 14, group: "Sequence history", name: "Colleague in the call sequence", effect: "conflict", params: ["callSequences"],
+      what: "Someone else at their company is active in your live call sequence for this product.", why: "One outreach per company per motion." },
+    { id: 15, group: "Sequence history", name: "Several from one company", effect: "review", params: ["titlePriority"],
+      what: "More than one person from the same company is in this sequence. The best one stays in KEEP, the rest go to REVIEW.",
+      why: "Pick who carries the conversation." },
+    { id: 16, group: "Sequence history", name: "Duplicate", effect: "remove", params: [],
+      what: "The same person twice in this sequence: same email, or same name and company.", why: "Keeps one copy." },
+    { id: 17, group: "Fit", name: "Product fit", effect: "review", params: ["keywords"],
+      what: "Their notes don't mention this sequence's product, or point to the other product. A bare CRM or sales doesn't count without Dynamics or D365.",
+      why: "Never removes, only flags for you to decide." },
+    { id: 18, group: "Company", name: "Company already engaged", effect: "remove", params: ["freeDomains"],
+      what: "We've talked with, met with, or dealt with anyone at their company, or the company is a client. Matched by email domain or company name.",
+      why: "Each hit says which it matched on, so name-only matches can be checked." },
+    { id: 0, group: "Sources", name: "Source not checked", effect: "review", params: [],
+      what: "A source that should have worked failed for this person during the run.", why: "Nothing is ever silently skipped." },
+  ];
+
   // ---------- actions planning (pure) ----------
   // decisions: {uid: {action:'remove'|'keep'|'move'|'followup'|'skip', moveTo, note, finishElsewhere}}
   function planActions(people, decisions, target, opts) {
@@ -624,7 +679,7 @@
     adaptApolloContact, adaptApolloCall, adaptApolloMessage, adaptOutlookMail, adaptCalendarEvent, adaptEchoMeeting,
     adaptSwitchboardCompany, adaptHubspotCompany, adaptHubspotDeal, adaptHubspotContact, splitCallNote,
     analyzeCallSummary, classifyCall, productFit, hasKeyword, evaluateRun, touchpoints, planActions, toCsv,
-    CONTACT_COLS, TOUCH_COLS, STATUS_LABEL, STATUS_RANK, RULE_LABEL, isContactMade,
+    CONTACT_COLS, TOUCH_COLS, STATUS_LABEL, STATUS_RANK, RULE_LABEL, RULES, isContactMade,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.SH_RULES = api;

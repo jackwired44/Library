@@ -338,3 +338,17 @@ test("CSV escapes quotes, commas and spreadsheet formulas", () => {
   const csv = R.toCsv([{ a: 'He said "hi", ok', b: "=SUM(A1)" }], [{ label: "A", get: "a" }, { label: "B", get: "b" }]);
   assert.equal(csv, 'A,B\r\n"He said ""hi"", ok",\'=SUM(A1)');
 });
+
+test("rule catalog lists every rule 0-18 exactly once, each with a plain description", () => {
+  const ids = R.RULES.map((r) => r.id).sort((a, b) => a - b);
+  assert.deepEqual(ids, Array.from({ length: 19 }, (_, i) => i));
+  for (const r of R.RULES) { assert.ok(r.what && r.name && ["remove", "review", "conflict"].includes(r.effect), r.id); assert.equal(R.RULE_LABEL[r.id] !== undefined, true); }
+});
+test("a switched-off rule never fires", () => {
+  cfg.disabledRules = [17];
+  assert.equal(one(person({ customText: "" })).bucket, "KEEP");
+  cfg.disabledRules = [1];
+  assert.equal(one(person({ calls: [call({ outcomeId: O.meetingBooked })] })).bucket, "KEEP");
+  cfg.disabledRules = [];
+  assert.equal(one(person({ customText: "" })).bucket, "REVIEW");
+});
