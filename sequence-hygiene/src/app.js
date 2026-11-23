@@ -406,7 +406,10 @@
       for (const u of meta.notChecked || []) checks[u.source] = { state: "error", reason: u.reason };
       return { ...p, uid: p.apolloId, meetings: (p.meetings || []).concat(ex.meetings), outlookMail: (p.outlookMail || []).concat(ex.mail), sourceChecks: checks, notChecked: unavailable.map((u) => u.source) };
     });
-    const cfg = { ...S.cfg, callSequences: { ...S.cfg.callSequences, [meta.product]: meta.callSequences || S.cfg.callSequences[meta.product] || [] } };
+    // A check started before any call sequence was picked uses today's Settings, so rule 13 still applies
+    // (it only needs history already collected). Rule 14 needs the call sequence's contacts, read at check time.
+    const callSeqs = meta.callSequences && meta.callSequences.length ? meta.callSequences : (S.cfg.callSequences[meta.product] || []);
+    const cfg = { ...S.cfg, callSequences: { ...S.cfg.callSequences, [meta.product]: callSeqs } };
     const res = R.evaluateRun({ cfg, now: Date.now(), target: { id: meta.targetId, name: meta.targetName }, sequences: d.sequences, product: meta.product, targetEmailOnly: meta.targetEmailOnly, people, colleagues: d.colleagues || [], companySources });
     S.result = { people: res.people, ctx: { cfg, sequences: d.sequences, target: { id: meta.targetId, name: meta.targetName } }, unavailable };
     for (const p of res.people) if (!S.decisions[p.uid]) S.decisions[p.uid] = { action: defaultAction(p), auto: true };
