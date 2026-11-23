@@ -8762,3 +8762,72 @@ note-refresh-live and csp-live — every one encoded a rule Jack replaced
 "Partner on record" became "Partner indicated"). `download-parity` and
 `smc-partner-live` now read the score from the Score COLUMN rather than
 the note, so their ordering coverage is unchanged.
+
+### 2026-11-23: the Main note is derived — it never quotes the row
+
+Per Jack: "i want the scanner to just give a straight forward high level few
+words what the raw note indicates they want and more like how they are
+stored in all leads before all these edits", then, decisively, **"no do not
+quote any sentences"**. Confirmed via a question first: "Want + one short
+reason", and where no clean want can be derived, "say what it is about,
+briefly". The no-quoting instruction supersedes the preview he picked, which
+still showed a quoted reason.
+
+**What changed.** `buildCallBrief` (`lib/detection.ts`) no longer lifts the
+row's opening sentence, its pain phrase or its meeting line. Every clause is
+now written by the engine from what the scan already knows:
+- **What they want** — the SKUs the row named, each carrying only the count
+  IT stated ("Runs Microsoft 365 E5 (200 seats)."), or, on a CRM form line,
+  the field's own wording ("Wants Microsoft 365 Business Premium and
+  Microsoft Teams Phone Standard for 30 users.").
+- **What it is about** — a fixed topic line when the row names one:
+  `Wants to change IT provider.` / `Wants IT support or a managed service.`
+  / `Security need.` / `Device management (Intune).` / `Copilot.` /
+  `Azure infrastructure.` The topic LEADS (Jack's 11/6 rule survives); with
+  nothing after it, it reads "…; the row gives no more detail."
+- **Why** — `derivedReason`, a FIXED vocabulary of twelve
+  (`Reason: hit by ransomware.` … `Reason: cost.`), never the row's words.
+  The Dynamics brief says the same thing as `Why: …`.
+- **A reversal** reads `Row reverses an earlier evaluation.` / `Reversed: an
+  earlier evaluation was dropped.` — a lead that said no must never read as
+  a live deal, and the old guard was a refusal to quote across a reversal.
+
+**Product names are still the row's own wording, deliberately.** A name is
+not a sentence, and "dont make assumptions on the detected sku" still
+stands. Measured on Jack's two real November files: **49 of 1,240 notes
+(4%) carry 8+ consecutive words from their row, and every one is a product
+list from a form field.** Prose quoting is at zero.
+
+**A CRM form line is read, not quoted.** The block that reads
+"product - Juneau Bone and Joint Clinic - Microsoft 365 Business Premium and
+Microsoft Teams Phone Standard- 30" was extracted out of `noteLead` into
+`formLineFields` / `formLineWant`, so the brief can use it directly — it is
+a FIELD LIST, not a sentence. A trailing form label is stripped from a
+product name: a real row reads "… - 30 Business Premium Timeline -
+06/02/2027" and rendered "Wants 30 Business Premium Timeline." beside its
+own Timeline line.
+
+**Said once.** "Wants to work with a partner." is dropped when the opening
+clause already names a partner, an MSP or a managed service — the old check
+read the quoted sentence, which no longer exists.
+
+**The Azure ask is unchanged**, per Jack on 11/23: "switch back azure notes
+after scanner to how they were". Azure rows still close on "Ask how Azure is
+managed today, internal IT or an external partner, and where the pain is",
+which he called gold; no other area asks anything.
+
+**Scanning is untouched, proven not assumed.** Tier, category, priority band
+and DQ reasons fingerprinted per row across both real files: **byte
+identical to HEAD** — High 899 / Medium 126 / Low 127 / Bad 88, M365 835 /
+Dynamics 363 / Power Platform 42. Note length: median **156 → 61 chars**.
+
+`NOTE_RULES_VERSION` = `2026-11-23-derived-notes`, so every stored lead with
+a saved CSV row rewrites its newest note on next open.
+
+**Assertions re-pointed, never loosened**, each with a dated note:
+`snippet-truth` (11 — every "as written" case became its derived twin,
+including Jack's own 10/16 "great lead and note" for Christian Monahan,
+which now states the same two facts in our words) and `dynamics-brief` (1,
+the pain quote became the derived reason). A real bug the re-point caught:
+the Dynamics `Why:` clause printed a double stop, because `dynamicsReason`
+no longer strips the derived sentence's own period.

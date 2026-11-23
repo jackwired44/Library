@@ -3147,6 +3147,33 @@ function briefTopicOf(fullText: string, platform: PlatformResult | null): BriefT
 // they were" — the Azure ask is restored, verbatim, and ONLY for Azure.
 // He called that line gold when it first shipped. stripAsk
 // (lib/leadStore) still strips the old endings from notes stored before.
+/**
+ * A few words on WHY, derived from a fixed vocabulary — never the row's own
+ * sentence. Per Jack, 11/23: "want + one short reason", then "no do not
+ * quote any sentences". Only the first match shows, and a row that gives no
+ * clear reason simply says nothing.
+ */
+const REASONS: [RegExp, string][] = [
+  [/\bransomware|crypto-?locker\b/i, "Reason: hit by ransomware."],
+  [/\b(?:breach|hacked|compromised|phish\w*\s+attack)\b/i, "Reason: a security incident."],
+  [/\bend[\s-]of[\s-](?:life|support)|EOL\b|no longer supported\b/i, "Reason: current system is end of life."],
+  [/\boutgrow\w*|too small for|no longer (?:scales|meets)|cannot keep up\b/i, "Reason: outgrowing what they run."],
+  [/\b(?:acquisition|acquired|merger|merging|spin[\s-]?off|divest\w*)\b/i, "Reason: an acquisition or merger."],
+  [/\b(?:renewal|renew\w*|contract (?:ends|expiring|expires|up for))\b/i, "Reason: a renewal is coming up."],
+  [/\b(?:unresponsive|poor support|bad experience|unhappy|dissatisf\w*|frustrat\w*)\b/i, "Reason: unhappy with who they have."],
+  [/\bcompliance|HIPAA|SOC\s*2|CMMC|FedRAMP|audit requirement\b/i, "Reason: a compliance requirement."],
+  [/\bconsolidat\w*|too many (?:vendors|tools|systems)\b/i, "Reason: consolidating systems."],
+  [/\bcost|pricing|too expensive|save money|reduce spend\b/i, "Reason: cost."],
+  [/\bmanual\s+\w+|double[\s-]entry|spreadsheet\w*\b/i, "Reason: manual work today."],
+  // Not a bare "grow": "Created growth optty for Copilot whitespace" is
+  // the seller's own CRM jargon, not a reason the customer gave.
+  [/\b(?:growing fast|rapid growth|new (?:office|site|location)|adding (?:staff|headcount|people)|hiring)\b/i, "Reason: growth."],
+];
+export function derivedReason(text: string): string {
+  const t = String(text || "");
+  for (const [re, say] of REASONS) if (re.test(t)) return say;
+  return "";
+}
 function azureAsk(knowsPain: boolean): string {
   return `Ask how Azure is managed today, internal IT or an external partner${knowsPain ? "" : ", and where the pain is"}.`;
 }
@@ -3453,27 +3480,14 @@ function partnerStanceLine(st: PartnerStance): string {
  *  want to know they want it, reason why they want it, current platform if
  *  states what they are on today and by when". Only a stated reason — a
  *  "because …", "to replace …", "outgrowing …" clause — never inferred. */
-const REASON_MARK_RE = /\b(?:because|due\s+to|since|as\s+(?:they|their|the)|in\s+order\s+to|so\s+(?:that|they\s+can|we\s+can)|to\s+(?:replace|improve|streamline|consolidate|automate|moderni[sz]e|scale|support|integrate|centrali[sz]e|unify|connect|get\s+(?:off|away\s+from|rid\s+of)|move\s+off|eliminate|reduce)|outgr[eo]w\w*|limitations?\s+(?:of|with|in)|no\s+longer|end\s+of\s+(?:life|support)|struggl\w*\s+with|too\s+manual|manual\s+(?:processes?|entry|work)|disconnected|siloed)\b/i;
+// Per Jack, 11/23: "no do not quote any sentences". The Dynamics reason
+// used to lift its clause out of the row; it now comes from the same fixed
+// vocabulary every other reason does.
 function dynamicsReason(fullText: string): string {
-  const t = stripCrmChrome(cleanText(fullText));
-  for (const raw of splitSentences(t)) {
-    const u = cleanLeadSentence(raw);
-    if (SELLER_CHATTER_RE.test(u) || MEETING_CHROME_RE.test(u)) continue;
-    const m = REASON_MARK_RE.exec(u);
-    if (!m) continue;
-    let clause = u.slice(m.index).replace(/^(?:because|due\s+to|since|as)\s+/i, "");
-    clause = clause.split(/[;]|\s+[-–]\s+|,\s+(?:and|but)\s+/)[0];
-    // Checked on the clause: the timeline has its own line, and the quoted
-    // reason itself never carries a date or time.
-    if (hasForbiddenContent(clause)) continue;
-    // Evaluating, demoing or the seller's own partner work is not a reason
-    // the customer gave.
-    if (/\b(?:evaluat\w*|assess\w*|demo\w*|discuss\w*|meeting|call|partner|good\s+(?:fit|solution)|determine|explore\w*|learn\s+more)\b/i.test(clause)) continue;
-    const cut = truncateAtWord(clause.trim(), 80);
-    if (!cut.safe || !cut.text || cut.text.length < 12) continue;
-    return cut.text.replace(/[.,;:\s]+$/, "");
-  }
-  return "";
+  // The derived reason is a full sentence ("Reason: manual work today.");
+  // the Dynamics brief says "Why:", so the label and the trailing stop are
+  // dropped and the caller re-adds the stop.
+  return derivedReason(fullText).replace(/^Reason:\s*/, "").replace(/\.\s*$/, "");
 }
 
 function buildDynamicsBrief(
@@ -3548,7 +3562,9 @@ function buildDynamicsBrief(
     if (st.wantsPartner) parts.push("Wants a partner.");
   }
 
-  if (reversal) parts.push(`Reversed: ${quoteOnce(reversal)}.`);
+  // Per Jack, 11/23: never quote the row. The verdict still shows, and
+  // still moves the grade to Needs Review (see reversalClause).
+  if (reversal) parts.push("Reversed: an earlier evaluation was dropped.");
 
   return parts.join(" ");
 }
@@ -3563,27 +3579,6 @@ function isOwnCompany(value: string, company: string, email: string): boolean {
   return !!d && !isFreeEmailDomain(d) && d.split(".")[0] === v.replace(/\s+/g, "");
 }
 
-/**
- * Quote the row's own words exactly once, and keep them short.
- *
- * A reversal is often already quoted in the source note, so wrapping it
- * again printed `reversed: ""we are not going to jump into something""`.
- * Strips any quote marks the row supplied — straight or curly — then adds
- * one pair.
- */
-const REVERSAL_MAX = 70;
-function quoteOnce(s: string): string {
-  // Strip EVERY quote mark, not just the outer ones. A reversal often
-  // carries its own internal pair ('"not going to worry about that right
-  // now" - so no consumption products'), and trimming only the ends left
-  // the inner quotes plus the one added here, reading unbalanced.
-  let v = String(s || "").trim().toLowerCase()
-    .replace(/["'\u201c\u201d\u2018\u2019]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (v.length > REVERSAL_MAX) v = v.slice(0, REVERSAL_MAX - 1).trimEnd() + "\u2026";
-  return `"${v}"`;
-}
 
 /** Keep a partner name short — "CDW Logistics LLC" is CDW Logistics. */
 function firstWords(s: string, n: number): string {
@@ -3694,6 +3689,56 @@ function isProductField(sg: string): boolean {
   if (!pieces.some((p) => LEAD_PRODUCT_RE.test(p))) return false;
   return pieces.every((p) => p.split(/\s+/).length <= 10 && !PRODUCT_FIELD_CLAUSE_RE.test(p));
 }
+// A CRM form line is a few dash-separated fields ending in a quantity —
+// "product - Juneau Bone and Joint Clinic - Microsoft 365 Business Premium
+// and Microsoft Teams Phone Standard- 30". It is a FIELD LIST, not a
+// sentence, so reading it back as "Wants <products> for N users" is not
+// quoting the row (11/23): the product name is the row's own wording, which
+// "dont make assumptions on the detected sku" requires, and nothing else of
+// the row survives.
+function formLineFields(fullText: string): { products: string[]; said: string[]; n: number | null } | null {
+  const t = stripCrmChrome(cleanText(fullText)).replace(/\s(?:Notes|Description|Summary|Overview)\s*:\s+/g, ". ");
+  if (!t || t.length > 160 || /[.!?]\s+\S/.test(t)) return null;
+  // A hyphen inside a word is not a field break: "via a non-Intune MDM"
+  // split into "non" + "Intune MDM" and read as "Wants Intune MDM", the
+  // opposite of the note (11/6).
+  const segs = t.split(/\s*[-–:]\s+|\s+[-–:]\s*|(?<!\b(?:non|co|re|pre|multi|cross|self|anti|sub|semi|e|on|off|third|end|real|full|part|high|low|well))(?<=[a-z0-9)])-(?=[A-Za-z0-9])/i).map((x) => x.trim()).filter(Boolean);
+  let n: number | null = null;
+  for (const sg of segs.slice(-2)) {
+    const q = /^(?:users?\s*)?(\d{1,6})\s*(?:users?|seats?|licen[cs]es?)?\.?$/i.exec(sg);
+    if (q) n = Number(q[1]);
+  }
+  const said: string[] = [];
+  const products: string[] = [];
+  for (const raw of segs) {
+    if (FORM_LABEL_RE.test(raw) || /^(?:users?\s*)?\d{1,6}\s*(?:users?|seats?|licen[cs]es?)?\.?$/i.test(raw)) continue;
+    const sg = raw.replace(/[.;,]+$/, "").replace(/\s+f[13]\s+services?$/i, "").replace(/^(?:f[13]\s+)?(?:support\s+(?:f[13]\s+)?)?(?:services?(?:\s+industry)?\s+)?/i, "").trim();
+    if (!sg) continue;
+    if (sg.split(/\s+/).length >= 5 && LEAD_INTENT_RE.test(sg)) said.push(sg);
+    // A product field is a short noun phrase — "Microsoft 365 E3", not a
+    // clause like "reviewed E3 renewal, 90 seats" or "They run Office 365".
+    // A field may list several ("Microsoft 365 Business Premium and
+    // Microsoft Teams Phone Standard"): each piece is checked on its own,
+    // so a two-product field is not quoted back whole as if raw (11/22).
+    // A trailing form LABEL is not part of the product name: a real row
+    // reads "… - 30 Business Premium Timeline - 06/02/2027", which rendered
+    // "Wants 30 Business Premium Timeline." beside its own Timeline line.
+    else if (isProductField(sg)) products.push(sg.replace(/\s+etc\.?$/i, "").replace(/\s+(?:timeline|budget|authority|need|quantity|qty|seats?|users?|licen[cs]es?)$/i, "").trim());
+  }
+  if (n != null && (n <= 0 || (n >= 1900 && n <= 2100))) n = null;
+  const named = products.filter(Boolean);
+  return named.length ? { products: named, said, n } : null;
+}
+
+/** "Wants Microsoft 365 Business Premium for 30 users." — "" when the row is not a form line. */
+export function formLineWant(fullText: string): string {
+  const f = formLineFields(fullText);
+  if (!f) return "";
+  return f.n != null
+    ? `Wants ${f.products.join(" + ")} for ${f.n} ${f.n === 1 ? "user" : "users"}.`
+    : `Wants ${f.products.join(" + ")}.`;
+}
+
 function noteLead(fullText: string, anchor: string, skip?: RegExp): string {
   // "…Referral ID: 7426… Notes: Microsoft Partner is engaging…" — a label
   // opens the real sentence, so break there or it is glued to the IDs.
@@ -3711,41 +3756,14 @@ function noteLead(fullText: string, anchor: string, skip?: RegExp): string {
     const out = finish(need[1]);
     if (out) return out;
   }
-  // A CRM form line: a few dash-separated fields ending in a quantity.
-  if (t.length <= 160 && !/[.!?]\s+\S/.test(t)) {
-    // A hyphen inside a word is not a field break: "via a non-Intune MDM"
-    // split into "non" + "Intune MDM" and read as "Wants Intune MDM", the
-    // opposite of the note (11/6).
-    const segs = t.split(/\s*[-–:]\s+|\s+[-–:]\s*|(?<!\b(?:non|co|re|pre|multi|cross|self|anti|sub|semi|e|on|off|third|end|real|full|part|high|low|well))(?<=[a-z0-9)])-(?=[A-Za-z0-9])/i).map((x) => x.trim()).filter(Boolean);
-    let n: number | null = null;
-    for (const sg of segs.slice(-2)) {
-      const q = /^(?:users?\s*)?(\d{1,6})\s*(?:users?|seats?|licen[cs]es?)?\.?$/i.exec(sg);
-      if (q) n = Number(q[1]);
-    }
-    const said: string[] = [];
-    const products: string[] = [];
-    for (const raw of segs) {
-      if (FORM_LABEL_RE.test(raw) || /^(?:users?\s*)?\d{1,6}\s*(?:users?|seats?|licen[cs]es?)?\.?$/i.test(raw)) continue;
-      const sg = raw.replace(/[.;,]+$/, "").replace(/\s+f[13]\s+services?$/i, "").replace(/^(?:f[13]\s+)?(?:support\s+(?:f[13]\s+)?)?(?:services?(?:\s+industry)?\s+)?/i, "").trim();
-      if (!sg) continue;
-      if (sg.split(/\s+/).length >= 5 && LEAD_INTENT_RE.test(sg)) said.push(sg);
-      // A product field is a short noun phrase — "Microsoft 365 E3", not a
-      // clause like "reviewed E3 renewal, 90 seats" or "They run Office 365".
-      // A field may list several ("Microsoft 365 Business Premium and
-      // Microsoft Teams Phone Standard"): each piece is checked on its own,
-      // so a two-product field is not quoted back whole as if raw (11/22).
-      else if (isProductField(sg)) products.push(sg.replace(/\s+etc\.?$/i, ""));
-    }
-    if (products.length) {
-      const ask = n != null && n > 0 && !(n >= 1900 && n <= 2100)
-        ? `Wants ${products.join(" + ")} for ${n} ${n === 1 ? "user" : "users"}.`
-        : `Wants ${products.join(" + ")}.`;
-      const keep = said.filter((x) => !isDatedSentence(x));
-      if (!keep.length) return ask;
-      const said1 = normalizeSentence(cleanLeadSentence(keep[0]));
-      // Document Intelligence is the thing they want: it leads.
-      return /document\s*intelligence/i.test(ask) ? `${ask} ${said1}` : `${said1} ${ask}`;
-    }
+  const form = formLineFields(t);
+  if (form) {
+    const ask = formLineWant(t);
+    const keep = form.said.filter((x) => !isDatedSentence(x));
+    if (!keep.length) return ask;
+    const said1 = normalizeSentence(cleanLeadSentence(keep[0]));
+    // Document Intelligence is the thing they want: it leads.
+    return /document\s*intelligence/i.test(ask) ? `${ask} ${said1}` : `${said1} ${ask}`;
   }
   const anchorWords = new Set((anchor.toLowerCase().match(/[a-z][a-z0-9]{3,}/g) ?? []));
   let best = "", bestScore = -1;
@@ -3815,33 +3833,6 @@ function finishAsWritten(sentence: string): string {
   const out = normalizeSentence(cut.text);
   return out.endsWith("….") ? out.slice(0, -1) : out;
 }
-/**
- * The pain the row STATES, for M365 / Azure. Per Jack: "we need to have the
- * notes be a bit more focused on the pain point less general especially with
- * m365 and azure". Quoted from the row, never inferred: when the row states
- * none, the ask goes after it instead.
- */
-const M365_PAIN_RE = /\b(frustrat\w*|struggl\w*|issues?\s+with|problems?\s+with|throttl\w*|not\s+sufficient|insufficient|too\s+expensive|expensive|overpay\w*|price\s+increase|cost\s+(?:concerns?|pressure|savings?|reduction)|reduce\s+(?:costs?|spend)|outages?|downtime|unable\s+to|can'?t\s+\w+|cannot\s+\w+|fail(?:ed|ing|s)?\b|difficult\w*|security\s+(?:risk|incident|issues?|concerns?)|breach\w*|phish\w*|ransomware|hack\w*|end\s+of\s+(?:life|support)|aging|legacy|fragmented|sprawl|limited\s+(?:staff|budget|it|resources|bandwidth)|slow|unresponsive|poor\s+support|move\s+away\s+from\s+their\s+current\s+partner|shift\w*\s+back\s+to\s+direct)\b/i;
-const PAIN_MAX = 70;
-function statedPain(fullText: string, lead: string): string {
-  const t = stripCrmChrome(cleanText(fullText));
-  for (const raw of splitSentences(t)) {
-    const u = cleanLeadSentence(raw);
-    if (!M365_PAIN_RE.test(u) || hasForbiddenContent(u) || MEETING_CHROME_RE.test(u)) continue;
-    if (lead && lead.toLowerCase().includes(u.slice(0, 40).toLowerCase())) return "";
-    // Quote the clause around the pain word, not the whole sentence.
-    const m = M365_PAIN_RE.exec(u)!;
-    const parts = u.split(/[,;]\s+|\s+-\s+/);
-    let at = 0, clause = u;
-    for (const p of parts) { if (m.index >= at && m.index < at + p.length + 2) { clause = p; break; } at += p.length + 2; }
-    if (clause.length < 15) clause = u;
-    if (/^[^A-Za-z]/.test(clause.trim()) || /\b(?:goals?|focused on|clarification|identify|assess|recommend\w*|response stated|acknowledged|opportunit\w*|determin\w*|feedback|eligib\w*)\b/i.test(clause) || /^[^(]*\)/.test(clause)) continue;
-    const cut = truncateAtWord(mainClause(clause.trim()).replace(/\.$/, ""), PAIN_MAX);
-    if (!cut.safe || !cut.text) continue;
-    return cut.text.replace(/[.;,:\s]+$/, "");
-  }
-  return "";
-}
 /** The counts in the facts clause the lead sentence does not already
  *  carry: the biggest seat/user count, and an employee count — per Jack,
  *  "make sure we are not missing any user count or employee count". */
@@ -3855,11 +3846,6 @@ function seatsLine(what: string, lead = ""): string {
   if (emp && !has(Number(emp[1].replace(/,/g, "")))) out.push(`${emp[1]} employees.`);
   return out.length ? ` ${out.join(" ")}` : "";
 }
-/** Every number the stated-facts clause carries already appears in the lead. */
-function leadCovers(lead: string, what: string): boolean {
-  const nums = what.match(/\b\d+\b/g) ?? [];
-  return nums.every((n) => new RegExp(`\\b${n}\\b`).test(lead));
-}
 
 /**
  * Per Jack, on a real partner-led Azure note: "big thing here is they are
@@ -3869,7 +3855,6 @@ function leadCovers(lead: string, what: string): boolean {
  */
 const AZURE_HELP_RE = /\b(help\s+needed|seek\w*\s+(?:microsoft'?s\s+)?(?:assistance|help|support)|need\w*\s+(?:help|support|assistance|guidance)|looking\s+for\s+(?:help|support|guidance)|architecture\s+(?:support|guidance|help)|technical\s+architecture)\b/i;
 /** The help request itself, or one bullet of its list. */
-const AZURE_HELP_LIST_RE = new RegExp(`${AZURE_HELP_RE.source}|^(?:assistance|support|guidance|collaboration)\\b`, "i");
 function azureSupportClause(fullText: string): string {
   if (!/\bazure\b/i.test(fullText) || !AZURE_HELP_RE.test(fullText)) return "";
   // Per Jack, "a bit less specific": the need, not a list of areas.
@@ -3931,12 +3916,33 @@ function timelineAhead(phrase: string): boolean {
 }
 /** When they want it: the row's labelled "Timeline:", else a quarter,
  *  month or relative window — near `at` when given — that is still ahead. */
+/**
+ * A timeline is a DATE or a WINDOW, never the sentence around it. Per Jack,
+ * 11/23: "no do not quote any sentences" — a labelled value was dragging
+ * the rest of the row in behind it ("Timeline: 2/10/2027 Partner Name:
+ * Microsoft Corporation", "Timeline: Customer anticipates exceeding 300
+ * licenses a…"). Keep the date or window and drop whatever follows.
+ */
+function tightenTimeline(v: string): string {
+  const date = /^\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}-\d{2}-\d{2})/.exec(v);
+  if (date) return date[1];
+  const month = /^\s*((?:early|mid|late|end of|beginning of|start of)?\s*(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?(?:\s+\d{4})?)/i.exec(v);
+  if (month) return month[1].trim();
+  const q = /^\s*(Q[1-4](?:\s+(?:of\s+)?\d{4})?|[Hh][12]\s*\d{4}|FY\s*\d{2,4})/.exec(v);
+  if (q) return q[1].trim();
+  const rel = /^\s*((?:within|in|next|over the next|by)\s+(?:the\s+)?(?:\d+|a|one|two|three|six|twelve)?\s*(?:-\s*\d+\s*)?(?:day|week|month|quarter|year)s?)/i.exec(v);
+  if (rel) return rel[1].trim();
+  // Nothing date-shaped at all is prose, not a timeline — so it is dropped
+  // rather than quoted ("Timeline: Customer anticipates exceeding 300
+  // licenses around\u2026").
+  return "";
+}
 export function wantedTimeline(fullText: string, at = -1): string {
   const t = String(fullText || "").replace(/\s+/g, " ");
   const labelled = TIMELINE_LABEL_RE.exec(t);
   if (labelled) {
     const v = labelled[1].trim().replace(/[,;]$/, "");
-    if (v && !/^(?:not\b.*|n\/?a|none|tbd|unknown|pending|-+|next|to be \w+)$/i.test(v) && timelineAhead(v)) return v.length > 48 ? v.slice(0, 45).trimEnd() + "\u2026" : v;
+    if (v && !/^(?:not\b.*|n\/?a|none|tbd|unknown|pending|-+|next|to be \w+)$/i.test(v) && timelineAhead(v)) return tightenTimeline(v);
   }
   const scope = at >= 0 ? t.slice(Math.max(0, at - 200), at + 300) : t;
   for (const re of TIMELINE_PATTERNS) {
@@ -4126,18 +4132,32 @@ export function buildCallBrief(
   // the ask with nothing in front of it, name the thing that matched and
   // say plainly that the row carries no product detail.
   const matchedArea = platform?.hits[0]?.category ?? "";
-  const topicNoDetail: Partial<Record<BriefTopic, string>> = {
-    switch: "Wants to change IT provider; the row gives no more detail.",
-    support: "Wants IT support or a managed service; the row gives no more detail.",
-    security: "Security need; the row gives no more detail.",
-    devices: "Device management (Intune); the row gives no more detail.",
-    copilot: "Copilot; the row gives no more detail.",
-    azureInfra: "Azure infrastructure; the row gives no more detail.",
+  // Per Jack: a security, IT-support, provider-switch, device-management,
+  // Copilot or Azure-infrastructure need LEADS the note. It used to be a
+  // fallback only, so once 11/23 stopped the note quoting the row, a
+  // security row with a seat count read "80 seats stated." and never said
+  // what they wanted. The topic is said first, then the products/count.
+  const TOPIC_SAYS: Partial<Record<BriefTopic, string>> = {
+    switch: "Wants to change IT provider.",
+    support: "Wants IT support or a managed service.",
+    security: "Security need.",
+    devices: "Device management (Intune).",
+    copilot: "Copilot.",
+    azureInfra: "Azure infrastructure.",
   };
-  const plainTopic = topicNoDetail[briefTopicOf(fullText, platform) ?? "docintel"];
-  const noted = what || direction
-    ? what
-    : plainTopic ?? (matchedArea ? `${matchedArea}, no products or seat count named in the row.` : "");
+  const topicKey = briefTopicOf(fullText, platform);
+  const topicSays = topicKey ? TOPIC_SAYS[topicKey] ?? "" : "";
+  // Nothing else to say: the topic admits the row carries no more.
+  const topicAlone = topicSays ? topicSays.replace(/\.$/, "; the row gives no more detail.") : "";
+  // A CRM form line states the want outright — "Wants Microsoft 365
+  // Business Premium and Microsoft Teams Phone Standard for 30 users." It
+  // wins over the derived product clause, which would otherwise say the
+  // same products again as "Runs …" and lose the field's own count (11/22).
+  const formWant = formLineWant(fullText);
+  const noted = formWant
+    || (what || direction
+      ? what
+      : topicAlone || (matchedArea ? `${matchedArea}, no products or seat count named in the row.` : ""));
   // The first sentence leads with what the raw note says. The SKU clause
   // stays only when it carries a count the lead sentence does not, and then
   // says "Mentions", since naming a product is not the same as running it.
@@ -4148,18 +4168,28 @@ export function buildCallBrief(
   const wantsDocIntel = DOCUMENT_INTELLIGENCE_RE.test(fullText);
   // The help request is already said by azureHelp, so the lead goes to what
   // the row is about rather than repeating it.
-  const lead = noteLead(fullText, dynHit?.snippet || licensing?.snippet || platform?.hits[0]?.snippet || "", azureHelp ? AZURE_HELP_LIST_RE : undefined);
-  const stance = /\b(?:partner|msp|csp|reseller|consultant|integrator|managed\s+service)/i.test(lead) && /^Wants to work with a partner\.$/.test(stanceBase) ? "" : stanceBase;
+  // Per Jack, 11/23: "i want the scanner to just give a straight forward
+  // high level few words what the raw note indicates they want", and "no
+  // do not quote any sentences". The brief no longer lifts the row's own
+  // sentence: every clause below is derived. The row's PRODUCT WORDING is
+  // still its own (a name is not a sentence, and "dont make assumptions on
+  // the detected sku" still stands) — what goes is the quoted prose.
+  // Never said twice: once the opening clause is the engine's own wording,
+  // "Wants IT support or a managed service." already says they want a
+  // partner, so the stance line is dropped rather than repeating it.
+  const opener = `${topicSays || topicAlone} ${formWant}`;
+  const stance = /\b(?:partner|msp|csp|reseller|consultant|integrator|managed\s+service)/i.test(opener) && /^Wants to work with a partner\.$/.test(stanceBase) ? "" : stanceBase;
   // "Direct with Microsoft today, wants to work with a partner." already
   // says what the Product Area's "Goes direct with Microsoft." would.
   const dirShown = direction;
   // Document Intelligence leads the note: it is the thing they want, and
   // the row's own sentence (what the documents are) follows it.
   const stated = [
-    wantsDocIntel && !/document\s*intelligence/i.test(lead) ? "Wants Azure Document Intelligence." : "",
-    lead
-      ? (what && !leadCovers(lead, what) ? `${lead}${seatsLine(what, lead)}` : lead)
-      : (wantsDocIntel ? "" : noted),
+    wantsDocIntel ? "Wants Azure Document Intelligence." : "",
+    // The topic leads whenever the row names one AND there is detail after
+    // it; with no detail, `noted` already carries the longer wording.
+    (what || formWant) && topicSays ? topicSays : "",
+    wantsDocIntel && (!what || noted === "Wants Azure Document Intelligence.") ? "" : noted,
     azureHelp].filter(Boolean).join(" ");
 
   // WHAT ELSE THE ROW SAYS — quoted, windowed to the match, dropped when
@@ -4169,7 +4199,10 @@ export function buildCallBrief(
   // Per Jack, M365 / Azure notes should be "more focused on the pain point".
   // The windowed PAIN_RE quote comes first; failing that, any pain the row
   // states anywhere (statedPain), still quoted, never inferred.
-  const pain = nearestIn(fullText, anchor, PAIN_RE) || (dynamics ? "" : statedPain(fullText, lead));
+  // A row that walked the deal back states no reason: on a real row that
+  // "renewed with Google instead" the renewal pattern read as a live
+  // renewal coming up, which is the opposite of what happened.
+  const pain = reversalClause(fullText) ? "" : derivedReason(fullText);
 
   // A LEAD THAT SAID NO STILL READS AS A LIVE DEAL WITHOUT THIS.
   //
@@ -4187,7 +4220,7 @@ export function buildCallBrief(
   const reversal = reversalClause(fullText);
   const known = [
     incumbent ? `On ${incumbent} today.` : "",
-    pain ? `Flagged "${pain.toLowerCase()}".` : "",
+    pain,
   ].filter(Boolean).join(" ");
   if (reversal) {
     return sentenceCase([
@@ -4196,8 +4229,7 @@ export function buildCallBrief(
       // A partner ask the row then walked back is not a live ask.
       /^Wants to work with a partner/.test(stance) ? "" : stance,
       known,
-      `Row reverses: "${reversal.toLowerCase()}".`,
-      "Ask what changed and what would reopen it.",
+      "Row reverses an earlier evaluation.",
     ].filter(Boolean).join(" "));
   }
 
@@ -4207,15 +4239,15 @@ export function buildCallBrief(
   // A bare "moving to the cloud" only stands in when the row has no
   // opening line of its own — never over a real one like "Customer has 6
   // copilot licenses and want to expand across all 305 E3 users".
-  // The move leads unless the row's own opening line is a concrete
-  // licensing ASK (a want/expand/need, not an inventory) with a stated count — "Customer has 6 copilot licenses
-  // and want to expand across all 305 E3 users", which Jack called out as
-  // the right note, keeps that line even if a move is mentioned further
-  // down. A bare "moving to the cloud" (no object) never replaces a line.
-  const leadIsCountedAsk = /\b\d[\d,]*\s+(?:[A-Za-z0-9]+\s+){0,2}(?:users?|seats?|licen[cs]es?|employees)\b/i.test(lead)
-    && /\b(?:want\w*|expand\w*|add(?:ing)?|need\w*|looking|buy\w*|grow\w*|upgrad\w*)\b/i.test(lead)
-    && !/\b(?:migrat\w*|mov(?:e|es|ing)\b|on[\s-]?prem)/i.test(lead);
-  const migration = mig && !leadIsCountedAsk && (!mig.bare || !lead) ? mig.what : "";
+  // The move leads unless it is BARE — "moving to the cloud", no object —
+  // and the row names products with real counts. "Customer has 6 copilot
+  // licenses and want to expand across all 305 E3 users", which Jack
+  // called out as the right note, keeps its products even when a vague
+  // move is mentioned further down. (Before 11/23 this compared the row's
+  // quoted opening sentence; the note no longer quotes one, so it is read
+  // off the counted products instead.)
+  const hasCountedProducts = hits.some((h) => h.count != null && h.count > 0);
+  const migration = mig && (!mig.bare || !hasCountedProducts) ? mig.what : "";
   if (migration && mig) {
     const when = mig.when;
     return sentenceCase([

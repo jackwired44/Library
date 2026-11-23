@@ -79,7 +79,9 @@ console.log("\n=== the Dynamics line: facts only ===");
 }
 {
   const r = scan("Dynamics 365 Business Central evaluation. The team is drowning in manual double-entry between systems.");
-  ok("a stated pain is quoted", /Why: manual double-entry/.test(r.notesSummary), r.notesSummary);
+  // 11/23, per Jack: "no do not quote any sentences" — the reason is now
+  // said in the engine's own words rather than lifted from the row.
+  ok("a stated pain is reported, derived", /Why: manual work today\./.test(r.notesSummary) && !/double-entry/.test(r.notesSummary), r.notesSummary);
 }
 {
   const r = scan("Looking at Dynamics 365.", "Acme Freight", "Microsoft Corporation");

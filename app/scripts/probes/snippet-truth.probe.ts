@@ -94,6 +94,18 @@ const factsTraceable = (snippet: string, row: string): true | string => {
     const c = raw.trim().replace(/[.…]+$/, "");
     if (!c) continue;
     // Ours, not the row's: engine vocabulary and derived bands.
+    //
+    // 11/23, per Jack "no do not quote any sentences": the brief is now
+    // DERIVED throughout, so the engine's own vocabulary grew — the topic
+    // lines, the reason vocabulary and the reversal wording are all ours.
+    // The guarantee this helper exists for is unchanged and is what the
+    // rest of the function still enforces: every PRODUCT NAME and SEAT
+    // COUNT attributed to the row must be the row's own.
+    if (/^Reason: /i.test(c)) continue;
+    if (/^(?:Row reverses an earlier evaluation|Reversed: an earlier evaluation was dropped)$/i.test(c)) continue;
+    if (/^(?:Security need|Azure infrastructure|Copilot|Device management \(Intune\)|Wants IT support or a managed service|Wants to change IT provider|Wants Azure Document Intelligence)(?:;.*)?$/i.test(c)) continue;
+    if (/the row gives no more detail/i.test(c)) continue;
+    if (/^Looking for Azure architecture support$/i.test(c)) continue;
     if (/^Large estate$/i.test(c)) continue;
     if (/no products or seat count named in the row/i.test(c)) continue;
     if (/^(?:Microsoft is already pitching them |Partner indicated: |Goes direct with Microsoft)/.test(c)) continue;
@@ -265,18 +277,18 @@ const CLAUSE = [
 scan(CLAUSE).forEach((row, i) => {
   if (!row) return ok(`[${i}] produced a row`, false);
   const s: string = row.notesSummary;
-  const keptVerdict = /renewed with google|decided against|instead|but\b/i.test(s);
-  ok(`[${i}] either carries the reversal or refuses to quote`,
-     isDerivedSummary(s) || keptVerdict, s);
+  // 11/23: the verdict is REPORTED, in our words, never quoted.
+  ok(`[${i}] reports the reversal rather than reading as a live deal`,
+     /(?:Row reverses an earlier evaluation|Reversed: an earlier evaluation was dropped)/.test(s), s);
   if (i === 0) ok("does not advertise a migration the lead abandoned",
-                  isDerivedSummary(s) || /renewed with google|instead/i.test(s), s);
+                  !/\bmoving (?:off|from)\b/i.test(s) && /(?:Row reverses an earlier evaluation|Reversed: an earlier evaluation was dropped)/.test(s), s);
 });
 
 console.log("\n== a cut is always visible, and never hides a reversal ==");
 const LONG_REVERSAL = "The customer has been evaluating Dynamics 365 Business Central for their finance team for several quarters now and has finally decided not to proceed with it.";
 const [lr] = scan([LONG_REVERSAL]);
-ok("a brief that would drop \u201cdecided not to proceed\u201d carries it instead",
-   !!lr && /decided not to proceed/i.test(lr.notesSummary), lr ? lr.notesSummary : "(no row)");
+ok("a brief whose row decided not to proceed reports that",
+   !!lr && /(?:Row reverses an earlier evaluation|Reversed: an earlier evaluation was dropped)/.test(lr.notesSummary), lr ? lr.notesSummary : "(no row)");
 ok("  and the reversal is the last thing it says, with no ask after it",
    !!lr && !/\bAsk /.test(lr.notesSummary) && /[Rr]eversed:/.test(lr.notesSummary) && /^Looked at /.test(lr.notesSummary),
    lr ? lr.notesSummary : "(no row)");
@@ -301,8 +313,8 @@ const AREAS: [string, string, RegExp][] = [
    "Renewing Microsoft 365 E3 for 300 users this year.", /Microsoft 365 E3/],
   ["Dynamics names the module instead of asking a question",
    "Looking at Dynamics 365 Business Central for 40 users.", /Business Central/],
-  ["general IT / Azure with no SKU named quotes the row",
-   "We want to bring in an MSP for ongoing IT support.", /bring in an MSP for ongoing IT support/],
+  ["general IT / Azure with no SKU named says what it is about",
+   "We want to bring in an MSP for ongoing IT support.", /Wants IT support or a managed service/],
   ["an Azure migration names the move",
    "Planning an on-prem to Azure migration with a partner this year.", /Azure/],
 ];
@@ -348,8 +360,8 @@ ok("  so the row keeps its normal questions",
 const [hard] = scan(["We evaluated Dynamics 365 Business Central for 40 users, but they are staying on SAP for now."]);
 ok("a substantive verdict IS reported even with a \u201cbut\u201d before it",
    !!hard && /[Rr]eversed:/.test(hard.notesSummary), hard ? hard.notesSummary : "(no row)");
-ok("  and it quotes the verdict, not the evaluation it replaced",
-   !!hard && /staying on sap/i.test(hard.notesSummary) && !/reversed: "we evaluated/i.test(hard.notesSummary),
+ok("  and it reports the verdict without quoting either half",
+   !!hard && !/staying on sap/i.test(hard.notesSummary) && !/we evaluated/i.test(hard.notesSummary),
    hard ? hard.notesSummary : "(no row)");
 ok("  and the reversal is the last thing it says, with no ask after it",
    !!hard && !/\bAsk /.test(hard.notesSummary) && /[Rr]eversed:/.test(hard.notesSummary),
@@ -433,9 +445,9 @@ const DYN_FACTS: [string, string, RegExp][] = [
   ["an incumbent is named as a fact, not asked about",
    "We looked at Dynamics 365 Business Central for 40 users. We are on Sage 100 today and continue to move forward.",
    /On Sage today/],
-  ["a stated pain is quoted",
+  ["a stated pain reads as a derived reason, not a quote",
    "Looking at Dynamics 365 Business Central for 40 users. The current setup is end of life.",
-   /Why: end of life/],
+   /Why: current system is end of life\./],
   ["incumbent AND pain both land",
    "Dynamics 365 Business Central for 40 users. On QuickBooks today and the manual double-entry is a bottleneck, and we continue to move forward.",
    /On QuickBooks today/],
@@ -459,8 +471,9 @@ ok("a row stating no pain simply says nothing about pain",
    !!noPain && !/where the pain is/.test(noPain.notesSummary) && !/Flagged "/.test(noPain.notesSummary),
    noPain ? noPain.notesSummary : "(no row)");
 const [hasPain] = scan(["Renewing Microsoft 365 E3 for 300 users. Their current setup is end of life and the manual process is a bottleneck."]);
-ok("  but not when the row already said what the pain is",
-   !!hasPain && /Flagged "/.test(hasPain.notesSummary) && !/and where the pain is/.test(hasPain.notesSummary),
+ok("  but a row that states one gets a derived reason, never a quote",
+   !!hasPain && /Reason: current system is end of life\./i.test(hasPain.notesSummary)
+     && !/Flagged "/.test(hasPain.notesSummary),
    hasPain ? hasPain.notesSummary : "(no row)");
 
 console.log("\n== a count with no SKU to hang it on is still kept ==");
@@ -501,7 +514,9 @@ ok("a row with no SKU and no Product Area still states what matched",
 {
   const [az] = scanPA([{ note: "SA - 9/Mar - Follow-up sent to the partner requesting an update on the current project status and estimated ACR. Client Info: Acme Bank Account ID: 9-ZZF Referral ID: 7426adc0 Notes: Microsoft Partner is engaging with Acme Bank to enable the Microsoft Foundry Platform with a focus on Agent Service. Help Needed from Microsoft ========== We seek Microsoft's assistance: - Support in implementing the analytics platform on Microsoft Azure to ensure seamless integration and scalability. - Guidance on cloud migration strategies and connectivity to enable efficient data access across multiple sources. - Assistance with optimizing performance and security leveraging Azure services.", pa: "AI Ready with Surface Copilot PCs" }]);
   const s = az ? az.notesSummary : "(no row)";
-  ok("partner-led Azure note opens on what the row is about", /Partner is engaging with Acme Bank/.test(s) && !/Follow-up sent/i.test(s), s);
+  // 11/23, per Jack: the note is derived, never the row's sentence.
+  ok("partner-led Azure note says what it is about, in our words",
+     /Looking for Azure architecture support/.test(s) && !/Partner is engaging with Acme Bank/.test(s) && !/Follow-up sent/i.test(s), s);
   ok("  states the Azure architecture support it is after", /Looking for Azure architecture support\./.test(s), s);
   ok("  and closes on the Azure ask, restored 11/23", /Ask how Azure is managed today, internal IT or an external partner/.test(s), s);
 }
@@ -512,8 +527,9 @@ ok("a row with no SKU and no Product Area still states what matched",
 {
   const [cp] = scan(["Customer has 6 copilot licenses and want to expand across all 305 E3 users."]);
   const s = cp ? stripSnippetPrefix(cp.notesSummary) : "(no row)";
-  ok("a plain expansion sentence is the note as written, then the ask",
-     /^Customer has 6 copilot licenses and want to expand across all 305 E3 users\.$/.test(s.trim()), s);
+  // 11/23, per Jack: the note is derived, never the row's sentence.
+  ok("an expansion row reports both products and both counts, derived",
+     /copilot licenses \(6 seats\)/i.test(s) && /E3 \(305 seats\)/i.test(s) && !/Customer has 6 copilot/.test(s), s);
 }
 
 // Per Jack, on "The purchase is pending because the admin assistant has the
@@ -545,7 +561,8 @@ ok("a row with no SKU and no Product Area still states what matched",
   ok("  a past note stamp is never read as the timeline", !!past && !/Timeline/.test(ps), ps);
   const [cp] = scan(["Customer has 6 copilot licenses and want to expand across all 305 E3 users. They also plan to move to Azure."]);
   const cs = cp ? stripSnippetPrefix(cp.notesSummary) : "(no row)";
-  ok("  a vague 'move to Azure' never replaces a real opening line", /^Customer has 6 copilot licenses/.test(cs), cs);
+  // 11/23, per Jack: the note is derived, never the row's sentence.
+  ok("  a vague 'move to Azure' never replaces the real products", /copilot licenses \(6 seats\)/i.test(cs) && !/^Moving/i.test(cs), cs);
 }
 
 // Per Jack, on this exact note: "this is a great lead and note". Pinned so
@@ -553,7 +570,10 @@ ok("a row with no SKU and no Product Area still states what matched",
 {
   const [cm] = scan(["CU needs a partner to create the tenant in USA f1 Services - Microsoft 365 Business Premium - 28 User"]);
   const s2 = cm ? cm.notesSummary : "(no row)";
-  ok("the Christian Monahan note keeps its shape", /^▲ Customer needs a partner to create the tenant in USA\. Wants Microsoft 365 Business Premium for 28 users\.$/.test(s2), s2);
+  // Jack pinned this note on 10/16 as "a great lead and note". 11/23
+  // replaced quoting with derived wording, so it now states the same two
+  // facts — the product with its count, and the partner ask — in ours.
+  ok("the Christian Monahan note keeps its facts", /Wants Microsoft 365 Business Premium for 28 users\./.test(s2) && /Wants to work with a partner\./.test(s2) && !/create the tenant/.test(s2), s2);
 }
 
 // Per Jack: "if a company is looking to migrate to azure or on prem to azure
@@ -590,7 +610,8 @@ ok("a row with no SKU and no Product Area still states what matched",
 {
   const [dq] = scan(["Looking to implement Dynamics 365 Business Central for 25 users by Q2 2027 because QuickBooks can't handle their inventory anymore."]);
   const s3 = dq ? dq.notesSummary : "(no row)";
-  ok("Dynamics: what, (users), why, on today, by when", /^Wants Dynamics 365 Business Central \(25 users\)\. Why: QuickBooks can't handle their inventory anymore\. On QuickBooks today\. Timeline: Q2 2027\.$/.test(s3), s3);
+  // 11/23, per Jack: the note is derived, never the row's sentence.
+  ok("Dynamics: what, (users), on today, by when", /^Wants Dynamics 365 Business Central \(25 users\)\. On QuickBooks today\. Timeline: Q2 2027\.$/.test(s3), s3);
   const [gp] = scan(["Currently on Dynamics GP and looking to move to Dynamics 365 Business Central for 40 users this year."]);
   const g3 = gp ? gp.notesSummary : "(no row)";
   ok("  GP beside Business Central is what they run today", /^Wants Dynamics 365 Business Central \(40 users\)\..*On Dynamics GP today\./.test(g3), g3);
@@ -610,7 +631,8 @@ ok("a row with no SKU and no Product Area still states what matched",
 {
   const [u] = scan(["Customer wants Microsoft 365 Business Premium for 30 users \u00e2\u20ac\u2122 see https://contoso.com/form. They don\u00e2\u20ac\u2122t have a partner today."]);
   const u3 = u ? u.notesSummary : "(no row)";
-  ok("no link and no mangled characters in a note", !/https?:|www\.|\u00e2\u20ac|\uFFFD/.test(u3) && /Business Premium for 30 users/.test(u3), u3);
+  // 11/23, per Jack: the note is derived, never the row's sentence.
+  ok("no link and no mangled characters in a note", !/https?:|www\.|\u00e2\u20ac|\uFFFD/.test(u3) && /Business Premium \(30 seats\)/.test(u3), u3);
 }
 
 // Per Jack: "anything indicating cybersecurity or it support or a partner
@@ -618,13 +640,16 @@ ok("a row with no SKU and no Product Area still states what matched",
 {
   const [sec] = scan(["The customer currently uses Microsoft 365 Business Premium and is evaluating Microsoft 365 E5, primarily for enhanced antivirus, endpoint protection, and broader security capabilities."]);
   const a4 = sec ? stripSnippetPrefix(sec.notesSummary) : "(no row)";
-  ok("a security need leads, as written", /^Evaluating Microsoft 365 E5, primarily for enhanced antivirus, endpoint protection, and broader security capabilities\./.test(a4), a4);
+  // 11/23, per Jack: the note is derived, never the row's sentence.
+  ok("a security need leads, derived", /^Security need\./.test(a4) && /Microsoft 365 E5/.test(a4) && !/primarily for enhanced antivirus/.test(a4), a4);
   const [its] = scan(["We need ongoing IT support and a help desk for our 40 users, our current provider is unresponsive."]);
   const b4 = its ? stripSnippetPrefix(its.notesSummary) : "(no row)";
-  ok("an IT-support need leads, as written", /^We need ongoing IT support and a help desk for our 40 users/.test(b4), b4);
+  // 11/23, per Jack: the note is derived, never the row's sentence.
+  ok("an IT-support need leads, derived, with its count", /^Wants IT support or a managed service\. 40 seats stated\./.test(b4) && !/help desk for our/.test(b4), b4);
   const [msp] = scan(["Customer is looking for an MSP to take over their Microsoft 365 tenant and security."]);
   const c4 = msp ? stripSnippetPrefix(msp.notesSummary) : "(no row)";
-  ok("a partner ask leads, as written, and is not said twice", /^Customer is looking for an MSP to take over their Microsoft 365 tenant and security\./.test(c4) && !/Wants to work with a partner/.test(c4), c4);
+  // 11/23, per Jack: the note is derived, never the row's sentence.
+  ok("a partner ask leads, derived, and is not said twice", /^Wants IT support or a managed service/.test(c4) && !/Wants to work with a partner/.test(c4) && !/looking for an MSP to take over/.test(c4), c4);
 }
 
 // Per Jack: "if a note has date or time just scrap it unless its a direct
@@ -638,7 +663,9 @@ ok("a row with no SKU and no Product Area still states what matched",
   ok("a weekday or time never reaches the note", !/Wednesday|2pm/i.test(b5), b5);
   const [t3] = scan(["Customer has a meeting with Microsoft on Thursday to review moving 200 users to Microsoft 365 E5."]);
   const c5 = t3 ? stripSnippetPrefix(t3.notesSummary) : "(no row)";
-  ok("a direct meeting with Microsoft is kept, as written", /meeting with Microsoft on Thursday/.test(c5), c5);
+  // 11/23: nothing is quoted, so the Microsoft-meeting exemption no longer
+  // keeps a sentence — the facts are reported and the date never shows.
+  ok("a direct meeting with Microsoft reports the facts, not the date", /Microsoft 365 E5 \(200 seats\)/.test(c5) && !/Thursday/.test(c5), c5);
   const [t4] = scan(["Customer has a meeting with Microsoft partner Contoso on Thursday to review Microsoft 365 E5 for 200 users."]);
   const d5 = t4 ? stripSnippetPrefix(t4.notesSummary) : "(no row)";
   ok("  but a meeting with a Microsoft PARTNER is not exempt", !/Thursday/.test(d5), d5);
