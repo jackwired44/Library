@@ -5430,26 +5430,39 @@ export function m365SubViewOf(r: { isGoogleWorkspaceMigration?: boolean; isGoogl
 
 /* M365 / Azure sub-categories (Main Scanner view filter only).
    Per Jack (2026-11-22): "filter further with dynamics and m365/azure with
-   their sub categories" … "so i can add them just in the scanner". Tags, not
-   buckets: a lead asking for Copilot licences is both Licensing and Copilot.
+   their sub categories" … "so i can add them just in the scanner".
+   Re-cut (2026-11-23), per Jack: "for azure dont need to break it down that
+   much mainly just migrations together with azure doc intelligence app builds
+   and it support AND ONLY IT ONE NOT MULTIPLE SUB CATEORGIES JUST DO FOUR SUB
+   CATEGORIES LICENSING COPILOT SECURITY DEVICE MANAGEMNET SHULD BE TOGETHER".
+   So: FOUR sub-categories, and a lead lands in exactly ONE.
    Read from the row's own notes and Product Area, never from our scanned
    note (its closing question would tag everything "Licensing"). Display and
    filtering only: grade, category and downloads are untouched. */
-export type M365Topic = "google" | "migration" | "docintel" | "infra" | "licensing" | "copilot" | "security" | "devices" | "support" | "powerbi";
-export const M365_TOPIC_ORDER: M365Topic[] = ["google", "migration", "docintel", "infra", "licensing", "copilot", "security", "devices", "support", "powerbi"];
+export type M365Topic = "azure" | "licensing" | "copilot" | "security";
+export const M365_TOPIC_ORDER: M365Topic[] = ["azure", "licensing", "copilot", "security"];
 export const M365_TOPIC_META: Record<M365Topic, { label: string; hint: string }> = {
-  google: { label: "Google → Microsoft", hint: "On Google Workspace, or moving off it to Microsoft 365" },
-  migration: { label: "Other migrations", hint: "On-prem to Azure, lift and shift, tenant-to-tenant, data or server migrations" },
-  docintel: { label: "Document Intelligence / app builds", hint: "Azure Document Intelligence, or a custom app built on Azure" },
-  infra: { label: "Azure infrastructure", hint: "Azure VMs, Virtual Desktop (AVD), landing zones, hosting, backup, disaster recovery, Azure billing" },
+  azure: { label: "Azure & migrations", hint: "Migrations (Google → Microsoft, on-prem to Azure, tenant or data moves), Azure Document Intelligence and custom app builds, Azure infrastructure and billing, Power BI / Fabric, and IT support / MSP" },
   licensing: { label: "Licensing", hint: "M365 / Office 365 plans and seats: buying, renewing, adding, true-ups" },
   copilot: { label: "Copilot", hint: "Microsoft 365 Copilot or Copilot Studio" },
-  security: { label: "Security", hint: "Security assessments and hardening, Defender, Purview, Sentinel, MFA, phishing, ransomware" },
-  devices: { label: "Device management", hint: "Intune, Endpoint Manager, MDM, Autopilot" },
-  support: { label: "IT support / MSP", hint: "IT support, help desk, managed / co-managed IT, an MSP, ongoing support, switching provider" },
-  powerbi: { label: "Power BI / Fabric", hint: "Power BI, Microsoft Fabric, OneLake" },
+  security: { label: "Security & device management", hint: "Security assessments and hardening, Defender, Purview, Sentinel, MFA, phishing, ransomware — and Intune, Endpoint Manager, MDM, Autopilot" },
 };
-const M365_TOPIC_RE: Record<M365Topic, RegExp> = {
+/* The ten signals a row is read for are UNCHANGED from the 2026-11-22 build;
+   only how they GROUP changed. Re-splitting a bucket later is an edit to
+   M365_SIGNAL_TOPIC, not a rules rewrite. */
+type M365Signal = "google" | "migration" | "docintel" | "infra" | "licensing" | "copilot" | "security" | "devices" | "support" | "powerbi";
+const M365_SIGNAL_TOPIC: Record<M365Signal, M365Topic> = {
+  google: "azure", migration: "azure", docintel: "azure", infra: "azure", support: "azure", powerbi: "azure",
+  licensing: "licensing",
+  copilot: "copilot",
+  security: "security", devices: "security",
+};
+/* One lead, one bucket, so a row matching several is resolved here.
+   Licensing is LAST on purpose: its wording ("licenses", "seats") sits in
+   most M365 notes whatever the lead is actually about, so anywhere earlier
+   it would swallow the other three. */
+const M365_TOPIC_PRECEDENCE: M365Topic[] = ["azure", "copilot", "security", "licensing"];
+const M365_SIGNAL_RE: Record<M365Signal, RegExp> = {
   google: /\b(?:google\s*workspace|g\s*\.?\s*suite|gsuite|google\s+(?:workplace|apps|email|mail|chat|drive|voice))\b/i,
   migration: /\b(?:on-?prem\w*\s+(?:to|into)\s+(?:azure|the\s+cloud|cloud)|lift[\s-]+and[\s-]+shift|tenant[\s-]+to[\s-]+tenant|(?:tenant|data|server|mailbox|email|file|sharepoint|domain)\s+migrat\w*|migrat\w*\s+(?:\w+[\s-]+){0,3}(?:to|into)\s+(?:azure|microsoft|m365|office\s*365|the\s+cloud|cloud|sharepoint|exchange))/i,
   docintel: /\b(?:document\s*intelligence|form\s+recognizer|(?:custom|bespoke)\s+(?:app|application|solution)s?\b[^.]{0,40}\bazure|build\w*\s+(?:an?\s+)?(?:app|application)s?\s+(?:on|in)\s+azure)/i,
@@ -5461,21 +5474,23 @@ const M365_TOPIC_RE: Record<M365Topic, RegExp> = {
   support: /\b(?:it\s+support|help\s*desk|service\s+desk|managed\s+(?:it|services?|service\s+provider)|\bmsp\b|co-?managed|outsourc\w*\s+(?:it|their\s+it)|ongoing\s+(?:\w+\s+){0,2}support|(?:new|another|different)\s+(?:it\s+)?(?:provider|partner|msp))/i,
   powerbi: /\b(?:power\s*bi|microsoft\s+fabric|onelake)\b/i,
 };
-const m365TopicCache = new WeakMap<object, Set<M365Topic>>();
-/** The M365 / Azure sub-categories one scanned row talks about. */
-export function m365TopicsOf(r: { row: { __f: ResolvedFields } & Record<string, unknown>; isGoogleWorkspaceMigration?: boolean; isGoogleToMicrosoft?: boolean; isDocumentIntelligence?: boolean }): Set<M365Topic> {
-  const hit = m365TopicCache.get(r);
-  if (hit) return hit;
+const m365TopicCache = new WeakMap<object, M365Topic | null>();
+/** The one M365 / Azure sub-category a scanned row belongs to, or null when
+ *  the row talks about none of them. */
+export function m365TopicOf(r: { row: { __f: ResolvedFields } & Record<string, unknown>; isGoogleWorkspaceMigration?: boolean; isGoogleToMicrosoft?: boolean; isDocumentIntelligence?: boolean }): M365Topic | null {
+  if (m365TopicCache.has(r)) return m365TopicCache.get(r) ?? null;
   const f = r.row.__f || ({} as ResolvedFields);
   let text = `${f.comments || ""}   ${f.productArea || ""}`;
   if (!String(f.comments || "").trim()) {
     text += "   " + Object.entries(r.row).filter(([k, v]) => k !== "__f" && typeof v === "string").map(([, v]) => v).join("   ");
   }
-  const out = new Set<M365Topic>();
-  for (const k of M365_TOPIC_ORDER) if (M365_TOPIC_RE[k].test(text)) out.add(k);
-  if (r.isGoogleWorkspaceMigration) out.add("google");
-  if (r.isDocumentIntelligence) out.add("docintel");
-  if (r.isGoogleToMicrosoft && !r.isGoogleWorkspaceMigration && !out.has("google")) out.add("migration");
+  const found = new Set<M365Topic>();
+  for (const [k, re] of Object.entries(M365_SIGNAL_RE) as [M365Signal, RegExp][]) {
+    if (re.test(text)) found.add(M365_SIGNAL_TOPIC[k]);
+  }
+  // The scan's own flags, which read more than these regexes do.
+  if (r.isGoogleWorkspaceMigration || r.isGoogleToMicrosoft || r.isDocumentIntelligence) found.add("azure");
+  const out = M365_TOPIC_PRECEDENCE.find((t) => found.has(t)) ?? null;
   m365TopicCache.set(r, out);
   return out;
 }

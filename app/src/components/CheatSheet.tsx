@@ -131,7 +131,7 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
           <ul style={{ margin: "0 0 6px", paddingLeft: 20, display: "flex", flexDirection: "column", gap: 5 }}>
             <li><strong>Azure Document Intelligence</strong> mentions — M365 / Azure.</li>
             <li><strong>Full custom app build on Azure</strong> — M365 / Azure.</li>
-            <li><strong>Google → Microsoft migration</strong> language — M365 / Azure (also lands in the "Migrations &amp; Document Intelligence" view tab, see below).</li>
+            <li><strong>Google → Microsoft migration</strong> language — M365 / Azure (also lands in the "Azure &amp; migrations" view tab, see below).</li>
             <li><strong>MSP / CSP / full partner-engagement</strong> language — including plain "partner engagement" or "full engagement" phrasing, not just "bring in a partner" — M365 / Azure.</li>
             <li><strong>Security design / architecture / hardening</strong> language — M365 / Azure (this one also creates the category match on its own, same footing as "IT support"/"help desk").</li>
           </ul>
@@ -249,7 +249,7 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
             counts toward.
           </p>
           <CategoryDetail k="dynamics365">
-            <strong>Five tabs: All Dynamics 365 · Business Central / ERP · Sales / CRM / Customer Service · Power Platform · Everything else.</strong>
+            <strong>Four tabs: All Dynamics 365 · Business Central / ERP · Sales / CRM / Customer Service · Everything else.</strong>
             Every Dynamics lead lands in exactly one, checked in this order:
             <br />
             <strong>Everything else, always, for anything F&amp;O</strong> — Finance and Operations in any wording (F&amp;O,
@@ -260,9 +260,9 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
             <br />
             <strong>Everything else</strong> — supply chain / Supply Chain Management, when Business Central isn't named.
             <br />
-            <strong>Power Platform</strong> — Power Apps, Power Automate, Power Pages, Power Platform or Dataverse, on a
-            note that also says Dynamics. (When the note never says Dynamics, the lead is its own Power Platform product
-            line instead, with its own download file.)
+            <strong>Power Platform is no longer a Dynamics tab.</strong> Power Apps, Power Automate, Power Pages,
+            Power Platform or Dataverse with no Dynamics named is its own product line, with its own download file. A
+            note that names both stays under Dynamics, in whichever tab its Dynamics wording picks.
             <br />
             <strong>Business Central / ERP</strong> — otherwise, the note says "ERP" anywhere (a partner named
             "ERP Transformation" counts), or names Project Operations, Human Resources, Commerce, Dynamics GP / NAV / AX / SL,
@@ -279,15 +279,24 @@ export default function CheatSheet({ onClose, ruleOverrides, onChangeRuleOverrid
             team" is not a Dynamics lead.
           </CategoryDetail>
           <CategoryDetail k="m365Tenant">
-            <strong>Three tabs: All M365/Azure · Migrations &amp; Document Intelligence · Everything else.</strong>
+            <strong>Four tabs: Azure &amp; migrations · Licensing · Copilot · Security &amp; device management.</strong>
+            Every M365 / Azure lead lands in exactly one, checked in this order:
             <br />
-            <strong>Migrations &amp; Document Intelligence</strong> — Google → Microsoft (any company on Google: moving
-            off Google Workspace / G Suite / Gmail, interested in leaving it, or running on it today; still pinned to the
-            top with the ★ Google badge), every other migration (legacy, re-platforming, on-prem to Azure), and Azure
-            Document Intelligence.
+            <strong>Azure &amp; migrations</strong> — Google → Microsoft (any company on Google: moving off Google
+            Workspace / G Suite / Gmail, interested in leaving it, or running on it today; still pinned to the top with
+            the ★ Google badge), every other migration (on-prem to Azure, lift and shift, tenant / data / mailbox moves),
+            Azure Document Intelligence and custom app builds on Azure, Azure infrastructure and billing, Power BI /
+            Fabric, and IT support / help desk / MSP / switching provider.
             <br />
-            <strong>Everything else</strong> — every other M365/Azure hit: Azure billing/CSP, app builds, security
-            design/hardening, tenant support, and plain licensing.
+            <strong>Copilot</strong> — Microsoft 365 Copilot or Copilot Studio.
+            <br />
+            <strong>Security &amp; device management</strong> — security assessments and hardening, Defender, Purview,
+            Sentinel, MFA, phishing, ransomware, conditional access — and Intune, Endpoint Manager, MDM, Autopilot.
+            <br />
+            <strong>Licensing</strong> — checked last, because "licenses" and "seats" sit in most M365 notes whatever the
+            lead is really about. M365 / Office 365 plans and seats: buying, renewing, adding, true-ups.
+            <br />
+            These are view tabs only: they never change what's downloaded or filed.
           </CategoryDetail>
         </Section>
 

@@ -8921,3 +8921,50 @@ Medium 126 / Low 127 / Bad 88, M365 835 / Dynamics 363 / Power Platform
 42. `NOTE_RULES_VERSION` = `2026-11-23-need-statement`. `direct-notes`
 33 → 38 (the Document Intelligence row, both licence-list rejections, and
 that a row with no Need field still closes on the Azure ask).
+
+### 2026-11-23: M365 / Azure re-cut to four sub-categories, one per lead (scanner-platform-v29)
+
+Per Jack: "for azure dont need to break it down that much mainly just
+migrations together with azure doc intelligence app builds and it support
+AND ONLY IT ONE NOT MULTIPLE SUB CATEORGIES JUST DO FOUR SUB CATEGORIES
+LICENSING COPILOT SECURITY DEVICE MANAGEMNET SHULD BE TOGETHER". Supersedes
+the ten multi-select tags shipped the day before.
+
+- **Four tabs, and a lead lands in exactly ONE** (`M365_TOPIC_ORDER`,
+  `lib/detection.ts`): **Azure & migrations · Licensing · Copilot · Security
+  & device management**. `m365TopicsOf` (a Set) is replaced by
+  `m365TopicOf` (one answer, or null). The row cell shows one label, no
+  "+N".
+- **The ten detection signals are UNCHANGED** — only how they group. They
+  stay as their own named regexes (`M365_SIGNAL_RE`) behind a signal → bucket
+  map (`M365_SIGNAL_TOPIC`), so re-splitting a bucket later is a map edit,
+  not a rules rewrite. Azure takes google, migration, docintel, infra,
+  support and powerbi; security takes security and devices.
+- **Precedence, since one lead now needs one answer**
+  (`M365_TOPIC_PRECEDENCE`): Azure & migrations → Copilot → Security &
+  devices → **Licensing last**. Licensing is last on purpose: its wording
+  ("licenses", "seats") sits in most M365 notes whatever the lead is
+  actually about, so anywhere earlier it swallows the other three. Verified
+  live: "Migrating on-prem servers to Azure and need to renew 150 M365 E3
+  licenses" lands in Azure, not Licensing; "buy 40 Copilot licenses on top
+  of our E3 seats" lands in Copilot.
+- **Two calls Jack didn't state, both easy to flip**: Power BI / Fabric
+  went into the Azure bucket (the original `dataPlatform` key grouped
+  Power BI / Azure / Fabric together, so this restores that), and
+  Google → Microsoft is inside Azure & migrations because he said
+  migrations go together — the ★ Google top-priority badge and its sort
+  are untouched, so Google moves still lead the table and are still
+  visible on their own.
+- **Scanner only, view filter only** — the Lead Library keeps its own M365
+  tabs and All leads has no M365 sub-filter, same scope as the 11-22 build.
+- **Grades proven untouched**: tier, category, priority band, DQ reasons and
+  the scanned note fingerprinted per row across both real November files —
+  byte-identical to HEAD (1,240 rows). Real split of the 835 M365 / Azure
+  leads: Azure & migrations 171 · Licensing 203 · Copilot 273 · Security &
+  devices 60 · no sub-category 128.
+- **Cheat Sheet was stale on two counts and is fixed**: it still described
+  the pre-11-22 three M365 tabs, and a Dynamics "Power Platform" tab that
+  became its own product line on 11-22. Dynamics now reads four tabs.
+- Suite `m365-topics-live` (25): the four tabs render, none of the old ten
+  do, the counts don't double-count, each bucket holds its lead, and both
+  precedence cases resolve the way they should.

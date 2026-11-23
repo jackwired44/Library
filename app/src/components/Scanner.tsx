@@ -13,7 +13,7 @@ import {
   PRIORITY_META,
   scanParsedFiles,
   sortByDynamicsSeatCount,
-  m365TopicsOf,
+  m365TopicOf,
   M365_TOPIC_ORDER,
   M365_TOPIC_META,
   type M365Topic,
@@ -116,7 +116,7 @@ function applyFacets(rows: ResultRow[], f: Facets): ResultRow[] {
   // Sub-views are children of their category — they only narrow anything
   // while that category is the active filter, same as in the UI.
   if (f.category === "m365Tenant" && f.m365Sub !== "all") {
-    list = list.filter((r) => m365TopicsOf(r).has(f.m365Sub as M365Topic));
+    list = list.filter((r) => m365TopicOf(r) === f.m365Sub);
   }
   if (f.category === "dynamics365" && f.dynSub !== "all") {
     list = list.filter((r) => {
@@ -2040,9 +2040,9 @@ export default function Scanner({
                             {r.dynamicsSeatCount != null ? ` · ${r.dynamicsSeatCount}` : ""}
                           </span>
                         )}
-                        {r.category === "m365Tenant" && m365TopicsOf(r).size > 0 && (
-                          <span style={{ fontSize: 10.5, color: meta.color }} title={[...m365TopicsOf(r)].map((k) => M365_TOPIC_META[k].label).join(" · ")}>
-                            {[...m365TopicsOf(r)].slice(0, 2).map((k) => M365_TOPIC_META[k].label).join(" · ")}{m365TopicsOf(r).size > 2 ? ` +${m365TopicsOf(r).size - 2}` : ""}
+                        {r.category === "m365Tenant" && m365TopicOf(r) && (
+                          <span style={{ fontSize: 10.5, color: meta.color }} title={M365_TOPIC_META[m365TopicOf(r)!].hint}>
+                            {M365_TOPIC_META[m365TopicOf(r)!].label}
                           </span>
                         )}
                         {topPriorityReason(r) && <TopPriorityBadge reason={topPriorityReason(r)!} />}
