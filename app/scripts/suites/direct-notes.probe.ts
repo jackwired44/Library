@@ -16,8 +16,9 @@ const note = (pa: string, n: string) => scan(pa, n)?.notesSummary ?? "";
 
 let n = note("Azure", "The customer wants to use Azure Document Intelligence to extract data from invoices and purchase orders, about 2,000 documents a month.");
 ok("doc intel: the row's own sentence", /Azure Document Intelligence to extract data from invoices/.test(n), n);
-// 11/22, per Jack "Drop it, end on the facts": no generated question.
-ok("doc intel ends on the facts, no generated question", !/\bAsk (?:if|how|what|who)\b/.test(n), n);
+// 11/22 "Drop it, end on the facts", then 11/23 "switch back azure notes
+// ... to how they were": Azure keeps the ask Jack called gold.
+ok("doc intel keeps Jack's gold ask", /Ask how Azure is managed today, internal IT or an external partner/.test(n), n);
 n = note("Azure", "Healthcare - Azure Document Intelligence - The customer stated that they want to digitize patient intake forms and integrate with their EHR.");
 ok("doc intel leads the note", /^▲ Wants Azure Document Intelligence\. They want to digitize/.test(n), n);
 

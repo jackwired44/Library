@@ -129,6 +129,18 @@ ok("a short raw note (under 20 chars) is scanned too", /^\u25BC /.test(unscanned
   ok("a long previous note is cut once, never with a double ellipsis", !/\u2026\u2026/.test(longPrev) && longPrev.length < 180, longPrev);
 }
 
+// Per Jack, 11/23: "Previous note (11/16, Needs Review): no Dynamics,
+// M365, Azure or licensing signal. this isnt necesary" — a previous note
+// that says nothing was found is not worth a line.
+{
+  const ns = "\u25BC No Dynamics, M365, Azure or licensing signal.";
+  ok("a no-signal previous note states nothing", previousNoteLine({ date: "2026-11-16", text: ns }) === "", previousNoteLine({ date: "2026-11-16", text: ns }));
+  const both = `2026-11-22 \u00b7 ${ns}\n2026-11-16 \u00b7 ${ns}`;
+  ok("  so a lead with only no-signal notes carries no previous line", noteWithPrevious(both) === ns, noteWithPrevious(both));
+  const real = "\u25B2 Wants Dynamics 365 (12 users).";
+  ok("  a real previous note is still stated", /^Previous note \(11\/16/.test(previousNoteLine({ date: "2026-11-16", text: real })));
+}
+
 // 7b. The generated "Ask" tail is still found after an ellipsis or a mark.
 const ell = combineNotes("(50) \u25B2 Wants dashboards, track performance, analyze\u2026 Ask how they manage licensing today.", "(60) \u25B2 Newer.", "2026-10-29");
 ok("'Ask' after an ellipsis is still stripped from the older line", !/Ask how they manage/.test(ell.split("\n").slice(1).join("\n")), ell);

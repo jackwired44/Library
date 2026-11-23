@@ -3141,11 +3141,15 @@ function briefTopicOf(fullText: string, platform: PlatformResult | null): BriefT
   return null;
 }
 
-// Per Jack, 11/22: "Ask how Azure is managed today ... remove this style
-// of ending for the scanned notes" — he chose ending on the facts, so a
-// brief states what the row says and stops. Nothing in a note is a
-// question the engine made up. stripAsk (lib/leadStore) still strips the
-// old ending from notes stored before this.
+// Per Jack, 11/22: "remove this style of ending for the scanned notes" —
+// he chose ending on the facts, so Dynamics and licensing briefs state
+// what the row says and stop. Then: "switch back azure notes ... to how
+// they were" — the Azure ask is restored, verbatim, and ONLY for Azure.
+// He called that line gold when it first shipped. stripAsk
+// (lib/leadStore) still strips the old endings from notes stored before.
+function azureAsk(knowsPain: boolean): string {
+  return `Ask how Azure is managed today, internal IT or an external partner${knowsPain ? "" : ", and where the pain is"}.`;
+}
 
 /* --- WHO HANDLES IT / WHERE THEY ARE GOING -------------------------- *
  * Per Jack, on the M365 line: "indicate who handles it do they go direct
@@ -4222,11 +4226,21 @@ export function buildCallBrief(
       // The migration line does not show the opening sentence, so a partner
       // ask in it still has to be said here.
       stanceBase,
+      // An Azure move keeps the Azure ask; a Microsoft 365 / Google move
+      // ends on the facts.
+      /\b(?:Azure|the cloud)\.$/.test(migration) ? azureAsk(false) : "",
     ].filter(Boolean).join(" "));
   }
 
   // Per Jack: "we need to know exactly what they want and if theres a
   // timeline of when they want it".
+  // Azure is decided by the DIRECTION, not the installed base: the Product
+  // Area column, or the hit that qualified the row.
+  const azureDirection = !dynamics && (
+    /\bazure\b/i.test(productArea) ||
+    (platform?.hits ?? []).some((h) => h.category === "Azure" || h.category === "Microsoft Fabric") ||
+    !!azureHelp || hits.length === 0);
+
   const whenWanted = wantedTimeline(fullText);
   const whenLine = whenWanted && !stated.toLowerCase().includes(whenWanted.toLowerCase()) ? `Timeline: ${whenWanted.replace(/[.\s]+$/, "")}.` : "";
   return sentenceCase([
@@ -4235,6 +4249,7 @@ export function buildCallBrief(
     dirShown,
     stance,
     known,
+    azureDirection ? azureAsk(!!pain) : "",
   ].filter(Boolean).join(" "));
 }
 /** The brief opens with the row's OWN wording for the product, which is

@@ -454,11 +454,14 @@ const PREV_NOTE_MAX = 130;
 export function previousNoteLine(seg: { date: string; text: string } | undefined): string {
   if (!seg) return "";
   const raw = String(seg.text || "").trim();
+  // Per Jack, 11/23: "Previous note (11/16, Needs Review): no Dynamics,
+  // M365, Azure or licensing signal. this isnt necesary". A previous note
+  // saying nothing was found carries no information worth a line.
+  if (isNoSignalLine(raw)) return "";
   const mark = raw.match(/^(?:\(\d{1,3}\)\s*)?([\u25B2\u25B8\u25BC\u2715])/);
   let body = stripAsk(raw.replace(/^(?:\(\d{1,3}\)\s*)?[\u25B2\u25B8\u25BC\u2715\u2605\u2691\u25C6]?\s*/, ""))
     .replace(/\s*Previous note \([^)]*\):.*$/s, "")
     .replace(/\s+/g, " ").trim();
-  if (isNoSignalLine(raw)) body = "no Dynamics, M365, Azure or licensing signal.";
   if (!body) return "";
   const clipped = /\u2026\s*$/.test(body);
   body = body.replace(/[\s\u2026.]+$/, "");
