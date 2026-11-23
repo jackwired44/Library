@@ -134,9 +134,50 @@ company / email domain) against EVERY source below and gives me:
   3. KEEP — split into "never touched" and "touched, no contact"
   4. CONFLICTS — active/paused in another sequence, or a colleague at the
      same company already in my live call sequence
-Then actions, each behind a confirm listing every contact: remove from this
-sequence, finish them in other sequences, re-add anyone removed by mistake.
-Nothing writes anywhere without my explicit OK.
+Every contact also gets a STATUS that tells me what to do next:
+  - Never touched — no calls, no emails, nothing.
+  - Touched, no contact — only no answer / voicemail / gatekeeper /
+    unreplied emails. Fine to sequence.
+  - Contacted, went nowhere — we reached them (or they replied) but it
+    stalled: no meeting, no next step, no hard no. A follow-up candidate,
+    not an automatic remove.
+  - Live / next step pending — meeting booked, info requested, call back,
+    open deal. Out of any sequence; belongs to a rep's follow-up.
+  - Closed — not interested, DNC, unsubscribed, client, bounced. Out.
+
+REVIEW SCREEN (the main screen)
+- A table of everyone flagged REMOVE or REVIEW, with checkboxes: select
+  one by one, select all, select all in a filter (by reason, status,
+  source, company, last-touch date range).
+- Click a person to open a detail panel showing everything at once:
+  - Every reason they were flagged, with the source, date and a link.
+  - TOUCHPOINT HISTORY: every sequence they've ever been in (Apollo, any
+    rep): sequence name, owner, added date, finished date, end reason,
+    furthest step reached of total ("step 4 of 6"), and each step that
+    actually happened (date, type — call / auto email / manual email /
+    LinkedIn connect / LinkedIn message / task — and its result: delivered,
+    opened, replied, bounced, no answer, voicemail, connected + outcome).
+  - Totals: number of sequences, calls (and how many connected), emails
+    sent / opened / replied, LinkedIn touches, meetings, total touchpoints,
+    first touch, last touch, days since last touch.
+  - Every call with duration, outcome, caller and note (and the Trellus
+    summary/transcript link), every email thread, every meeting (Echo,
+    calendar, HubSpot, Switchboard).
+- Per person or for the selection, I choose an outcome:
+  Remove · Keep in this sequence · Move to another sequence (pick it) ·
+  Follow up manually (creates nothing — just tags it) · Skip for now.
+  Each choice takes an optional note. Show a final summary of all choices
+  before anything is written.
+- The same touchpoint history columns (sequences count, furthest step,
+  total touches, last touch, status) are sortable/filterable in the table,
+  so I can pull e.g. "contacted, went nowhere, last touch 60+ days ago" and
+  plan a new follow-up or a new sequence for them.
+
+ACTIONS (each behind a confirm listing every contact affected; nothing
+writes anywhere without my explicit OK):
+  remove from this sequence · finish them in other sequences · move to
+  another sequence (finish here, add there) · re-add anyone removed by
+  mistake · export the selection to CSV with full touchpoint history.
 
 SOURCES — check ALL of them, every run. A source that can't be reached is
 reported as "not checked" on every affected row, never silently skipped.
@@ -248,12 +289,15 @@ REQUIREMENTS
   gatekeeper-only stays; a 4-minute No Disposition call goes; a Trellus
   transcript showing a conversation overrides a "No Answer" log; an
   unreplied sequence email stays; a client in HubSpot/Switchboard/PSA goes
-  even with a blank Apollo stage; an Echo meeting with a colleague at the
+  even with a blank Apollo stage; a 6-step sequence finished at step 4
+  shows "step 4 of 6" with the 4 touches listed; an Echo meeting with a colleague at the
   same domain removes the whole company; a call result belonging to
   another contact is rejected; an unreachable source shows "not checked".
 - Every result row links back to its source record (Apollo, HubSpot,
   Echo, Switchboard, Outlook).
-- CSV export of REMOVE / REVIEW / KEEP with reason and source per row.
+- CSV export of REMOVE / REVIEW / KEEP with reason, source, status and
+  touchpoint totals per row; a second CSV with every touchpoint (one row
+  per sequence step / call / email / meeting).
 
 START HERE
 Restate the rules and sources in your own words, list what access you'll
