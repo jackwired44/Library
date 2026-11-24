@@ -46,8 +46,8 @@
     disabledRules: [],
     // Words searched in Apollo call notes to find calls where someone was reached, for the company check.
     // Trellus writes its AI summary into the note, so these find conversations no matter the disposition.
-    callKeywords: ["Wired CIO", "spoke", "stated", "said", "asked", "meeting", "interested", "demo", "pricing", "quote", "evaluating", "follow up", "call back"],
-    callKeywordPages: 10,
+    callKeywords: ["Wired CIO", "spoke", "meeting", "interested", "demo", "pricing", "evaluating", "call back"],
+    callKeywordPages: 5,
     okStages: {
       "6a73bd924f135d0014ac11a0": "Follow Up",
       "6a65319835213500203822ef": "Open",
@@ -81,7 +81,7 @@
     // Outlook mailboxes to search besides your own (needs delegated access in Microsoft 365).
     extraMailboxes: [],
     // Lookback for Outlook calendar, in months.
-    calendarMonths: 24,
+    calendarMonths: 12,
     // Apollo rate budgets per tool, per rolling hour and per day.
     budgets: {
       apollo_contacts_search: { hour: 400, day: 2000 },

@@ -185,7 +185,12 @@
   // ---------- run pipeline ----------
   async function startRun() {
     const seq = S.sequences && S.sequences[S.newRun.seqId];
-    if (!seq) return;
+    if (!seq || S.starting || S.collector) return;
+    S.starting = true; render();
+    try { await startRunInner(seq); } finally { S.starting = false; render(); }
+  }
+  async function startRunInner(seq) {
+    if (!(await S.store.lease(`start__${seq.id}`, TAB_ID, 15000))) { S.toast = "A check of this sequence is starting in another tab or window."; return; }
     await refreshRuns();
     if (S.runs.some((r) => r.targetId === seq.id && liveElsewhere(r))) { S.toast = "A check of this sequence is already running in another tab or window."; render(); return; }
     if (S.perms && C.MANIFEST.some((m) => S.permStates[m.server] === "prompt")) await allowAll();
@@ -221,7 +226,9 @@
     scheduleAutoResume();
     render();
   }
-  function setProgress(label, done, total) { S.progress = { ...(S.progress || {}), label, done, total }; renderProgress(); }
+  function setProgress(label, done, total) { S.progress = { ...(S.progress || {}), label, done, total, waiting: null, stepAt: (S.progress && S.progress.label === label) ? S.progress.stepAt : Date.now() }; renderProgress(); }
+  setInterval(() => { if (S.collector) renderProgress(); }, 5000);
+  const ago = (t) => { const s = Math.round((Date.now() - t) / 1000); return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`; };
   function startEta(from) { S.eta = { t0: Date.now(), from }; }
   function etaText(p) {
     if (!S.eta || !p.total || p.done <= S.eta.from) return "";
@@ -254,14 +261,14 @@
     // One tab at a time per check: a second tab running the same check doubles every call and
     // gets both throttled.
     const holder = TAB_ID;
-    if (!(await S.store.lease(`lock__${meta.id}`, holder, 90000))) {
+    if (!(await S.store.lease(`lock__${meta.id}`, holder, 90000)) || !(await S.store.lease(`seqlock__${meta.targetId}`, holder, 90000))) {
       S.toast = "This check is already running in another tab or window. Close the other one, or wait for it to finish.";
       render(); return;
     }
     const col = new C.Collector({ mcp: S.mcp, store: S.store, cfg: S.cfg });
-    col.onWait = (t) => logLine(t);
+    col.onWait = (t) => { logLine(t); S.progress = { ...(S.progress || {}), waiting: t, waitingAt: Date.now() }; renderProgress(); };
     S.collector = col;
-    const beat = setInterval(() => { S.store.lease(`lock__${meta.id}`, holder, 90000); meta.heartbeat = Date.now(); S.store.set(`run__${meta.id}`, meta).catch(() => {}); }, 30000);
+    const beat = setInterval(() => { S.store.lease(`lock__${meta.id}`, holder, 90000); S.store.lease(`seqlock__${meta.targetId}`, holder, 90000); meta.heartbeat = Date.now(); S.store.set(`run__${meta.id}`, meta).catch(() => {}); }, 30000);
     meta.heartbeat = Date.now();
     S.progress = { label: "Starting", done: 0, total: 1, log: [] };
     meta.status = "running"; meta.resumeAt = null; meta.error = null;
@@ -339,8 +346,12 @@
         let cal = null;
         try {
           startEta(0);
-          setProgress("Reading your Outlook calendar", 0, 1);
-          cal = await C.calendarIndex(col, S.cfg, (n, t) => setProgress("Reading your Outlook calendar", n, t));
+          cal = await loadCalendar(meta);
+          if (!cal) {
+            setProgress("Reading your Outlook calendar (once per check)", 0, 1);
+            cal = await C.calendarIndex(col, S.cfg, (n, t) => setProgress("Reading your Outlook calendar (once per check)", n, t));
+            await saveCalendar(meta, cal);
+          } else logLine("Using the Outlook calendar already read for this check");
         } catch (e) { if (e instanceof C.BudgetHit || e instanceof C.Stopped) throw e; if (!markDown(e)) meta.notChecked.push({ source: "Outlook calendar", reason: e.message }); }
         const bulk = {};
         try { setProgress("Reading every Echo meeting", 0, 1); bulk.echo = await C.bulkEcho(col, (n) => setProgress("Reading every Echo meeting", n, n)); }
@@ -353,9 +364,12 @@
         catch (e) { if (e instanceof C.BudgetHit || e instanceof C.Stopped) throw e; if (!markDown(e)) meta.notChecked.push({ source: "Apollo stages (company)", reason: e.message }); }
         const coItems = await loadChunks("co", meta.id, (meta.chunks && meta.chunks.co) || 0);
         coItems.length = Math.min(coItems.length, meta.cursor);
+        // Companies where every person is already a remove don't need the slow lookups.
+        const pre = R.evaluateRun({ cfg: S.cfg, now: Date.now(), target: { id: meta.targetId, name: meta.targetName }, sequences: d.sequences, product: meta.product, targetEmailOnly: meta.targetEmailOnly, people: d.people.map((p) => ({ ...p, uid: p.apolloId })), colleagues: d.colleagues || [], companySources: [] }).people;
+        const preRemove = new Set(pre.filter((p) => p.bucket === "REMOVE").map((p) => p.uid));
         const checkCompany = async (c) => {
           let found;
-          try { found = await C.companySources(col, c, S.cfg, bulk); }
+          try { found = await C.companySources(col, c, S.cfg, bulk, { light: c.people.every((pp) => preRemove.has(pp.uid)) }); }
           catch (e) { if (e instanceof C.BudgetHit || e instanceof C.Stopped) throw e; found = { sources: [], personMeetings: {}, personMail: {}, checks: { Companies: { state: "error", reason: e.message } } }; }
           for (const [k, chk] of Object.entries(found.checks || {})) if (chk.state === "error" && /not connected|Reconnect|Add it|turned off|Allow it|blocks/.test(chk.reason || "")) markDown(new C.SourceDown(k, "down", chk.reason));
           if (cal) {
@@ -431,6 +445,31 @@
     await S.store.set(`run__${meta.id}`, meta);
     S.view = "check";
     runPipeline();
+  }
+
+  // The calendar index is saved with the check, so a resume never reads the whole calendar again.
+  async function saveCalendar(meta, cal) {
+    const events = new Map();
+    for (const list of cal.byEmail.values()) for (const ev of list) events.set(ev.id, { id: ev.id, subject: ev.subject, at: ev.at, link: ev.link, attendees: ev.attendees });
+    const items = [...events.values()];
+    const per = 150;
+    for (let i = 0; i * per < items.length; i++) await S.store.set(`cal__${meta.id}__${i}`, { kind: "cal", items: items.slice(i * per, (i + 1) * per) });
+    meta.chunks.cal = Math.ceil(items.length / per) || 0;
+    meta.calendarRead = true;
+    await S.store.set(`run__${meta.id}`, meta);
+  }
+  async function loadCalendar(meta) {
+    if (!meta.calendarRead) return null;
+    const byEmail = new Map(), byDomain = new Map();
+    for (let i = 0; i < (meta.chunks.cal || 0); i++) {
+      const d = await S.store.get(`cal__${meta.id}__${i}`);
+      for (const ev of (d && d.items) || []) for (const a of ev.attendees || []) {
+        if (!a.includes("@") || C.OWN_DOMAINS.includes(a.split("@")[1])) continue;
+        if (!byEmail.has(a)) byEmail.set(a, []); byEmail.get(a).push(ev);
+        const dm = a.split("@")[1]; if (!byDomain.has(dm)) byDomain.set(dm, []); if (!byDomain.get(dm).includes(ev)) byDomain.get(dm).push(ev);
+      }
+    }
+    return { byEmail, byDomain };
   }
 
   // ---------- evaluate ----------
@@ -688,7 +727,7 @@
           <p class="note">Each person takes about three Apollo calls, and Apollo allows about 400 an hour. A big sequence pauses at that limit and picks up where it stopped.</p>` : ""}
         ${unfinished ? `<div class="resume-box">${icon("play")}<div><strong>This sequence has a check in progress.</strong><span>${esc(phaseLabel(unfinished))}. Resuming keeps everything already checked, so it's much faster than starting over.</span></div></div>` : ""}
         <div class="card-foot">${unfinished ? `<button class="btn ghost" data-act="start-run" ${running || !product ? "disabled" : ""}>Start over</button><button class="btn primary lg" data-act="resume-run" data-id="${esc(unfinished.id)}" ${running ? "disabled" : ""}>${icon("play")}Resume check</button>`
-          : `<button class="btn primary lg" data-act="start-run" ${!pick || running || !product ? "disabled" : ""}>${icon("play")}Start check</button>`}</div>`}
+          : `<button class="btn primary lg" data-act="start-run" ${!pick || running || !product || S.starting ? "disabled" : ""}>${icon("play")}${S.starting ? "Starting…" : "Start check"}</button>`}</div>`}
       </section>
       <div class="stack">${S.progress || (S.data && S.data.meta.status !== "done" && !S.demo) ? progressCard() : ""}${pastRuns()}</div></div>`;
   }
@@ -711,7 +750,7 @@
       ${meta.status === "error" ? `<div class="alert">${icon("alert")}<div><strong>Stopped on an error</strong><span>${esc(meta.error)}</span><span class="muted">Resume picks up where it stopped.</span></div></div>` : ""}
       <ol class="phases">${PHASES.slice(0, -1).map(([k, label], i) => {
         const state = meta.status === "done" || i < idx ? "done" : i === idx ? (running ? "now" : "paused") : "todo";
-        return `<li class="ph-${state}"><span class="ph-dot">${state === "done" ? icon("check") : ""}</span><div><span>${esc(label)}</span>${state === "now" ? `<div class="bar"><span style="width:${pct}%"></span></div><small>${esc(p.label || "")} · ${p.done || 0} of ${p.total || 0}${etaText(p) ? ` · ${etaText(p)}` : ""}</small>` : ""}</div></li>`;
+        return `<li class="ph-${state}"><span class="ph-dot">${state === "done" ? icon("check") : ""}</span><div><span>${esc(label)}</span>${state === "now" ? `<div class="bar"><span style="width:${pct}%"></span></div><small>${esc(p.label || "")} · ${p.done || 0} of ${p.total || 0}${etaText(p) ? ` · ${etaText(p)}` : ""}${p.stepAt ? ` · on this step ${ago(p.stepAt)}` : ""}</small>${p.waiting && Date.now() - p.waitingAt < 130000 ? `<div class="waiting">${icon("alert")}${esc(p.waiting)}</div>` : ""}` : ""}</div></li>`;
       }).join("")}</ol>
       ${(p.log || []).length ? `<details class="log-wrap"><summary>Activity log</summary><pre class="log">${esc(p.log.join("\n"))}</pre></details>` : ""}</section>`;
   }
@@ -939,12 +978,19 @@
       case "pick-product": S.newRun.product = t.dataset.v; break;
       case "start-run": await startRun(); return;
       case "open-run": await openRun(t.dataset.id); return;
-      case "resume-run": if (!S.data || S.data.meta.id !== t.dataset.id) await openRun(t.dataset.id); if (S.data && S.data.meta.status !== "done") runPipeline(); return;
+      case "resume-run": {
+        await refreshRuns();
+        const target = S.runs.find((r) => r.id === t.dataset.id);
+        if (target && S.runs.some((r) => r.id !== target.id && r.targetId === target.targetId && liveElsewhere(r))) { S.toast = "Another check of this sequence is running in another tab or window. Let it finish, or close that tab first."; break; }
+        if (!S.data || S.data.meta.id !== t.dataset.id) await openRun(t.dataset.id);
+        if (S.data && S.data.meta.status !== "done") runPipeline();
+        return;
+      }
       case "del-run": {
         const r = S.runs.find((x) => x.id === t.dataset.id);
         if (S.pendingDelete !== t.dataset.id) { S.pendingDelete = t.dataset.id; break; }
         S.pendingDelete = null;
-        if (r) { for (const [pfx, n] of Object.entries(r.chunks || {})) for (let i = 0; i < n; i++) await S.store.del(`${pfx}__${r.id}__${i}`); await S.store.del(`seq__${r.id}`); await S.store.del(`dec__${r.id}`); await S.store.del(`run__${r.id}`); }
+        if (r) { for (const [pfx, n] of Object.entries(r.chunks || {})) for (let i = 0; i < n; i++) await S.store.del(`${pfx}__${r.id}__${i}`).catch(() => {}); await S.store.del(`seq__${r.id}`); await S.store.del(`dec__${r.id}`); await S.store.del(`run__${r.id}`); }
         if (S.data && r && S.data.meta.id === r.id) { S.data = null; S.result = null; S.progress = null; }
         await refreshRuns(); break;
       }

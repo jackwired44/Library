@@ -241,14 +241,16 @@
   function trimCall(c) { return { ...c, summary: (c.summary || "").slice(0, 1500) }; }
 
   // ---------- company-level sources ----------
-  async function companySources(col, company, cfg, bulk) {
+  async function companySources(col, company, cfg, bulk, opts) {
+    const light = opts && opts.light; // everyone at this company is already a remove: skip the slow per-company lookups
     // company: {key, name, domain, emails:Set, people:[{uid,nameKey,email}]}
     const found = { sources: [], personMeetings: {}, personMail: {}, personClient: {}, personDeals: {}, checks: {} };
     const freeDomain = R.isFree(company.domain, cfg);
     const sameCo = (name, domain) => (company.key && R.companyKey(name) === company.key) || (!freeDomain && domain && R.normDomain(domain) === company.domain);
 
     // Switchboard: deals, proposals, client rooms
-    try {
+    if (light) found.checks.Switchboard = { state: "checked", skipped: true };
+    else try {
       if (company.name) {
         const { payload } = await col.call("switchboard", "get_company", { company: company.name });
         for (const raw of (payload && payload.companies) || []) {
@@ -326,7 +328,8 @@
     }
 
     // Outlook: anything they (or anyone at their domain) wrote to us, in each mailbox
-    try {
+    if (light) found.checks.Outlook = { state: "checked", skipped: true };
+    else try {
       const mailboxes = [null].concat(cfg.extraMailboxes || []);
       const senders = freeDomain ? [...company.emails] : [company.domain];
       for (const box of mailboxes) {
