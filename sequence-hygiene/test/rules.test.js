@@ -352,3 +352,18 @@ test("a switched-off rule never fires", () => {
   cfg.disabledRules = [];
   assert.equal(one(person({ customText: "" })).bucket, "REVIEW");
 });
+
+test("rule 2: our rep declining to hold is not the prospect declining", () => {
+  const a = R.analyzeCallSummary("The rep declined to hold and opted to call back next week to reach Pat regarding Microsoft Dynamics.");
+  assert.notEqual(a.kind, "declined");
+  assert.equal(one(person({ calls: [call({ outcomeId: O.noAnswer, summary: "The rep declined to hold and opted to call back next week to reach Pat regarding Microsoft Dynamics." })] })).bucket, "KEEP");
+});
+test("rule 2: someone else asking us to call back later is not a conversation", () => {
+  const s = "Jack called for Pat. She mentioned to call back later in the day since Pat is on California time.";
+  assert.notEqual(R.analyzeCallSummary(s).kind, "spoke");
+  assert.equal(one(person({ calls: [call({ outcomeId: O.noAnswer, summary: s })] })).bucket, "KEEP");
+});
+test("rule 2: a real conversation in the same note still counts", () => {
+  const s = "The receptionist transferred Jack. Pat said they are evaluating Business Central for next year.";
+  assert.equal(one(person({ calls: [call({ outcomeId: O.noAnswer, summary: s })] })).bucket, "REMOVE");
+});

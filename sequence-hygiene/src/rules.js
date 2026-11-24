@@ -179,11 +179,15 @@
   // Looks at a call's written summary (Trellus AI summary carried in the Apollo note).
   // Sentences about a gatekeeper or voicemail are set aside first, so "spoke to the receptionist"
   // never counts as a conversation with the prospect.
+  // Sentences that say the prospect was NOT reached: someone else asked us to try again, our rep
+  // chose not to hold, or the person is away. They are set aside like gatekeeper sentences.
+  const NOT_REACHED_RE = /\b(call (?:him |her |them |back )?(?:back )?(?:later|tomorrow|next week|next time|another time|in the (?:morning|afternoon))|try (?:again|back|later)|to reach (?:him|her|them|[A-Z][a-z]+)|(?:wasn'?t|was not|is not|isn'?t) (?:in|there|available|at (?:his|her) desk)|declined to hold|chose not to hold|(?:is|was) on (?:california|pacific|eastern|central|mountain|east coast|west coast) time|(?:is|was) (?:out|away|travel+ing|on vacation|in a meeting))\b/i;
+  const OUR_SIDE_RE = /\b(the rep|our rep|jack|carly|armin|wired cio)\b[^.]*\b(declined|decided|opted|chose)\b/i;
   function analyzeCallSummary(text) {
     const t = (text || "").trim();
     if (!t) return { kind: "none" };
     const sentences = t.split(/(?<=[.!?])\s+|\n+/).map((s) => s.trim()).filter(Boolean);
-    const prospect = sentences.filter((s) => !GATE_RE.test(s));
+    const prospect = sentences.filter((s) => !GATE_RE.test(s) && !NOT_REACHED_RE.test(s) && !OUR_SIDE_RE.test(s));
     const gateOnly = prospect.length < sentences.length;
     const body = prospect.join(" ");
     const quote = (re) => { const s = prospect.find((x) => re.test(x)); return s || ""; };

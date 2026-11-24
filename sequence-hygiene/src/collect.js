@@ -114,6 +114,11 @@
             this.down[key] = `${server}: ${FIXES[code] || e.message || code}`;
             throw new SourceDown(key, code, this.down[key]);
           }
+          const text = `${(e && e.message) || ""} ${JSON.stringify((e && e.result) || "")}`;
+          if (/RATE_LIMIT|maximum number of api calls/i.test(text)) {
+            const m = text.match(/retry_after_seconds\\?"?\s*:\s*(\d+)/) || text.match(/Wait (\d+) seconds/i);
+            throw new BudgetHit(tool, Date.now() + ((m ? Number(m[1]) : 3600) + 30) * 1000);
+          }
           if (!write && e && (e.retryable || code === "cancelled") && attempt === 0) { await sleep(Math.min(e.retryAfterMs || 1500, 60000) + Math.random() * 800); continue; }
           throw Object.assign(new Error(`${server} ${tool}: ${e && e.message ? e.message : code}`), { code });
         }
@@ -208,7 +213,7 @@
   function trimCall(c) { return { ...c, summary: (c.summary || "").slice(0, 1500) }; }
 
   // ---------- company-level sources ----------
-  async function companySources(col, company, cfg) {
+  async function companySources(col, company, cfg, bulk) {
     // company: {key, name, domain, emails:Set, people:[{uid,nameKey,email}]}
     const found = { sources: [], personMeetings: {}, personMail: {}, personClient: {}, personDeals: {}, checks: {} };
     const freeDomain = R.isFree(company.domain, cfg);
@@ -230,8 +235,15 @@
       found.checks.Switchboard = { state: "checked" };
     } catch (e) { found.checks.Switchboard = failState(e); }
 
-    // Echo: recorded sales and delivery meetings
-    try {
+    // Echo: recorded sales and delivery meetings (from the bulk pull when there is one)
+    if (bulk && bulk.echo) {
+      for (const m of bulk.echo.get(company.key) || []) {
+        if (m.track !== "Sales" && m.track !== "Delivery") continue;
+        found.sources.push({ companyKey: company.key, domain: freeDomain ? null : company.domain, kind: m.track === "Delivery" ? "client" : "contact", reason: `Echo ${m.track.toLowerCase()} meeting "${m.title}"`, source: "Echo", at: m.at, link: m.link });
+        for (const pp of company.people) if (pp.nameKey && m.people.includes(pp.nameKey)) (found.personMeetings[pp.uid] = found.personMeetings[pp.uid] || []).push({ title: m.title, at: m.at, link: m.link, source: "Echo", type: m.type });
+      }
+      found.checks.Echo = { state: "checked" };
+    } else try {
       if (company.name) {
         const { payload } = await col.call("echo", "search_meetings", { company: company.name, limit: 50 });
         for (const raw of (payload && payload.meetings) || []) {
@@ -246,8 +258,15 @@
       found.checks.Echo = { state: "checked" };
     } catch (e) { found.checks.Echo = failState(e); }
 
-    // HubSpot: company lifecycle + deals
-    try {
+    // HubSpot: company lifecycle + deals (from the bulk pull when there is one)
+    if (bulk && bulk.hubspot) {
+      const hits = [...(bulk.hubspot.byKey.get(company.key) || []), ...(!freeDomain && company.domain ? bulk.hubspot.byDomain.get(company.domain) || [] : [])];
+      for (const hc of [...new Map(hits.map((h) => [h.id, h])).values()]) {
+        const client = hc.lifecycle === "customer";
+        found.sources.push({ companyKey: company.key, domain: freeDomain ? null : company.domain, kind: client ? "client" : "contact", reason: client ? `HubSpot lifecycle stage is Customer (${hc.name})` : `HubSpot company has ${hc.numDeals} deal${hc.numDeals === 1 ? "" : "s"} (${hc.name})`, source: "HubSpot", link: hc.link });
+      }
+      found.checks.HubSpot = { state: "checked" };
+    } else try {
       const q = !freeDomain && company.domain ? company.domain : company.name;
       if (q) {
         const { payload } = await col.call("hubspot", "search_crm_objects", { objectType: "COMPANY", query: q, limit: 10,
@@ -293,6 +312,58 @@
       found.checks.Outlook = { state: "checked" };
     } catch (e) { found.checks.Outlook = failState(e); }
     return found;
+  }
+
+  // ---------- bulk company data (one pass per run instead of one call per company) ----------
+  async function bulkEcho(col, onProgress) {
+    const meetings = [];
+    for (const track of ["Sales", "Delivery"]) {
+      let until = null;
+      for (let page = 0; page < 30; page++) {
+        const input = { track, limit: 100 };
+        if (until) input.until = until;
+        const { payload } = await col.call("echo", "search_meetings", input);
+        const batch = (payload && payload.meetings) || [];
+        meetings.push(...batch);
+        if (onProgress) onProgress(meetings.length);
+        if (batch.length < 100) break;
+        const oldest = batch.map((m) => m.started_at).sort()[0];
+        const next = oldest ? oldest.slice(0, 10) : null;
+        if (!next || next === until) break;
+        until = next;
+      }
+    }
+    const byKey = new Map();
+    const seen = new Set();
+    for (const raw of meetings) {
+      if (seen.has(raw.id)) continue;
+      seen.add(raw.id);
+      const m = R.adaptEchoMeeting(raw);
+      if (!m.companyKey || m.companyKey === "unlinked") continue;
+      if (!byKey.has(m.companyKey)) byKey.set(m.companyKey, []);
+      byKey.get(m.companyKey).push(m);
+    }
+    return byKey;
+  }
+  async function bulkHubspot(col) {
+    const byKey = new Map(), byDomain = new Map();
+    let offset = 0;
+    for (let page = 0; page < 50; page++) {
+      const input = { objectType: "COMPANY", limit: 200, properties: ["name", "domain", "lifecyclestage", "num_associated_deals"],
+        filterGroups: [{ filters: [{ propertyName: "lifecyclestage", operator: "EQ", value: "customer" }] }, { filters: [{ propertyName: "num_associated_deals", operator: "GT", value: "0" }] }],
+        chatInsights: { userIntent: "Find client and deal companies to clean a prospecting sequence", satisfaction: "NEUTRAL" } };
+      if (offset) input.offset = offset;
+      const { payload } = await col.call("hubspot", "search_crm_objects", input);
+      const results = (payload && payload.results) || [];
+      for (const raw of results) {
+        const c = R.adaptHubspotCompany(raw, payload.urlTemplate);
+        if (c.key) { if (!byKey.has(c.key)) byKey.set(c.key, []); byKey.get(c.key).push(c); }
+        if (c.domain) { if (!byDomain.has(c.domain)) byDomain.set(c.domain, []); byDomain.get(c.domain).push(c); }
+      }
+      offset = payload && payload.offset;
+      if (!results.length || !offset || (payload.total != null && offset >= payload.total)) break;
+    }
+    return { byKey, byDomain };
   }
 
   // HubSpot contact record: client lifecycle or deals on the person.
@@ -364,6 +435,6 @@
 
   root.SH_COLLECT = {
     SERVERS, MANIFEST, ALWAYS_UNAVAILABLE, OWN_DOMAINS, Collector, pool, SourceDown, BudgetHit, Stopped, blocks,
-    listSequences, sequenceContacts, apolloPerson, companySources, hubspotPerson, calendarIndex, removeOrStop, addToSequence,
+    listSequences, sequenceContacts, apolloPerson, companySources, bulkEcho, bulkHubspot, hubspotPerson, calendarIndex, removeOrStop, addToSequence,
   };
 })(typeof window !== "undefined" ? window : globalThis);

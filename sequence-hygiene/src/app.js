@@ -302,18 +302,23 @@
             C.hubspotPerson(col, p).then(() => { p.sourceChecks["HubSpot contact"] = { state: "checked" }; }, (e) => { if (e instanceof C.BudgetHit || e instanceof C.Stopped) throw e; if (!markDown(e)) p.sourceChecks["HubSpot contact"] = { state: "error", reason: e.message }; }),
           ]);
         };
+        // A recheck pass only revisits people whose Apollo or HubSpot lookup failed.
+        const order = meta.retryList || ppl.map((_, k) => k);
+        const label = meta.retryList ? "Rechecking people Apollo couldn't reach" : "Checking each person";
         startEta(meta.cursor);
-        for (let i = meta.cursor; i < ppl.length; i += PARALLEL) {
-          setProgress("Checking each person", i, ppl.length);
-          const results = await Promise.allSettled(ppl.slice(i, i + PARALLEL).map(checkPerson));
+        for (let i = meta.cursor; i < order.length; i += PARALLEL) {
+          setProgress(label, i, order.length);
+          const idxs = order.slice(i, i + PARALLEL);
+          const results = await Promise.allSettled(idxs.map((k) => checkPerson(ppl[k])));
           const failed = results.find((r) => r.status === "rejected");
           if (failed) throw failed.reason;
-          const next = Math.min(i + PARALLEL, ppl.length);
-          for (let c = Math.floor(i / CHUNK); c <= Math.floor((next - 1) / CHUNK); c++) await saveChunk("p", meta.id, ppl, c);
-          meta.cursor = next;
+          for (const c of new Set(idxs.map((k) => Math.floor(k / CHUNK)))) await saveChunk("p", meta.id, ppl, c);
+          meta.cursor = Math.min(i + PARALLEL, order.length);
           await S.store.set(`run__${meta.id}`, meta); await col.saveBudget();
         }
-        meta.phase = "companies"; meta.cursor = 0; await S.store.set(`run__${meta.id}`, meta);
+        if (meta.retryList) { meta.retryList = null; meta.phase = "done"; }
+        else { meta.phase = "companies"; meta.cursor = 0; }
+        await S.store.set(`run__${meta.id}`, meta);
       }
       if (meta.phase === "companies") {
         const comps = companiesOf(d.people);
@@ -323,11 +328,16 @@
           setProgress("Reading your Outlook calendar", 0, 1);
           cal = await C.calendarIndex(col, S.cfg, (n, t) => setProgress("Reading your Outlook calendar", n, t));
         } catch (e) { if (e instanceof C.BudgetHit || e instanceof C.Stopped) throw e; if (!markDown(e)) meta.notChecked.push({ source: "Outlook calendar", reason: e.message }); }
+        const bulk = {};
+        try { setProgress("Reading every Echo meeting", 0, 1); bulk.echo = await C.bulkEcho(col, (n) => setProgress("Reading every Echo meeting", n, n)); }
+        catch (e) { if (e instanceof C.BudgetHit || e instanceof C.Stopped) throw e; if (!markDown(e)) logLine(`Echo bulk read failed, checking company by company: ${e.message}`); }
+        try { setProgress("Reading HubSpot clients and deal companies", 0, 1); bulk.hubspot = await C.bulkHubspot(col); }
+        catch (e) { if (e instanceof C.BudgetHit || e instanceof C.Stopped) throw e; if (!markDown(e)) logLine(`HubSpot bulk read failed, checking company by company: ${e.message}`); }
         const coItems = await loadChunks("co", meta.id, (meta.chunks && meta.chunks.co) || 0);
         coItems.length = Math.min(coItems.length, meta.cursor);
         const checkCompany = async (c) => {
           let found;
-          try { found = await C.companySources(col, c, S.cfg); }
+          try { found = await C.companySources(col, c, S.cfg, bulk); }
           catch (e) { if (e instanceof C.BudgetHit || e instanceof C.Stopped) throw e; found = { sources: [], personMeetings: {}, personMail: {}, checks: { Companies: { state: "error", reason: e.message } } }; }
           for (const [k, chk] of Object.entries(found.checks || {})) if (chk.state === "error" && /not connected|Reconnect|Add it|turned off|Allow it|blocks/.test(chk.reason || "")) markDown(new C.SourceDown(k, "down", chk.reason));
           if (cal) {
@@ -357,6 +367,14 @@
           await S.store.set(`run__${meta.id}`, meta); await col.saveBudget();
         }
         meta.phase = "done";
+        const failedIdx = d.people.map((p, k) => (personFailed(p) ? k : -1)).filter((k) => k >= 0);
+        if (failedIdx.length && !meta.autoRetried) {
+          meta.autoRetried = true; meta.retryList = failedIdx; meta.phase = "people"; meta.cursor = 0;
+          await S.store.set(`run__${meta.id}`, meta);
+          logLine(`${plural(failedIdx.length, "person")} couldn't be checked in Apollo. Rechecking them now.`);
+          S.collector = null;
+          return runPipeline();
+        }
       }
       meta.status = "done"; meta.finishedAt = new Date().toISOString();
       await S.store.set(`run__${meta.id}`, meta); await col.saveBudget();
@@ -382,6 +400,17 @@
     if (!meta || meta.status !== "paused" || !meta.resumeAt || S.collector || S.demo) return;
     const wait = Math.max(0, R.toMs(meta.resumeAt) - Date.now()) + 5000;
     resumeTimer = setTimeout(() => { if (!S.collector && S.data && S.data.meta.id === meta.id && S.data.meta.status === "paused") runPipeline(); }, wait);
+  }
+
+  const personFailed = (p) => Object.entries(p.sourceChecks || {}).some(([k, v]) => (k === "Apollo" || k === "HubSpot contact") && v && v.state === "error");
+  async function recheckFailed() {
+    const d = S.data, meta = d.meta;
+    const list = d.people.map((p, k) => (personFailed(p) ? k : -1)).filter((k) => k >= 0);
+    if (!list.length || S.collector) return;
+    meta.retryList = list; meta.phase = "people"; meta.cursor = 0; meta.status = "running";
+    await S.store.set(`run__${meta.id}`, meta);
+    S.view = "check";
+    runPipeline();
   }
 
   // ---------- evaluate ----------
@@ -643,6 +672,7 @@
   }
   function phaseLabel(r) {
     const n = r.counts && r.counts.people;
+    if (r.phase === "people" && r.retryList) return `Rechecking ${r.cursor || 0} of ${r.retryList.length} people Apollo couldn't reach`;
     if (r.phase === "people") return `${r.cursor || 0} of ${n || "?"} people checked`;
     if (r.phase === "companies") return `All ${n || ""} people checked; companies ${r.cursor ? `${r.cursor} done` : "next"}`;
     return "Just started";
@@ -682,7 +712,8 @@
     const sources = [...new Set(all.flatMap((p) => p.findings.map((x) => x.source)))].sort();
     const rulesUsed = [...new Set(all.flatMap((p) => p.findings.map((x) => x.rule)))].sort((a, b) => a - b);
     const nf = activeFilterCount();
-    return `${S.result.unavailable.length ? `<details class="notice">${icon("alert")}<summary>${plural(S.result.unavailable.length, "source")} not checked on this run</summary><ul>${S.result.unavailable.map((u) => `<li><strong>${esc(u.source)}</strong> ${esc(u.reason)}</li>`).join("")}</ul></details>` : ""}
+    const failedN = S.data.people.filter(personFailed).length;
+    return `${failedN && !S.demo ? `<div class="alert">${icon("alert")}<div><strong>${plural(failedN, "person")} couldn't be checked in Apollo</strong><span>Apollo's hourly limit was reached during this check, so their calls, emails and other sequences weren't read. They're in Review until they're rechecked.</span><div class="row-gap mt"><button class="btn primary" data-act="recheck-failed" ${S.collector ? "disabled" : ""}>Recheck ${plural(failedN, "person")}</button></div></div></div>` : ""}${S.result.unavailable.length ? `<details class="notice">${icon("alert")}<summary>${plural(S.result.unavailable.length, "source")} not checked on this run</summary><ul>${S.result.unavailable.map((u) => `<li><strong>${esc(u.source)}</strong> ${esc(u.reason)}</li>`).join("")}</ul></details>` : ""}
       <div class="buckets" role="tablist" aria-label="Buckets">${BUCKETS.map((b) => `<button role="tab" class="bucket b-${b} ${f.bucket === b ? "on" : ""}" data-act="bucket" data-b="${b}" aria-selected="${f.bucket === b}"><span class="b-count">${counts[b]}</span><span class="b-name">${BUCKET_INFO[b].title}</span><span class="b-help">${BUCKET_INFO[b].help}</span></button>`).join("")}</div>
       <div class="toolbar">
         <label class="search">${icon("search")}<input id="f-q" data-act="filter" data-k="q" value="${esc(f.q)}" placeholder="Search name, company, email or title" aria-label="Search"></label>
@@ -896,6 +927,7 @@
         await refreshRuns(); break;
       }
       case "stop-run": if (S.collector) S.collector.stop(); break;
+      case "recheck-failed": await recheckFailed(); return;
       case "bucket": S.filters.bucket = t.dataset.b; S.filters.keep = ""; S.limit = 300; S.selected.clear(); break;
       case "keep-group": S.filters.keep = t.dataset.v; break;
       case "toggle-filters": S.showFilters = !S.showFilters; break;
