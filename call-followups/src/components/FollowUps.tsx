@@ -15,6 +15,9 @@ import {
   buildDraftPrompt,
   checkDraft,
   draftSource,
+  draftBasis,
+  DRAFT_BASIS_LABEL,
+  looksLikeTranscript,
   filterCalls,
   findBannedPhrases,
   findOutcomeByName,
@@ -554,6 +557,10 @@ function DraftPanel({
 
   const working: FollowUp = { ...row, pastedNotes: pasted };
   const canDraft = hasDraftSource(working);
+  const pastedIsTranscript = looksLikeTranscript(pasted);
+  const [basis, setBasis] = useState(row.draftBasis);
+  // Pasted a transcript after the first draft was written from the summary.
+  const transcriptNotUsedYet = pastedIsTranscript && basis !== "transcript";
   const check = body ? checkDraft(subject, body, working) : null;
 
   function commit(patch: Partial<FollowUp>) {
@@ -596,12 +603,17 @@ function DraftPanel({
     setSubject(out.subject);
     setBody(out.body);
     setSource(used);
+    const usedBasis = used === "template" && draftBasis(working) === "transcript"
+      ? (row.summary.trim() ? "summary" : undefined)
+      : draftBasis(working) || undefined;
+    setBasis(usedBasis);
     onSave({
       ...row,
       pastedNotes: pasted,
       draftSubject: out.subject,
       draftBody: out.body,
       draftSource: used,
+      draftBasis: usedBasis,
       draftedAt: new Date().toISOString(),
       status: row.status === "new" ? "drafted" : row.status,
     });
@@ -667,17 +679,27 @@ function DraftPanel({
           {row.summary ? <p>{row.summary}</p> : <p className="fu-muted">Trellus didn't leave a summary on this call.</p>}
           {row.leadNote && <p className="fu-muted"><strong>Lead note:</strong> {row.leadNote}</p>}
           <label className="fu-label" style={{ display: "block" }}>
-            {row.summary ? "Add or correct notes (optional; used instead of the summary)" : "Paste notes from the recording"}
+            Paste the Trellus transcript or your own notes
+            <span className="fu-muted" style={{ fontWeight: 400 }}>
+              {row.trellusUrl ? "Open the recording, copy its transcript and paste it here. " : ""}
+              Whatever you paste is used instead of the summary above.
+            </span>
             <textarea
               className="field"
-              rows={3}
+              rows={pasted ? 8 : 4}
               value={pasted}
               onChange={(e) => setPasted(e.target.value)}
               onBlur={() => commit({})}
-              placeholder="What they asked for, what you agreed to…"
+              placeholder="Paste the call transcript, or a few notes on what they asked for and what you agreed to"
+              aria-label="Transcript or notes"
               style={{ width: "100%", height: "auto", marginTop: 4 }}
             />
           </label>
+          {pasted.trim() && (
+            <div className="fu-muted" style={{ fontSize: 12 }}>
+              {pastedIsTranscript ? "Reads as a transcript, so the email will be written from what was said on the call." : "Reads as notes."}
+            </div>
+          )}
         </section>
 
         <section className="fu-email">
@@ -693,7 +715,7 @@ function DraftPanel({
             <span>
               Body{" "}
               {source === "template" && <span className="status-pill neutral">Template draft</span>}
-              {source === "ai" && <span className="status-pill info">Drafted from the call</span>}
+              {source === "ai" && basis && <span className="status-pill info">{DRAFT_BASIS_LABEL[basis]}</span>}
             </span>
             <textarea
               className="field"
@@ -725,7 +747,7 @@ function DraftPanel({
           </button>
           <button className="btn btn-secondary" onClick={copy} disabled={!body || !!busy}>Copy</button>
           <button className="btn btn-secondary" onClick={() => generate("ai")} disabled={!!busy || !canDraft}>
-            {body ? "Regenerate" : "Draft"}
+            {transcriptNotUsedYet ? "Redraft from transcript" : body ? "Regenerate" : "Draft"}
           </button>
           <button className="btn btn-ghost" onClick={() => generate("template")} disabled={!!busy || !canDraft} title="Fill the structure from the call notes without Claude">
             Template

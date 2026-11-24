@@ -1,7 +1,7 @@
 import {
   parseTrellusNote, resolveRange, filterCalls, latestCallPerContact, toFollowUp, mergeFollowUp,
   findBannedPhrases, checkDraft, templateDraft, buildDraftPrompt, parseDraftJson, findOutcomeByName,
-  hasDraftSource, openerLine, CLOSER_LINE, groupOutcomes, NO_OUTCOME, type ApolloCall, type CallOutcomeFacet,
+  hasDraftSource, openerLine, CLOSER_LINE, groupOutcomes, NO_OUTCOME, looksLikeTranscript, draftBasis, type ApolloCall, type CallOutcomeFacet,
 } from "../../src/lib/followups";
 
 let bad = 0;
@@ -115,6 +115,30 @@ chk("rejects junk", parseDraftJson("no json here") === null);
 
 const neil = checkDraft("x", "Hey, we can leverage https://x.com", f);
 chk("checker flags banned word, link, missing name", neil.banned.includes("leverage") && neil.hasUrl && neil.problems.some((x) => /greet/.test(x)));
+
+console.log("\nTranscript drafting");
+const TRANSCRIPT = [
+  "00:02 Jack: Hey Dana, it's Jack, did I catch you at a bad time?",
+  "00:05 Dana: No, go ahead.",
+  "00:20 Dana: Honestly SL 2018 is killing us on inventory. We can't see stock across the three warehouses.",
+  "00:41 Jack: Are you looking at Business Central?",
+  "00:44 Dana: Business Central and NetSuite. NetSuite demo is on the 9th.",
+  "01:10 Dana: Send me something on how you'd handle the warehouse piece and let's talk after the demo.",
+].join("\n");
+chk("speaker-by-speaker text reads as a transcript", looksLikeTranscript(TRANSCRIPT));
+chk("two lines of notes do not", !looksLikeTranscript("Wants BC pricing. Call back after demo."));
+const withT = { ...f, pastedNotes: TRANSCRIPT };
+chk("basis is transcript when one is pasted", draftBasis(withT) === "transcript");
+chk("basis is notes for short notes", draftBasis({ ...f, pastedNotes: "Wants BC pricing" }) === "notes");
+chk("basis is summary with nothing pasted", draftBasis(f) === "summary");
+const tp = buildDraftPrompt(withT, "Jack");
+chk("prompt hands Claude the transcript as a transcript", tp.includes("CALL TRANSCRIPT") && tp.includes("three warehouses"));
+chk("prompt keeps the Trellus summary as orientation only", /TRELLUS SUMMARY \(orientation only/.test(tp) && tp.includes("Dynamics SL 2018"));
+chk("prompt says only agreed next steps count", /only counts as a next step if the prospect agreed/.test(tp));
+chk("prompt still fixes Jack's opener and closer", tp.includes(openerLine("Dana")) && tp.includes(CLOSER_LINE));
+const tt = templateDraft(withT, "Jack");
+chk("template never dumps raw transcript lines into the email", !/\d{1,2}:\d{2}/.test(tt.body) && !/Jack:/.test(tt.body), tt.body);
+chk("template falls back to the summary for a transcript", /evaluating NetSuite/.test(tt.body), tt.body);
 
 console.log("\nDispositions (multi-select)");
 const REAL: CallOutcomeFacet[] = [

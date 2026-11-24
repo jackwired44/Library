@@ -140,6 +140,21 @@ const MOCK = () => {
   ok('prompt sent the call summary, not the AI research blobs', /Dynamics SL/.test(prompt) && !/SECTION 1/.test(prompt));
   ok('draft marked as drafted from the call', /Drafted from the call/.test(await page.locator('.fu-drawer').innerText()));
 
+  ok('first draft says it came from the call summary', /Drafted from the call summary/.test(await page.locator('.fu-drawer').innerText()));
+  // Paste a transcript, redraft from it.
+  await page.locator('textarea[aria-label="Transcript or notes"]').fill([
+    '00:02 Jack: Hey Dana, it is Jack.',
+    '00:05 Dana: Go ahead.',
+    '00:20 Dana: SL is killing us on inventory across the three warehouses.',
+    '01:10 Dana: Send me something on the warehouse piece and we talk after the demo.',
+  ].join('\n'));
+  await sleep(200);
+  ok('panel recognises the transcript', /Reads as a transcript/.test(await page.locator('.fu-drawer').innerText()));
+  ok('button offers to redraft from the transcript', await page.locator('.fu-drawer button:has-text("Redraft from transcript")').count() === 1);
+  await page.click('.fu-drawer button:has-text("Redraft from transcript")'); await sleep(900);
+  const tprompt = await page.evaluate(() => window.__prompt || '');
+  ok('redraft sent the transcript to Claude', /CALL TRANSCRIPT/.test(tprompt) && /three warehouses/.test(tprompt));
+  ok('draft now says it came from the transcript', /Drafted from the transcript/.test(await page.locator('.fu-drawer').innerText()));
   await page.click('button:has-text("Create Outlook draft")'); await sleep(900);
   const od = await page.evaluate(() => window.__calls.find((c) => c.tool === 'outlook_create_draft'));
   ok('Outlook draft created with to/subject/text body', od && od.input.to[0] === 'dana@acmemfg.com' && od.input.bodyType === 'text' && /Hi Dana/.test(od.input.body), JSON.stringify(od?.input || {}).slice(0, 200));

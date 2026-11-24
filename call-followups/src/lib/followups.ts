@@ -266,6 +266,8 @@ export interface FollowUp {
   draftSubject?: string;
   draftBody?: string;
   draftSource?: "ai" | "template";
+  // What the draft was written from, so the panel can say so.
+  draftBasis?: DraftBasis;
   draftedAt?: string;
   outlookDraftId?: string;
   outlookWebLink?: string;
@@ -300,7 +302,7 @@ export function toFollowUp(call: ApolloCall, count: number, facets: CallOutcomeF
 }
 
 const STICKY: (keyof FollowUp)[] = [
-  "status", "pastedNotes", "draftSubject", "draftBody", "draftSource",
+  "status", "pastedNotes", "draftSubject", "draftBody", "draftSource", "draftBasis",
   "draftedAt", "outlookDraftId", "outlookWebLink", "sentAt",
 ];
 
@@ -322,6 +324,35 @@ export function draftSource(f: FollowUp): string {
 }
 
 export const hasDraftSource = (f: FollowUp) => draftSource(f).length > 0;
+
+// A pasted Trellus transcript reads very differently from a few notes:
+// long, and speaker-by-speaker ("Jack: …", "00:41 Neil: …"). Detected so
+// the prompt can treat it as a raw conversation to read, not as notes.
+export type DraftBasis = "transcript" | "notes" | "summary";
+
+export function looksLikeTranscript(text: string): boolean {
+  const t = (text || "").trim();
+  if (!t) return false;
+  const speakerLines = (t.match(/^\s*(?:\[?\d{1,2}:\d{2}(?::\d{2})?\]?\s*)?[A-Z][\w .'-]{0,30}:\s/gm) || []).length;
+  const stamps = (t.match(/\b\d{1,2}:\d{2}(?::\d{2})?\b/g) || []).length;
+  return speakerLines >= 3 || stamps >= 3 || t.length >= 600;
+}
+
+export function draftBasis(f: FollowUp): DraftBasis | null {
+  const pasted = (f.pastedNotes || "").trim();
+  if (pasted) return looksLikeTranscript(pasted) ? "transcript" : "notes";
+  return f.summary.trim() ? "summary" : null;
+}
+
+export const DRAFT_BASIS_LABEL: Record<DraftBasis, string> = {
+  transcript: "Drafted from the transcript",
+  notes: "Drafted from your notes",
+  summary: "Drafted from the call summary",
+};
+
+// Long enough for a 30+ minute call; anything past it is almost always
+// hold music, a voicemail tail or a second call stitched on.
+export const MAX_TRANSCRIPT_CHARS = 40000;
 
 /* ------------------------------------------------------------------ */
 /* Drafting rules                                                      */
@@ -396,6 +427,16 @@ export function normalizeBody(body: string): string {
 
 export function buildDraftPrompt(f: FollowUp, senderFirstName: string): string {
   const greetingName = f.firstName;
+  const basis = draftBasis(f);
+  const transcript = basis === "transcript";
+  const source = transcript
+    ? [
+        `CALL TRANSCRIPT (raw and word for word; ${senderFirstName || "the rep"} is the rep, ${greetingName || "the prospect"} is the prospect):`,
+        (f.pastedNotes || "").trim().slice(0, MAX_TRANSCRIPT_CHARS),
+        ``,
+        f.summary.trim() ? `TRELLUS SUMMARY (orientation only; where it disagrees with the transcript, the transcript wins):\n${f.summary.trim()}\n` : "",
+      ]
+    : [`CALL NOTES (${basis === "notes" ? "written by the rep after the call" : "from the call recording summary"}):`, draftSource(f), ``];
   return [
     `You are ${senderFirstName || "the rep"}, a salesperson at Wired CIO, an IT company that does Microsoft Dynamics 365 / Business Central implementations, custom CRM/ERP builds and integrations, Microsoft 365 and Azure, managed IT, backup, and compliance support for small and midsize businesses.`,
     `You just got off a phone call. Write the follow-up email you would type yourself right after hanging up.`,
@@ -413,11 +454,15 @@ export function buildDraftPrompt(f: FollowUp, senderFirstName: string): string {
     `- Never use these words or phrases: ${BANNED_PHRASES.join(", ")}.`,
     `- No fear or urgency language. No made-up pain points, numbers, or claims about competitors.`,
     `- If the notes are thin, write a shorter email. Don't pad.`,
+    ...(transcript
+      ? [
+          `- This is a raw transcript. Build the recap and next steps from what ${greetingName || "the prospect"} actually said, in their phrasing. A detail they cared about (a system, a date, a number, a problem in their words) is worth more than a general summary.`,
+          `- Ignore greetings, small talk, voicemail, hold music and transcription glitches. Something the rep proposed only counts as a next step if the prospect agreed to it on the call.`,
+        ]
+      : []),
     `- Subject: 2 to 5 words, all lowercase, specific to this call (e.g. "business central next steps"), never salesy.`,
     ``,
-    `CALL NOTES (from the call recording summary):`,
-    draftSource(f),
-    ``,
+    ...source,
     f.leadNote ? `BACKGROUND ON THE LEAD (secondary, use only if it fits):\n${f.leadNote}\n` : "",
     `THEM: ${f.name || "unknown"}${f.title ? `, ${f.title}` : ""}${f.company ? ` at ${f.company}` : ""}.`,
     ``,
@@ -499,7 +544,9 @@ export function toSecondPerson(summary: string, f: FollowUp, senderFirstName: st
 }
 
 export function templateDraft(f: FollowUp, senderFirstName: string): { subject: string; body: string } {
-  const src = draftSource(f);
+  // A raw transcript can't be turned into prose by a rewrite rule. Without
+  // Claude, fall back to Trellus's summary, which is already prose.
+  const src = draftBasis(f) === "transcript" ? f.summary.trim() : draftSource(f);
   const product = PRODUCT_SUBJECTS.find(([re]) => re.test(`${src} ${f.leadNote}`));
   const subject = `${product ? product[1] : "our call"} next steps`;
   const sentences = toSecondPerson(src, f, senderFirstName)

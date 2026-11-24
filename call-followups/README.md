@@ -28,6 +28,19 @@ the drafting source. The recording is a link you open, never scraped.
 Calls with no summary are flagged **No call summary** and take pasted notes
 instead.
 
+**Drafting from the real transcript.** The summary is short and loses the
+detail that makes a follow-up specific. In the draft panel, open the
+recording, copy the Trellus transcript and paste it into "Paste the Trellus
+transcript or your own notes", then click **Redraft from transcript**. A
+paste that reads speaker-by-speaker (or is long) is treated as a raw
+transcript: Claude builds the recap and next steps from what the prospect
+actually said, ignores small talk and voicemail, and counts a next step
+only if the prospect agreed to it. The Trellus summary is still passed
+along, for orientation only. The panel labels which source each draft came
+from (transcript, your notes, or the call summary). Without Claude, the
+template draft falls back to the summary rather than rewriting raw
+transcript lines.
+
 ## The email
 
 Always this structure, in plain text, 60 to 120 words:

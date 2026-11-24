@@ -4423,6 +4423,15 @@ cached for display, grouped Reached / Didn't reach / Other, any number
 ticked (none = any). Calls with no outcome are selectable as "No
 Disposition" (Apollo's `other` facet). Details in `call-followups/README.md`.
 
+**Draft from the Trellus transcript, per Jack** ("use the trellus audio
+transcript to build the email"). Apollo holds no transcript for Trellus
+calls and there is no Trellus connector, so the tool cannot fetch one.
+Instead the draft panel takes a pasted transcript, detects it
+(`looksLikeTranscript`), and drafts from what was said, with the Trellus
+summary passed as orientation only. Each draft is labeled with its source
+(`draftBasis`). A direct Trellus pull would need a Trellus API plus a
+server to hold credentials; not built.
+
 **No sign-in screen, per Jack ("remove login").** The tool's password gate
 was removed entirely. The artifact (`claude.ai/artifact/P84tVYPKrJu4qT6nYpSSyJ`)
 is private to Jack's claude.ai account, and that login is its access
