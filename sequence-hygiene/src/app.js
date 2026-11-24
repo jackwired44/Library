@@ -11,6 +11,7 @@
   const initials = (n) => (n || "?").split(/\s+/).filter(Boolean).slice(0, 2).map((x) => x[0].toUpperCase()).join("");
   const CHUNK = 15;
   const PARALLEL = 4; // people or companies checked at the same time
+  const TAB_ID = `tab-${Math.random().toString(36).slice(2)}`;
   const ACTIONS = { remove: "Remove", keep: "Keep", move: "Move to another sequence", followup: "Follow up manually", skip: "Skip for now" };
   const BUCKETS = ["REMOVE", "REVIEW", "KEEP", "CONFLICTS"];
   const BUCKET_INFO = {
@@ -21,7 +22,7 @@
   };
   const PHASES = [
     ["sequences", "Read your Apollo sequences"], ["snapshot", "Read everyone in the sequence"], ["colleagues", "Read your live call sequences"],
-    ["people", "Check each person: Apollo calls, email, duplicates, HubSpot"], ["companies", "Check each company: Switchboard, Echo, HubSpot, Outlook"], ["done", "Done"],
+    ["people", "Check each person: Apollo calls and dispositions, Trellus summaries, email, duplicates, HubSpot"], ["companies", "Check each company: Apollo calls and Trellus summaries for anyone there, Apollo stages, Switchboard, Echo, HubSpot, Outlook"], ["done", "Done"],
   ];
   const CONNECTOR_INFO = {
     "Apollo.io": { short: "Apollo", what: "Contacts, sequences, calls, emails, stages, deals. Also where removals are written." },
@@ -45,7 +46,7 @@
   // ---------- storage ----------
   function memoryStore() {
     const m = new Map();
-    return { async get(id) { return m.has(id) ? clone(m.get(id)) : null; }, async set(id, v) { m.set(id, clone(v)); }, async del(id) { m.delete(id); },
+    return { async get(id) { return m.has(id) ? clone(m.get(id)) : null; }, async set(id, v) { m.set(id, clone(v)); }, async del(id) { m.delete(id); }, async lease() { return true; },
       async listRuns() { return [...m.values()].filter((v) => v.kind === "run").map(clone); } };
   }
   function dbStore(db, uid) {
@@ -56,6 +57,7 @@
       async get(id) { const s = await col.doc(id).get(); return s.exists ? clone(s.data()) : null; },
       async set(id, v) { const body = clone(v); const prev = queue.get(id) || Promise.resolve(); const p = prev.then(() => col.doc(id).set(body)); queue.set(id, p.catch(() => {})); return p; },
       async del(id) { await col.doc(id).delete(); },
+      async lease(id, holder, ttlMs) { try { const r = await col.doc(id).acquire({ holder, ttlMs }); return !!r.acquired; } catch { return true; } },
       async listRuns() { const snap = await col.where("kind", "==", "run").get(); return snap.docs.map((d) => clone(d.data())); },
     };
   }
@@ -184,6 +186,8 @@
   async function startRun() {
     const seq = S.sequences && S.sequences[S.newRun.seqId];
     if (!seq) return;
+    await refreshRuns();
+    if (S.runs.some((r) => r.targetId === seq.id && liveElsewhere(r))) { S.toast = "A check of this sequence is already running in another tab or window."; render(); return; }
     if (S.perms && C.MANIFEST.some((m) => S.permStates[m.server] === "prompt")) await allowAll();
     const product = S.newRun.product || guessProduct(seq.name);
     const id = `${Date.now().toString(36)}`;
@@ -247,8 +251,18 @@
 
   async function runPipeline() {
     const d = S.data, meta = d.meta;
+    // One tab at a time per check: a second tab running the same check doubles every call and
+    // gets both throttled.
+    const holder = TAB_ID;
+    if (!(await S.store.lease(`lock__${meta.id}`, holder, 90000))) {
+      S.toast = "This check is already running in another tab or window. Close the other one, or wait for it to finish.";
+      render(); return;
+    }
     const col = new C.Collector({ mcp: S.mcp, store: S.store, cfg: S.cfg });
+    col.onWait = (t) => logLine(t);
     S.collector = col;
+    const beat = setInterval(() => { S.store.lease(`lock__${meta.id}`, holder, 90000); meta.heartbeat = Date.now(); S.store.set(`run__${meta.id}`, meta).catch(() => {}); }, 30000);
+    meta.heartbeat = Date.now();
     S.progress = { label: "Starting", done: 0, total: 1, log: [] };
     meta.status = "running"; meta.resumeAt = null; meta.error = null;
     render();
@@ -333,6 +347,10 @@
         catch (e) { if (e instanceof C.BudgetHit || e instanceof C.Stopped) throw e; if (!markDown(e)) logLine(`Echo bulk read failed, checking company by company: ${e.message}`); }
         try { setProgress("Reading HubSpot clients and deal companies", 0, 1); bulk.hubspot = await C.bulkHubspot(col); }
         catch (e) { if (e instanceof C.BudgetHit || e instanceof C.Stopped) throw e; if (!markDown(e)) logLine(`HubSpot bulk read failed, checking company by company: ${e.message}`); }
+        try { setProgress("Reading Apollo calls where someone was reached (dispositions and Trellus summaries)", 0, 1); bulk.calls = await C.bulkCalls(col, S.cfg, (n) => setProgress("Reading Apollo calls where someone was reached (dispositions and Trellus summaries)", n, n)); }
+        catch (e) { if (e instanceof C.BudgetHit || e instanceof C.Stopped) throw e; if (!markDown(e)) meta.notChecked.push({ source: "Apollo calls (company)", reason: e.message }); }
+        try { setProgress("Reading Apollo contacts in contact-made stages", 0, 1); bulk.stages = await C.bulkStageContacts(col, S.cfg); }
+        catch (e) { if (e instanceof C.BudgetHit || e instanceof C.Stopped) throw e; if (!markDown(e)) meta.notChecked.push({ source: "Apollo stages (company)", reason: e.message }); }
         const coItems = await loadChunks("co", meta.id, (meta.chunks && meta.chunks.co) || 0);
         coItems.length = Math.min(coItems.length, meta.cursor);
         const checkCompany = async (c) => {
@@ -372,6 +390,7 @@
           meta.autoRetried = true; meta.retryList = failedIdx; meta.phase = "people"; meta.cursor = 0;
           await S.store.set(`run__${meta.id}`, meta);
           logLine(`${plural(failedIdx.length, "person")} couldn't be checked in Apollo. Rechecking them now.`);
+          clearInterval(beat);
           S.collector = null;
           return runPipeline();
         }
@@ -386,6 +405,7 @@
       else { meta.status = "error"; meta.error = e.message || String(e); logLine(`Stopped on an error: ${meta.error}`); }
       try { await S.store.set(`run__${meta.id}`, meta); await col.saveBudget(); } catch { /* keep going */ }
     }
+    clearInterval(beat);
     S.collector = null;
     await refreshConnectors();
     await refreshRuns();
@@ -612,7 +632,9 @@
       <div class="side-conn"><div class="eyebrow">Sources</div><ul>${conns}</ul>${needAllow ? `<button class="btn sm block" data-act="allow-all">${icon("plug")}Allow all sources</button>` : ""}</div></aside>`;
   }
   const isLive = (r) => S.collector && S.data && S.data.meta.id === r.id;
+  const liveElsewhere = (r) => r.status === "running" && !isLive(r) && r.heartbeat && Date.now() - r.heartbeat < 120000;
   function runStatusText(r) {
+    if (liveElsewhere(r)) return "Running in another tab or window.";
     if (r.status === "running" && !isLive(r)) return "Interrupted before it finished. Resume to pick up where it stopped.";
     if (r.status === "done") return `${plural(r.counts && r.counts.people != null ? r.counts.people : 0, "contact")} · checked ${fmtDate(r.finishedAt || r.createdAt)}`;
     if (r.status === "paused") return r.resumeAt && R.toMs(r.resumeAt) > Date.now()

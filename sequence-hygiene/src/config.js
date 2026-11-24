@@ -44,6 +44,10 @@
       "6a73ee5976e5ba001c169964": "Review + Email",
     },
     disabledRules: [],
+    // Words searched in Apollo call notes to find calls where someone was reached, for the company check.
+    // Trellus writes its AI summary into the note, so these find conversations no matter the disposition.
+    callKeywords: ["Wired CIO", "spoke", "stated", "said", "asked", "meeting", "interested", "demo", "pricing", "quote", "evaluating", "follow up", "call back"],
+    callKeywordPages: 10,
     okStages: {
       "6a73bd924f135d0014ac11a0": "Follow Up",
       "6a65319835213500203822ef": "Open",

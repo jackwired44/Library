@@ -72,6 +72,19 @@
       this.down = {}; // source -> reason, for the whole run
       this.stopFlag = false;
       this.budget = { stamps: {} };
+      this.inflight = {}; this.waiters = {};
+    }
+    // Per-source cap on calls in flight. Outlook (Microsoft Graph) throttles hard, so it gets 2.
+    async slot(key) {
+      const cap = key === "m365" ? 2 : 4;
+      this.inflight[key] = this.inflight[key] || 0;
+      while (this.inflight[key] >= cap) await new Promise((r) => (this.waiters[key] = this.waiters[key] || []).push(r));
+      this.inflight[key] += 1;
+    }
+    free(key) {
+      this.inflight[key] -= 1;
+      const w = (this.waiters[key] || []).shift();
+      if (w) w();
     }
     stop() { this.stopFlag = true; }
 
@@ -101,7 +114,13 @@
       const server = SERVERS[key];
       if (this.down[key]) throw new SourceDown(key, "down", this.down[key]);
       if (key === "apollo") this.spend(tool);
+      await this.slot(key);
+      try { return await this.callInner(key, server, tool, input, write); } finally { this.free(key); }
+    }
+    async callInner(key, server, tool, input, write) {
+      let throttled = 0;
       for (let attempt = 0; attempt < 2; attempt++) {
+        if (this.stopFlag) throw new Stopped();
         try {
           // Reads get a time limit so one slow source can't stall a whole check. Writes never do:
           // a cancelled write has an unknown outcome.
@@ -115,6 +134,15 @@
             throw new SourceDown(key, code, this.down[key]);
           }
           const text = `${(e && e.message) || ""} ${JSON.stringify((e && e.result) || "")}`;
+          // A source asking us to slow down (Microsoft Graph 429 and similar): wait as asked, then retry.
+          if (!write && key !== "apollo" && /RATE_LIMITED|TooManyRequests|Too many requests|\b429\b/i.test(text) && throttled < 4) {
+            const m = text.match(/(?:retryAfterSeconds|graphRetryAfterSeconds)\\?"?\s*:\s*(\d+)/) || text.match(/wait of (\d+) seconds/i);
+            const waitS = Math.min(m ? Number(m[1]) : 30, 120);
+            throttled += 1; attempt -= 1;
+            if (this.onWait) this.onWait(`${server} asked to slow down; waiting ${waitS}s`);
+            await sleep(waitS * 1000 + Math.random() * 1500);
+            continue;
+          }
           if (/RATE_LIMIT|maximum number of api calls/i.test(text)) {
             const m = text.match(/retry_after_seconds\\?"?\s*:\s*(\d+)/) || text.match(/Wait (\d+) seconds/i);
             throw new BudgetHit(tool, Date.now() + ((m ? Number(m[1]) : 3600) + 30) * 1000);
@@ -289,6 +317,14 @@
       found.checks.HubSpot = { state: "checked" };
     } catch (e) { found.checks.HubSpot = failState(e); }
 
+    // Apollo calls and stages for anyone at the company (from the bulk reads)
+    for (const [label, idx] of [["calls", bulk && bulk.calls], ["stages", bulk && bulk.stages]]) {
+      if (!idx) continue;
+      const hits = [...(idx.byKey.get(company.key) || []), ...(!freeDomain && company.domain ? idx.byDomain.get(company.domain) || [] : [])];
+      for (const e of [...new Set(hits)]) found.sources.push({ ...e, companyKey: company.key, domain: freeDomain ? null : company.domain });
+      found.checks[label === "calls" ? "Apollo calls (company)" : "Apollo stages (company)"] = { state: "checked" };
+    }
+
     // Outlook: anything they (or anyone at their domain) wrote to us, in each mailbox
     try {
       const mailboxes = [null].concat(cfg.extraMailboxes || []);
@@ -366,6 +402,56 @@
     return { byKey, byDomain };
   }
 
+  // Every Apollo call whose outcome or written (Trellus) summary shows we reached someone, found by
+  // searching call notes. Reading all calls (tens of thousands, mostly No Answer) would use Apollo's
+  // whole hourly allowance; the note search returns only calls that have something written.
+  async function bulkCalls(col, cfg, onProgress) {
+    const byKey = new Map(), byDomain = new Map(), seen = new Set();
+    let read = 0;
+    const add = (map, k, e) => { if (!k) return; if (!map.has(k)) map.set(k, []); map.get(k).push(e); };
+    for (const kw of cfg.callKeywords || []) {
+      for (let page = 1; page <= (cfg.callKeywordPages || 10); page++) {
+        const { payload } = await col.call("apollo", "apollo_phone_calls_search", { q_keywords: kw, per_page: 100, page, sort_by_field: "start_time" });
+        const calls = (payload && payload.phone_calls) || [];
+        for (const raw of calls) {
+          if (seen.has(raw.id)) continue;
+          seen.add(raw.id); read += 1;
+          const r = R.adaptApolloCall(raw, [raw.contact_id]);
+          if (!r.ok) continue;
+          const cls = R.classifyCall(r.call, cfg);
+          if (!(cls.connected || (cls.effect === "remove" && cls.status !== "touched"))) continue;
+          const c = raw.contact || {}, acc = raw.account || {};
+          const e = { fromPersonId: raw.contact_id, kind: "contact", source: r.call.trellusUrl ? "Trellus summary (in Apollo call note)" : "Apollo calls",
+            reason: `${c.name || "A colleague"} (${c.title || "contact"}): ${cls.reason}`, at: r.call.at, link: r.call.trellusUrl || r.call.link };
+          add(byKey, R.companyKey(c.organization_name || acc.name || ""), e);
+          add(byDomain, R.normDomain(acc.domain || "") || R.emailDomain(c.email || ""), e);
+        }
+        if (onProgress) onProgress(read);
+        const pg = payload && payload.pagination;
+        if (!pg || page >= pg.total_pages || !calls.length) break;
+      }
+    }
+    return { byKey, byDomain };
+  }
+  async function bulkStageContacts(col, cfg) {
+    const byKey = new Map(), byDomain = new Map();
+    const add = (map, k, e) => { if (!k) return; if (!map.has(k)) map.set(k, []); map.get(k).push(e); };
+    const stageIds = Object.keys(cfg.removeStages || {});
+    if (!stageIds.length) return { byKey, byDomain };
+    for (let page = 1; page <= 20; page++) {
+      const { payload } = await col.call("apollo", "apollo_contacts_search", { contact_stage_ids: stageIds, per_page: 100, page,
+        fields: [{ contacts: ["id", "name", "title", "email", "organization_name", "contact_stage_id", { account: ["name", "domain"] }] }] });
+      for (const c of (payload && payload.contacts) || []) {
+        const e = { fromPersonId: c.id, kind: "contact", source: "Apollo contacts", reason: `${c.name || "A colleague"} is at Apollo stage ${cfg.removeStages[c.contact_stage_id] || "?"}`, link: `https://app.apollo.io/#/contacts/${c.id}` };
+        add(byKey, R.companyKey(c.organization_name || (c.account && c.account.name) || ""), e);
+        add(byDomain, R.normDomain((c.account && c.account.domain) || "") || R.emailDomain(c.email || ""), e);
+      }
+      const pg = payload && payload.pagination;
+      if (!pg || page >= pg.total_pages) break;
+    }
+    return { byKey, byDomain };
+  }
+
   // HubSpot contact record: client lifecycle or deals on the person.
   async function hubspotPerson(col, p) {
     if (!p.email) return;
@@ -412,7 +498,7 @@
       done += 1;
       if (onProgress) onProgress(done, total);
     };
-    await pool(Array.from({ length: total }, (_, m) => m), 4, month);
+    await pool(Array.from({ length: total }, (_, m) => m), 2, month);
     return { byEmail, byDomain };
   }
 
@@ -435,6 +521,6 @@
 
   root.SH_COLLECT = {
     SERVERS, MANIFEST, ALWAYS_UNAVAILABLE, OWN_DOMAINS, Collector, pool, SourceDown, BudgetHit, Stopped, blocks,
-    listSequences, sequenceContacts, apolloPerson, companySources, bulkEcho, bulkHubspot, hubspotPerson, calendarIndex, removeOrStop, addToSequence,
+    listSequences, sequenceContacts, apolloPerson, companySources, bulkEcho, bulkHubspot, bulkCalls, bulkStageContacts, hubspotPerson, calendarIndex, removeOrStop, addToSequence,
   };
 })(typeof window !== "undefined" ? window : globalThis);
