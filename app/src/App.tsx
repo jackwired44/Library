@@ -164,7 +164,6 @@ const NAV_GROUPS: { group: string | null; items: NavDest[] }[] = [
     items: [
       { key: "engage", tab: "tasks", label: "Tasks", icon: "\u2705", count: "tasks" },
       { key: "engage", tab: "calls", label: "Calls", icon: "\u{1F4DE}", count: "calls" },
-      { key: "engage", tab: "followups", label: "Follow-ups", icon: "\u{1F4DD}" },
     ],
   },
   {

@@ -31,7 +31,6 @@ import {
   STORE_DISPOSITIONS,
   STORE_COMPANY_PROFILES,
   STORE_OUTREACH_ATTEMPTS,
-  STORE_FOLLOWUPS,
 } from "./db";
 
 // Every store BEYOND the three v1 already carried, with the key each one
@@ -45,7 +44,6 @@ export const EXTRA_STORES: { store: string; key: string; label: string }[] = [
   { store: STORE_SEQUENCE_ENROLLMENTS, key: "id", label: "Sequence enrollments" },
   { store: STORE_SEQUENCE_GROUPS, key: "id", label: "Sequence groups" },
   { store: STORE_OUTREACH_ATTEMPTS, key: "id", label: "Outreach attempts" },
-  { store: STORE_FOLLOWUPS, key: "callId", label: "Call follow-ups" },
   { store: STORE_COMPANY_PROFILES, key: "key", label: "Company profiles" },
   { store: STORE_DISPOSITIONS, key: "id", label: "Custom dispositions" },
   { store: STORE_EMAIL_ACCOUNTS, key: "id", label: "Email accounts" },

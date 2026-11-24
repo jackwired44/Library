@@ -1,5 +1,4 @@
-// Committed regression suite. Run via `npm run suites` or standalone with
-// `node scripts/suites/followups.cjs`.
+// Unit suite. Run with `npm run test:unit`.
 //
 // Follow-ups: Trellus note parsing, local-day ranges, call selection,
 // one-row-per-contact, sticky merge, the banned-word checker, and the

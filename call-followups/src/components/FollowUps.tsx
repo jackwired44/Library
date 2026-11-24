@@ -38,15 +38,12 @@ import {
   loadApolloUsers,
   pullCallsSince,
 } from "../lib/apolloCalls";
-import { loadProfile } from "../lib/profile";
-import { buildContactIndex, lookupContact, type Contact } from "../lib/contacts";
-import type { AttemptChannel } from "../lib/outreachAttempts";
 import LocalTime from "./LocalTime";
 import { useNow } from "../lib/useNow";
 
 interface Props {
-  contacts: Contact[];
-  onLogAttempt: (input: { contactId: string; channel: AttemptChannel; outcome?: string; note?: string }) => void;
+  // Called when a lead is marked sent, so a host app can log it elsewhere.
+  onMarkedSent?: (row: FollowUp) => void;
 }
 
 const PREF_KEY = "followups.prefs";
@@ -82,7 +79,7 @@ function fmtCall(iso: string): string {
   return `${d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} · ${d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
 }
 
-export default function FollowUps({ contacts, onLogAttempt }: Props) {
+export default function FollowUps({ onMarkedSent }: Props) {
   const now = useNow();
   const saved = useMemo(readPrefs, []);
   const [preset, setPreset] = useState<RangePreset>(saved.preset || "last7");
@@ -108,7 +105,6 @@ export default function FollowUps({ contacts, onLogAttempt }: Props) {
 
   useEffect(() => {
     loadFollowUps().then(setRows).catch((e) => setLoadError(String(e?.message || e)));
-    loadProfile().then((p) => setSenderFirst((p.name || "").trim().split(/\s+/)[0] || "")).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -169,6 +165,7 @@ export default function FollowUps({ contacts, onLogAttempt }: Props) {
         usersNow = u.users;
         setMe(u.me);
         setUsers(u.users);
+        if (u.me?.name) setSenderFirst(u.me.name.split(/\s+/)[0]);
       }
       const uid = userSel === ALL ? null : userSel === ME ? meNow?.id || null : userSel;
       if (userSel === ME && !uid) {
@@ -223,7 +220,7 @@ export default function FollowUps({ contacts, onLogAttempt }: Props) {
     <div>
       <div className="page-head">
         <div>
-          <h1 className="page-title">Follow-ups</h1>
+          <h1 className="page-title">Follow-up queue</h1>
           <p className="page-sub">
             Pull calls by rep, disposition and date, then draft the follow-up email from what was said on the call.
           </p>
@@ -365,13 +362,12 @@ export default function FollowUps({ contacts, onLogAttempt }: Props) {
         <DraftPanel
           key={open.callId}
           row={open}
-          senderFirst={senderFirst || (me?.name || "").split(/\s+/)[0] || ""}
+          senderFirst={(open.callerName || "").trim().split(/\s+/)[0] || senderFirst || (me?.name || "").split(/\s+/)[0] || ""}
           onSave={persist}
           onClose={() => setOpenId(null)}
           onMarkSent={(r) => {
             persist({ ...r, status: "sent", sentAt: new Date().toISOString() });
-            const local = lookupContact(buildContactIndex(contacts), r.name, r.company, r.email);
-            if (local) onLogAttempt({ contactId: local.id, channel: "email", note: `Follow-up: ${r.draftSubject || ""}`.trim() });
+            onMarkedSent?.(r);
             setOpenId(null);
           }}
         />

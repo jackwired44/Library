@@ -2,11 +2,11 @@
 // preview server and runs them all) or standalone with
 // `BASE=http://localhost:4173 xvfb-run -a node <this file>`.
 //
-// Follow-ups tab end to end, with window.claude mocked at the runtime
+// Call Follow-ups end to end, with window.claude mocked at the runtime
 // boundary (Apollo calls/users, Outlook create_draft, and `sample`), in the
 // exact shapes observed from the live connectors. Synthetic data only.
-const BASE = process.env.BASE || 'http://localhost:4173';
-const EXE = process.env.PW_CHROMIUM || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+const BASE = process.env.BASE || 'http://localhost:4174';
+const EXE = process.env.PW_CHROMIUM || undefined;
 const { chromium } = require('playwright');
 let pass = 0, fail = 0;
 const ok = (n, c, d = '') => { c ? (pass++, console.log('  PASS', n)) : (fail++, console.log('  FAIL', n, d)); };
@@ -59,7 +59,7 @@ const MOCK = () => {
 };
 
 (async () => {
-  const b = await chromium.launch({ executablePath: EXE });
+  const b = await chromium.launch(EXE ? { executablePath: EXE } : {});
   const ctx = await b.newContext({ viewport: { width: 1500, height: 950 }, timezoneId: 'America/Chicago', permissions: ['clipboard-read', 'clipboard-write'] });
   await ctx.addInitScript(MOCK);
   const page = await ctx.newPage();
@@ -67,11 +67,10 @@ const MOCK = () => {
   page.on('console', (m) => { if (m.type() === 'error' && !/favicon|font|net::|googleapis|Failed to load resource/i.test(m.text())) errs.push(m.text()); });
   page.on('dialog', (d) => d.accept());
   await page.goto(BASE);
-  await page.fill('input[aria-label="Email"]', 'jack@wiredcio.com'); await page.fill('input[type=password]', 'changeme'); await page.click('button:has-text("Unlock")'); await sleep(900);
+  await sleep(900);
 
-  await page.click('.side-nav-btn:has-text("Follow-ups")'); await sleep(700);
   let t = await page.locator('main').innerText();
-  ok('tab renders with empty state', /Follow-ups/.test(t) && /click Pull calls/i.test(t), t.slice(0, 300));
+  ok('page renders with empty state', /Follow-up queue/.test(t) && /click Pull calls/i.test(t), t.slice(0, 300));
   ok('defaults to Last 7 days', await page.locator('.seg-btn.active').innerText() === 'Last 7 days');
 
   await page.click('button:has-text("Pull calls")'); await sleep(1500);
@@ -136,14 +135,14 @@ const MOCK = () => {
 
   // Persistence across reload
   await page.reload(); await sleep(900);
-  if (await page.locator('input[type=password]').count()) { await page.fill('input[aria-label="Email"]', 'jack@wiredcio.com'); await page.fill('input[type=password]', 'changeme'); await page.click('button:has-text("Unlock")'); await sleep(900); }
-  await page.click('.side-nav-btn:has-text("Follow-ups")'); await sleep(900);
+  await sleep(500);
   t = await page.locator('main').innerText();
   ok('Dana still Drafted after reload', /Dana Reed/.test(t) && /Drafted/.test(t), t.slice(0, 500));
   await page.click('text=Show sent & skipped'); await sleep(400);
   t = await page.locator('main').innerText();
   ok('Priya shows as Sent when included', /Priya Shah/.test(t) && /Sent/.test(t));
 
+  ok('no sign-in screen', (await page.locator('input[type=password]').count()) === 0);
   ok('no page errors', errs.length === 0, errs.slice(0, 2).join(' | '));
   console.log(`\n${pass}/${pass + fail} passed`);
   await b.close(); process.exit(fail ? 1 : 0);

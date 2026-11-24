@@ -2171,23 +2171,3 @@ textarea:focus {
 }
 .integrity-alert ul { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
 .integrity-detail { color: #8A5A52; }
-
-/* ---- Follow-ups (Engage) ---- */
-.fu-label { display: inline-flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
-.fu-muted { color: var(--muted); font-size: 12px; }
-.fu-note { font-size: 13px; color: var(--muted); margin: 8px 0; }
-.fu-error { font-size: 13px; color: var(--danger); margin: 8px 0; }
-.fu-warn { color: var(--warning); }
-.fu-counts { font-size: 13px; margin: 10px 0; }
-.fu-clamp { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; font-size: 13px; line-height: 1.45; }
-.fu-drawer-backdrop { position: fixed; inset: 0; background: rgba(8, 30, 34, 0.35); z-index: 60; display: flex; justify-content: flex-end; }
-.fu-drawer { width: min(620px, 100vw); height: 100%; background: var(--surface); border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: auto; }
-.fu-drawer-head, .fu-drawer-foot { display: flex; align-items: center; gap: 8px; padding: 14px 18px; border-bottom: 1px solid var(--border); }
-.fu-drawer-foot { border-bottom: 0; border-top: 1px solid var(--border); margin-top: auto; position: sticky; bottom: 0; background: var(--surface); flex-wrap: wrap; }
-.fu-drawer-head { justify-content: space-between; }
-.fu-source { margin: 14px 18px 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-sunken); font-size: 13px; line-height: 1.5; }
-.fu-source p { margin: 6px 0; }
-.fu-source-head { display: flex; justify-content: space-between; font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
-.fu-email { display: flex; flex-direction: column; gap: 10px; padding: 14px 18px; }
-.fu-email .fu-label { display: flex; }
-.fu-drawer textarea.field, .fu-source textarea.field { font-family: inherit; font-size: 14px; }

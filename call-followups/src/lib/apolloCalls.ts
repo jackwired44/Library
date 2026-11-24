@@ -7,8 +7,10 @@
 // to get "Info Requested calls in the last 7 days" is to page newest-first
 // and stop once a page reaches past the range start, filtering locally.
 // Call reads cost 0 Apollo credits.
-import { getMcp, describeApolloError } from "./apolloEnrich";
-import type { ClaudeMcpNamespace, ClaudeSampleFn } from "./claudeRuntime";
+import { useCapability, describeConnectorError, type ClaudeMcpNamespace, type ClaudeSampleFn } from "./runtime";
+
+const getMcp = () => useCapability<ClaudeMcpNamespace>("mcp");
+const describeApolloError = (err: unknown) => describeConnectorError(err, "Apollo");
 import type { ApolloCall, CallOutcomeFacet } from "./followups";
 import { callTimeMs } from "./followups";
 
@@ -198,7 +200,7 @@ export async function createOutlookDraft(msg: { to: string; subject: string; bod
   try {
     h = await findTool(mcp, /microsoft|outlook|m365|office/i, "create_draft");
   } catch (err) {
-    throw new FollowUpError(describeApolloError(err).replace(/Apollo/g, "Microsoft 365"));
+    throw new FollowUpError(describeConnectorError(err, "Microsoft 365"));
   }
   if (!h) throw new FollowUpError("Microsoft 365 isn't connected to this page. Use Copy, or connect it in claude.ai Settings → Connectors.");
   const input: Record<string, unknown> = { subject: msg.subject, body: msg.body, bodyType: "text" };
@@ -207,7 +209,7 @@ export async function createOutlookDraft(msg: { to: string; subject: string; bod
   try {
     p = payloadOf(await mcp.callTool(h.server, h.tool, input));
   } catch (err) {
-    throw new FollowUpError(describeApolloError(err).replace(/Apollo/g, "Microsoft 365"));
+    throw new FollowUpError(describeConnectorError(err, "Microsoft 365"));
   }
   // The documented response is "the draft's immutable message id and a
   // webLink". Exact key names were not observed (creating a real draft just
@@ -228,12 +230,7 @@ export async function createOutlookDraft(msg: { to: string; subject: string; bod
 /* ------------------------------------------------------------------ */
 
 export async function getSample(): Promise<ClaudeSampleFn | null> {
-  try {
-    if (typeof window === "undefined" || !window.claude?.use) return null;
-    return await window.claude.use("sample");
-  } catch {
-    return null;
-  }
+  return useCapability<ClaudeSampleFn>("sample");
 }
 
 export function describeSampleError(err: unknown): string {

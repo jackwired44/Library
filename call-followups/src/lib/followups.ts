@@ -7,8 +7,7 @@
 //
 // Everything in this file is PURE (no network, no IndexedDB) so it can be
 // tested without a browser. The Apollo/Outlook calls live in
-// lib/apolloCalls.ts and the persistence at the bottom of this file is the
-// only side-effecting part.
+// lib/apolloCalls.ts; persistence lives in lib/store.ts.
 //
 // What a Trellus call looks like inside Apollo (confirmed live): no
 // recording file, duration 0, transcribed false, and nothing in Apollo's
@@ -18,7 +17,7 @@
 // That summary is the drafting source. app.trellus.ai is behind a login,
 // so the recording itself is a link for Jack to open, never something
 // this page reads.
-import { dbGetAll, dbPut, STORE_FOLLOWUPS } from "./db";
+import { loadRows, saveRow } from "./store";
 
 /* ------------------------------------------------------------------ */
 /* Apollo shapes (only the fields this feature reads)                  */
@@ -484,9 +483,9 @@ function lowerFirst(s: string): string {
 /* ------------------------------------------------------------------ */
 
 export async function loadFollowUps(): Promise<FollowUp[]> {
-  return dbGetAll<FollowUp>(STORE_FOLLOWUPS);
+  return loadRows<FollowUp>();
 }
 
 export async function saveFollowUp(f: FollowUp): Promise<void> {
-  await dbPut(STORE_FOLLOWUPS, f);
+  await saveRow(f);
 }
