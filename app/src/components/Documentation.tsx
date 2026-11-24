@@ -504,9 +504,13 @@ export default function Documentation() {
             {ENGAGEMENT_SOURCES.map((k) => ENGAGEMENT_SOURCE_META[k].label).join(", ")}: matched by the lead's own email,
             else its work email domain, else its company name (so every contact at that company). A won deal reads
             Customer. These leads stay visible, but are left out of every download and every "needs a sequence" list, and
-            one still active in a sequence is flagged to pull out. Load the records with All leads → Apollo →
-            Import deals &amp; meetings (columns: Source, Company, Domain, Email, Contact, Stage, Date, Link). Re-importing a
-            source replaces it. Only the match and a link back are kept; deal details stay in Switchboard, Notion and Echo.
+            one still active in a sequence is flagged to pull out. Load HubSpot straight from your own connector with
+            Sequence Scanner → Pull from HubSpot: it reads every company on a deal (any stage, lost included) or already
+            a customer, and never writes to HubSpot. They then show in the Sequence Scanner's first group,
+            &ldquo;On a deal in HubSpot&rdquo;, ranked above everything else, ready to remove. Notion and Echo records still come
+            from All leads → Apollo → Import deals &amp; meetings (columns: Source, Company, Domain, Email, Contact, Stage,
+            Date, Link). Either way, re-loading a source replaces it. Only the match and a link back are kept; deal
+            details stay in Switchboard, Notion and Echo.
           </p>
         </>
       ), "Calls and emails per lead, and who the account manager owns")}

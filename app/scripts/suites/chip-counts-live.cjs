@@ -42,12 +42,16 @@ const num = s => Number((String(s).match(/\((\d+)\)/) || [])[1]);
   const d0 = num(await chip('Dynamics 365').innerText());
   ok('chips add up: Dynamics + M365 / Azure = All', d0 + m0 === all0, `${d0} + ${m0} vs ${all0}`);
 
-  // Jack's path: open M365 / Azure, pick the migrations tab (Google merged into it 2026-11-22), go back to All.
+  // Jack's path: open M365 / Azure, pick a sub-category, go back to All.
   await chip('M365 / Azure').click(); await sleep(300);
-  // 11/22: M365 / Azure sub-categories are tags now (per Jack); Google → Microsoft is its own.
-  await page.locator('button', { hasText: /Google → Microsoft \(/ }).first().click(); await sleep(300);
-  const googleRows = await rows();
-  ok('Google tab narrows the table', googleRows > 0 && googleRows < m0, `${googleRows} of ${m0}`);
+  // 2026-11-24: re-pointed from "Google → Microsoft" to "Azure & migrations".
+  // Per Jack on 11/23 the ten M365 tags became FOUR sub-categories with
+  // Google folded into Azure & migrations, and m365-topics-live asserts the
+  // old tab is gone — this locator was simply missed in that pass. The
+  // assertion itself is unchanged: a sub-category narrows the table.
+  await page.locator('button', { hasText: /Azure & migrations \(/ }).first().click(); await sleep(300);
+  const subRows = await rows();
+  ok('a sub-category narrows the table', subRows > 0 && subRows < m0, `${subRows} of ${m0}`);
   await chip(/^All \(/).click(); await sleep(300);
   const m1 = num(await chip('M365 / Azure').innerText());
   ok('back on All, M365 / Azure still counts the whole line', m1 === m0, `${m1} vs ${m0}`);

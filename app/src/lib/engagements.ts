@@ -171,6 +171,9 @@ export function setEngagementIndex(idx: EngagementIndex | null): void { current 
 export function engagementOf(l: Pick<StoredLead, "email" | "company">): EngagementMatch | null {
   return engagementsFor(l, current);
 }
+/** How many deals/meetings the lock is currently checking against, so a
+ *  screen can say whether it is live rather than silently matching nobody. */
+export function engagementIndexSize(): number { return current?.size ?? 0; }
 
 /* --------------------------------------------------------------- persist */
 

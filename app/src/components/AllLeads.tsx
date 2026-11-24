@@ -374,7 +374,7 @@ export default function AllLeads({
   sequenceNames = [], onSetPlan, onSetStatus, onMoveGrade, funnels = [], initialStatus, initialPreset,
   apolloIndex = null, rosterPulledAt = "", onPullApollo, onCheckLeads, onEnrichCompanies, onCheckVisits, lists = [], onAddToList,
   emailChecks = [], onImportVerifier, onSaveSmartList, noteRefresh = null, onRefreshNotes,
-  engagementCount = 0, onImportEngagements, recycleRules = DEFAULT_RECYCLE_RULES, hiddenView = false,
+  engagementCount = 0, onImportEngagements, onPullHubspot, recycleRules = DEFAULT_RECYCLE_RULES, hiddenView = false,
 }: {
   /** Kept alive by App while another tab is showing: every hook still runs
    *  (so the filters, sort and counts stay built) but nothing is drawn, so
@@ -385,6 +385,7 @@ export default function AllLeads({
   /** Deals and meetings on file — see lib/engagements.ts. */
   engagementCount?: number;
   onImportEngagements?: (files: ParsedFile[]) => Promise<{ imported: number; skipped: number; bySource: Record<string, number> }>;
+  onPullHubspot?: (onStatus?: (s: string) => void) => Promise<{ pulled: number; total: number; truncated: boolean }>;
   /** Rewriting stored Main notes with today's rules — see lib/noteRefresh.ts. */
   noteRefresh?: { done: number; total: number; changed: number; finished: boolean; missing?: [string, number][] } | null;
   onRefreshNotes?: () => void;
@@ -1345,6 +1346,25 @@ export default function AllLeads({
   }
 
   const [engageNote, setEngageNote] = useState("");
+  const [hubspotBusy, setHubspotBusy] = useState(false);
+  async function pullHubspot() {
+    if (!onPullHubspot || hubspotBusy) return;
+    setHubspotBusy(true);
+    try {
+      const r = await onPullHubspot(setEngageNote);
+      setEngageNote(r.pulled
+        ? `Read ${r.pulled.toLocaleString()} companies on a deal or already a customer from HubSpot${r.truncated ? ` (stopped early — HubSpot reports ${r.total.toLocaleString()})` : ""}. Leads at those companies are now Account manager only: kept and visible, never downloaded, never in "needs a sequence". Run the Sequence Scanner to pull any of them out of a live sequence.`
+        : "HubSpot returned no companies with a deal. Nothing changed.");
+    } catch (e) {
+      const err = e as { code?: string; message?: string };
+      setEngageNote(
+        err?.code === "unsupported" ? "The live HubSpot pull only works inside the claude.ai viewer, where your own HubSpot connector is available. The CSV import works anywhere."
+        : err?.code === "not_connected" ? "HubSpot isn't connected for this page. Connect it in your claude.ai connector settings, then allow it when asked."
+        : err?.message || String(e));
+    } finally {
+      setHubspotBusy(false);
+    }
+  }
   async function importEngagementFile(files: FileList | null) {
     if (!files?.length || !onImportEngagements) return;
     try {
@@ -1650,6 +1670,13 @@ export default function AllLeads({
               <input type="file" accept=".csv,text/csv" multiple hidden aria-label="Import deals and meetings"
                      onChange={(e) => { void importEngagementFile(e.target.files); e.target.value = ""; }} />
             </label>
+          )}
+          {onPullHubspot && (
+            <button type="button" className="btn btn-sm btn-ghost" disabled={hubspotBusy} aria-label="Pull from HubSpot"
+                    title="Read every company on a deal (any stage, including lost) or already a customer, straight from your HubSpot. Read-only — this never writes to HubSpot. It replaces the HubSpot records on file."
+                    onClick={() => { void pullHubspot(); }}>
+              {hubspotBusy ? "Reading HubSpot…" : "⟳ Pull from HubSpot"}
+            </button>
           )}
         </div>
         {engageNote && <div className="panel-body" style={{ paddingTop: 0, fontSize: 12 }} aria-label="Deals and meetings notice">{engageNote}</div>}

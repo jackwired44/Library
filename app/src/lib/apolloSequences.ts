@@ -17,6 +17,7 @@
 // not connected here; the UI says so rather than reading as "clean".
 import { getSequenceScannerMcp, describeApolloError } from "./apolloEnrich";
 import type { ClaudeMcpNamespace } from "./claudeRuntime";
+import { engagementLabel, type EngagementMatch } from "./engagements";
 
 // ---------------------------------------------------------------- ids
 
@@ -553,9 +554,15 @@ export async function runAudit(
 // Per Jack (2026-11-20): "scan a sequence see if leads like that not
 // interested or have clear next steps or spoken with are made aware to be
 // removed". Every active lead lands in exactly one group, strongest first.
-export type FreshGroup = "meeting" | "not-interested" | "spoken" | "prior" | "fresh";
+// 2026-11-24, per Jack, naming a live HubSpot deal sitting in Jacks
+// Dynamics Sequence: "remove anyone like this, this is an active deal."
+// A deal outranks every other reason to pull someone out — it is the one
+// that is costly to get wrong, and it is true regardless of what Apollo's
+// own call history says.
+export type FreshGroup = "deal" | "meeting" | "not-interested" | "spoken" | "prior" | "fresh";
 
 export const FRESH_GROUP_META: Record<FreshGroup, { label: string; hint: string; remove: boolean; cls: string }> = {
+  deal: { label: "On a deal in HubSpot", hint: "The company is on a deal or is already a customer, so this is the account manager's, not cold outreach. Any stage counts, including lost.", remove: true, cls: "danger" },
   meeting: { label: "Had a meeting", hint: "Meeting Booked / Qualified call, or stage Meeting Logged.", remove: true, cls: "danger" },
   "not-interested": { label: "Not interested", hint: "Not interested or Do Not Contact call, stage Not Interested, or unsubscribed.", remove: true, cls: "danger" },
   spoken: { label: "Spoken with / next steps set", hint: "Info Requested, Call Back Scheduled, a 4+ minute call, a conversation note, a reply, or \"talked on phone\" in an earlier sequence.", remove: true, cls: "warning" },
@@ -563,13 +570,21 @@ export const FRESH_GROUP_META: Record<FreshGroup, { label: string; hint: string;
   fresh: { label: "Fresh", hint: "Only no answer, voicemail or gatekeeper calls, or none, and no earlier sequence.", remove: false, cls: "success" },
 };
 
-export const FRESH_GROUP_ORDER: FreshGroup[] = ["meeting", "not-interested", "spoken", "prior", "fresh"];
+export const FRESH_GROUP_ORDER: FreshGroup[] = ["deal", "meeting", "not-interested", "spoken", "prior", "fresh"];
 
 const PRIOR_SPOKE_RE = /talk|phone|repl|interest|appointment|meeting|call/i;
 const NI_EVIDENCE_RE = /^(Not interested|Do Not Contact)\b/;
 
-export function freshGroupOf(m: MemberResult, seqName?: (id: string) => string): { group: FreshGroup; why: string } {
+/**
+ * `deal` is passed in rather than read from the engagement index directly,
+ * so this stays a pure function of what it is handed and a suite can put a
+ * deal on one member without standing up a whole index. Undefined means the
+ * caller isn't checking deals at all — nobody lands in that group, which is
+ * what every pre-2026-11-24 caller and test expects.
+ */
+export function freshGroupOf(m: MemberResult, seqName?: (id: string) => string, deal?: EngagementMatch | null): { group: FreshGroup; why: string } {
   const f = (k: FlagKind) => m.flags.find((x) => x.kind === k);
+  if (deal) return { group: "deal", why: `${engagementLabel(deal)} · matched on ${deal.how === "email" ? "their email" : deal.how === "domain" ? "the company web domain" : "the company name"}` };
   const meeting = f("meeting");
   if (meeting) return { group: "meeting", why: meeting.evidence };
   if (m.stageId === STAGE_MEETING_LOGGED) return { group: "meeting", why: "Contact stage is Meeting Logged" };

@@ -69,6 +69,7 @@ import Files, { type FilesPick } from "./components/Files";
 import RateLimitNote from "./components/RateLimitNote";
 import { loadEmailChecks, saveEmailChecks, readVerifierFiles, indexChecks, type EmailCheck } from "./lib/deliverability";
 import { loadEngagements, parseEngagements, replaceEngagements, buildEngagementIndex, setEngagementIndex, type Engagement } from "./lib/engagements";
+import { pullHubspotEngagements, requestHubspotConsent } from "./lib/hubspotSync";
 import {
   applyStickyState, attachScanResultsToContacts, loadContactsFromDB,
   mergeContactsFromParsedFiles, persistContact, type Contact,
@@ -250,6 +251,17 @@ export default function App() {
     const bySource: Record<string, number> = {};
     for (const e of rows) bySource[e.source] = (bySource[e.source] ?? 0) + 1;
     return { imported: rows.length, skipped, bySource };
+  }
+  // The same records, read live from the viewer's own HubSpot connector
+  // instead of a file. Per Jack (2026-11-24), after a live deal turned up
+  // inside a cold sequence: "remove anyone like this, this is an active
+  // deal." Read-only — lib/hubspotSync.ts refuses every HubSpot write.
+  async function pullHubspot(onStatus?: (s: string) => void) {
+    await requestHubspotConsent();
+    const { rows, total, truncated } = await pullHubspotEngagements(onStatus);
+    const next = await replaceEngagements(engagements, rows);
+    setEngagements(next);
+    return { pulled: rows.length, total, truncated };
   }
   const engagementIndex = useMemo(() => buildEngagementIndex(engagements), [engagements]);
   setEngagementIndex(engagementIndex);
@@ -1463,7 +1475,7 @@ export default function App() {
             fronts the whole page; these two screens open like any other. */}
         {view === "docs" && <Documentation />}
         {view === "agents" && <Agents />}
-        {view === "cleaner" && <SequenceCleaner />}
+        {view === "cleaner" && <SequenceCleaner onPullHubspot={pullHubspot} />}
         {view === "prompts" && <EmailPrompts />}
         {view === "rules" && <ApolloRules />}
         {view === "diagnostics" && (
@@ -1737,6 +1749,7 @@ export default function App() {
             onImportVerifier={importVerifierFiles}
             engagementCount={engagements.length}
             onImportEngagements={importEngagementFiles}
+            onPullHubspot={pullHubspot}
             recycleRules={recycleRules}
             noteRefresh={noteRefresh}
             onRefreshNotes={() => void runNoteRefresh()}

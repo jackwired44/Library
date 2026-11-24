@@ -12,6 +12,13 @@ import {
   type ApolloSequence, type Mailbox, type FinishKind, type RecycleResult, type AuditResult, type DupGroup, type FlagKind, type MemberResult, type FreshGroup,
 } from "../lib/apolloSequences";
 import { MAIN_SEQUENCES } from "./ApolloStatus";
+import { engagementOf, engagementIndexSize } from "../lib/engagements";
+
+// Is this sequence member's company already on a deal? Read from the
+// module-level engagement index App keeps current, the same way every other
+// "where does this lead stand" answer reads it, so the Sequence Scanner and
+// All leads can never disagree about who is the account manager's.
+const dealOf = (m: MemberResult) => engagementOf({ email: m.email || "", company: m.company || "" });
 
 const WORKING = new Set<string>(MAIN_SEQUENCES.map((n) => n.toLowerCase()));
 const isWorking = (s: ApolloSequence) => WORKING.has(s.name.trim().toLowerCase());
@@ -32,7 +39,9 @@ const fmtPhone = (d: string) => d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(
 
 const NEVER_CALLED = "Never called";
 
-export default function SequenceCleaner() {
+export default function SequenceCleaner({ onPullHubspot }: {
+  onPullHubspot?: (onStatus?: (s: string) => void) => Promise<{ pulled: number; total: number; truncated: boolean }>;
+} = {}) {
   const [sequences, setSequences] = useState<ApolloSequence[] | null>(null);
   const [mailboxes, setMailboxes] = useState<Mailbox[]>([]);
   const [mode, setMode] = useState<"check" | "recycle">("check");
@@ -93,7 +102,7 @@ export default function SequenceCleaner() {
     return c;
   }, [members]);
   const flaggedCount = members.filter((m) => m.flags.length).length;
-  const freshCount = useMemo(() => members.filter((m) => freshGroupOf(m).group === "fresh").length, [members]);
+  const freshCount = useMemo(() => members.filter((m) => freshGroupOf(m, undefined, dealOf(m)).group === "fresh").length, [members, engagementIndexSize()]);
   const slipped = useMemo(() => members.map((m) => ({ m, why: finishReasonOf(m) })).filter((x) => x.why) as { m: MemberResult; why: string }[], [members]);
 
   const dispOf = (m: MemberResult): string[] => m.history.calls === 0 ? [NEVER_CALLED]
@@ -458,7 +467,7 @@ export default function SequenceCleaner() {
             </>
           )}
 
-          {tab === "fresh" && <FreshCheck members={members} seqName={seqName} busy={busy}
+          {tab === "fresh" && <FreshCheck members={members} seqName={seqName} busy={busy} onPullHubspot={onPullHubspot}
             onRemove={(rows, title) => setPending({ kind: "remove", rows, title })}
             onFinish={(rows, why) => setPending({ kind: "finish", rows, why })} />}
           {tab === "finished" && <FinishedView rows={audit.finished} seqName={seqName} />}
@@ -843,15 +852,60 @@ function FinishedView({ rows, seqName }: { rows: AuditResult["finished"]; seqNam
 
 // Per Jack: "scan a sequence see if leads like that not interested or have
 // clear next steps or spoken with are made aware to be removed".
-function FreshCheck({ members, seqName, busy, onRemove, onFinish }: {
+/**
+ * Whether the deal check is live, and the one click that makes it so.
+ * It sits here rather than in All leads because this is where a deal in a
+ * sequence gets acted on, and because All leads' Apollo panel — where the
+ * CSV import lives — is hidden by default, so a button there would be
+ * unreachable without opening Customize first.
+ */
+function HubspotBar({ onPull }: { onPull?: (onStatus?: (s: string) => void) => Promise<{ pulled: number; total: number; truncated: boolean }> }) {
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  const onFile = engagementIndexSize();
+  if (!onPull) return null;
+  return (
+    <div className="panel" style={{ padding: "8px 14px", marginBottom: 12, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }} data-hubspot-bar>
+      <span className="panel-sub" style={{ margin: 0 }}>
+        {onFile
+          ? `Checking against ${onFile.toLocaleString()} HubSpot ${onFile === 1 ? "company" : "companies"} on a deal or already a customer.`
+          : "No HubSpot deals loaded, so nobody can land in the deal group yet."}
+      </span>
+      <button type="button" className="btn btn-sm btn-ghost" disabled={busy} aria-label="Pull from HubSpot"
+        style={{ marginLeft: "auto" }}
+        title="Read every company on a deal (any stage, including lost) or already a customer, straight from HubSpot. Read-only — this never writes to HubSpot."
+        onClick={() => {
+          setBusy(true);
+          void onPull(setNote)
+            .then((r) => setNote(`Read ${r.pulled.toLocaleString()} companies from HubSpot${r.truncated ? " (stopped early)" : ""}. Run the check again to use them.`))
+            .catch((e: { code?: string; message?: string }) => setNote(
+              e?.code === "unsupported" ? "The live pull only works inside the claude.ai viewer, where your own HubSpot connector is available."
+              : e?.code === "not_connected" ? "HubSpot isn't connected for this page."
+              : e?.message || String(e)))
+            .finally(() => setBusy(false));
+        }}>
+        {busy ? "Reading HubSpot…" : onFile ? "⟳ Refresh from HubSpot" : "⟳ Pull from HubSpot"}
+      </button>
+      {note && <div style={{ flexBasis: "100%", fontSize: 12 }} aria-label="HubSpot notice">{note}</div>}
+    </div>
+  );
+}
+
+function FreshCheck({ members, seqName, busy, onRemove, onFinish, onPullHubspot }: {
   members: MemberResult[]; seqName: Map<string, string>; busy: boolean;
+  onPullHubspot?: (onStatus?: (s: string) => void) => Promise<{ pulled: number; total: number; truncated: boolean }>;
   onRemove: (rows: MemberResult[], title: string) => void;
   // Per Jack, 11/22: "remove them or just finish their active task and skip
   // all the other steps". Finish = Apollo's stop mode: the lead stays in the
   // sequence's history as finished and no further step runs.
   onFinish: (rows: MemberResult[], why: Map<string, string>) => void;
 }) {
-  const graded = useMemo(() => members.map((m) => ({ m, ...freshGroupOf(m, (id) => seqName.get(id) || "") })), [members, seqName]);
+  // dealSize is a dependency, not decoration: the engagement index is a
+  // module-level value, so pulling HubSpot changes what dealOf answers
+  // without changing members. Without it the groups would stay as they were
+  // graded and the new deals would only show after a re-run.
+  const dealSize = engagementIndexSize();
+  const graded = useMemo(() => members.map((m) => ({ m, ...freshGroupOf(m, (id) => seqName.get(id) || "", dealOf(m)) })), [members, seqName, dealSize]);
   const [group, setGroup] = useState<FreshGroup | "">("");
   const [ticked, setTicked] = useState<Set<string>>(new Set());
   const count = (g: FreshGroup) => graded.filter((x) => x.group === g).length;
@@ -885,6 +939,8 @@ function FreshCheck({ members, seqName, busy, onRemove, onFinish }: {
           </span>
         )}
       </div>
+
+      <HubspotBar onPull={onPullHubspot} />
 
       <div className="metric-row" style={{ marginBottom: 12 }}>
         {FRESH_GROUP_ORDER.map((g) => (
