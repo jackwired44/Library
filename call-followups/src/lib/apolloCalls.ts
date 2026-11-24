@@ -120,6 +120,20 @@ export interface CallPullResult {
   hitCap: boolean;
 }
 
+// Just the disposition list: one 1-row page, read for its facets. Used to
+// fill the Disposition picker before the first pull. 0 credits.
+export async function loadOutcomes(): Promise<CallOutcomeFacet[]> {
+  const mcp = await requireMcp();
+  const h = await requireApollo(mcp, "phone_calls_search");
+  try {
+    const p = payloadOf(await mcp.callTool(h.server, h.tool, { page: 1, per_page: 1 }));
+    const fac = (p.faceting as { phone_call_stats_facets?: CallOutcomeFacet[] } | undefined)?.phone_call_stats_facets;
+    return Array.isArray(fac) ? fac.filter((f) => f && f.value && f.value !== "active") : [];
+  } catch (err) {
+    throw new FollowUpError(describeApolloError(err));
+  }
+}
+
 export async function pullCallsSince(opts: {
   startMs: number;
   userId: string | null;

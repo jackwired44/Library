@@ -62,6 +62,12 @@ export const LEAD_NOTE_FIELD_ID = "68abe2198cb839001d7d67c3";
 
 export const DEFAULT_OUTCOME_NAME = "Info Requested";
 
+// Apollo reports calls logged with no outcome under the facet value
+// "other" ("No Disposition"). A call carries a null outcome id in that
+// case, so selection and filtering map null to this key.
+export const NO_OUTCOME = "other";
+export const outcomeKeyOf = (id: string | null | undefined) => id || NO_OUTCOME;
+
 /* ------------------------------------------------------------------ */
 /* Trellus note parsing                                                */
 /* ------------------------------------------------------------------ */
@@ -146,9 +152,48 @@ export function findOutcomeByName(facets: CallOutcomeFacet[], name: string): Cal
 }
 
 export function outcomeLabel(facets: CallOutcomeFacet[], id: string | null | undefined): string {
-  if (!id) return "No disposition";
+  if (!id || id === NO_OUTCOME) return "No disposition";
   const f = facets.find((x) => x.value === id);
   return f ? f.display_name.trim() : "Unknown disposition";
+}
+
+// Group Apollo's call outcomes the way Jack splits them: did the call
+// reach the person or not. Matched by name because the ids are Apollo's
+// own and differ per account; anything unrecognised lands in "Other".
+// Order inside each group follows Jack's own list.
+const REACHED_ORDER = ["meeting booked", "call back scheduled", "info requested", "qualified", "not interested", "do not contact"];
+const NOT_REACHED_ORDER = ["gatekeeper", "left voicemail", "no answer", "wrong number"];
+
+export interface OutcomeGroup {
+  label: string;
+  outcomes: CallOutcomeFacet[];
+}
+
+function rank(name: string, order: string[]): number {
+  const i = order.findIndex((o) => name.includes(o));
+  return i === -1 ? order.length : i;
+}
+
+export function groupOutcomes(facets: CallOutcomeFacet[]): OutcomeGroup[] {
+  const reached: CallOutcomeFacet[] = [];
+  const notReached: CallOutcomeFacet[] = [];
+  const other: CallOutcomeFacet[] = [];
+  for (const f of facets) {
+    if (!f.value || f.value === "active") continue;
+    const n = norm(f.display_name);
+    if (f.value === NO_OUTCOME || /no disposition/.test(n)) other.push(f);
+    else if (/gatekeeper|front desk|voicemail|no answer|wrong number|busy|disconnected/.test(n)) notReached.push(f);
+    else if (/meeting|call ?back|info|interested|do not contact|qualified|connected|referr/.test(n)) reached.push(f);
+    else other.push(f);
+  }
+  reached.sort((a, b) => rank(norm(a.display_name), REACHED_ORDER) - rank(norm(b.display_name), REACHED_ORDER) || a.display_name.localeCompare(b.display_name));
+  notReached.sort((a, b) => rank(norm(a.display_name), NOT_REACHED_ORDER) - rank(norm(b.display_name), NOT_REACHED_ORDER) || a.display_name.localeCompare(b.display_name));
+  other.sort((a, b) => (a.value === NO_OUTCOME ? 1 : 0) - (b.value === NO_OUTCOME ? 1 : 0) || a.display_name.localeCompare(b.display_name));
+  return [
+    { label: "Reached them", outcomes: reached },
+    { label: "Didn't reach them", outcomes: notReached },
+    { label: "Other", outcomes: other },
+  ].filter((g) => g.outcomes.length);
 }
 
 export interface CallFilter {
@@ -168,7 +213,7 @@ export function filterCalls(calls: ApolloCall[], f: CallFilter): ApolloCall[] {
     const t = callTimeMs(c);
     if (t < f.range.startMs || t > f.range.endMs) return false;
     if (f.userId && c.user_id !== f.userId) return false;
-    if (outcomes.size && !outcomes.has(c.phone_call_outcome_id || "")) return false;
+    if (outcomes.size && !outcomes.has(outcomeKeyOf(c.phone_call_outcome_id))) return false;
     return true;
   });
 }

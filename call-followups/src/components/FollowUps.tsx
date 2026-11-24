@@ -18,6 +18,8 @@ import {
   filterCalls,
   findBannedPhrases,
   findOutcomeByName,
+  groupOutcomes,
+  outcomeKeyOf,
   hasDraftSource,
   latestCallPerContact,
   loadFollowUps,
@@ -36,6 +38,7 @@ import {
   describeSampleError,
   getSample,
   loadApolloUsers,
+  loadOutcomes,
   pullCallsSince,
 } from "../lib/apolloCalls";
 import LocalTime from "./LocalTime";
@@ -47,7 +50,10 @@ interface Props {
 }
 
 const PREF_KEY = "followups.prefs";
-interface Prefs { preset: RangePreset; from: string; to: string; userId: string; outcomeId: string }
+// outcomeIds: null = never chosen (defaults to Info Requested), [] = any
+// disposition, otherwise the Apollo outcome ids to include. outcomeId is
+// the single-select shape saved before multi-select existed.
+interface Prefs { preset: RangePreset; from: string; to: string; userId: string; outcomeIds: string[] | null; outcomeId?: string }
 const ALL = "__all__";
 const ME = "__me__";
 
@@ -56,6 +62,26 @@ function readPrefs(): Partial<Prefs> {
 }
 function writePrefs(p: Prefs) {
   try { localStorage.setItem(PREF_KEY, JSON.stringify(p)); } catch { /* preference only */ }
+}
+function initialOutcomes(saved: Partial<Prefs>): string[] | null {
+  if (Array.isArray(saved.outcomeIds)) return saved.outcomeIds;
+  if (saved.outcomeId === ALL) return [];
+  if (saved.outcomeId) return [saved.outcomeId];
+  return null;
+}
+
+// The disposition list is Apollo's, read once and remembered so the
+// picker is filled the next time the page opens. A display convenience
+// only; every pull refreshes it.
+const OUTCOMES_KEY = "followups.outcomes";
+function readCachedOutcomes(): CallOutcomeFacet[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(OUTCOMES_KEY) || "[]");
+    return Array.isArray(v) ? v.filter((f) => f && typeof f.value === "string" && typeof f.display_name === "string") : [];
+  } catch { return []; }
+}
+function cacheOutcomes(list: CallOutcomeFacet[]) {
+  try { localStorage.setItem(OUTCOMES_KEY, JSON.stringify(list.map(({ value, display_name }) => ({ value, display_name, count: 0 })))); } catch { /* convenience only */ }
 }
 
 const PRESETS: { key: RangePreset; label: string }[] = [
@@ -86,13 +112,15 @@ export default function FollowUps({ onMarkedSent }: Props) {
   const [fromKey, setFromKey] = useState(saved.from || "");
   const [toKey, setToKey] = useState(saved.to || "");
   const [userSel, setUserSel] = useState(saved.userId || ME);
-  const [outcomeSel, setOutcomeSel] = useState(saved.outcomeId || "");
+  const [outcomeSel, setOutcomeSel] = useState<string[] | null>(() => initialOutcomes(saved));
 
   const [rows, setRows] = useState<FollowUp[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [me, setMe] = useState<ApolloUser | null>(null);
   const [users, setUsers] = useState<ApolloUser[]>([]);
-  const [facets, setFacets] = useState<CallOutcomeFacet[]>([]);
+  const [facets, setFacets] = useState<CallOutcomeFacet[]>(readCachedOutcomes);
+  const [facetsLoading, setFacetsLoading] = useState(false);
+  const [facetsError, setFacetsError] = useState<string | null>(null);
   const [senderFirst, setSenderFirst] = useState("");
 
   const [pulling, setPulling] = useState(false);
@@ -108,11 +136,42 @@ export default function FollowUps({ onMarkedSent }: Props) {
   }, []);
 
   useEffect(() => {
-    writePrefs({ preset, from: fromKey, to: toKey, userId: userSel, outcomeId: outcomeSel });
+    writePrefs({ preset, from: fromKey, to: toKey, userId: userSel, outcomeIds: outcomeSel });
   }, [preset, fromKey, toKey, userSel, outcomeSel]);
 
   const range = useMemo(() => resolveRange(preset, new Date(), fromKey, toKey), [preset, fromKey, toKey]);
   const resolvedUserId = userSel === ALL ? null : userSel === ME ? me?.id || null : userSel;
+
+  function updateFacets(list: CallOutcomeFacet[]) {
+    if (!list.length) return;
+    setFacets(list);
+    cacheOutcomes(list);
+  }
+
+  async function ensureFacets() {
+    if (facets.length || facetsLoading) return;
+    setFacetsLoading(true);
+    setFacetsError(null);
+    try {
+      updateFacets(await loadOutcomes());
+    } catch (e) {
+      setFacetsError(String((e as Error)?.message || e));
+    } finally {
+      setFacetsLoading(false);
+    }
+  }
+
+  // What the current selection means for stored rows. Before a default is
+  // resolved (null), match the default disposition by name.
+  const outcomeMatch = useMemo(() => {
+    if (outcomeSel === null) {
+      const def = DEFAULT_OUTCOME_NAME.toLowerCase();
+      return (r: FollowUp) => r.outcomeLabel.trim().toLowerCase() === def;
+    }
+    if (!outcomeSel.length) return () => true;
+    const set = new Set(outcomeSel);
+    return (r: FollowUp) => set.has(outcomeKeyOf(r.outcomeId));
+  }, [outcomeSel]);
 
   // Rows on screen = what's stored, narrowed to the current selection, so
   // a lead drafted yesterday still shows as Drafted today.
@@ -122,14 +181,14 @@ export default function FollowUps({ onMarkedSent }: Props) {
       .filter((r) => {
         const t = Date.parse(r.callAt);
         if (Number.isNaN(t) || t < range.startMs || t > range.endMs) return false;
-        if (outcomeSel && outcomeSel !== ALL && r.outcomeId !== outcomeSel) return false;
+        if (!outcomeMatch(r)) return false;
         if (userSel !== ALL && resolvedUserId && r.userId !== resolvedUserId) return false;
         if (lastPullKeys && !lastPullKeys.has(r.callId)) return false;
         if (!showDone && (r.status === "sent" || r.status === "skipped")) return false;
         return true;
       })
       .sort((a, b) => Date.parse(b.callAt) - Date.parse(a.callAt));
-  }, [rows, range, outcomeSel, userSel, resolvedUserId, lastPullKeys, showDone]);
+  }, [rows, range, outcomeMatch, userSel, resolvedUserId, lastPullKeys, showDone]);
 
   const counts = useMemo(() => {
     const todayKey = new Date().toDateString();
@@ -172,15 +231,16 @@ export default function FollowUps({ onMarkedSent }: Props) {
         setPullError("Couldn't tell which Apollo user you are, so this pulls everyone. Pick yourself from the list to narrow it.");
       }
       const res = await pullCallsSince({ startMs: range.startMs, userId: uid, onProgress: setProgress });
-      setFacets(res.facets);
+      updateFacets(res.facets);
 
-      let outcomeId = outcomeSel;
-      if (!outcomeId) {
-        outcomeId = findOutcomeByName(res.facets, DEFAULT_OUTCOME_NAME)?.value || ALL;
-        setOutcomeSel(outcomeId);
+      let outcomeIds = outcomeSel;
+      if (outcomeIds === null) {
+        const def = findOutcomeByName(res.facets, DEFAULT_OUTCOME_NAME)?.value;
+        outcomeIds = def ? [def] : [];
+        setOutcomeSel(outcomeIds);
       }
       const matched: ApolloCall[] = filterCalls(res.calls, {
-        outcomeIds: outcomeId === ALL ? [] : [outcomeId],
+        outcomeIds,
         userId: uid,
         range,
       });
@@ -209,10 +269,6 @@ export default function FollowUps({ onMarkedSent }: Props) {
     }
   }
 
-  const outcomeOptions = useMemo(() => {
-    const list = facets.length ? facets : [];
-    return list.slice().sort((a, b) => a.display_name.trim().localeCompare(b.display_name.trim()));
-  }, [facets]);
 
   const open = openId ? rows.find((r) => r.callId === openId) || null : null;
 
@@ -241,19 +297,14 @@ export default function FollowUps({ onMarkedSent }: Props) {
             <option value={ALL}>Everyone</option>
           </select>
         </label>
-        <label className="fu-label">
-          Disposition
-          <select className="field" value={outcomeSel} onChange={(e) => { setOutcomeSel(e.target.value); setLastPullKeys(null); }} aria-label="Disposition">
-            {!outcomeSel && <option value="">{DEFAULT_OUTCOME_NAME}</option>}
-            {outcomeOptions.map((f) => (
-              <option key={f.value} value={f.value}>{f.display_name.trim()}</option>
-            ))}
-            {outcomeSel && !outcomeOptions.some((f) => f.value === outcomeSel) && outcomeSel !== ALL && (
-              <option value={outcomeSel}>{DEFAULT_OUTCOME_NAME}</option>
-            )}
-            <option value={ALL}>Any disposition</option>
-          </select>
-        </label>
+        <DispositionPicker
+          facets={facets}
+          selected={outcomeSel}
+          loading={facetsLoading}
+          error={facetsError}
+          onOpen={ensureFacets}
+          onChange={(next) => { setOutcomeSel(next); setLastPullKeys(null); }}
+        />
         <div className="seg" role="group" aria-label="Date range">
           {PRESETS.map((p) => (
             <button key={p.key} className={`seg-btn${preset === p.key ? " active" : ""}`} onClick={() => { setPreset(p.key); setLastPullKeys(null); }}>
@@ -371,6 +422,106 @@ export default function FollowUps({ onMarkedSent }: Props) {
             setOpenId(null);
           }}
         />
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+
+// Multi-select of Apollo's own call dispositions, grouped by whether the
+// call reached the person. Nothing selected means any disposition.
+function DispositionPicker({
+  facets,
+  selected,
+  loading,
+  error,
+  onOpen,
+  onChange,
+}: {
+  facets: CallOutcomeFacet[];
+  selected: string[] | null;
+  loading: boolean;
+  error: string | null;
+  onOpen: () => void;
+  onChange: (next: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const groups = useMemo(() => groupOutcomes(facets), [facets]);
+  const nameOf = (id: string) => facets.find((f) => f.value === id)?.display_name.trim() || "Unknown disposition";
+
+  // A null selection is the untouched default; show it as Info Requested
+  // checked once the list is known, so ticking more adds to it.
+  const effective: string[] = selected ?? (() => {
+    const def = findOutcomeByName(facets, DEFAULT_OUTCOME_NAME)?.value;
+    return def ? [def] : [];
+  })();
+  const isAny = selected !== null && selected.length === 0;
+  const summary =
+    selected === null ? DEFAULT_OUTCOME_NAME
+      : isAny ? "Any disposition"
+        : selected.length === 1 ? nameOf(selected[0])
+          : `${selected.length} dispositions`;
+
+  function toggle(id: string) {
+    const set = new Set(effective);
+    if (set.has(id)) set.delete(id); else set.add(id);
+    onChange([...set]);
+  }
+
+  return (
+    <div className="fu-label fu-picker">
+      Dispositions
+      <button
+        type="button"
+        className="field fu-picker-btn"
+        aria-haspopup="true"
+        aria-expanded={open}
+        aria-label="Dispositions"
+        onClick={() => { if (!open) onOpen(); setOpen(!open); }}
+      >
+        <span>{summary}</span>
+        <span aria-hidden="true">▾</span>
+      </button>
+      {open && (
+        <>
+          <div className="fu-pop-backdrop" onClick={() => setOpen(false)} />
+          <div className="fu-pop" role="group" aria-label="Choose dispositions">
+            <label className="fu-check fu-check-any">
+              <input
+                type="checkbox"
+                checked={isAny}
+                onChange={() => {
+                  if (!isAny) { onChange([]); return; }
+                  // Unticking "Any" goes back to the default, if Apollo has one.
+                  const def = findOutcomeByName(facets, DEFAULT_OUTCOME_NAME)?.value;
+                  if (def) onChange([def]);
+                }}
+              />
+              Any disposition
+            </label>
+            {loading && <p className="fu-muted" style={{ margin: "8px 0" }}>Loading your Apollo dispositions…</p>}
+            {error && <p className="fu-error" style={{ margin: "8px 0" }}>{error}</p>}
+            {!loading && !error && groups.length === 0 && (
+              <p className="fu-muted" style={{ margin: "8px 0" }}>Your Apollo dispositions load here. Pull calls once if they don't appear.</p>
+            )}
+            {groups.map((g) => (
+              <div key={g.label} className="fu-pop-group">
+                <div className="fu-pop-head">{g.label}</div>
+                {g.outcomes.map((f) => (
+                  <label key={f.value} className="fu-check">
+                    <input type="checkbox" checked={!isAny && effective.includes(f.value)} onChange={() => toggle(f.value)} />
+                    {f.display_name.trim()}
+                  </label>
+                ))}
+              </div>
+            ))}
+            <div className="fu-pop-foot">
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => onChange([])}>Clear</button>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setOpen(false)}>Done</button>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );

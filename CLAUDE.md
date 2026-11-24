@@ -4416,6 +4416,13 @@ It now lives in **`call-followups/`**, a separate Vite + React + TS project
 with its own README, tests and Artifact. Read `call-followups/README.md`
 before touching it.
 
+**Multi-select dispositions, per Jack** ("add in all the call
+dispositions we have set in Apollo to be able to choose from or add
+multiple"). The picker lists every Apollo call outcome, read live and
+cached for display, grouped Reached / Didn't reach / Other, any number
+ticked (none = any). Calls with no outcome are selectable as "No
+Disposition" (Apollo's `other` facet). Details in `call-followups/README.md`.
+
 **No sign-in screen, per Jack ("remove login").** The tool's password gate
 was removed entirely. The artifact (`claude.ai/artifact/P84tVYPKrJu4qT6nYpSSyJ`)
 is private to Jack's claude.ai account, and that login is its access

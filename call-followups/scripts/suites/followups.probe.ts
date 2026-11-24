@@ -1,7 +1,7 @@
 import {
   parseTrellusNote, resolveRange, filterCalls, latestCallPerContact, toFollowUp, mergeFollowUp,
   findBannedPhrases, checkDraft, templateDraft, buildDraftPrompt, parseDraftJson, findOutcomeByName,
-  hasDraftSource, openerLine, CLOSER_LINE, type ApolloCall, type CallOutcomeFacet,
+  hasDraftSource, openerLine, CLOSER_LINE, groupOutcomes, NO_OUTCOME, type ApolloCall, type CallOutcomeFacet,
 } from "../../src/lib/followups";
 
 let bad = 0;
@@ -115,6 +115,37 @@ chk("rejects junk", parseDraftJson("no json here") === null);
 
 const neil = checkDraft("x", "Hey, we can leverage https://x.com", f);
 chk("checker flags banned word, link, missing name", neil.banned.includes("leverage") && neil.hasUrl && neil.problems.some((x) => /greet/.test(x)));
+
+console.log("\nDispositions (multi-select)");
+const REAL: CallOutcomeFacet[] = [
+  { value: "o-mb", display_name: "Meeting Booked", count: 1 },
+  { value: "o-cb", display_name: "Call Back Scheduled ", count: 1 },
+  { value: "o-info", display_name: "Info Requested ", count: 1 },
+  { value: "o-ni", display_name: "Not interested ", count: 1 },
+  { value: "o-dnc", display_name: "Do Not Contact", count: 1 },
+  { value: "o-gk", display_name: "Gatekeeper / Front Desk", count: 1 },
+  { value: "o-vm", display_name: "Left Voicemail", count: 1 },
+  { value: "o-wn", display_name: "Wrong Number", count: 1 },
+  { value: "o-na", display_name: "No Answer", count: 1 },
+  { value: "o-q", display_name: "Qualified, Pending Review", count: 1 },
+  { value: NO_OUTCOME, display_name: "No Disposition", count: 1 },
+  { value: "active", display_name: "Active Calls", count: 0 },
+];
+const g = groupOutcomes(REAL);
+const labelsOf = (i: number) => g[i].outcomes.map((o) => o.display_name.trim()).join("|");
+chk("three groups", g.map((x) => x.label).join() === "Reached them,Didn't reach them,Other", g.map((x) => x.label).join());
+chk("reached group in Jack's order", labelsOf(0) === "Meeting Booked|Call Back Scheduled|Info Requested|Qualified, Pending Review|Not interested|Do Not Contact", labelsOf(0));
+chk("not-reached group in order", labelsOf(1) === "Gatekeeper / Front Desk|Left Voicemail|No Answer|Wrong Number", labelsOf(1));
+chk("No Disposition in Other, Active Calls dropped", labelsOf(2) === "No Disposition", labelsOf(2));
+chk("every real disposition offered", g.reduce((n, x) => n + x.outcomes.length, 0) === 11);
+const multi = filterCalls([
+  call("m1", "q1", "2026-11-23T15:00:00Z", "o-info"),
+  call("m2", "q2", "2026-11-23T15:00:00Z", "o-cb"),
+  call("m3", "q3", "2026-11-23T15:00:00Z", "o-na"),
+  { ...call("m4", "q4", "2026-11-23T15:00:00Z"), phone_call_outcome_id: null },
+], { outcomeIds: ["o-info", "o-cb", NO_OUTCOME], userId: null, range: last7 });
+chk("multi-select keeps exactly the chosen dispositions", multi.map((c) => c.id).sort().join() === "m1,m2,m4", multi.map((c) => c.id).join());
+chk("unknown custom outcome lands in Other", groupOutcomes([{ value: "x", display_name: "Sent to marketing", count: 0 }])[0].label === "Other");
 
 console.log(bad ? `\n${bad} FAILED` : "\nAll follow-up checks passed");
 process.exit(bad ? 1 : 0);

@@ -1,11 +1,23 @@
 # Call Follow-ups
 
 A standalone tool, separate from the Wired CIO Lead Scanner (which is
-archived). Pick a rep, a call disposition (default **Info Requested**) and
+archived). Pick a rep, one or more call dispositions (default **Info Requested**) and
 a day or date range, pull every matching Apollo call, open the Trellus
 recording if needed, and click **Draft** to get the follow-up email written
 from what was said on the call. **Create Outlook draft** puts it in your
 Outlook Drafts folder. It never sends.
+
+## Dispositions
+
+The Dispositions picker lists every call disposition set up in your Apollo
+account, read live from Apollo (0 credits) the first time you open it and
+refreshed on every pull, so a disposition added in Apollo shows up without
+a code change. Tick as many as you want; nothing ticked means any
+disposition. They're grouped the way calls actually go: **Reached them**
+(Meeting Booked, Call Back Scheduled, Info Requested, Qualified, Not
+interested, Do Not Contact), **Didn't reach them** (Gatekeeper, Left
+Voicemail, No Answer, Wrong Number) and **Other** (No Disposition, plus
+anything a new name doesn't match). Grouping is by name; ids are Apollo's.
 
 ## Where the call content comes from
 

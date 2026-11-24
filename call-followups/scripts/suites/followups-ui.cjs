@@ -27,8 +27,12 @@ const MOCK = () => {
   ];
   const facets = [
     { value: 'active', display_name: 'Active Calls', count: 0 },
+    { value: 'o-mb', display_name: 'Meeting Booked', count: 2 },
+    { value: 'o-cb', display_name: 'Call Back Scheduled ', count: 2 },
     { value: 'o-info', display_name: 'Info Requested ', count: 3 },
+    { value: 'o-vm', display_name: 'Left Voicemail', count: 2 },
     { value: 'o-na', display_name: 'No Answer', count: 1 },
+    { value: 'other', display_name: 'No Disposition', count: 1 },
   ];
   window.__calls = [];
   const mcp = {
@@ -44,6 +48,7 @@ const MOCK = () => {
       if (tool === 'apollo_users_search') return { payload: { pagination: { total_pages: 1 }, users: [{ id: 'u-jack', name: 'Jack Test' }, { id: 'u-carly', name: 'Carly Test' }] } };
       if (tool === 'apollo_phone_calls_search') {
         const pg = input.page || 1;
+        if (input.per_page === 1) return { payload: { pagination: { per_page: 1, total_pages: 99 }, phone_calls: [page1[0]], faceting: { phone_call_stats_facets: facets } } };
         return { payload: { pagination: { per_page: input.per_page, total_pages: 2 }, phone_calls: pg === 1 ? page1 : page2, faceting: { phone_call_stats_facets: facets } } };
       }
       if (tool === 'outlook_create_draft') return { payload: { id: 'draft-1', webLink: 'https://outlook.office.com/mail/drafts/id/draft-1' } };
@@ -73,25 +78,48 @@ const MOCK = () => {
   ok('page renders with empty state', /Follow-up queue/.test(t) && /click Pull calls/i.test(t), t.slice(0, 300));
   ok('defaults to Last 7 days', await page.locator('.seg-btn.active').innerText() === 'Last 7 days');
 
+  // Disposition picker: lists every Apollo disposition before any pull.
+  ok('picker defaults to Info Requested', /Info Requested/.test(await page.locator('button[aria-label="Dispositions"]').innerText()));
+  await page.click('button[aria-label="Dispositions"]'); await sleep(600);
+  const pop = await page.locator('.fu-pop').innerText();
+  ok('picker loads all Apollo dispositions', ['Meeting Booked', 'Call Back Scheduled', 'Info Requested', 'Left Voicemail', 'No Answer', 'No Disposition'].every((n) => pop.includes(n)), pop);
+  ok('picker groups reached / not reached', /Reached them/i.test(pop) && /Didn't reach them/i.test(pop), pop);
+  ok('Active Calls is not offered', !/Active Calls/.test(pop));
+  ok('Info Requested is pre-ticked', await page.locator('.fu-check', { hasText: 'Info Requested' }).locator('input').isChecked());
+  await page.click('.fu-pop button:has-text("Done")'); await sleep(200);
+  await page.evaluate(() => { window.__calls = []; });
   await page.click('button:has-text("Pull calls")'); await sleep(1500);
   t = await page.locator('main').innerText();
   const calls = await page.evaluate(() => window.__calls.filter((c) => c.tool === 'apollo_phone_calls_search'));
   ok('pulled newest-first, scoped to me', calls[0].input.sort_by_field === 'start_time' && calls[0].input.sort_ascending === false && calls[0].input.user_id === 'u-jack', JSON.stringify(calls[0]?.input));
   ok('stopped paging once past the range start', calls.length === 2, String(calls.length));
-  ok('disposition defaulted to Info Requested', (await page.locator('select[aria-label="Disposition"]').inputValue()) === 'o-info');
+  ok('disposition defaulted to Info Requested', /^Info Requested/.test(await page.locator('button[aria-label="Dispositions"]').innerText()));
   ok('shows the two Info Requested leads', /Dana Reed/.test(t) && /Priya Shah/.test(t), t.slice(0, 600));
   ok('excludes No Answer and out-of-range calls', !/Omar Lee/.test(t) && !/Old Lead/.test(t));
   ok('link-only call flagged No call summary', /No call summary/.test(t));
   ok('recording link present', await page.locator('a:has-text("Recording ↗")').count() === 2);
   ok('scan note reports what happened', /Scanned 4 calls/.test(t) && /2 leads/.test(t), t.slice(0, 500));
 
-  // Switch to Any disposition -> pull again shows Omar.
-  await page.selectOption('select[aria-label="Disposition"]', '__all__');
+  // Multi-select: Info Requested + No Answer shows both sets.
+  await page.click('button[aria-label="Dispositions"]'); await sleep(300);
+  await page.locator('.fu-check', { hasText: 'No Answer' }).locator('input').check();
+  await page.click('.fu-pop button:has-text("Done")'); await sleep(200);
+  ok('summary reads 2 dispositions', /2 dispositions/.test(await page.locator('button[aria-label="Dispositions"]').innerText()));
   await page.click('button:has-text("Pull calls")'); await sleep(1200);
   t = await page.locator('main').innerText();
-  ok('Any disposition includes the No Answer call', /Omar Lee/.test(t));
-  await page.selectOption('select[aria-label="Disposition"]', 'o-info');
+  ok('multi-select shows Info Requested and No Answer leads', /Omar Lee/.test(t) && /Dana Reed/.test(t) && /Priya Shah/.test(t), t.slice(0, 600));
+  // Any disposition
+  await page.click('button[aria-label="Dispositions"]'); await sleep(300);
+  await page.locator('.fu-check-any input').check();
+  await page.click('.fu-pop button:has-text("Done")'); await sleep(200);
+  ok('Any disposition summary', /Any disposition/.test(await page.locator('button[aria-label="Dispositions"]').innerText()));
+  // back to just Info Requested
+  await page.click('button[aria-label="Dispositions"]'); await sleep(300);
+  await page.locator('.fu-check-any input').uncheck(); await sleep(150);
+  await page.click('.fu-pop button:has-text("Done")'); await sleep(200);
   await page.click('button:has-text("Pull calls")'); await sleep(1200);
+  t = await page.locator('main').innerText();
+  ok('back to Info Requested only hides the No Answer lead', !/Omar Lee/.test(t) && /Dana Reed/.test(t), t.slice(0, 500));
 
   // Today preset narrows out the 30h-old call.
   await page.click('.seg-btn:has-text("Today")'); await sleep(400);
@@ -141,6 +169,7 @@ const MOCK = () => {
   await page.click('text=Show sent & skipped'); await sleep(400);
   t = await page.locator('main').innerText();
   ok('Priya shows as Sent when included', /Priya Shah/.test(t) && /Sent/.test(t));
+  ok('disposition choice survives reload', /^Info Requested/.test(await page.locator('button[aria-label="Dispositions"]').innerText()));
 
   ok('no sign-in screen', (await page.locator('input[type=password]').count()) === 0);
   ok('no page errors', errs.length === 0, errs.slice(0, 2).join(' | '));
