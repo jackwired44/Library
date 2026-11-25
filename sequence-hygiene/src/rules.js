@@ -678,11 +678,47 @@
     { label: "Note", get: "note" }, { label: "Source", get: "source" }, { label: "Link", get: "link" },
   ];
 
+  // ---------- open sequence tasks (Skip steps screen) ----------
+  const TASK_TYPE_LABEL = {
+    phone_call: "Call", outreach_manual_email: "Manual email", action_item: "Action item",
+    linkedin_step_connect: "LinkedIn connect", linkedin_step_message: "LinkedIn message",
+    linkedin_step_view_profile: "LinkedIn view profile", linkedin_step_interact_post: "LinkedIn interact",
+  };
+  // Keeps only tasks that really belong to the sequence asked for.
+  function adaptApolloTask(raw, seqId) {
+    const seq = (raw && raw.sequence) || {};
+    if (!raw || !raw.id || (seqId && seq.id !== seqId)) return null;
+    const c = raw.contact || {};
+    return {
+      id: raw.id, type: raw.type || "", typeLabel: TASK_TYPE_LABEL[raw.type] || raw.type || "Task",
+      step: seq.step_position ?? null, sequenceId: seq.id || null, sequenceName: seq.name || "",
+      contactId: c.id || null, name: c.name || "Unknown contact", dueDate: raw.due_date || (raw.due_at || "").slice(0, 10) || null,
+      overdue: raw.adherence_status === "overdue", status: raw.status || "scheduled",
+      link: c.id ? `https://app.apollo.io/#/contacts/${c.id}` : null,
+    };
+  }
+  // Groups open tasks by step and type, step order first.
+  function groupTasksByStep(tasks, opts) {
+    const overdueOnly = opts && opts.overdueOnly;
+    const groups = new Map();
+    for (const t of tasks) {
+      if (overdueOnly && !t.overdue) continue;
+      const key = `${t.step == null ? "?" : t.step}|${t.type}`;
+      if (!groups.has(key)) groups.set(key, { key, step: t.step, type: t.type, typeLabel: t.typeLabel, tasks: [], overdue: 0, earliest: null });
+      const g = groups.get(key);
+      g.tasks.push(t);
+      if (t.overdue) g.overdue += 1;
+      if (t.dueDate && (!g.earliest || t.dueDate < g.earliest)) g.earliest = t.dueDate;
+    }
+    return [...groups.values()].sort((a, b) => (a.step ?? 999) - (b.step ?? 999) || a.typeLabel.localeCompare(b.typeLabel));
+  }
+
   const api = {
     lc, normEmail, emailDomain, normDomain, companyKey, nameKey, isFree, toMs, fmtDur,
     adaptApolloContact, adaptApolloCall, adaptApolloMessage, adaptOutlookMail, adaptCalendarEvent, adaptEchoMeeting,
     adaptSwitchboardCompany, adaptHubspotCompany, adaptHubspotDeal, adaptHubspotContact, splitCallNote,
     analyzeCallSummary, classifyCall, productFit, hasKeyword, evaluateRun, touchpoints, planActions, toCsv,
+    adaptApolloTask, groupTasksByStep, TASK_TYPE_LABEL,
     CONTACT_COLS, TOUCH_COLS, STATUS_LABEL, STATUS_RANK, RULE_LABEL, RULES, isContactMade,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;

@@ -13,7 +13,8 @@
   };
   const MANIFEST = [
     { server: SERVERS.apollo, tools: ["apollo_emailer_campaigns_search", "apollo_contacts_search", "apollo_phone_calls_search",
-      "apollo_emailer_messages_search", "apollo_emailer_campaigns_remove_or_stop_contact_ids", "apollo_emailer_campaigns_add_contact_ids"] },
+      "apollo_emailer_messages_search", "apollo_emailer_campaigns_remove_or_stop_contact_ids", "apollo_emailer_campaigns_add_contact_ids",
+      "apollo_tasks_search", "apollo_tasks_skip"] },
     { server: SERVERS.hubspot, tools: ["search_crm_objects"] },
     { server: SERVERS.echo, tools: ["search_meetings"] },
     { server: SERVERS.switchboard, tools: ["get_company"] },
@@ -522,8 +523,28 @@
     }, { write: true });
   }
 
+  // ---------- Skip steps ----------
+  async function sequenceTasks(col, seqId, onPage) {
+    const tasks = [];
+    let total = 0, dropped = 0;
+    for (let page = 1; page <= 100; page++) {
+      const { payload } = await col.call("apollo", "apollo_tasks_search", { emailer_campaign_id: seqId, task_status: "scheduled", per_page: 100, page, sort_by_field: "task_due_at", sort_ascending: true });
+      for (const raw of (payload && payload.tasks) || []) { const t = R.adaptApolloTask(raw, seqId); if (t) tasks.push(t); else dropped += 1; }
+      const pg = payload && payload.pagination;
+      total = pg ? pg.total_entries : tasks.length;
+      if (onPage) onPage(tasks.length, total);
+      if (!pg || page >= pg.total_pages) break;
+    }
+    // Paging can shift while reading; keep each task once.
+    const seen = new Set();
+    return { tasks: tasks.filter((t) => (seen.has(t.id) ? false : (seen.add(t.id), true))), total, dropped };
+  }
+  async function skipTask(col, taskId, note) {
+    return col.call("apollo", "apollo_tasks_skip", note ? { id: taskId, note } : { id: taskId }, { write: true });
+  }
+
   root.SH_COLLECT = {
     SERVERS, MANIFEST, ALWAYS_UNAVAILABLE, OWN_DOMAINS, Collector, pool, SourceDown, BudgetHit, Stopped, blocks,
-    listSequences, sequenceContacts, apolloPerson, companySources, bulkEcho, bulkHubspot, bulkCalls, bulkStageContacts, hubspotPerson, calendarIndex, removeOrStop, addToSequence,
+    listSequences, sequenceContacts, apolloPerson, companySources, bulkEcho, bulkHubspot, bulkCalls, bulkStageContacts, hubspotPerson, calendarIndex, removeOrStop, addToSequence, sequenceTasks, skipTask,
   };
 })(typeof window !== "undefined" ? window : globalThis);

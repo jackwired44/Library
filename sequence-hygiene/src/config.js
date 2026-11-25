@@ -87,6 +87,8 @@
       apollo_contacts_search: { hour: 400, day: 2000 },
       apollo_phone_calls_search: { hour: 400, day: 4000 },
       apollo_emailer_messages_search: { hour: 400, day: 4000 },
+      apollo_tasks_search: { hour: 400, day: 4000 },
+      apollo_tasks_skip: { hour: 400, day: 3000 },
     },
     // Wrong Number: "review" (default) or "remove".
     wrongNumber: "review",

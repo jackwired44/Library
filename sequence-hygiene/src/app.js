@@ -8,6 +8,7 @@
   const fmtDate = (s) => { const t = R.toMs(s); return t ? new Date(t).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "—"; };
   const clone = (o) => JSON.parse(JSON.stringify(o));
   const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  const peopleN = (n) => (n === 1 ? "1 person" : `${n} people`);
   const initials = (n) => (n || "?").split(/\s+/).filter(Boolean).slice(0, 2).map((x) => x[0].toUpperCase()).join("");
   const CHUNK = 15;
   const PARALLEL = 4; // people or companies checked at the same time
@@ -41,6 +42,8 @@
     showFilters: false, selected: new Set(), detail: null, progress: null, collector: null, toast: "", confirm: null, limit: 300,
     newRun: { seqId: "", product: "" }, applying: false, saved: "", pendingDelete: null, ruleOpen: new Set(), readd: new Set(),
     bulk: { action: "remove", moveTo: "", note: "", finishElsewhere: false },
+    // Skip steps screen: open tasks of one sequence, grouped by step.
+    skip: { seqId: "", loading: false, loaded: null, err: "", progress: "", overdueOnly: false, open: new Set(), sel: new Set(), note: "", running: null, log: [], takenOut: new Set() },
   };
 
   // ---------- storage ----------
@@ -624,6 +627,112 @@
     S.applying = false; await saveDecisions(); render();
   }
 
+  // ---------- skip steps ----------
+  // Two quick actions on a sequence's open tasks: skip the step, or take the person out of the sequence.
+  // Everything else about a task (editing, completing, reassigning) stays in Apollo.
+  function demoTasks(seqId) {
+    const names = ["Avery Lindqvist", "Bruno Okafor", "Chen Duarte", "Dana Whitcombe", "Eli Navarro", "Farah Quist", "Gus Ambrose", "Hana Petrov", "Ines Calloway", "Jonah Reyes", "Kit Morrow", "Lena Osei"];
+    const seq = (S.sequences || {})[seqId] || { name: "Example sequence" };
+    const plan = [[1, "phone_call"], [1, "phone_call"], [1, "phone_call"], [1, "phone_call"], [1, "phone_call"], [3, "phone_call"], [3, "phone_call"], [4, "phone_call"], [6, "linkedin_step_message"], [6, "linkedin_step_message"], [6, "linkedin_step_message"], [1, "phone_call"]];
+    return plan.map(([step, type], i) => R.adaptApolloTask({ id: `demo-task-${i}`, type, status: "scheduled", due_date: `2026-11-${String(10 + i).padStart(2, "0")}`, adherence_status: i < 8 ? "overdue" : "open",
+      contact: { id: `demo-contact-${i}`, name: names[i] }, sequence: { id: seqId, name: seq.name, step_position: step } }, seqId));
+  }
+  async function loadSkipTasks() {
+    const sk = S.skip;
+    if (!sk.seqId || sk.loading || sk.running) return;
+    Object.assign(sk, { loading: true, err: "", loaded: null, sel: new Set(), open: new Set(), takenOut: new Set(), progress: "Reading open tasks…" });
+    render();
+    if (S.demo) { const tasks = demoTasks(sk.seqId); sk.loaded = { tasks, total: tasks.length, dropped: 0, at: Date.now() }; sk.loading = false; render(); return; }
+    const col = new C.Collector({ mcp: S.mcp, store: S.store, cfg: S.cfg });
+    try {
+      await col.loadBudget();
+      const r = await C.sequenceTasks(col, sk.seqId, (n, total) => { sk.progress = `Read ${n} of ${total} open tasks…`; const el = $("#skip-prog"); if (el) el.textContent = sk.progress; });
+      sk.loaded = { ...r, at: Date.now() };
+      await col.saveBudget();
+    } catch (e) {
+      sk.err = e instanceof C.BudgetHit ? `Apollo's hourly limit for reading tasks is used up. Try again after ${new Date(e.resumeAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.` : `Couldn't read the tasks: ${e.message || e}`;
+    }
+    sk.loading = false; render();
+  }
+  // The rules check for this same sequence, if one is open: who the rules say to remove or review.
+  function skipRules() {
+    const sk = S.skip;
+    if (!S.result || !S.data || S.data.meta.targetId !== sk.seqId) return null;
+    const by = new Map();
+    for (const p of S.result.people) {
+      if (p.bucket !== "REMOVE" && p.bucket !== "REVIEW" && p.bucket !== "CONFLICTS") continue;
+      const f = p.findings.find((x) => x.effect === (p.bucket === "REMOVE" ? "remove" : p.bucket === "REVIEW" ? "review" : "conflict"));
+      by.set(p.targetContactId || p.apolloId, { bucket: p.bucket, name: p.name, reason: f ? f.reason : "" });
+    }
+    return { by, at: S.data.meta.finishedAt || S.data.meta.createdAt };
+  }
+  const RULE_TAG = { REMOVE: ["bad", "Rules: remove"], REVIEW: ["warn", "Rules: review"], CONFLICTS: ["warn", "Rules: conflict"] };
+  const skipSelected = () => (S.skip.loaded ? S.skip.loaded.tasks.filter((t) => S.skip.sel.has(t.id)) : []);
+  const uniqueBy = (arr, k) => { const seen = new Set(); return arr.filter((x) => (seen.has(x[k]) ? false : (seen.add(x[k]), true))); };
+  async function runSkip(kind) {
+    const sk = S.skip, items = skipSelected();
+    S.confirm = null;
+    if (!items.length) { render(); return; }
+    if (S.demo) { S.toast = "This is example data. Nothing was written."; render(); return; }
+    const seq = (S.sequences || {})[sk.seqId] || { name: sk.seqId };
+    const col = new C.Collector({ mcp: S.mcp, store: S.store, cfg: S.cfg });
+    const log = (it, action, ok, msg) => sk.log.push({ at: new Date().toISOString(), name: it.name, contactId: it.contactId, step: it.step, typeLabel: it.typeLabel, action, ok, msg: msg || "" });
+    const doneIds = new Set();
+    await col.loadBudget();
+    if (kind === "skipTasks") {
+      sk.running = { kind, done: 0, total: items.length, stop: false }; render();
+      const note = sk.note.trim();
+      let i = 0;
+      const worker = async () => {
+        while (i < items.length && !sk.running.stop) {
+          const it = items[i++];
+          try { await C.skipTask(col, it.id, note); log(it, `Skipped step ${it.step ?? "?"}`, true); doneIds.add(it.id); }
+          catch (e) {
+            if (e instanceof C.BudgetHit) { sk.running.stop = true; sk.err = `Stopped at Apollo's hourly limit. ${items.length - doneIds.size} not skipped yet; they stay selected so you can run it again after ${new Date(e.resumeAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`; break; }
+            log(it, `Skip step ${it.step ?? "?"}`, false, e.message);
+          }
+          sk.running.done += 1;
+          const el = $("#skip-run"); if (el) el.textContent = `Skipping ${sk.running.done} of ${sk.running.total}…`;
+        }
+      };
+      await Promise.all([worker(), worker(), worker()]);
+    } else if (kind === "skipRemove") {
+      const people = uniqueBy(items, "contactId").filter((x) => x.contactId);
+      const mode = seq.delivered ? "stop" : "remove";
+      sk.running = { kind, done: 0, total: people.length, stop: false }; render();
+      for (let b = 0; b < people.length; b += 50) {
+        const batch = people.slice(b, b + 50);
+        try {
+          await C.removeOrStop(col, batch.map((x) => x.contactId), sk.seqId, mode, sk.note.trim() || "Removed from Sequence Hygiene");
+          for (const it of batch) { log(it, mode === "stop" ? "Stopped in sequence" : "Removed from sequence", true); for (const t of items) if (t.contactId === it.contactId) doneIds.add(t.id); }
+        } catch (e) {
+          if (e instanceof C.BudgetHit) { sk.err = `Stopped at Apollo's hourly limit. Run it again after ${new Date(e.resumeAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`; break; }
+          for (const it of batch) log(it, "Remove from sequence", false, e.message);
+        }
+        sk.running.done += batch.length;
+      }
+      // Their other open tasks in this sequence go with them.
+      const gone = new Set(people.filter((p) => items.some((t) => doneIds.has(t.id) && t.contactId === p.contactId)).map((p) => p.contactId));
+      for (const t of sk.loaded.tasks) if (gone.has(t.contactId)) doneIds.add(t.id);
+      for (const id of gone) sk.takenOut.add(id);
+      // If the rules check for this sequence is open, log it there too so Apply knows (and can re-add).
+      if (S.result && S.data && S.data.meta.targetId === sk.seqId) {
+        for (const p of S.result.people) {
+          const id = p.targetContactId || p.apolloId;
+          if (gone.has(id)) S.actionLog.push({ at: new Date().toISOString(), uid: p.uid, name: p.name, contactId: id, action: `removed (${mode})`, ok: true, msg: "From Skip steps", mailbox: p.targetMailbox });
+        }
+        await saveDecisions();
+      }
+    }
+    await col.saveBudget().catch(() => {});
+    sk.loaded.handled = (sk.loaded.handled || 0) + sk.loaded.tasks.filter((t) => doneIds.has(t.id)).length;
+    sk.loaded.tasks = sk.loaded.tasks.filter((t) => !doneIds.has(t.id));
+    for (const id of doneIds) sk.sel.delete(id);
+    const ok = sk.running.kind === "skipTasks" ? doneIds.size : uniqueBy(items.filter((t) => doneIds.has(t.id)), "contactId").length;
+    S.toast = sk.running.kind === "skipTasks" ? `Skipped ${plural(ok, "task")} in Apollo.` : `Took ${peopleN(ok)} out of “${seq.name}”.`;
+    sk.running = null; render();
+  }
+
   // ---------- icons ----------
   const ICONS = {
     check: '<path d="M4 12.5l5 5L20 6.5"/>', search: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>',
@@ -632,7 +741,7 @@
     gear: '<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/>',
     filter: '<path d="M4 6h16M7 12h10M10 18h4"/>', download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>', x: '<path d="M6 6l12 12M18 6L6 18"/>',
     alert: '<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17.5v.5"/>', plug: '<path d="M9 3v5M15 3v5M7 8h10v4a5 5 0 01-10 0zM12 17v4"/>',
-    minus: '<path d="M5 12h14"/>',
+    minus: '<path d="M5 12h14"/>', skip: '<path d="M5 5l9 7-9 7z"/><path d="M18 5v14"/>',
   };
   const icon = (k, cls = "") => `<svg class="ic ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[k] || ""}</svg>`;
 
@@ -643,7 +752,7 @@
     const tw = el.querySelector(".table-wrap"), scroll = tw ? tw.scrollTop : 0;
     const db = el.querySelector(".drawer-body"), dscroll = db ? db.scrollTop : 0;
     el.innerHTML = `<div class="shell">${sidebar()}<div class="main">${pagebar()}<div class="content">${S.demo ? demoBanner() : ""}${S.toast ? `<div class="toast" role="status">${icon("check")}<span>${esc(S.toast)}</span><button class="icon-btn" data-act="toast-x" aria-label="Dismiss">${icon("x")}</button></div>` : ""}${
-      S.view === "check" ? viewCheck() : S.view === "review" ? viewReview() : S.view === "apply" ? viewApply() : S.view === "rules" ? viewRules() : viewSettings()}</div></div></div>${S.detail ? drawer() : ""}${S.confirm ? confirmBox() : ""}`;
+      S.view === "check" ? viewCheck() : S.view === "review" ? viewReview() : S.view === "apply" ? viewApply() : S.view === "skip" ? viewSkip() : S.view === "rules" ? viewRules() : viewSettings()}</div></div></div>${S.detail ? drawer() : ""}${S.confirm ? confirmBox() : ""}`;
     const tw2 = el.querySelector(".table-wrap"); if (tw2) tw2.scrollTop = scroll;
     const db2 = el.querySelector(".drawer-body"); if (db2) db2.scrollTop = dscroll;
   }
@@ -658,6 +767,7 @@
       ["check", "play", "Run a check", S.collector ? `<span class="badge live">running</span>` : ""],
       ["review", "review", "Review", counts ? `<span class="badge">${counts.REMOVE + counts.REVIEW + counts.CONFLICTS}</span>` : "", !S.result],
       ["apply", "send", "Apply", toWrite ? `<span class="badge">${toWrite}</span>` : "", !S.result],
+      ["skip", "skip", "Skip steps", S.skip.running ? `<span class="badge live">running</span>` : ""],
       ["rules", "rules", "Rules", `<span class="badge quiet">${R.RULES.length - (S.cfg.disabledRules || []).length} on</span>`],
       ["settings", "gear", "Settings", ""],
     ];
@@ -687,6 +797,7 @@
       check: ["Run a check", "Pick an Apollo sequence. Every contact, and their company, is checked against every rule."],
       review: ["Review", S.data ? `${S.data.meta.targetName} · decide Remove or Keep for each person` : ""],
       apply: ["Apply", "Nothing has been written to Apollo yet. Each step asks you to confirm, with every contact listed."],
+      skip: ["Skip steps", "Pick a sequence, see its open tasks by step, and skip a step or take people out. Everything else stays in Apollo."],
       rules: ["Rules", "What gets someone removed, flagged or kept. Changes apply to the open check right away."],
       settings: ["Settings", "Sources and live call sequences."],
     };
@@ -886,6 +997,7 @@
   }
   const metric = (k, v) => `<div class="metric"><span class="metric-v">${v}</span><span class="metric-k">${esc(k)}</span></div>`;
   function confirmBox() {
+    if (S.confirm === "skipTasks" || S.confirm === "skipRemove") return skipConfirm();
     const pl = plan(), meta = S.data.meta, k = S.confirm;
     let items = [], title = "", verb = "";
     if (k === "removeHere") { items = pl.removeHere; title = `${meta.targetEverSent ? "Stop" : "Remove"} ${plural(items.length, "contact")} in “${meta.targetName}”`; verb = meta.targetEverSent ? "Stop them" : "Remove them"; }
@@ -895,6 +1007,78 @@
     return `<div class="scrim" data-act="cancel-confirm"></div><div class="confirm" role="alertdialog" aria-modal="true" aria-label="${esc(title)}"><div class="confirm-ic">${icon("alert")}</div><h2>${esc(title)}</h2><p>This writes to your live Apollo account. Everyone affected:</p>
       <ul class="names scroll">${items.map((x) => `<li><span class="avatar sm">${esc(initials(x.name))}</span><div>${esc(x.name)}<div class="sub">${esc(x.company || "")} · ${esc(x.email || "")}${x.extra ? ` → ${esc(x.extra)}` : ""}</div></div></li>`).join("")}</ul>
       <div class="card-foot"><button class="btn ghost" data-act="cancel-confirm">Cancel</button><button class="btn danger" data-act="do-confirm">${esc(verb)}</button></div></div>`;
+  }
+
+  // ----- Skip steps -----
+  function viewSkip() {
+    const sk = S.skip;
+    const seqs = S.sequences ? Object.values(S.sequences).filter((s) => !s.archived).sort((a, b) => a.name.localeCompare(b.name)) : [];
+    const seq = S.sequences && S.sequences[sk.seqId];
+    const picker = `<section class="card"><div class="card-head"><div><h2>Sequence</h2><p class="muted">Reads every open task in the sequence. Nothing changes until you confirm.</p></div></div>
+      <div class="skip-pick"><select class="input" data-act="skip-seq" aria-label="Sequence" ${sk.running ? "disabled" : ""}><option value="">${S.seqLoading ? "Loading your sequences…" : "Pick a sequence"}</option>${seqs.map((s) => `<option value="${esc(s.id)}" ${s.id === sk.seqId ? "selected" : ""}>${esc(s.name)}${s.active ? "" : " (paused)"}</option>`).join("")}</select>
+      ${sk.seqId ? `<button class="btn" data-act="skip-load" ${sk.loading || sk.running ? "disabled" : ""}>Reload tasks</button>` : ""}</div>
+      ${sk.loading ? `<p class="muted" id="skip-prog" role="status">${esc(sk.progress)}</p>` : ""}${sk.err ? `<div class="banner warn" role="alert">${icon("alert")}<div>${esc(sk.err)}</div></div>` : ""}</section>`;
+    if (!sk.loaded) return picker + skipLog();
+    const all = sk.loaded.tasks;
+    const groups = R.groupTasksByStep(all, { overdueOnly: sk.overdueOnly });
+    const sel = skipSelected(), people = uniqueBy(sel, "contactId").length;
+    const overdue = all.filter((t) => t.overdue).length;
+    const busy = !!sk.running;
+    const rules = skipRules();
+    const lastRun = !rules ? S.runs.filter((r) => r.targetId === sk.seqId && r.status === "done" && !r.demo).sort((a, b) => (R.toMs(b.finishedAt || b.createdAt) || 0) - (R.toMs(a.finishedAt || a.createdAt) || 0))[0] : null;
+    let rulesCard;
+    if (rules) {
+      const inList = new Set(all.map((t) => t.contactId));
+      const rmAll = [...rules.by.entries()].filter(([, v]) => v.bucket === "REMOVE");
+      const already = rmAll.filter(([id]) => sk.takenOut.has(id) || S.actionLog.some((l) => l.ok && l.contactId === id && l.action.startsWith("removed"))).length;
+      const rm = rmAll.filter(([id]) => !(sk.takenOut.has(id) || S.actionLog.some((l) => l.ok && l.contactId === id && l.action.startsWith("removed"))));
+      const rmHere = rm.filter(([id]) => inList.has(id)).length, rv = [...rules.by.values()].filter((v) => v.bucket !== "REMOVE").length;
+      rulesCard = `<section class="card rules-card"><div class="card-head"><div><h2>Clean by the rules</h2><p class="muted">From the rules check of ${fmtDate(rules.at)}: <strong>${peopleN(rm.length)}</strong> still to remove (contact made, not interested, a client, already in another system)${already ? `, ${already} already taken out` : ""}, ${rv} to review.${rm.length > rmHere ? ` ${rm.length - rmHere} of the removes have no open task here; take them out from Review → Apply.` : ""}</p></div>
+        <div class="skip-tools"><button class="btn" data-act="view" data-v="review">Open the review</button><button class="btn primary" data-act="skip-pick-rules" ${rmHere && !busy ? "" : "disabled"}>${rmHere ? `Pick the ${rmHere} rule removes` : "No rule removes left here"}</button></div></div></section>`;
+    } else {
+      rulesCard = `<section class="card rules-card"><div class="card-head"><div><h2>Clean by the rules</h2><p class="muted">Check everyone in this sequence against every source first (calls, replies, HubSpot, Switchboard, Echo, Outlook, clients). Anyone the rules say to remove gets marked here so you can take them out in one go.</p></div>
+        <div class="skip-tools">${lastRun ? `<button class="btn" data-act="open-run" data-id="${esc(lastRun.id)}">Open last check (${fmtDate(lastRun.finishedAt || lastRun.createdAt)})</button>` : ""}<button class="btn primary" data-act="skip-run-check">${icon("play")}Run the rules on this sequence</button></div></div></section>`;
+    }
+    const tagFor = (id) => { const r = rules && rules.by.get(id); if (!r) return ""; const [cls, txt] = RULE_TAG[r.bucket]; return ` <span class="tag ${cls}" title="${esc(r.reason)}">${txt}</span>`; };
+    const rows = groups.map((g) => {
+      const n = g.tasks.filter((x) => sk.sel.has(x.id)).length, allOn = n === g.tasks.length, open = sk.open.has(g.key);
+      return `<tr class="${n ? "sel" : ""}"><td class="chk"><input type="checkbox" data-act="skip-group" data-g="${esc(g.key)}" ${allOn ? "checked" : ""} ${n && !allOn ? 'data-mixed="1"' : ""} aria-label="Select all of step ${esc(g.step)} ${esc(g.typeLabel)}"></td>
+        <td><strong>Step ${esc(g.step ?? "?")}</strong></td><td>${esc(g.typeLabel)}</td><td class="num">${g.tasks.length}</td><td class="num">${g.overdue ? `<span class="tag bad">${g.overdue}</span>` : "0"}</td><td>${fmtDate(g.earliest)}</td>
+        <td class="num">${n ? `${n} picked` : ""}${rules ? (() => { const k = g.tasks.filter((x) => (rules.by.get(x.contactId) || {}).bucket === "REMOVE").length; return k ? ` <span class="tag bad">${k} rule removes</span>` : ""; })() : ""}</td><td><button class="link" data-act="skip-expand" data-g="${esc(g.key)}" aria-expanded="${open}">${open ? "Hide people" : "Show people"}</button></td></tr>
+        ${open ? `<tr class="sub-row"><td></td><td colspan="7"><ul class="names skip-names">${g.tasks.map((x) => `<li><label class="inline"><input type="checkbox" data-act="skip-one" data-id="${esc(x.id)}" ${sk.sel.has(x.id) ? "checked" : ""}> ${esc(x.name)}</label>${tagFor(x.contactId)}<span class="sub">due ${fmtDate(x.dueDate)}${x.overdue ? " · overdue" : ""} · ${link(x.link, "Apollo ↗")}</span></li>`).join("")}</ul></td></tr>` : ""}`;
+    }).join("");
+    return picker + rulesCard + `<div class="metrics">${metric("Open tasks", all.length)}${metric("Overdue", overdue)}${metric("Steps with tasks", new Set(all.map((t) => t.step)).size)}${metric("Picked", sel.length)}</div>
+      <section class="card"><div class="card-head"><div><h2>Open tasks by step</h2><p class="muted">${esc(seq ? seq.name : "")} · read ${new Date(sk.loaded.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Tick a step to pick everyone on it, or open it to pick people.</p></div>
+        <div class="skip-tools"><button class="btn sm" data-act="skip-all" ${busy ? "disabled" : ""}>Pick all ${groups.reduce((a, g) => a + g.tasks.length, 0)}</button><button class="btn sm" data-act="skip-all-overdue" ${busy || !overdue ? "disabled" : ""}>Pick all overdue (${overdue})</button>
+        <label class="inline"><input type="checkbox" data-act="skip-overdue" ${sk.overdueOnly ? "checked" : ""}> Show overdue only</label></div></div>
+        ${groups.length ? `<div class="table-wrap short"><table class="mini skip-table"><thead><tr><th class="chk"></th><th>Step</th><th>Type</th><th class="num">Open</th><th class="num">Overdue</th><th>Oldest due</th><th class="num"></th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : `<p class="muted">No open tasks${sk.overdueOnly ? " are overdue" : ""} in this sequence.</p>`}
+        ${sk.loaded.total > all.length + (sk.loaded.dropped || 0) + (sk.loaded.handled || 0) ? `<p class="muted">Apollo reported ${sk.loaded.total} open tasks; ${all.length} were read. Reload to pick up the rest.</p>` : ""}
+      </section>
+      <section class="card skip-act"><div class="card-head"><div><h2>${sel.length ? `${plural(sel.length, "task")} picked · ${peopleN(people)}` : "Nothing picked yet"}</h2>
+        <p class="muted">Skip moves each person past that step. Take out stops them in this sequence altogether.</p></div>${sel.length ? `<button class="link" data-act="skip-clear">Clear</button>` : ""}</div>
+        <label class="field"><span>Note for Apollo (optional)</span><input class="input" type="text" data-act="skip-note" value="${esc(sk.note)}" placeholder="e.g. Step 1 calls cleared before restart" maxlength="200"></label>
+        ${busy ? `<p class="muted" id="skip-run" role="status">${sk.running.kind === "skipTasks" ? `Skipping ${sk.running.done} of ${sk.running.total}…` : `Taking ${sk.running.total} out…`}</p>` : ""}
+        <div class="card-foot">${busy && sk.running.kind === "skipTasks" ? `<button class="btn ghost" data-act="skip-stop">Stop</button>` : ""}
+          <button class="btn" data-act="ask-confirm" data-kind="skipRemove" ${sel.length && !busy ? "" : "disabled"}>${sel.length ? `Take ${peopleN(people)} out…` : "Take people out…"}</button>
+          <button class="btn primary" data-act="ask-confirm" data-kind="skipTasks" ${sel.length && !busy ? "" : "disabled"}>${icon("skip")}${sel.length ? `Skip ${plural(sel.length, "task")}…` : "Skip tasks…"}</button></div></section>` + skipLog();
+  }
+  function skipLog() {
+    const log = S.skip.log;
+    if (!log.length) return "";
+    return `<section class="card"><div class="card-head"><h2>What was written</h2></div><div class="table-wrap short"><table class="mini"><thead><tr><th>When</th><th>Contact</th><th>Action</th><th>Result</th></tr></thead><tbody>${log.slice().reverse().slice(0, 500).map((l) => `<tr><td class="nowrap">${new Date(l.at).toLocaleString()}</td><td>${esc(l.name)}</td><td>${esc(l.action)}${l.typeLabel ? ` · ${esc(l.typeLabel)}` : ""}</td><td>${l.ok ? `<span class="tag ok">Done</span>` : `<span class="tag bad">Failed</span> ${esc(l.msg)}`}</td></tr>`).join("")}</tbody></table></div></section>`;
+  }
+  function skipConfirm() {
+    const sk = S.skip, k = S.confirm, items = skipSelected();
+    const seq = (S.sequences || {})[sk.seqId] || { name: "" };
+    const people = uniqueBy(items, "contactId");
+    const skipping = k === "skipTasks";
+    const list = skipping ? items : people;
+    const title = skipping ? `Skip ${plural(items.length, "task")} in “${seq.name}”` : `Take ${peopleN(people.length)} out of “${seq.name}”`;
+    const what = skipping ? "Each person moves past that step. Apollo can't reopen a skipped task." : seq.delivered ? "This sequence has sent, so Apollo stops them and keeps their history. Their open tasks here go too." : "This sequence has never sent, so Apollo removes them outright. Their open tasks here go too.";
+    return `<div class="scrim" data-act="cancel-confirm"></div><div class="confirm" role="alertdialog" aria-modal="true" aria-label="${esc(title)}"><div class="confirm-ic">${icon("alert")}</div><h2>${esc(title)}</h2><p>This writes to your live Apollo account. ${esc(what)} Everyone affected:</p>
+      <ul class="names scroll">${list.map((x) => `<li><span class="avatar sm">${esc(initials(x.name))}</span><div>${esc(x.name)}<div class="sub">${skipping ? `Step ${esc(x.step ?? "?")} · ${esc(x.typeLabel)} · due ${esc(fmtDate(x.dueDate))}` : esc(`${items.filter((t) => t.contactId === x.contactId).length} picked task(s)`)}</div></div></li>`).join("")}</ul>
+      ${sk.note.trim() ? `<p class="muted">Note: “${esc(sk.note.trim())}”</p>` : ""}
+      <div class="card-foot"><button class="btn ghost" data-act="cancel-confirm">Cancel</button><button class="btn danger" data-act="do-confirm">${skipping ? "Skip them" : "Take them out"}</button></div></div>`;
   }
 
   // ----- Rules -----
@@ -970,7 +1154,7 @@
     const act = t.dataset.act;
     if (t.tagName === "SELECT" || (t.tagName === "INPUT" && t.type !== "checkbox") || t.tagName === "TEXTAREA") return;
     switch (act) {
-      case "view": S.view = t.dataset.v; S.detail = null; if ((S.view === "settings" || S.view === "check") && !S.sequences && S.mcp && !S.demo) { render(); await loadSequences(); return; } break;
+      case "view": S.view = t.dataset.v; S.detail = null; if ((S.view === "settings" || S.view === "check" || S.view === "skip") && !S.sequences && S.mcp && !S.demo) { render(); await loadSequences(); return; } break;
       case "toast-x": S.toast = ""; break;
       case "allow-all": await allowAll(); return;
       case "manage-perms": await managePerms(); return;
@@ -1019,8 +1203,22 @@
       case "export-contacts": exportContacts(); return;
       case "export-touches": exportTouches(); return;
       case "ask-confirm": S.confirm = t.dataset.kind; break;
+      case "skip-load": await loadSkipTasks(); return;
+      case "skip-group": {
+        const g = R.groupTasksByStep(S.skip.loaded.tasks, { overdueOnly: S.skip.overdueOnly }).find((x) => x.key === t.dataset.g);
+        if (g) { const all = g.tasks.every((x) => S.skip.sel.has(x.id)); for (const x of g.tasks) all ? S.skip.sel.delete(x.id) : S.skip.sel.add(x.id); }
+        break;
+      }
+      case "skip-one": { const id = t.dataset.id; if (S.skip.sel.has(id)) S.skip.sel.delete(id); else S.skip.sel.add(id); break; }
+      case "skip-expand": { const g = t.dataset.g; if (S.skip.open.has(g)) S.skip.open.delete(g); else S.skip.open.add(g); break; }
+      case "skip-clear": S.skip.sel = new Set(); break;
+      case "skip-pick-rules": { const r = skipRules(); if (r) for (const x of S.skip.loaded.tasks) if ((r.by.get(x.contactId) || {}).bucket === "REMOVE") S.skip.sel.add(x.id); break; }
+      case "skip-run-check": { S.newRun.seqId = S.skip.seqId; S.newRun.product = ""; S.view = "check"; break; }
+      case "skip-all": for (const g of R.groupTasksByStep(S.skip.loaded.tasks, { overdueOnly: S.skip.overdueOnly })) for (const x of g.tasks) S.skip.sel.add(x.id); break;
+      case "skip-all-overdue": for (const x of S.skip.loaded.tasks) if (x.overdue) S.skip.sel.add(x.id); break;
+      case "skip-stop": if (S.skip.running) S.skip.running.stop = true; return;
       case "cancel-confirm": S.confirm = null; break;
-      case "do-confirm": { const k = S.confirm; if (k === "reAdd") { const u = [...S.readd]; S.readd = new Set(); await reAdd(u); } else await execute(k); return; }
+      case "do-confirm": { const k = S.confirm; if (k === "skipTasks" || k === "skipRemove") { await runSkip(k); return; } if (k === "reAdd") { const u = [...S.readd]; S.readd = new Set(); await reAdd(u); } else await execute(k); return; }
       case "readd-pick": { const u = t.dataset.uid; if (S.readd.has(u)) S.readd.delete(u); else S.readd.add(u); break; }
       case "cs": { const prod = t.dataset.prod, id = t.dataset.id; const arr = S.cfg.callSequences[prod] || (S.cfg.callSequences[prod] = []); const i = arr.indexOf(id); if (i >= 0) arr.splice(i, 1); else arr.push(id); cfgChanged({ reeval: false }); return; }
       case "rule-toggle": { const r = Number(t.dataset.r); const off = new Set((S.cfg.disabledRules || []).map(Number)); if (off.has(r)) off.delete(r); else off.add(r); S.cfg.disabledRules = [...off]; cfgChanged(); return; }
@@ -1042,6 +1240,9 @@
     const t = ev.target.closest("[data-act]");
     if (!t) return;
     const act = t.dataset.act;
+    if (act === "skip-seq") { Object.assign(S.skip, { seqId: t.value, loaded: null, err: "", sel: new Set(), open: new Set(), takenOut: new Set() }); render(); if (t.value) await loadSkipTasks(); return; }
+    if (act === "skip-overdue") { S.skip.overdueOnly = t.checked; S.skip.sel = new Set(); render(); return; }
+    if (act === "skip-note") { S.skip.note = t.value; return; }
     if (act === "pick-seq") { S.newRun.seqId = t.value; S.newRun.product = ""; render(); }
     if (act === "filter" && (t.tagName === "SELECT" || t.type === "date" || t.type === "number")) { S.filters[t.dataset.k] = t.value; render(); }
     if (act === "bulk-field") { S.bulk[t.dataset.k] = t.type === "checkbox" ? t.checked : t.value; if (t.tagName === "SELECT") render(); }

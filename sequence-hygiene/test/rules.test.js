@@ -367,3 +367,24 @@ test("rule 2: a real conversation in the same note still counts", () => {
   const s = "The receptionist transferred Jack. Pat said they are evaluating Business Central for next year.";
   assert.equal(one(person({ calls: [call({ outcomeId: O.noAnswer, summary: s })] })).bucket, "REMOVE");
 });
+
+// ---------- Skip steps ----------
+const rawTask = (o) => ({ id: "t1", type: "phone_call", status: "scheduled", due_date: "2026-11-17", adherence_status: "overdue",
+  contact: { id: "c1", name: "Pat Example" }, sequence: { id: "seqCall", name: "Test Call Sequence", step_position: 1 }, ...o });
+test("tasks: a task from another sequence is dropped", () => {
+  assert.equal(R.adaptApolloTask(rawTask({ sequence: { id: "seqOther", step_position: 1 } }), "seqCall"), null);
+  const t = R.adaptApolloTask(rawTask(), "seqCall");
+  assert.equal(t.step, 1); assert.equal(t.typeLabel, "Call"); assert.equal(t.overdue, true); assert.equal(t.contactId, "c1");
+});
+test("tasks: grouped by step then type, overdue counted, overdue-only filter", () => {
+  const tasks = [
+    rawTask({ id: "a", sequence: { id: "s", step_position: 3 } }),
+    rawTask({ id: "b", sequence: { id: "s", step_position: 1 }, adherence_status: "open", due_date: "2026-11-20" }),
+    rawTask({ id: "c", sequence: { id: "s", step_position: 1 }, due_date: "2026-11-12" }),
+    rawTask({ id: "d", type: "linkedin_step_message", sequence: { id: "s", step_position: 1 } }),
+  ].map((r) => R.adaptApolloTask(r, "s"));
+  const g = R.groupTasksByStep(tasks);
+  assert.deepEqual(g.map((x) => `${x.step}:${x.typeLabel}:${x.tasks.length}:${x.overdue}`), ["1:Call:2:1", "1:LinkedIn message:1:1", "3:Call:1:1"]);
+  assert.equal(g[0].earliest, "2026-11-12");
+  assert.equal(R.groupTasksByStep(tasks, { overdueOnly: true }).reduce((n, x) => n + x.tasks.length, 0), 3);
+});
